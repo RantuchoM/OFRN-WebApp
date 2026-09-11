@@ -40,7 +40,6 @@ import {
   findBoardingLinksForEvents,
   duplicateFimbaEvento,
   eventUsesDerivedHoraFin,
-  FIMBA_DEFAULT_TIPO_EVENTO,
   getFimbaAgendaEvento,
   getFimbaEdicionById,
   giraTransporteIdsFromEvent,
@@ -772,16 +771,49 @@ export default function FimbaAgendaPage() {
       if (!evento) return null;
       setEventosBase((prev) => {
         const idx = prev.findIndex((ev) => String(ev.id) === String(id));
+        const clean = { ...evento };
+        delete clean._syncing;
         if (idx >= 0) {
           const next = [...prev];
-          next[idx] = evento;
+          next[idx] = clean;
           return next;
         }
-        return sortFimbaAgendaRows([...prev, evento]);
+        return sortFimbaAgendaRows([...prev, clean]);
       });
       return evento;
     },
     [edicionId, edicion, propuestas, flota],
+  );
+
+  const applyOptimisticAgendaEvento = useCallback((row) => {
+    if (!row?.id) return;
+    setEventosBase((prev) => {
+      const idx = prev.findIndex((ev) => String(ev.id) === String(row.id));
+      if (idx >= 0) {
+        const next = [...prev];
+        next[idx] = { ...prev[idx], ...row, _syncing: true };
+        return sortFimbaAgendaRows(next);
+      }
+      return sortFimbaAgendaRows([...prev, { ...row, _syncing: true }]);
+    });
+  }, []);
+
+  const hydrateAgendaEvento = useCallback(
+    async (eventoId) => {
+      setRefreshing(true);
+      try {
+        const row = await upsertAgendaEvento(eventoId);
+        if (!row) {
+          toast.error(
+            "Se guardó, pero no se pudo actualizar la agenda. Recargá la página.",
+          );
+        }
+        return row;
+      } finally {
+        setRefreshing(false);
+      }
+    },
+    [upsertAgendaEvento],
   );
 
   const removeAgendaEvento = useCallback((eventoId) => {
@@ -1723,7 +1755,7 @@ export default function FimbaAgendaPage() {
       setError(err?.message || "No se pudo duplicar");
       return;
     }
-    const fullRow = await upsertAgendaEvento(copy.id);
+    const fullRow = await hydrateAgendaEvento(copy.id);
     setModal({ mode: "edit", evento: fullRow || copy });
   };
 
@@ -2349,7 +2381,7 @@ export default function FimbaAgendaPage() {
                         giraGrupos={giraGrupos}
                         edicion={edicion}
                         onSaved={async (id) => {
-                          if (id != null) await upsertAgendaEvento(id);
+                          if (id != null) await hydrateAgendaEvento(id);
                           else await reloadAgendaSlices({ eventos: true });
                         }}
                       />
@@ -2884,7 +2916,7 @@ export default function FimbaAgendaPage() {
                           giraGrupos={giraGrupos}
                           edicion={edicion}
                           onSaved={async (id) => {
-                            if (id != null) await upsertAgendaEvento(id);
+                            if (id != null) await hydrateAgendaEvento(id);
                             else await reloadAgendaSlices({ eventos: true });
                           }}
                         />
@@ -2998,7 +3030,7 @@ export default function FimbaAgendaPage() {
             flota={flota}
             propuestas={propuestas}
             preselectPropuesta={modal.preselectPropuesta}
-            defaultTipoId={FIMBA_DEFAULT_TIPO_EVENTO}
+            defaultTipoId={null}
             forceTransporte={false}
             focusTags={Boolean(modal.focusTags)}
             logisticsSummary={logisticsSummary}
@@ -3006,10 +3038,11 @@ export default function FimbaAgendaPage() {
             sequencesByVehicle={sequencesByVehicle}
             onClose={() => setModal(null)}
             onBoardingRefresh={handleBoardingRefresh}
-            onSaved={async ({ id } = {}) => {
+            onSaved={async ({ id, optimistic } = {}) => {
               setModal(null);
+              if (optimistic) applyOptimisticAgendaEvento(optimistic);
               if (id != null) {
-                await upsertAgendaEvento(id);
+                await hydrateAgendaEvento(id);
               } else {
                 await reloadAgendaSlices({ eventos: true });
               }

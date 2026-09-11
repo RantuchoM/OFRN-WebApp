@@ -34,6 +34,11 @@ import {
   filtersFromAgendaConsultaRow,
 } from "../utils/fimbaAgendaUrlParams";
 import {
+  resolveFimbaCreateTipoId,
+  FIMBA_TIPO_EVENTO_TRASLADO,
+  FIMBA_CATALOG_TIPO_GENERICO,
+} from "../utils/fimbaCreateTipo";
+import {
   buildAllVehicleBoardingSequences,
   buildArtistaTrasladoAgendaBlocks,
   buildFimbaRidesForVehicle,
@@ -240,10 +245,13 @@ export const FIMBA_ARTISTA_COLORS = [
  * Catálogo OFRN de tipos de evento (`tipos_evento` + `categorias_tipos_eventos`).
  * FIMBA no inventa presets locales: misma FK que EventForm / UnifiedAgenda.
  */
-/** Default evento genérico FIMBA (“Nuevo evento” en catálogo Logística). */
-export const FIMBA_DEFAULT_TIPO_EVENTO = 16;
-/** Traslado pasajeros (EventForm / flota); default en página Transportes. */
-export const FIMBA_TIPO_EVENTO_TRASLADO = 11;
+export {
+  resolveFimbaCreateTipoId,
+  FIMBA_TIPO_EVENTO_TRASLADO,
+  FIMBA_CATALOG_TIPO_GENERICO,
+};
+/** @deprecated alias de {@link FIMBA_CATALOG_TIPO_GENERICO}; no usar como default de alta. */
+export const FIMBA_DEFAULT_TIPO_EVENTO = FIMBA_CATALOG_TIPO_GENERICO;
 /**
  * Categoría «Transporte» en `categorias_tipos_eventos` (Traslado, Interno, Solista…).
  * Criterio principal para UI de flota; ver también OFRN_TRANSPORT_TIPO_IDS.
@@ -4374,6 +4382,122 @@ export function classifyFimbaEventOrigen(ev) {
 }
 
 /**
+ * Fila de planilla para pintar al instante tras save (antes del hydrate).
+ * Misma forma aproximada que `listFimbaAgenda`; el upsert/reload corrige el resto.
+ */
+export function buildFimbaOptimisticAgendaRow({
+  saved = null,
+  previous = null,
+  tipoMeta = null,
+  tipoId = null,
+  actividad = "",
+  fecha = "",
+  hora_inicio = null,
+  hora_fin = null,
+  destino = "",
+  id_locacion = null,
+  locacion = null,
+  propuestas = [],
+  grupos = [],
+  vehiculos = [],
+  usaTransporte = false,
+  sinServicio = true,
+  audiencia_ofrn = "none",
+  asientos_equipaje = 0,
+  vuelo = "",
+  observaciones_equipaje = "",
+} = {}) {
+  const id = saved?.id ?? previous?.id;
+  const tipo =
+    tipoMeta ||
+    previous?.tipos_evento ||
+    (saved?.tipos_evento ? saved.tipos_evento : null);
+  const resolvedTipoId = resolveFimbaCreateTipoId(
+    tipoId ?? saved?.id_tipo_evento ?? previous?.id_tipo_evento,
+  );
+  const locNombre =
+    locacion?.nombre ||
+    previous?.locacion_nombre ||
+    previous?.locaciones?.nombre ||
+    null;
+  const locCiudad =
+    locacion?.ciudad ||
+    locacion?.localidades?.localidad ||
+    previous?.locacion_ciudad ||
+    previous?.locaciones?.localidades?.localidad ||
+    null;
+  const decoded = decodeFimbaTrasladoDescripcion(
+    saved?.descripcion ?? previous?.descripcion,
+    {
+      observaciones_equipaje:
+        saved?.observaciones_equipaje ??
+        observaciones_equipaje ??
+        previous?.observaciones_equipaje,
+    },
+  );
+  const usaTx =
+    usaTransporte || actividadUsaTransporte(resolvedTipoId, tipo);
+  const mapped = {
+    ...(previous || {}),
+    ...(saved || {}),
+    ...decoded,
+    id,
+    actividad: decoded.actividad || actividad || previous?.actividad || "",
+    destino: usaTx
+      ? decoded.destino || ""
+      : destino || decoded.destino || locNombre || "",
+    vuelo: decoded.vuelo || vuelo || previous?.vuelo || "",
+    fecha: fecha || saved?.fecha || previous?.fecha || "",
+    hora_inicio:
+      saved?.hora_inicio || hora_inicio || previous?.hora_inicio || null,
+    hora_fin: usaTx
+      ? saved?.hora_fin ?? null
+      : saved?.hora_fin || hora_fin || previous?.hora_fin || null,
+    id_tipo_evento: resolvedTipoId,
+    id_locacion:
+      id_locacion != null && id_locacion !== ""
+        ? Number(id_locacion)
+        : saved?.id_locacion ?? previous?.id_locacion ?? null,
+    locacion_nombre: locNombre,
+    locacion_ciudad: locCiudad,
+    locaciones: locacion
+      ? {
+          id: locacion.id,
+          nombre: locacion.nombre,
+          localidades: locCiudad ? { localidad: locCiudad } : null,
+        }
+      : previous?.locaciones || null,
+    tipos_evento: tipo,
+    tipo_nombre: tipo?.nombre || previous?.tipo_nombre || null,
+    tipo_color: tipo?.color || previous?.tipo_color || null,
+    tipo_id_categoria:
+      tipo?.id_categoria != null
+        ? Number(tipo.id_categoria)
+        : previous?.tipo_id_categoria ?? null,
+    categoria_nombre:
+      tipo?.categorias_tipos_eventos?.nombre ||
+      tipo?.categoria_nombre ||
+      previous?.categoria_nombre ||
+      null,
+    propuestas: sortFimbaPropuestasByNombre(propuestas || []),
+    grupos: grupos || [],
+    vehiculos: vehiculos || [],
+    sin_servicio: usaTx
+      ? Boolean(sinServicio) ||
+        ((vehiculos || []).length === 0 &&
+          (saved?.id_gira_transporte == null ||
+            saved?.id_gira_transporte === ""))
+      : true,
+    audiencia_ofrn: audiencia_ofrn || saved?.audiencia_ofrn || "none",
+    asientos_equipaje: Math.max(0, Number(asientos_equipaje) || 0),
+    pax: Math.max(0, Number(asientos_equipaje) || 0),
+    es_traslado: usaTx,
+    _syncing: true,
+  };
+  return { ...mapped, ...classifyFimbaEventOrigen(mapped) };
+}
+
+/**
  * Grupos de convocatoria de la gira (incluye `giras_grupos_integrantes` para headcount).
  * @param {number|string} idGira
  */
@@ -6526,7 +6650,7 @@ export async function upsertFimbaEventoTransportePlazas(
  * @param {Array<{ id_gira_transporte: number|string, plazas?: number }>} [payload.vehiculos]
  * @param {Array<number|string>} [payload.id_propuestas] — tags artistas
  * @param {Array<number|string>} [payload.id_grupos] — ids giras_grupos si audiencia grupos
- * @param {number} [payload.id_tipo_evento] — FK tipos_evento; default genérico (16) o traslado (11)
+ * @param {number} [payload.id_tipo_evento] — FK tipos_evento (obligatorio; Traslado 11 si `saveFimbaTraslado`)
  * @param {'none'|'tutti'|'grupos'} [payload.audiencia_ofrn] — default 'none'
  * @param {number|string|null} [payload.id_locacion] — FK locaciones (parada / destino)
  * @param {Array} [payload.logisticsSummary] — cache OFRN (evita refetch en availability)
@@ -6542,12 +6666,9 @@ export async function saveFimbaEvento(payload) {
     return { evento: null, error: new Error("Fecha requerida") };
   }
 
-  const tipoId =
-    payload.id_tipo_evento != null && payload.id_tipo_evento !== ""
-      ? Number(payload.id_tipo_evento)
-      : FIMBA_DEFAULT_TIPO_EVENTO;
-  if (!Number.isFinite(tipoId)) {
-    return { evento: null, error: new Error("Tipo de evento requerido (tipos_evento)") };
+  const tipoId = resolveFimbaCreateTipoId(payload.id_tipo_evento);
+  if (tipoId == null) {
+    return { evento: null, error: new Error("Elegí un tipo de evento") };
   }
   const usaTransporte =
     payload.usa_transporte != null
@@ -6874,10 +6995,13 @@ export async function duplicateFimbaEvento(source, opts = {}) {
       ? Number(ofrnUnitRaw)
       : null;
 
-  const tipoId =
-    source.id_tipo_evento != null && source.id_tipo_evento !== ""
-      ? Number(source.id_tipo_evento)
-      : FIMBA_DEFAULT_TIPO_EVENTO;
+  const tipoId = resolveFimbaCreateTipoId(source.id_tipo_evento);
+  if (tipoId == null) {
+    return {
+      evento: null,
+      error: new Error("El evento origen no tiene tipo; no se puede duplicar"),
+    };
+  }
 
   const usaTx =
     opts.usa_transporte != null
@@ -6936,7 +7060,7 @@ export async function duplicateFimbaEvento(source, opts = {}) {
     vehiculos: sinServicio || !usaTx ? [] : vehiculos,
     id_propuestas: propIds,
     id_grupos: audienciaOfrn === "grupos" ? grupoIds : [],
-    id_tipo_evento: Number.isFinite(tipoId) ? tipoId : FIMBA_DEFAULT_TIPO_EVENTO,
+    id_tipo_evento: tipoId,
     audiencia_ofrn: audienciaOfrn,
     id_locacion:
       source.id_locacion != null && source.id_locacion !== ""

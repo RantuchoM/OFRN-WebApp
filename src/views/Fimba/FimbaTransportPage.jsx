@@ -5731,10 +5731,27 @@ export default function FimbaTransportPage() {
             ofrnRouteRules={ofrnRouteRules}
             sequencesByVehicle={sequencesByVehicle}
             onClose={() => setModal(null)}
-            onSaved={() => {
+            onSaved={({ id, optimistic } = {}) => {
               setModal(null);
+              if (optimistic?.id) {
+                setEventos((prev) => {
+                  const idx = prev.findIndex(
+                    (ev) => String(ev.id) === String(optimistic.id),
+                  );
+                  const next = [...(prev || [])];
+                  if (idx >= 0) next[idx] = { ...next[idx], ...optimistic };
+                  else next.push(optimistic);
+                  eventosRef.current = next;
+                  return next;
+                });
+              }
               // Guardar evento no toca fimba_propuesta_rutas.
-              softRefresh({ eventos: true });
+              Promise.resolve(softRefresh({ eventos: true })).catch((err) => {
+                toast.error(
+                  err?.message ||
+                    "Se guardó, pero no se pudo refrescar la planilla.",
+                );
+              });
             }}
             onDuplicate={
               modal.mode === "edit" && modal.evento

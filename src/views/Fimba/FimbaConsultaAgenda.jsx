@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   IconClock,
@@ -15,7 +15,6 @@ import {
   deleteFimbaEvento,
   findBoardingLinksForEvent,
   duplicateFimbaEvento,
-  FIMBA_DEFAULT_TIPO_EVENTO,
   getFimbaEdicionById,
   giraTransporteIdsFromEvent,
   labelGiraTransporte,
@@ -41,6 +40,7 @@ import { FimbaEventDetallePreview } from "./FimbaEventDetalleField";
 import { stripHtml } from "../../utils/eventDisplayUtils";
 import { fimbaTipoRowTintStyle } from "../../utils/fimbaEventCategories";
 import { formatWeekdayFullLocal } from "../../utils/dates";
+import { toast } from "sonner";
 import FimbaAgendaEventCard, {
   FimbaAgendaDayDividerMobile,
 } from "./FimbaAgendaEventCard";
@@ -111,8 +111,10 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
   const [ofrnLocalities, setOfrnLocalities] = useState([]);
   const [propuestaRoutes, setPropuestaRoutes] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
   const [modal, setModal] = useState(null);
+  const hasLoadedRef = useRef(false);
 
   const edicionId = propuesta?.id_edicion;
   const propId = propuesta?.id;
@@ -120,7 +122,9 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
 
   const reloadAgenda = useCallback(async () => {
     if (propId == null || edicionId == null) return;
-    setLoading(true);
+    const keepList = hasLoadedRef.current;
+    if (keepList) setRefreshing(true);
+    else setLoading(true);
     setError(null);
 
     let ed =
@@ -139,6 +143,7 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
       if (edRes.error) {
         setError(edRes.error.message || "No se pudo cargar la edición");
         setLoading(false);
+        setRefreshing(false);
         return;
       }
       ed = edRes.edicion;
@@ -184,7 +189,9 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
       }
       setPropuestas(propsRes.propuestas || []);
     }
+    hasLoadedRef.current = true;
     setLoading(false);
+    setRefreshing(false);
   }, [propId, edicionId, giraFromProp, editable, propuesta?.fimba_ediciones?.id, propuesta?.fimba_ediciones?.nombre, propuesta?.fimba_ediciones?.anio]);
 
   useEffect(() => {
@@ -325,6 +332,15 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
           }}
         >
           <IconClock size={16} /> Agenda
+          {refreshing && (
+            <span
+              className="fimba-muted"
+              style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: "0.75rem", fontWeight: 500 }}
+              aria-live="polite"
+            >
+              <IconLoader size={12} /> Sincronizando…
+            </span>
+          )}
         </h2>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <button
@@ -364,7 +380,7 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
         </div>
       )}
 
-      {loading ? (
+      {loading && eventosOrdenados.length === 0 ? (
         <div
           className="fimba-card fimba-muted"
           style={{ display: "flex", gap: 8, alignItems: "center" }}
@@ -655,12 +671,30 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
               modal.preselectPropuesta ?? propuesta?.id ?? null
             }
             lockPropuesta={propuesta?.id}
-            defaultTipoId={FIMBA_DEFAULT_TIPO_EVENTO}
+            defaultTipoId={null}
             forceTransporte={false}
             onClose={() => setModal(null)}
-            onSaved={() => {
+            onSaved={({ optimistic } = {}) => {
               setModal(null);
-              reloadAgenda();
+              if (optimistic?.id) {
+                setEventos((prev) => {
+                  const idx = prev.findIndex(
+                    (ev) => String(ev.id) === String(optimistic.id),
+                  );
+                  if (idx >= 0) {
+                    const next = [...prev];
+                    next[idx] = { ...prev[idx], ...optimistic };
+                    return sortFimbaAgendaRows(next);
+                  }
+                  return sortFimbaAgendaRows([...prev, optimistic]);
+                });
+              }
+              reloadAgenda().catch((err) => {
+                toast.error(
+                  err?.message ||
+                    "Se guardó, pero no se pudo refrescar la agenda.",
+                );
+              });
             }}
             onDuplicate={
               modal.mode === "edit" && modal.evento

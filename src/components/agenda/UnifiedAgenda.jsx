@@ -1786,6 +1786,10 @@ export default function UnifiedAgenda({
       toast.error("Faltan datos");
       return;
     }
+    if (!editFormData.id_tipo_evento) {
+      toast.error("Elegí un tipo de evento");
+      return;
+    }
 
     // Validar nota obligatoria si hay cambio de estado de venue (solo conciertos)
     const isConcierto = Number(editFormData.id_tipo_evento) === 1;
@@ -1922,7 +1926,14 @@ export default function UnifiedAgenda({
       setIsEditOpen(false);
       setEditFormData({});
       markLocalEventMutation(editId);
-      void refreshEventById(editId);
+      toast.success("Cambios guardados");
+      void refreshEventById(editId).then((ok) => {
+        if (ok === false) {
+          toast.error(
+            "Se guardó, pero no se pudo refrescar la agenda. Tocá actualizar.",
+          );
+        }
+      });
     } catch (err) {
       toast.error("Error: " + err.message);
     } finally {
@@ -1974,6 +1985,10 @@ export default function UnifiedAgenda({
   const handleCreateSave = async () => {
     if (!newFormData.fecha || !newFormData.hora_inicio) {
       toast.error("Faltan datos");
+      return;
+    }
+    if (!newFormData.id_tipo_evento) {
+      toast.error("Elegí un tipo de evento");
       return;
     }
 
@@ -2122,7 +2137,13 @@ export default function UnifiedAgenda({
     toast.success("Evento creado");
 
     // Hidratar relaciones completas en segundo plano
-    void refreshEventById(data.id);
+    void refreshEventById(data.id).then((ok) => {
+      if (ok === false) {
+        toast.error(
+          "Se creó, pero no se pudo refrescar la agenda. Tocá actualizar.",
+        );
+      }
+    });
   };
 
   const groupedByMonth = useMemo(() => {

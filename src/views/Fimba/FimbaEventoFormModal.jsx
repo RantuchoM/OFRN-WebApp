@@ -12,8 +12,9 @@ import {
   capacidadGiraTransporte,
   computeFimbaCapacity,
   decodeFimbaTrasladoDescripcion,
-  FIMBA_DEFAULT_TIPO_EVENTO,
+  buildFimbaOptimisticAgendaRow,
   FIMBA_TIPO_EVENTO_TRASLADO,
+  resolveFimbaCreateTipoId,
   labelGiraTransporte,
   detalleGiraTransporte,
   listFimbaGiraGrupos,
@@ -543,12 +544,12 @@ export default function FimbaEventoFormModal({
     }
     // forceTransporte sin draft: siempre traslado (11), no el genérico de agenda (16)
     if (forceTransporte) {
-      if (defaultTipoId != null && defaultTipoId !== "") {
-        return Number(defaultTipoId) || FIMBA_TIPO_EVENTO_TRASLADO;
-      }
-      return FIMBA_TIPO_EVENTO_TRASLADO;
+      return (
+        resolveFimbaCreateTipoId(defaultTipoId, { forceTransporte: true }) ||
+        FIMBA_TIPO_EVENTO_TRASLADO
+      );
     }
-    return Number(defaultTipoId) || FIMBA_DEFAULT_TIPO_EVENTO;
+    return resolveFimbaCreateTipoId(defaultTipoId);
   }, [isEdit, evento, defaultTipoId, forceTransporte]);
 
   const draftVehIds = useMemo(() => {
@@ -1168,6 +1169,15 @@ export default function FimbaEventoFormModal({
   };
 
   const applyTipoChange = (rawId) => {
+    if (rawId == null || rawId === "") {
+      setTipoId("");
+      if (!forceTransporte) {
+        setUsaTransporte(false);
+        setSinServicio(true);
+        setSelectedVehIds([]);
+      }
+      return;
+    }
     const id = Number(rawId);
     setTipoId(id);
     const meta = tipos.find((t) => Number(t.id) === id) || null;
@@ -1504,9 +1514,42 @@ export default function FimbaEventoFormModal({
       setError(err.message || "No se pudo guardar");
       return;
     }
+    const loc = locationsList.find(
+      (l) => String(l.id) === String(idLocacion),
+    );
+    const optimistic = buildFimbaOptimisticAgendaRow({
+      saved,
+      previous: isEdit ? evento : null,
+      tipoMeta: tipoSeleccionado,
+      tipoId: Number(tipoId),
+      actividad,
+      fecha,
+      hora_inicio: horaCom || null,
+      hora_fin: usaTransporte ? null : horaFin || null,
+      destino: usaTransporte ? "" : destino,
+      id_locacion: idLocacion || null,
+      locacion: loc
+        ? { id: loc.id, nombre: loc.nombre, ciudad: loc.ciudad }
+        : null,
+      propuestas: (propuestas || []).filter((p) =>
+        propIds.some((id) => Number(id) === Number(p.id)),
+      ),
+      grupos: (giraGrupos || []).filter((g) =>
+        idGrupos.some((id) => Number(id) === Number(g.id)),
+      ),
+      vehiculos,
+      usaTransporte,
+      sinServicio: usaTransporte ? sinServicio : true,
+      audiencia_ofrn: ao,
+      asientos_equipaje: Number(asientosEquipaje) || 0,
+      vuelo,
+      observaciones_equipaje: observacionesEquipaje,
+    });
     onSaved?.({
       id: saved?.id,
       mode: isEdit ? "edit" : "create",
+      evento: saved,
+      optimistic,
     });
   };
 
@@ -1589,7 +1632,7 @@ export default function FimbaEventoFormModal({
           )}
 
           <div className="fimba-field">
-            <label className="fimba-label">Tipo de evento</label>
+            <label className="fimba-label">Tipo de evento*</label>
             {tiposLoading ? (
               <p className="fimba-muted" style={{ margin: 0, fontSize: "0.85rem" }}>
                 Cargando catálogo OFRN…
@@ -1616,11 +1659,14 @@ export default function FimbaEventoFormModal({
                   disabled={forceTransporte && tiposFiltrados.length <= 1}
                   style={{ flex: 1 }}
                 >
-                  {tiposFiltrados.length === 0 && (
-                    <option value={tipoId || ""}>
-                      {tipoSeleccionado?.nombre || `Tipo #${tipoId || "—"}`}
-                    </option>
+                  {!forceTransporte && (
+                    <option value="">Elegí un tipo…</option>
                   )}
+                  {tiposFiltrados.length === 0 && tipoId ? (
+                    <option value={tipoId}>
+                      {tipoSeleccionado?.nombre || `Tipo #${tipoId}`}
+                    </option>
+                  ) : null}
                   {tiposFiltrados.map((t) => (
                     <option key={t.id} value={t.id}>
                       {t.nombre}

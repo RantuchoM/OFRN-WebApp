@@ -413,7 +413,7 @@ Equivalentes de lectura: `?artistas=5,7&grupo=Alba` · entry `/fimba/c/:token/ag
 - UI modal: filtro por categoría + select de tipo (nombre + color de catálogo). Planilla: badge con `tipo_nombre` / `tipo_color` y subtítulo de categoría.
 - **Tinte de fila por tipo (Agenda):** cada fila/card usa un lavado muy suave del mismo hex que el chip (`ev.tipo_color` / `tipos_evento.color`) vía `fimbaTipoRowTintStyle` (`FIMBA_TIPO_ROW_TINT_ALPHA = 14` ≈ 8%; el chip sigue en `22`). Aplica en planilla staff (`FimbaAgendaPage`), cards móviles (`FimbaAgendaEventCard`) y agenda artista (`FimbaConsultaAgenda`). Separadores de día sin cambio. Clase `fimba-has-tipo-tint` hace transparentes los `td` de filas OFRN/ambos para que el wash del `<tr>` se vea; barra inset de origen se mantiene. Row-edit magenta tiene prioridad sobre el tinte.
 - **Detección transporte** (`actividadUsaTransporte`): categoría id `6` («Transporte») **o** ids OFRN `11/12/28/31/35` (EventForm usa 11/12; logística también 35; catálogo tiene 28/31). Checkbox «Asignar vehículo(s)» permite flota en otros tipos.
-- Defaults: agenda nuevo → `id_tipo_evento = 16` («Nuevo evento»); Transportes / `forceTransporte` → `11`; **`audiencia_ofrn = 'none'`** salvo toggle.
+- Defaults: agenda nuevo → **sin tipo preseleccionado** (hay que elegir; no se usa `id_tipo_evento = 16` «Nuevo evento»); Transportes / `forceTransporte` → `11`; **`audiencia_ofrn = 'none'`** salvo toggle. Tras guardar, la planilla pinta la fila al instante (optimistic) y sincroniza en segundo plano; si el hydrate falla, toast de error (el cambio ya está en DB).
 - **Audiencia OFRN** (modal staff): **Ninguna | Tutti | Grupos** (multi-select real de `giras_grupos` de la gira; no enum genérico). Persistencia:
   - `eventos.audiencia_ofrn = 'none' | 'tutti' | 'grupos'`
   - `grupos` → replace `eventos_grupos` con ids seleccionados (misma API que UnifiedAgenda `setEventoGrupos`)
@@ -770,7 +770,7 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 
 1. Edición → **Agenda** (`/fimba/edicion/:id/agenda`).
 2. Ver planilla mixta: eventos FIMBA + orquesta OFRN (badges origen). Filtrar **Todos / Solo FIMBA / Solo OFRN**.
-3. **Nuevo evento**: tipo del catálogo OFRN (filtro categoría opcional), fecha, horas, tag artistas, Asientos Equipaje. Default tipo «Nuevo evento» (16).
+3. **Nuevo evento**: tipo del catálogo OFRN (filtro categoría opcional; **obligatorio**, placeholder «Elegí un tipo…»), fecha, horas, tag artistas, Asientos Equipaje. No hay tipo default (el 16 «Nuevo evento» no se preselecciona). Tras Guardar la fila aparece al toque; «Actualizando…» mientras hidrata.
 4. Tipos Transporte / traslados OFRN abren flota + SIN SERVICIO; otros: sin vehículo salvo «Asignar vehículo(s) al trayecto».
 5. **Audiencia OFRN**: Ninguna | Tutti | Grupos (multi-select real de grupos de la gira). Al guardar con Grupos se escriben `eventos_grupos`.
 6. Editar un ensayo pure-OFRN desde FIMBA (staff) y agregar tags artista / cambiar audiencia — se guarda sin romper FK de transporte OFRN.

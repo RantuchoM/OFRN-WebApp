@@ -176,7 +176,7 @@ export default function EventForm({
   }, [transportesList]);
 
   const needsTransport = isTransportEventType && !formData.id_gira_transporte;
-  const canSave = !needsTransport;
+  const canSave = !needsTransport && Boolean(formData.id_tipo_evento);
 
   // 1. Referencia inicial y detección de cambios
   const initialData = useMemo(() => ({ ...formData }), []);
@@ -365,7 +365,7 @@ export default function EventForm({
 
           <div>
             <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">
-              Tipo de Evento
+              Tipo de Evento*
             </label>
             <SearchableSelect
               options={eventTypeOptions}

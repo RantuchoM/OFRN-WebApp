@@ -846,7 +846,7 @@ export function useAgendaData({
     async (payload) => {
       const eventType = payload.eventType;
       const id = eventType === "DELETE" ? payload.old?.id : payload.new?.id;
-      if (!id) return;
+      if (!id) return false;
 
       if (eventType === "DELETE") {
         setItems((prev) => prev.filter((item) => item.id !== id));
@@ -855,7 +855,7 @@ export function useAgendaData({
           next.delete(id);
           return next;
         });
-        return;
+        return true;
       }
 
       try {
@@ -864,7 +864,7 @@ export function useAgendaData({
           .select(EVENT_SELECT)
           .eq("id", id)
           .single();
-        if (error || !evt) return;
+        if (error || !evt) return false;
         if (
           giraId &&
           !eventBelongsToProgramAgenda(
@@ -874,7 +874,7 @@ export function useAgendaData({
           )
         ) {
           setItems((prev) => prev.filter((item) => item.id !== id));
-          return;
+          return true;
         }
 
         const [customRes, attendanceRes] = await Promise.all([
@@ -960,7 +960,7 @@ export function useAgendaData({
         if (!skipGrupoFilterRt && (evt.eventos_grupos || []).length > 0) {
           if (!passesEventoGruposFilter(evt, myGrupoIdsRt, false)) {
             setItems((prev) => prev.filter((item) => item.id !== id));
-            return;
+            return true;
           }
         }
 
@@ -990,9 +990,11 @@ export function useAgendaData({
             duration: 2000,
           });
         }
+        return true;
       } catch (err) {
         console.warn("Error al fusionar evento en tiempo real:", err);
         toast.error("Error al actualizar evento");
+        return false;
       }
     },
     [
