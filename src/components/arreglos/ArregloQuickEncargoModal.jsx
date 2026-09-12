@@ -26,13 +26,14 @@ export default function ArregloQuickEncargoModal({
   saving,
   mode = "encargo",
   arregladorFixedLabel = null,
+  overlayClassName = "z-[100]",
 }) {
   if (!isOpen) return null;
 
   const isSelfMode = mode === "self";
 
   return createPortal(
-    <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm p-0 sm:p-3">
+    <div className={`fixed inset-0 ${overlayClassName} flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm p-0 sm:p-3`}>
       <div
         className="bg-white rounded-t-2xl sm:rounded-xl shadow-2xl w-full max-w-lg border border-slate-200 flex flex-col max-h-[92vh]"
         role="dialog"

@@ -24,6 +24,7 @@ export default function ArregloAjusteSolicitarModal({
   solicitanteLabel,
   saving,
   onSubmit,
+  overlayClassName = "z-[100]",
 }) {
   const [obraId, setObraId] = useState(defaultObraId);
   const [tipo, setTipo] = useState("cambio_menor");
@@ -57,7 +58,7 @@ export default function ArregloAjusteSolicitarModal({
   };
 
   return createPortal(
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-3">
+    <div className={`fixed inset-0 ${overlayClassName} flex items-center justify-center bg-black/50 backdrop-blur-sm p-3`}>
       <form
         onSubmit={handleSubmit}
         className="bg-white rounded-xl shadow-2xl w-full max-w-lg border border-slate-200 flex flex-col max-h-[90vh]"

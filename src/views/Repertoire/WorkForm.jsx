@@ -369,8 +369,8 @@ export function QuickComposerModal({ isOpen, onClose, onCreated, supabase, roleT
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 animate-in fade-in">
+  return createPortal(
+    <div className="fixed inset-0 z-[10100] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 animate-in fade-in">
       <div className="bg-white w-full max-w-sm rounded-xl shadow-2xl p-6 border border-slate-200">
         <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
           <IconUserPlus size={18} className="text-indigo-600" /> Nuevo{" "}
@@ -432,7 +432,8 @@ export function QuickComposerModal({ isOpen, onClose, onCreated, supabase, roleT
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -3148,6 +3149,7 @@ export default function WorkForm({
         }}
         saving={encargoQuickSaving}
         mode="encargo"
+        overlayClassName="z-[10050]"
       />
 
       <ArregloAjusteSolicitarModal
@@ -3172,6 +3174,7 @@ export default function WorkForm({
         solicitanteLabel={formatIntegranteLabel(user)}
         saving={solicitarAjusteSaving}
         onSubmit={handleSolicitarAjuste}
+        overlayClassName="z-[10050]"
       />
 
       <ConfirmDialog

@@ -315,7 +315,7 @@ export default function DateInput({ value, onChange, label, className, showCalen
                         {calendarOpen && createPortal(
                             <div
                                 ref={calendarPortalRef}
-                                className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
+                                className="fixed inset-0 z-[10100] flex items-center justify-center p-4"
                                 role="dialog"
                                 aria-modal="true"
                                 aria-label="Seleccionar fecha"

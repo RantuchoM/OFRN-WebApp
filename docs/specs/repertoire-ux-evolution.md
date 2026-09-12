@@ -150,6 +150,7 @@ Evitar crear obras duplicadas cuando el usuario ya eligió compositor y está es
 - [x] Envío manual de mail con confirmación explícita
 - [x] Nuevo arreglo desde programa: inserción en bloque debajo del original
 - [x] **Botón «+ Encargo»** en cabecera del formulario (solo editor/admin, obra persistida): menú con **Encargar arreglo** (nueva obra `Para arreglar` + referencia a la origen + mail) y **Solicitar ajuste** (solo si la obra está `Entregado`/`Oficial`; inserta en `obras_ajustes` + mail `encargo_ajuste`). Impacta en el módulo Arreglos.
+- [x] **Stacking WorkForm (2026-09-12):** `WorkForm` en programa/seating vive en `ModalPortal` `z-[9999]`. `ArregloQuickEncargoModal` / `ArregloAjusteSolicitarModal` se portalean a `document.body` con `overlayClassName="z-[10050]"` (mismo patrón que Referencias). En el dashboard de Arreglos el default sigue `z-[100]`. `QuickComposerModal` portal `z-[10100]` (nuevo compositor desde el encargo). Calendario de `DateInput` a `z-[10100]` para no quedar detrás del overlay anidado.
 - Lógica compartida en `src/utils/encargoArregloService.js` (`createEncargoArregloObra`, `createObraAjusteSolicitud`, `sendEncargoArregloMail`, `sendEncargoAjusteMail`) — usada por `WorkForm` y `ArreglosDashboard`.
 - Búsqueda de obras/ajustes en `ArreglosDashboard`: `matchesMultiTokenSearch` (tokens). El `useMemo` de `filteredAjustes` no debe dejar cierres del `filter` anterior (rompe Vite/Vercel).
 | `src/services/giraService.js` | `updateWorkPosition`, `normalizeRepertorioBlockOrden`. |
@@ -961,4 +962,26 @@ Reemplazo **in-place** en la carpeta Para acomodar existente [`1vBQIAqhX9LWzajNu
 - [x] MusicXML en la carpeta de la obra
 - [x] Arreglador Adrian Wagner en `obras` / `obras_compositores`
 - [x] Particellas y seating intactos
+
+---
+
+### En curso (2026-09-12) — Farías *Nocturno* (obra **3344**, gira 17) — pausado por orgánico
+
+ZIP `generalypartesnocturnoparaorquesta.zip` (Universal Edition UES 100 845, Rev2026) → carpeta [Para acomodar / Farías, M. - Nocturno](https://drive.google.com/open?id=1hOAb6DNAuGMMr9XkuTP-6QvR9n536DRj). PDFs ya por instrumento (música en p.1, sin split/crop). `link_drive` directo, **no** `copiar_carpeta_a_archivo`.
+
+**Placeholders de seating intactos** (23 ids). Seed solo `UPDATE url_archivo` de 22 slots coincidentes + `link_drive`. **No** DELETE/INSERT.
+
+**Diff vs ZIP (esperando decisión):** ZIP = `2.2.2.2 - 4.2.2.0 - Perc(timp+2) - Str` + SCORE. Placeholders/seating = `2.2.2.2 - 4.2.3.0 - Perc Timp - Str`. Falta PDF de **Trombón 3** (ocupado por Pablo Sosa). Extra: **Perc Percusión 1**, **Perc Percusión 2**, **SCORE**.
+
+| Artefacto | Rol |
+|-----------|-----|
+| `scripts/lib/fariasNocturnoCatalog.mjs` | Renames ZIP → canónico; `obraId` 3344; `driveFolderId` |
+| `scripts/process-farias-nocturno-local.mjs` | Unzip Downloads → Para acomodar + rename |
+| `scripts/generate-farias-nocturno-sync.mjs` | Seed UPDATE in-place (sin tocar seating) |
+| `supabase/seed_farias_nocturno_sync.sql` | **aplicado linked** (solo URLs + link_drive) |
+
+- [x] 25 PDFs canónicos en Para acomodar
+- [x] 22 placeholders vinculados a Drive
+- [ ] Decisión: agregar Perc 1/2 (± SCORE) y/o quitar Trombón 3
+
 

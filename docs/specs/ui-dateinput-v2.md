@@ -52,3 +52,7 @@ Cuando el campo ya tenía un valor (p. ej. la fecha de hoy en UnifiedAgenda “D
 1. **handleBlur**: Solo emitir `onChange(iso)` cuando los tres segmentos están completos (día 2 dígitos, mes 2, año 4). Si hay entrada incompleta (p. ej. día "1"), no guardar en blur; el valor anterior se mantiene.
 
 2. **useEffect**: Usar un ref `lastValueRef` con el último `value` recibido; el efecto solo sincroniza cuando `value !== lastValueRef.current`, así no se sobrescribe la edición en curso.
+
+### Calendario sobre modales anidados (2026-09-12)
+
+El overlay del MiniCalendar (portal a `document.body`) usa `z-[10100]` para quedar por encima de `WorkForm` (`z-[9999]`) y de acciones anidadas como **Encargar arreglo** (`z-[10050]`).
