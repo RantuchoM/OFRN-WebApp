@@ -12,7 +12,6 @@ import {
   IconChevronDown,
   IconHotel,
   IconX,
-  IconUsers,
   IconClock,
   IconAlertTriangle,
   IconEdit,

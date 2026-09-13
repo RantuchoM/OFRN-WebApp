@@ -282,9 +282,23 @@ function DiasRestantesDisplay({ work, inline = false }) {
   return <p className={textClass}>{content}</p>;
 }
 
+function getArregloEstadoChipClass(estado) {
+  if (estado === "Para arreglar") return "bg-amber-50 text-amber-800 border-amber-300";
+  if (estado === "Oficial") return "bg-emerald-50 text-emerald-800 border-emerald-300";
+  return "bg-sky-50 text-sky-800 border-sky-300";
+}
+
 function getArregloPriorityClasses(work) {
   const estado = (work.estado || "").toLowerCase();
-  if (estado === "entregado" || estado === "oficial") {
+  if (estado === "entregado") {
+    return {
+      card: "bg-sky-50/40 border-2 border-sky-400",
+      row: "bg-sky-50/40 border-y border-sky-200",
+      rowAccent: "border-l-4 border-sky-400",
+      cellPedido: "bg-sky-50/15",
+    };
+  }
+  if (estado === "oficial") {
     return {
       card: "bg-emerald-50/40 border-2 border-emerald-400",
       row: "bg-emerald-50/40 border-y border-emerald-200",
@@ -430,12 +444,12 @@ function ArregloEntregaAcciones({
 
   return (
     <div className="flex flex-col justify-center gap-1 min-w-[5.5rem] max-w-[9rem] h-full py-1">
-      <div className={`${NOTAS_STICKY_PANEL_CLASS} px-1.5 py-0.5`}>
-        <p className="text-[9px] font-bold text-yellow-950 leading-snug pl-2">
-          {work.estado}
-          {fechaEntregaFmt ? ` · ${fechaEntregaFmt}` : ""}
-        </p>
-      </div>
+      <span
+        className={`inline-flex w-full justify-center text-[9px] font-bold px-1.5 py-0.5 rounded-full border leading-snug ${getArregloEstadoChipClass(work.estado)}`}
+      >
+        {work.estado}
+        {fechaEntregaFmt ? ` · ${fechaEntregaFmt}` : ""}
+      </span>
       {notaMostrar ? (
         <div className={`${NOTAS_STICKY_PANEL_CLASS} px-1.5 py-0.5`}>
           <p className="text-[9px] text-yellow-950 line-clamp-3 leading-snug pl-2">{notaMostrar}</p>
@@ -2365,13 +2379,7 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
                     <div className="flex items-start justify-between gap-2 mb-1">
                       <div className="flex items-center gap-2 min-w-0 flex-wrap">
                         <span
-                          className={`text-[10px] px-2 py-0.5 rounded-full font-bold border shrink-0 ${
-                            work.estado === "Para arreglar"
-                              ? "bg-amber-50 text-amber-800 border-amber-300"
-                              : work.estado === "Oficial"
-                                ? "bg-emerald-50 text-emerald-800 border-emerald-300"
-                                : "bg-sky-50 text-sky-800 border-sky-300"
-                          }`}
+                          className={`text-[10px] px-2 py-0.5 rounded-full font-bold border shrink-0 ${getArregloEstadoChipClass(work.estado)}`}
                         >
                           {work.estado}
                         </span>

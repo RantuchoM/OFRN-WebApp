@@ -94,10 +94,10 @@ export default function ArregloMobileDetailModal({
 
   const estadoBadgeClass =
     work.estado === "Para arreglar"
-      ? "bg-amber-100 text-amber-800 border-amber-200"
+      ? "bg-amber-50 text-amber-800 border-amber-300"
       : work.estado === "Oficial"
-        ? "bg-emerald-100 text-emerald-800 border-emerald-200"
-        : "bg-sky-100 text-sky-800 border-sky-200";
+        ? "bg-emerald-50 text-emerald-800 border-emerald-300"
+        : "bg-sky-50 text-sky-800 border-sky-300";
 
   return createPortal(
     <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm p-0 sm:p-3">

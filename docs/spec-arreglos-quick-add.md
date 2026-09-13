@@ -14,7 +14,8 @@ Implementar una fila de entrada rápida al final de la tabla de encargos de arre
    - Columnas desde el inicio hasta 'Observación': tinte azul muy suave (`bg-sky-50/20`) sobre el fondo de semáforo de la fila.
 3. **Semáforo de Prioridad (Fila Completa):**
    - Fondo suave (`bg-*-50/35`–`/40`) con borde de acento fuerte: `border-l-4` en escritorio (fila de tabla) y `border-2` en tarjetas móviles.
-   - **Verde:** `estado === 'entregado'` u `oficial` → ámbito esmeralda.
+   - **Azul (`sky`):** `estado === 'entregado'` → fila/tarjeta y chip (`bg-sky-50/40`, `border-sky-400`, chip `bg-sky-50 text-sky-800 border-sky-300`). Mismo token que WorkForm / `obraEstadoStyles` para Entregado.
+   - **Verde (`emerald`):** `estado === 'oficial'` → ámbito esmeralda (catálogo vivo).
    - **Ámbar:** Pendiente sin urgencia de fecha.
    - **Naranja:** Fecha límite en menos de 7 días.
    - **Rojo:** Fecha límite en menos de 2 días.
@@ -40,7 +41,7 @@ Implementar una fila de entrada rápida al final de la tabla de encargos de arre
 - **F. est.:** Primera columna (izquierda). Fecha estimada editable inline si admin/editor; días restantes y tag solicitante debajo.
 - **Obra / Compositor · Arreglador:** Columna ancha. Título editable con `WysiwygEditor` (mismo componente que `WorkForm`, modo `compact`); visualización respeta HTML enriquecido sin bold forzado.
 - **Ref., Orgánico, Dificultad, Observación:** Sin cambios de datos; observación del pedido usa `ObservacionesStickyCell` (post-it amarillo al focus).
-- **Acciones:** Gestión de entrega condensada. Pendiente: botones apilados **Editar** / **Entregar** (modal) / **Eliminar**. Entregado/Oficial: post-it con estado + fecha de entrega (`obras_produccion_log`), post-it de nota `[Entrega]` si existe, iconos carpeta/editar, botón **Nueva versión**.
+- **Acciones:** Gestión de entrega condensada. Pendiente: botones apilados **Editar** / **Entregar** (modal) / **Eliminar**. Entregado/Oficial: chip de estado + fecha de entrega (`obras_produccion_log`; sky / emerald), post-it de nota `[Entrega]` si existe, iconos carpeta/editar, botón **Nueva versión**.
 - **Entrega Drive:** Al marcar entregado, `manage-drive` acción `entregar_obra_archivo` copia el link de origen a la carpeta compartida **«Para acomodar»** (mismo flujo que el botón del WorkForm: nombre canónico `Apellido-Arreglador - Título` o `Apellido, I. - Título`). Si el link ya está bajo «Para acomodar», no duplica y solo actualiza estado + mail. Errores de permiso Drive devuelven `DRIVE_ACCESS_DENIED`.
 
 ## Guía de Autoguardado y Guardado
