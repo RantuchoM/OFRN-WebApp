@@ -21,6 +21,12 @@ Mejorar la experiencia de usuario en `RoomingManager.jsx` permitiendo una navega
 - Se habilita una zona de descarte (icono de casa) donde al soltar un músico se inserta en esta tabla.
 - Los excluidos se visualizan de forma compacta ("No alojados (N)"); al hacer clic se despliega la lista para revertir la exclusión.
 
+## Vista músico: Mi Alojamiento
+
+El modal **Mi Alojamiento** (`GiraCard` + `getMyRoomingStatus`) es self-service del integrante: hotel, tramo (si hay varios) y check-in/out. **No** muestra nombres de compañeros de habitación. El rooming interno (`RoomingManager`, reportes, Excel/PDF de staff) sigue listando ocupantes.
+
+- [x] Ocultar compañeros en Mi Alojamiento (vista músico)
+
 ## Por qué esta solución
 
 - **Independencia:** No se modifica `giras_integrantes`; el roster principal de la gira permanece inalterado.

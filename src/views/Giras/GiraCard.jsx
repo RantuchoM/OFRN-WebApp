@@ -1317,29 +1317,6 @@ export default function GiraCard({
                               </div>
                             </div>
                           </div>
-
-                          <div>
-                            <label className="text-[10px] uppercase font-black text-slate-400 tracking-wider flex items-center gap-1 mb-2">
-                              <IconUsers size={12} /> Compañeros/as en habitación
-                            </label>
-                            <div className="space-y-1.5">
-                              {assignment.mates.length > 0 ? (
-                                assignment.mates.map((m) => (
-                                  <div
-                                    key={m.id}
-                                    className="bg-white px-3 py-2.5 rounded-xl text-sm text-slate-700 border border-slate-100 flex items-center gap-2"
-                                  >
-                                    <div className="w-1.5 h-1.5 rounded-full bg-fixed-indigo-400"></div>
-                                    <span className="font-medium">{`${m.apellido}, ${m.nombre}`}</span>
-                                  </div>
-                                ))
-                              ) : (
-                                <div className="text-sm italic text-slate-400 bg-white p-3 rounded-xl border border-dashed text-center">
-                                  Habitación individual
-                                </div>
-                              )}
-                            </div>
-                          </div>
                         </div>
                       );
                     })}

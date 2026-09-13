@@ -723,18 +723,12 @@ export const getMyRoomingStatus = async (supabase, giraId, userId) => {
     );
 
     const assignments = [];
-    const allMateIds = new Set();
 
     for (const booking of bookings) {
       const foundRoom = booking.hospedaje_habitaciones?.find((room) =>
         room.id_integrantes_asignados?.includes(numericUserId),
       );
       if (!foundRoom) continue;
-
-      const mateIds = (foundRoom.id_integrantes_asignados || []).filter(
-        (id) => id !== numericUserId,
-      );
-      mateIds.forEach((id) => allMateIds.add(id));
 
       const segment =
         booking.id_segmento != null
@@ -757,43 +751,11 @@ export const getMyRoomingStatus = async (supabase, giraId, userId) => {
           : null,
         segmentFechaDesde: segment?.fecha_desde ?? null,
         segmentFechaHasta: segment?.fecha_hasta ?? null,
-        mateIds,
         room: foundRoom,
       });
     }
 
-    if (assignments.length === 0) return { assignments: [] };
-
-    let matesById = new Map();
-    if (allMateIds.size > 0) {
-      const mateIdsArr = [...allMateIds];
-      const [matesRes, ausentesRes] = await Promise.all([
-        supabase
-          .from("integrantes")
-          .select("id, nombre, apellido")
-          .in("id", mateIdsArr),
-        supabase
-          .from("giras_integrantes")
-          .select("id_integrante")
-          .eq("id_gira", giraId)
-          .in("id_integrante", mateIdsArr)
-          .eq("estado", "ausente"),
-      ]);
-
-      const ausentesSet = new Set(
-        ausentesRes.data?.map((a) => a.id_integrante) || [],
-      );
-      (matesRes.data || [])
-        .filter((m) => !ausentesSet.has(m.id))
-        .forEach((m) => matesById.set(m.id, m));
-    }
-
-    return {
-      assignments: assignments.map(({ mateIds, ...rest }) => ({
-        ...rest,
-        mates: mateIds.map((id) => matesById.get(id)).filter(Boolean),
-      })),
-    };
+    return { assignments };
   } catch (error) {
     console.error("[GiraService] Error en getMyRoomingStatus:", error);
     return { assignments: [] };
