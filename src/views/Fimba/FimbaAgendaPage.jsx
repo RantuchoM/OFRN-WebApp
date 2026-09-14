@@ -98,7 +98,9 @@ import {
   resolveLeaveDirtyInlineRowEdit,
 } from "../../utils/fimbaPlanillaRowEdit";
 import { useFimbaAccess } from "../../hooks/useFimbaAccess";
+import { useFimbaAgendaFromNow } from "../../hooks/useFimbaAgendaFromNow";
 import { useFimbaConsultaEdicionSession } from "../../hooks/useFimbaConsultaEdicionSession";
+import { parseFimbaAgendaFocusEventId } from "../../utils/fimbaAgendaNow";
 import {
   shouldShowAgendaBacklineIcon,
   shouldShowAgendaRiderIcon,
@@ -113,6 +115,7 @@ import FimbaAgendaEventCard, {
   FimbaAgendaCardMenu,
   FimbaAgendaDayDividerMobile,
 } from "./FimbaAgendaEventCard";
+import FimbaAgendaPastToggle from "./FimbaAgendaPastToggle";
 import { buildAgendaCardMenuItems } from "./fimbaAgendaCardMenuItems";
 import FimbaRichTextEditor from "./FimbaRichTextEditor";
 import {
@@ -413,6 +416,10 @@ export default function FimbaAgendaPage() {
         routeArtistaId: artistaId,
       }),
     [searchParams, artistaId],
+  );
+  const focusEventId = useMemo(
+    () => parseFimbaAgendaFocusEventId(searchParams, location.hash),
+    [searchParams, location.hash],
   );
   const lockedFilters = useMemo(() => {
     if (!queryLocked) return null;
@@ -1197,6 +1204,7 @@ export default function FimbaAgendaPage() {
       locacionIds: selectedLocacionIds,
       includeTutti,
       origen: ofrnIncludeActive ? "all" : filtroOrigen,
+      retainSearch: searchParams,
     });
     const want = path.includes("?") ? path.slice(path.indexOf("?")) : "";
     const have = location.search || "";
@@ -1215,6 +1223,7 @@ export default function FimbaAgendaPage() {
     ofrnIncludeActive,
     location.pathname,
     location.search,
+    searchParams,
     setSearchParams,
   ]);
 
@@ -1481,9 +1490,40 @@ export default function FimbaAgendaPage() {
     entityFilterCtx,
   ]);
 
+  const {
+    showPast,
+    toggleShowPast,
+    visibleEvents: eventosVisibles,
+    pastCount,
+  } = useFimbaAgendaFromNow(eventosFiltrados, {
+    focusEventId,
+    forceExpandIds: [
+      editingRowId,
+      modal?.evento?.id,
+      backlineConsultaEvento?.id,
+      riderConsultaEvento?.id,
+    ],
+  });
+
+  useEffect(() => {
+    if (focusEventId == null) return;
+    const id = String(focusEventId);
+    if (!eventosVisibles.some((ev) => String(ev.id) === id)) return;
+    const t = window.setTimeout(() => {
+      const nodes = document.querySelectorAll(`[data-fimba-evento-id="${id}"]`);
+      for (const n of nodes) {
+        if (n.getClientRects().length > 0) {
+          n.scrollIntoView({ block: "center", behavior: "smooth" });
+          break;
+        }
+      }
+    }, 50);
+    return () => window.clearTimeout(t);
+  }, [focusEventId, showPast, eventosVisibles]);
+
   const visibleEventIds = useMemo(
-    () => eventosFiltrados.map((ev) => String(ev.id)),
-    [eventosFiltrados],
+    () => eventosVisibles.map((ev) => String(ev.id)),
+    [eventosVisibles],
   );
 
   // Descartar ids que ya no están en la vista filtrada.
@@ -1823,7 +1863,7 @@ export default function FimbaAgendaPage() {
   );
 
   const handleExportPdf = () => {
-    if (eventosFiltrados.length === 0) return;
+    if (eventosVisibles.length === 0) return;
     const artistaNombres =
       selectedPropuestaIds.length > 0
         ? propuestasParaFiltro
@@ -1875,7 +1915,7 @@ export default function FimbaAgendaPage() {
         : artistaNombres.length > 1 || grupoNames.length > 0 || includeTutti
           ? `Agenda FIMBA — ${edicion?.nombre || "Edición"} (filtros)`
           : `Agenda FIMBA — ${edicion?.nombre || "Edición"}`;
-    exportFimbaAgendaToPDF(eventosFiltrados, {
+    exportFimbaAgendaToPDF(eventosVisibles, {
       title,
       subTitle,
       flotaById,
@@ -2038,8 +2078,8 @@ export default function FimbaAgendaPage() {
               type="button"
               className="fimba-btn fimba-btn-ghost"
               onClick={handleExportPdf}
-              disabled={refreshing || eventosFiltrados.length === 0}
-              title="Descargar PDF de la vista filtrada actual"
+              disabled={refreshing || eventosVisibles.length === 0}
+              title="Descargar PDF de la vista actual (desde ahora, o con anteriores si están visibles)"
             >
               <IconPrinter size={14} /> Descargar PDF
             </button>
@@ -2232,13 +2272,26 @@ export default function FimbaAgendaPage() {
         </div>
       ) : (
         <div className="fimba-card fimba-agenda-card">
-          <div className="fimba-agenda-mobile fimba-filter-pending-host">
+          <FimbaAgendaPastToggle
+            showPast={showPast}
+            pastCount={pastCount}
+            onToggle={toggleShowPast}
+          />
+          {eventosVisibles.length === 0 ? (
+            <p className="fimba-muted fimba-agenda-from-now-empty">
+              No hay eventos desde ahora.
+            </p>
+          ) : null}
+          <div
+            className="fimba-agenda-mobile fimba-filter-pending-host"
+            hidden={eventosVisibles.length === 0}
+          >
             <FimbaFilterApplyingOverlay show={showFilterPending} />
-            {eventosFiltrados.map((ev, idx) => {
+            {eventosVisibles.map((ev, idx) => {
               const dayKey = String(ev.fecha || "").slice(0, 10);
               const prevDayKey =
                 idx > 0
-                  ? String(eventosFiltrados[idx - 1]?.fecha || "").slice(0, 10)
+                  ? String(eventosVisibles[idx - 1]?.fecha || "").slice(0, 10)
                   : "";
               const showDayDivider =
                 idx === 0 || (dayKey && dayKey !== prevDayKey);
@@ -2394,7 +2447,10 @@ export default function FimbaAgendaPage() {
               );
             })}
           </div>
-          <div className="fimba-agenda-desktop">
+          <div
+            className="fimba-agenda-desktop"
+            hidden={eventosVisibles.length === 0}
+          >
           <div className="fimba-agenda-scroll fimba-filter-pending-host">
             <FimbaFilterApplyingOverlay show={showFilterPending} />
             <table className="fimba-table fimba-agenda-table">
@@ -2445,11 +2501,11 @@ export default function FimbaAgendaPage() {
                 </tr>
               </thead>
               <tbody>
-                {eventosFiltrados.map((ev, idx) => {
+                {eventosVisibles.map((ev, idx) => {
                   const dayKey = String(ev.fecha || "").slice(0, 10);
                   const prevDayKey =
                     idx > 0
-                      ? String(eventosFiltrados[idx - 1]?.fecha || "").slice(0, 10)
+                      ? String(eventosVisibles[idx - 1]?.fecha || "").slice(0, 10)
                       : "";
                   const showDayDivider = idx > 0 && dayKey !== prevDayKey;
                   const isTx =
@@ -2519,6 +2575,7 @@ export default function FimbaAgendaPage() {
                         </tr>
                       )}
                     <tr
+                      data-fimba-evento-id={ev.id}
                       className={`${rowClass}${tipoTint && !rowEditing ? " fimba-has-tipo-tint" : ""}${rowEditing ? " fimba-agenda-row--editing" : ""}${isPendingCreate ? " fimba-row-pending-create" : ""}`.trim()}
                       onDoubleClick={
                         readOnly || isPendingCreate

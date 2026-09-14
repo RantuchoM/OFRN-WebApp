@@ -70,6 +70,7 @@ import StagePlotViewerModal from "../../views/Giras/StagePlotViewerModal";
 import FimbaBacklineConsultaModal from "../../views/Fimba/FimbaBacklineConsultaModal";
 import FimbaRiderConsultaModal from "../../views/Fimba/FimbaRiderConsultaModal";
 import {
+  resolveEventFimbaPropuestas,
   shouldShowAgendaBacklineIcon,
   shouldShowAgendaRiderIcon,
 } from "../../utils/fimbaAgendaConsulta";
@@ -195,8 +196,8 @@ function AgendaSearchField({ onQueryChange }) {
         value={localQuery}
         onChange={handleChange}
         placeholder="Buscar..."
-        title="Buscar en tipo, detalle y locaciones"
-        aria-label="Buscar en tipo, detalle y locaciones"
+        title="Buscar en tipo, detalle, locaciones y artistas"
+        aria-label="Buscar en tipo, detalle, locaciones y artistas"
         className="w-full min-w-0 sm:w-[10.5rem] pl-8 pr-7 py-1.5 text-xs font-medium text-slate-700 bg-transparent rounded-full border-0 outline-none focus:ring-0 placeholder:text-slate-400"
       />
       {isActive && (
@@ -372,7 +373,24 @@ function AgendaEventAdminToggle({
   return null;
 }
 
-/** Tag de asignación + chips de grupo apilados en vertical. */
+function AgendaEventTagChip({ nombre, color, fallbackColor = "#6366f1" }) {
+  const c = color || fallbackColor;
+  return (
+    <span
+      className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black border uppercase tracking-tight w-fit max-w-full truncate"
+      style={{
+        backgroundColor: `${c}18`,
+        color: c,
+        borderColor: `${c}44`,
+      }}
+      title={nombre}
+    >
+      {nombre}
+    </span>
+  );
+}
+
+/** Tag de grupos OFRN + chips de artista FIMBA apilados en vertical. */
 function AgendaEventGruposBlock({
   evt,
   canManage,
@@ -380,10 +398,12 @@ function AgendaEventGruposBlock({
   compact = false,
 }) {
   const grupos = eventGruposMetaFromEvent(evt);
-  if (!canManage && grupos.length === 0) return null;
+  const artistas = resolveEventFimbaPropuestas(evt);
+  if (!canManage && grupos.length === 0 && artistas.length === 0) return null;
 
   const iconSize = compact ? 10 : 12;
   const hasGrupos = grupos.length > 0;
+  const hasArtistas = artistas.length > 0;
 
   return (
     <div className="flex items-start gap-1 min-w-0">
@@ -406,20 +426,21 @@ function AgendaEventGruposBlock({
           <IconTag size={iconSize} />
         </button>
       )}
-      {hasGrupos && (
+      {(hasGrupos || hasArtistas) && (
         <div className="flex flex-col gap-1 min-w-0">
           {grupos.map((g) => (
-            <span
+            <AgendaEventTagChip
               key={`grp-${g.id}`}
-              className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black border uppercase tracking-tight w-fit max-w-full truncate"
-              style={{
-                backgroundColor: `${g.color || "#6366f1"}18`,
-                color: g.color || "#4338ca",
-                borderColor: `${g.color || "#6366f1"}44`,
-              }}
-            >
-              {g.nombre}
-            </span>
+              nombre={g.nombre}
+              color={g.color}
+            />
+          ))}
+          {artistas.map((p) => (
+            <AgendaEventTagChip
+              key={`art-${p.id}`}
+              nombre={p.nombre}
+              color={p.color}
+            />
           ))}
         </div>
       )}
@@ -864,8 +885,13 @@ export default function UnifiedAgenda({
     includeAssociatedEnsembleRehearsals,
   });
 
-  /** Reserva columna de chips de grupo alineada (misma gira / hay asignaciones). */
+  /** Columna de chips: grupos OFRN y/o artistas FIMBA tagueados. */
   const showGruposColumn = useMemo(() => {
+    const hasFimbaArtistas = items.some(
+      (i) =>
+        !i.isProgramMarker && resolveEventFimbaPropuestas(i).length > 0,
+    );
+    if (hasFimbaArtistas) return true;
     if (!giraId) return false;
     if (canManageGiraGrupos) return true;
     return items.some(
@@ -1730,7 +1756,7 @@ export default function UnifiedAgenda({
       const newEventId = newEvent.id;
       const originalId = editFormData.id;
 
-      const [ensambles, programas, grupos] = await Promise.all([
+      const [ensambles, programas, grupos, artistaTags] = await Promise.all([
         supabase
           .from("eventos_ensambles")
           .select("id_ensamble")
@@ -1742,6 +1768,10 @@ export default function UnifiedAgenda({
         supabase
           .from("eventos_grupos")
           .select("id_grupo")
+          .eq("id_evento", originalId),
+        supabase
+          .from("eventos_fimba_propuestas")
+          .select("id_propuesta")
           .eq("id_evento", originalId),
       ]);
 
@@ -1768,6 +1798,15 @@ export default function UnifiedAgenda({
           id_grupo: g.id_grupo,
         }));
         promises.push(supabase.from("eventos_grupos").insert(grupPayload));
+      }
+      if (artistaTags.data?.length > 0) {
+        const artPayload = artistaTags.data.map((p) => ({
+          id_evento: newEventId,
+          id_propuesta: p.id_propuesta,
+        }));
+        promises.push(
+          supabase.from("eventos_fimba_propuestas").insert(artPayload),
+        );
       }
       await Promise.all(promises);
       setEditFormData({

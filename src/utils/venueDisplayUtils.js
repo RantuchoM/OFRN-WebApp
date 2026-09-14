@@ -59,16 +59,32 @@ export function extractEventGrupos(evt) {
   return Array.isArray(evt.grupos) ? evt.grupos.filter(Boolean) : [];
 }
 
+function sortArtistasByNombre(list) {
+  return [...list].sort((a, b) => {
+    const byName = String(a.nombre || "").localeCompare(String(b.nombre || ""), "es", {
+      sensitivity: "base",
+    });
+    if (byName) return byName;
+    const aNum = Number(a.id);
+    const bNum = Number(b.id);
+    if (Number.isFinite(aNum) && Number.isFinite(bNum) && aNum !== bNum) {
+      return aNum - bNum;
+    }
+    return String(a.id ?? "").localeCompare(String(b.id ?? ""));
+  });
+}
+
+/** Tags artista FIMBA: join `eventos_fimba_propuestas` o shape plano `propuestas`. */
 export function extractEventArtistas(evt) {
   if (!evt) return [];
-  return (evt.eventos_fimba_propuestas || [])
+  const nested = (evt.eventos_fimba_propuestas || [])
     .map((row) => row.fimba_propuestas)
-    .filter(Boolean)
-    .sort((a, b) =>
-      String(a.nombre || "").localeCompare(String(b.nombre || ""), "es", {
-        sensitivity: "base",
-      }),
-    );
+    .filter(Boolean);
+  if (nested.length > 0) return sortArtistasByNombre(nested);
+  if (Array.isArray(evt.propuestas) && evt.propuestas.length > 0) {
+    return sortArtistasByNombre(evt.propuestas.filter(Boolean));
+  }
+  return [];
 }
 
 export function groupEventsByLocacion(events) {

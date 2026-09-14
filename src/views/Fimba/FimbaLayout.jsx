@@ -326,6 +326,39 @@ const FIMBA_CSS = `
     white-space: nowrap;
   }
   /* Agenda planilla: horizontal scroll; thead sticky top:0 (see comment on th) */
+  .fimba-agenda-past-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    width: 100%;
+    margin: 0;
+    padding: 0.7rem 1rem;
+    border: none;
+    border-bottom: 1px solid rgba(148, 33, 109, 0.14);
+    border-radius: 12px 12px 0 0;
+    background: rgba(215, 50, 137, 0.06);
+    color: var(--fimba-deep, #94216d);
+    font-weight: 600;
+    font-size: 0.875rem;
+    cursor: pointer;
+    text-align: left;
+    font-family: inherit;
+  }
+  .fimba-agenda-past-toggle:hover {
+    background: rgba(215, 50, 137, 0.1);
+  }
+  .fimba-agenda-past-toggle:focus-visible {
+    outline: 2px solid rgba(148, 33, 109, 0.45);
+    outline-offset: -2px;
+  }
+  .fimba-agenda-from-now-empty {
+    padding: 0.85rem 1rem 1rem;
+  }
+  @media print {
+    .fimba-agenda-past-toggle {
+      display: none;
+    }
+  }
   .fimba-agenda-card {
     padding: 0;
     overflow: visible;
@@ -666,6 +699,10 @@ const FIMBA_CSS = `
   .fimba-agenda-desktop {
     display: block;
   }
+  .fimba-agenda-mobile[hidden],
+  .fimba-agenda-desktop[hidden] {
+    display: none !important;
+  }
   .fimba-agenda-mobile-day {
     display: flex;
     align-items: center;
@@ -829,6 +866,9 @@ const FIMBA_CSS = `
     }
     .fimba-agenda-desktop {
       display: block !important;
+    }
+    .fimba-agenda-desktop[hidden] {
+      display: none !important;
     }
   }
   /* Planilla trayectos: own scrollport so thead sticky top:0 works (meals pattern) */

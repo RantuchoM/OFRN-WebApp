@@ -11,10 +11,6 @@ import {
  * @returns {Array<{ id?: number|string, nombre?: string, color?: string|null, rider?: string|null }>}
  */
 export function resolveEventFimbaPropuestas(evt) {
-  if (!evt) return [];
-  if (Array.isArray(evt.propuestas) && evt.propuestas.length > 0) {
-    return evt.propuestas.filter(Boolean);
-  }
   return extractEventArtistas(evt);
 }
 

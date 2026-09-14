@@ -245,6 +245,7 @@ export default function FimbaAgendaEventCard({
   return (
     <article
       className={`fimba-agenda-event-card ${rowTone}${tipoTint ? " fimba-has-tipo-tint" : ""}${className ? ` ${className}` : ""}`.trim()}
+      data-fimba-evento-id={ev?.id ?? undefined}
       style={busy ? undefined : tipoTint}
       onClick={
         interactive

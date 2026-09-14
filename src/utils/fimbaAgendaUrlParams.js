@@ -552,6 +552,7 @@ export function buildFimbaAgendaConsultaLegacySharePath(
  *   locacionIds?: number[],
  *   origen?: string|null,
  *   includeTutti?: boolean,
+ *   retainSearch?: { get?: (k: string) => string|null }|null,
  * }} filters
  */
 export function buildFimbaAgendaSharePath(basePath, filters = {}) {
@@ -589,6 +590,14 @@ export function buildFimbaAgendaSharePath(basePath, filters = {}) {
     // all (default) — omit
   } else if (filters.origen === "fimba" || filters.origen === "ofrn") {
     params.set("origen", filters.origen);
+  }
+
+  const retain = filters.retainSearch;
+  if (retain && typeof retain.get === "function") {
+    for (const key of ["evento", "event", "id_evento"]) {
+      const v = retain.get(key);
+      if (v) params.set(key, v);
+    }
   }
 
   const qs = params.toString();

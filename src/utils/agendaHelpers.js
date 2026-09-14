@@ -10,6 +10,7 @@ import {
   timeStringToMinutes,
 } from "./dates";
 import { stripHtml } from "./eventDisplayUtils";
+import { extractEventArtistas } from "./venueDisplayUtils";
 import {
   getSearchHighlightRanges,
   matchesMultiTokenSearch,
@@ -214,10 +215,11 @@ export function getGoogleMapsUrl(locacion) {
   return `https://www.google.com/maps/search/?api=1&query=${query}`;
 }
 
-/** Fragmentos de un evento usados por la búsqueda de agenda (tipo + detalle + locación). */
+/** Fragmentos de un evento usados por la búsqueda de agenda (tipo + detalle + locación + artistas). */
 export function getAgendaEventSearchParts(item) {
   if (!item || item.isProgramMarker) return [];
   const loc = item.locaciones || {};
+  const artistas = extractEventArtistas(item).map((p) => p?.nombre);
   return [
     item.tipos_evento?.nombre,
     stripHtml(item.descripcion),
@@ -225,10 +227,11 @@ export function getAgendaEventSearchParts(item) {
     loc.nombre,
     loc.direccion,
     loc.localidades?.localidad,
+    ...artistas,
   ].filter((part) => part != null && String(part).trim() !== "");
 }
 
-/** ¿El evento coincide con el texto de búsqueda (tipo, detalle y/o locación)? */
+/** ¿El evento coincide con el texto de búsqueda (tipo, detalle, locación y/o artistas)? */
 export function eventMatchesAgendaSearch(item, query) {
   if (!String(query || "").trim()) return true;
   if (!item || item.isProgramMarker) return false;

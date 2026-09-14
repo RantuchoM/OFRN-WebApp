@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useLocation, useSearchParams } from "react-router-dom";
 import {
   IconClock,
   IconCopy,
@@ -26,6 +27,8 @@ import {
   computeFimbaCapacity,
 } from "../../services/fimbaService";
 import { sortFimbaAgendaRows } from "../../utils/fimbaAgendaSort";
+import { parseFimbaAgendaFocusEventId } from "../../utils/fimbaAgendaNow";
+import { useFimbaAgendaFromNow } from "../../hooks/useFimbaAgendaFromNow";
 import { exportFimbaAgendaToPDF } from "../../utils/fimbaAgendaPdf";
 import {
   buildAllVehicleBoardingSequences,
@@ -44,6 +47,7 @@ import { toast } from "sonner";
 import FimbaAgendaEventCard, {
   FimbaAgendaDayDividerMobile,
 } from "./FimbaAgendaEventCard";
+import FimbaAgendaPastToggle from "./FimbaAgendaPastToggle";
 import { buildAgendaCardMenuItems } from "./fimbaAgendaCardMenuItems";
 
 function sliceTime(t) {
@@ -102,6 +106,8 @@ function vehicleLabel(ev, flota) {
  */
 export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
   const { confirm, dialog: confirmDialog } = useConfirmDialog();
+  const [searchParams] = useSearchParams();
+  const location = useLocation();
   const [eventos, setEventos] = useState([]);
   const [flota, setFlota] = useState([]);
   const [edicion, setEdicion] = useState(null);
@@ -205,6 +211,36 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
     [eventos],
   );
 
+  const focusEventId = useMemo(
+    () => parseFimbaAgendaFocusEventId(searchParams, location.hash),
+    [searchParams, location.hash],
+  );
+  const {
+    showPast,
+    toggleShowPast,
+    visibleEvents: eventosVisibles,
+    pastCount,
+  } = useFimbaAgendaFromNow(eventosOrdenados, {
+    focusEventId,
+    forceExpandIds: [modal?.evento?.id],
+  });
+
+  useEffect(() => {
+    if (focusEventId == null) return;
+    const id = String(focusEventId);
+    if (!eventosVisibles.some((ev) => String(ev.id) === id)) return;
+    const t = window.setTimeout(() => {
+      const nodes = document.querySelectorAll(`[data-fimba-evento-id="${id}"]`);
+      for (const n of nodes) {
+        if (n.getClientRects().length > 0) {
+          n.scrollIntoView({ block: "center", behavior: "smooth" });
+          break;
+        }
+      }
+    }, 50);
+    return () => window.clearTimeout(t);
+  }, [focusEventId, showPast, eventosVisibles]);
+
   const flotaById = useMemo(() => {
     const map = new Map();
     for (const g of flota || []) {
@@ -229,10 +265,10 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
   );
 
   const handleExportPdf = () => {
-    if (eventosOrdenados.length === 0) return;
+    if (eventosVisibles.length === 0) return;
     const artistName = propuesta?.nombre || "Artista";
     const edName = edicion?.nombre || propuesta?.fimba_ediciones?.nombre || "";
-    exportFimbaAgendaToPDF(eventosOrdenados, {
+    exportFimbaAgendaToPDF(eventosVisibles, {
       title: `Agenda FIMBA — ${artistName}`,
       subTitle: [edName, `Artista: ${artistName}`].filter(Boolean).join(" · "),
       flotaById,
@@ -347,8 +383,8 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
             type="button"
             className="fimba-btn fimba-btn-ghost"
             onClick={handleExportPdf}
-            disabled={loading || eventosOrdenados.length === 0}
-            title="Descargar PDF de la agenda de este artista"
+            disabled={loading || eventosVisibles.length === 0}
+            title="Descargar PDF de la vista actual (desde ahora, o con anteriores si están visibles)"
           >
             <IconPrinter size={14} /> Descargar PDF
           </button>
@@ -395,12 +431,25 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
         </div>
       ) : eventosOrdenados.length > 0 ? (
         <div className="fimba-card fimba-agenda-card">
-          <div className="fimba-agenda-mobile">
-            {eventosOrdenados.map((ev, idx) => {
+          <FimbaAgendaPastToggle
+            showPast={showPast}
+            pastCount={pastCount}
+            onToggle={toggleShowPast}
+          />
+          {eventosVisibles.length === 0 ? (
+            <p className="fimba-muted fimba-agenda-from-now-empty">
+              No hay eventos desde ahora.
+            </p>
+          ) : null}
+          <div
+            className="fimba-agenda-mobile"
+            hidden={eventosVisibles.length === 0}
+          >
+            {eventosVisibles.map((ev, idx) => {
               const dayKey = String(ev.fecha || "").slice(0, 10);
               const prevDayKey =
                 idx > 0
-                  ? String(eventosOrdenados[idx - 1]?.fecha || "").slice(0, 10)
+                  ? String(eventosVisibles[idx - 1]?.fecha || "").slice(0, 10)
                   : "";
               const showDayDivider =
                 idx === 0 || (dayKey && dayKey !== prevDayKey);
@@ -451,7 +500,10 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
               );
             })}
           </div>
-          <div className="fimba-agenda-desktop">
+          <div
+            className="fimba-agenda-desktop"
+            hidden={eventosVisibles.length === 0}
+          >
           <div className="fimba-agenda-scroll">
             <table className="fimba-table fimba-agenda-table">
               <thead>
@@ -475,7 +527,7 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
                 </tr>
               </thead>
               <tbody>
-                {eventosOrdenados.map((ev) => {
+                {eventosVisibles.map((ev) => {
                   const isTx =
                     Boolean(ev.es_traslado) ||
                     (ev.vehiculos || []).length > 0 ||
@@ -495,6 +547,7 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
                   return (
                     <tr
                       key={ev.id}
+                      data-fimba-evento-id={ev.id}
                       className={tipoTint ? "fimba-has-tipo-tint" : undefined}
                       style={tipoTint}
                       onDoubleClick={
