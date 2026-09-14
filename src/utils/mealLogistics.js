@@ -752,8 +752,12 @@ export function sortMealManagerGrid(rows) {
  * crear (esas características se heredan en overlay/`saveRow`). Sí respetan
  * clase Comidas/Catering y filtro de servicio: un temp Catering no se oculta.
  *
+ * `pinIds`: filas del Gestor que deben seguir visibles aunque dejen de
+ * matchear locación/artista/clase/servicio (edición en curso). Asistencia /
+ * Reporte no lo pasan.
+ *
  * @param {object[]} rows
- * @param {{ mealKindFilter?: string, serviceFilter?: string[]|Set, locacionIds?: string[], artistaIds?: string[] }} filters
+ * @param {{ mealKindFilter?: string, serviceFilter?: string[]|Set, locacionIds?: string[], artistaIds?: string[], pinIds?: string[]|Set }} filters
  */
 export function filterMealManagerRows(rows, filters = {}) {
   const list = rows || [];
@@ -773,8 +777,15 @@ export function filterMealManagerRows(rows, filters = {}) {
     (filters.artistaIds || []).length > 0
       ? new Set((filters.artistaIds || []).map(String))
       : null;
+  const pinSet = filters.pinIds
+    ? filters.pinIds instanceof Set
+      ? filters.pinIds
+      : new Set([...filters.pinIds].map(String))
+    : null;
 
   return list.filter((r) => {
+    if (pinSet && r?.id != null && pinSet.has(String(r.id))) return true;
+
     const servicio =
       r?.servicio ||
       mealServicioFromEvent(r) ||
@@ -806,7 +817,40 @@ export function filterMealManagerRows(rows, filters = {}) {
 }
 
 /**
- * Normaliza un texto al tipo canÃÂÃÂÃÂÃÂ³nico (Desayuno|Almuerzo|Merienda|Cena) si comienza con ÃÂÃÂÃÂÃÂ©l.
+ * IDs a no ocultar en el Gestor mientras hay edición en curso
+ * (dirty / selección masiva / guardando / foco / desc / modal móvil).
+ * No incluye vacantes limpias: esas ya ignoran locación/artista.
+ */
+export function mealManagerPinnedRowIdSet({
+  rows = [],
+  selectedIds,
+  savingIds,
+  focusedId,
+  editingDescId,
+  mobileEditingId,
+} = {}) {
+  const ids = new Set();
+  const add = (id) => {
+    if (id == null || id === "") return;
+    ids.add(String(id));
+  };
+  add(focusedId);
+  add(editingDescId);
+  add(mobileEditingId);
+  if (selectedIds) {
+    for (const id of selectedIds) add(id);
+  }
+  if (savingIds) {
+    for (const id of savingIds) add(id);
+  }
+  for (const r of rows) {
+    if (r?.dirty) add(r.id);
+  }
+  return ids;
+}
+
+/**
+ * Normaliza un texto al tipo canónico (Desayuno|Almuerzo|Merienda|Cena) si comienza con él.
  * "Merienda a bordo" ÃÂÃÂ¢ÃÂÃÂÃÂÃÂ "Merienda"; "Almuerzo (Vianda)" ÃÂÃÂ¢ÃÂÃÂÃÂÃÂ "Almuerzo".
  */
 export function normalizeMealServiceBase(servicioOrLabel) {

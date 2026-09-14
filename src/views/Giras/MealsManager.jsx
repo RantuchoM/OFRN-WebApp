@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import React, { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import {
   IconUtensils,
@@ -55,6 +55,7 @@ import {
   mealRowHasOfrnAudience,
   isMealPaxAffectingField,
   filterMealManagerRows,
+  mealManagerPinnedRowIdSet,
   sortMealManagerGrid,
   createDefaultMealFilters,
   isDefaultMealFilters,
@@ -103,6 +104,7 @@ import { es } from "date-fns/locale";
 import { formatFechaLargaEs } from "../../utils/dates";
 import { toast } from "sonner";
 import { matchesMultiTokenSearch } from "../../utils/sanitize";
+import { getFixedMenuPosition } from "../../utils/fixedMenuPosition";
 
 /** Embed `eventos_grupos` alineado a `selectedGrupos` (deducción orquesta↔grupo en vivo). */
 const buildEventosGruposEmbed = (selectedGrupos, giraGrupos) =>
@@ -160,6 +162,16 @@ const mealRowNeedsConvocadosAlert = (row) =>
   !row?.isTemp &&
   !(row.propuestas || []).length &&
   !mealRowHasOfrnAudience(row);
+
+const portalMenuBoxStyle = (menuStyle) =>
+  menuStyle
+    ? {
+        top: menuStyle.top,
+        left: menuStyle.left,
+        width: menuStyle.width,
+        maxHeight: menuStyle.maxHeight,
+      }
+    : undefined;
 
 // --- CONSTANTES ---
 const SERVICE_IDS = CANONICAL_MEAL_TYPE_IDS;
@@ -1277,16 +1289,48 @@ const GridLocationSelect = ({
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const [menuStyle, setMenuStyle] = useState(null);
   const containerRef = useRef(null);
+  const menuRef = useRef(null);
+
+  const updateMenuPosition = () => {
+    if (!containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    setMenuStyle(
+      getFixedMenuPosition(rect, {
+        width: Math.max(rect.width, 256),
+        estimatedHeight: 240,
+        measuredHeight: menuRef.current?.offsetHeight,
+        minHeight: 120,
+      }),
+    );
+  };
+
+  useLayoutEffect(() => {
+    if (!isOpen) {
+      setMenuStyle(null);
+      return undefined;
+    }
+    updateMenuPosition();
+    const frame = requestAnimationFrame(updateMenuPosition);
+    window.addEventListener("resize", updateMenuPosition);
+    window.addEventListener("scroll", updateMenuPosition, true);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("resize", updateMenuPosition);
+      window.removeEventListener("scroll", updateMenuPosition, true);
+    };
+  }, [isOpen, search]);
 
   useEffect(() => {
+    if (!isOpen) {
+      setSearch("");
+      return undefined;
+    }
     const handleClick = (e) => {
-      if (
-        isOpen &&
-        containerRef.current &&
-        !containerRef.current.contains(e.target)
-      )
-        setIsOpen(false);
+      if (containerRef.current?.contains(e.target)) return;
+      if (menuRef.current?.contains(e.target)) return;
+      setIsOpen(false);
     };
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
@@ -1298,7 +1342,7 @@ const GridLocationSelect = ({
   );
 
   return (
-    <div className="relative w-full" ref={containerRef}>
+    <div className="relative w-full overflow-visible" ref={containerRef}>
       <div
         onClick={() => !disabled && setIsOpen(!isOpen)}
         title={selectedOption?.label || undefined}
@@ -1314,40 +1358,48 @@ const GridLocationSelect = ({
           <span className="text-slate-400 italic block truncate">{placeholder}</span>
         )}
       </div>
-      {isOpen && (
-        <div className="absolute top-full left-0 w-64 bg-white border border-slate-300 shadow-xl rounded-lg z-[99999] mt-1 flex flex-col overflow-hidden">
-          <div className="p-2 bg-slate-50 border-b border-slate-200">
-            <input
-              autoFocus
-              type="text"
-              className="w-full p-1.5 text-xs border rounded outline-none focus:border-indigo-500 text-slate-800"
-              placeholder="Buscar ubicación..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-          </div>
-          <div className="max-h-48 overflow-y-auto">
-            {filteredOptions.length > 0 ? (
-              filteredOptions.map((opt) => (
-                <div
-                  key={opt.id}
-                  onClick={() => {
-                    onChange(opt.id);
-                    setIsOpen(false);
-                  }}
-                  className="px-3 py-2 text-xs hover:bg-indigo-50 text-slate-700 cursor-pointer border-b border-slate-50 last:border-0"
-                >
-                  {opt.label}
+      {isOpen &&
+        menuStyle &&
+        createPortal(
+          <div
+            ref={menuRef}
+            data-fixed-menu="true"
+            style={portalMenuBoxStyle(menuStyle)}
+            className="fixed z-[110] bg-white border border-slate-300 shadow-xl rounded-lg flex flex-col overflow-hidden"
+          >
+            <div className="p-2 bg-slate-50 border-b border-slate-200 shrink-0">
+              <input
+                autoFocus
+                type="text"
+                className="w-full p-1.5 text-xs border rounded outline-none focus:border-indigo-500 text-slate-800"
+                placeholder="Buscar ubicación..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
+            <div className="overflow-y-auto overscroll-contain flex-1 min-h-0">
+              {filteredOptions.length > 0 ? (
+                filteredOptions.map((opt) => (
+                  <div
+                    key={opt.id}
+                    onClick={() => {
+                      onChange(opt.id);
+                      setIsOpen(false);
+                    }}
+                    className="px-3 py-2 text-xs hover:bg-indigo-50 text-slate-700 cursor-pointer border-b border-slate-50 last:border-0"
+                  >
+                    {opt.label}
+                  </div>
+                ))
+              ) : (
+                <div className="p-3 text-xs text-slate-400 italic">
+                  Sin resultados
                 </div>
-              ))
-            ) : (
-              <div className="p-3 text-xs text-slate-400 italic">
-                Sin resultados
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+              )}
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 };
@@ -1406,10 +1458,12 @@ const MultiGroupSelect = ({
   const [isOpen, setIsOpen] = useState(false);
   const [tab, setTab] = useState("categorias");
   const [search, setSearch] = useState("");
-  const [openUp, setOpenUp] = useState(false);
+  const [menuStyle, setMenuStyle] = useState(null);
   const containerRef = useRef(null);
+  const menuRef = useRef(null);
   const searchRef = useRef(null);
   const DROPDOWN_EST_HEIGHT = 320; // max-h-80
+  const DROPDOWN_MIN_WIDTH = 352; // 22rem
 
   const selectedByTab = useMemo(() => {
     const groups = { categorias: [], localidades: [], ensambles: [] };
@@ -1433,13 +1487,11 @@ const MultiGroupSelect = ({
   const selectedOrderAtOpenRef = useRef(new Set());
 
   useEffect(() => {
+    if (!isOpen) return undefined;
     const handleClick = (e) => {
-      if (
-        isOpen &&
-        containerRef.current &&
-        !containerRef.current.contains(e.target)
-      )
-        setIsOpen(false);
+      if (containerRef.current?.contains(e.target)) return;
+      if (menuRef.current?.contains(e.target)) return;
+      setIsOpen(false);
     };
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
@@ -1458,21 +1510,40 @@ const MultiGroupSelect = ({
     setSearch("");
   }, [tab]);
 
+  const updateMenuPosition = () => {
+    if (!containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    setMenuStyle(
+      getFixedMenuPosition(rect, {
+        width: Math.max(rect.width, DROPDOWN_MIN_WIDTH),
+        estimatedHeight: DROPDOWN_EST_HEIGHT,
+        measuredHeight: menuRef.current?.offsetHeight,
+        minHeight: 160,
+      }),
+    );
+  };
+
+  useLayoutEffect(() => {
+    if (!isOpen) {
+      setMenuStyle(null);
+      return undefined;
+    }
+    updateMenuPosition();
+    const frame = requestAnimationFrame(updateMenuPosition);
+    window.addEventListener("resize", updateMenuPosition);
+    window.addEventListener("scroll", updateMenuPosition, true);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("resize", updateMenuPosition);
+      window.removeEventListener("scroll", updateMenuPosition, true);
+    };
+  }, [isOpen, tab, search]);
+
   const openOrClose = () => {
     if (disabled) return;
     if (!isOpen) {
       setTab(resolveDefaultConvTab(value));
       selectedOrderAtOpenRef.current = new Set(value || []);
-      if (containerRef.current) {
-        const rect = containerRef.current.getBoundingClientRect();
-        const spaceBelow = window.innerHeight - rect.bottom;
-        const spaceAbove = rect.top;
-        setOpenUp(
-          spaceBelow < DROPDOWN_EST_HEIGHT && spaceAbove > spaceBelow,
-        );
-      } else {
-        setOpenUp(false);
-      }
     }
     setIsOpen(!isOpen);
   };
@@ -1515,7 +1586,7 @@ const MultiGroupSelect = ({
         : "Sin ensambles en el roster";
 
   return (
-    <div className="relative w-full" ref={containerRef}>
+    <div className="relative w-full overflow-visible" ref={containerRef}>
       <div
         onClick={openOrClose}
         className={`${compact ? "min-h-[26px] px-1 py-0.5 gap-0.5" : "min-h-[28px] px-2 py-1 gap-1"} border rounded cursor-pointer flex flex-wrap items-center transition-all ${
@@ -1577,11 +1648,14 @@ const MultiGroupSelect = ({
           );
         })}
       </div>
-      {isOpen && (
+      {isOpen &&
+        menuStyle &&
+        createPortal(
         <div
-          className={`absolute left-0 w-[22rem] bg-white border border-slate-300 shadow-xl rounded-lg z-[999] p-2 max-h-80 flex flex-col gap-2 ${
-            openUp ? "bottom-full mb-1" : "top-full mt-1"
-          }`}
+          ref={menuRef}
+          data-fixed-menu="true"
+          style={portalMenuBoxStyle(menuStyle)}
+          className="fixed z-[110] w-[22rem] bg-white border border-slate-300 shadow-xl rounded-lg p-2 flex flex-col gap-2 overflow-hidden"
         >
           <div className="grid grid-cols-3 gap-1">
             {CONV_TABS.map((t) => {
@@ -1677,7 +1751,8 @@ const MultiGroupSelect = ({
               })
             )}
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
@@ -1706,11 +1781,11 @@ const BulkEditPanel = ({
   if (typeof document === "undefined") return null;
   return createPortal(
     <div
-      className="fixed z-[100] left-1/2 -translate-x-1/2 bottom-4 md:bottom-6 print:hidden max-w-[calc(100vw-1.5rem)]"
+      className="fixed z-[100] left-1/2 -translate-x-1/2 bottom-4 md:bottom-6 print:hidden max-w-[calc(100vw-1.5rem)] overflow-visible"
       role="status"
       aria-live="polite"
     >
-      <div className="bg-indigo-700 border border-indigo-800 rounded-xl shadow-2xl px-3 py-2.5 flex flex-wrap items-center justify-between gap-3 text-white">
+      <div className="bg-indigo-700 border border-indigo-800 rounded-xl shadow-2xl px-3 py-2.5 flex flex-wrap items-center justify-between gap-3 text-white overflow-visible">
         <div className="flex flex-wrap items-center gap-3 min-w-0">
           <div className="flex items-center gap-2 shrink-0">
             <span className="bg-white text-indigo-700 text-xs font-black px-2 py-1 rounded-full">
@@ -3192,6 +3267,41 @@ export default function MealsManager({
   const [mobileEditingRow, setMobileEditingRow] = useState(null);
   const [mobileGroupsOpen, setMobileGroupsOpen] = useState(false);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
+  const [focusedMealRowId, setFocusedMealRowId] = useState(null);
+  const mealRowFocusClearTimerRef = useRef(null);
+
+  const pinMealRowFocus = (rowId) => {
+    if (mealRowFocusClearTimerRef.current) {
+      clearTimeout(mealRowFocusClearTimerRef.current);
+      mealRowFocusClearTimerRef.current = null;
+    }
+    setFocusedMealRowId(rowId);
+  };
+
+  const releaseMealRowFocus = (rowId) => {
+    if (mealRowFocusClearTimerRef.current) {
+      clearTimeout(mealRowFocusClearTimerRef.current);
+    }
+    mealRowFocusClearTimerRef.current = setTimeout(() => {
+      const el = document.activeElement;
+      if (el?.closest?.(`[data-meal-row-id="${String(rowId)}"]`)) return;
+      if (el?.closest?.("[data-fixed-menu]")) return;
+      if (document.querySelector("[data-fixed-menu]")) return;
+      if (el?.closest?.("[role='dialog']")) return;
+      setFocusedMealRowId((cur) =>
+        String(cur) === String(rowId) ? null : cur,
+      );
+    }, 80);
+  };
+
+  useEffect(
+    () => () => {
+      if (mealRowFocusClearTimerRef.current) {
+        clearTimeout(mealRowFocusClearTimerRef.current);
+      }
+    },
+    [],
+  );
 
   const NO_LOC_FILTER = MEAL_FILTER_NO_LOC;
 
@@ -3236,7 +3346,29 @@ export default function MealsManager({
    * Vista filtrada derivada — nunca se escribe de vuelta a `grid`.
    * Fuente = grid completo; filtros solo ocultan; re-sort por si mutaciones
    * locales (hora/fecha/hermanas) desalinearían el orden del walk+catering.
+   * Filas en edición (dirty / foco / desc / bulk / saving / modal móvil)
+   * quedan visibles aunque dejen de matchear locación/artista/clase/servicio.
    */
+  const pinnedMealRowIds = useMemo(
+    () =>
+      mealManagerPinnedRowIdSet({
+        rows: grid,
+        selectedIds: selectedRows,
+        savingIds: savingRows,
+        focusedId: focusedMealRowId,
+        editingDescId,
+        mobileEditingId: mobileEditingRow?.id,
+      }),
+    [
+      grid,
+      selectedRows,
+      savingRows,
+      focusedMealRowId,
+      editingDescId,
+      mobileEditingRow,
+    ],
+  );
+
   const filteredGrid = useMemo(
     () =>
       sortMealManagerGrid(
@@ -3249,6 +3381,7 @@ export default function MealsManager({
             serviceFilter,
             locacionIds: filterLocacionIds,
             artistaIds: filterArtistaIds,
+            pinIds: pinnedMealRowIds,
           },
         ),
       ),
@@ -3259,24 +3392,29 @@ export default function MealsManager({
       filterLocacionIds,
       filterArtistaIds,
       mealCreateInheritOpts,
+      pinnedMealRowIds,
     ],
   );
 
   const visibleGrid = useMemo(() => {
+    const isPinned = (row) =>
+      row?.id != null && pinnedMealRowIds.has(String(row.id));
     let rows =
       cortesCount === 0 || !activeSegment
         ? filteredGrid
-        : filteredGrid.filter((row) =>
-            mealBelongsToSegment(
-              {
-                fecha: row.fecha,
-                servicio: row.servicio,
-                hora_inicio: row.hora_inicio,
-              },
-              activeSegment,
-              activeSegmentIdx,
-              segments,
-            ),
+        : filteredGrid.filter(
+            (row) =>
+              isPinned(row) ||
+              mealBelongsToSegment(
+                {
+                  fecha: row.fecha,
+                  servicio: row.servicio,
+                  hora_inicio: row.hora_inicio,
+                },
+                activeSegment,
+                activeSegmentIdx,
+                segments,
+              ),
           );
     if (
       hasGiraGrupos &&
@@ -3285,6 +3423,7 @@ export default function MealsManager({
       rows = rows.filter((row) => {
         // Vacantes siempre visibles para poder crear (aunque el filtro oculte generales).
         if (row.isTemp) return true;
+        if (isPinned(row)) return true;
         return eventPassesEditorialGrupoFilter(
           {
             ...row,
@@ -3300,6 +3439,7 @@ export default function MealsManager({
     return rows;
   }, [
     filteredGrid,
+    pinnedMealRowIds,
     activeSegment,
     activeSegmentIdx,
     cortesCount,
@@ -3991,6 +4131,9 @@ export default function MealsManager({
                 return (
                   <tr
                     key={row.id}
+                    data-meal-row-id={row.id}
+                    onFocusCapture={() => pinMealRowFocus(row.id)}
+                    onBlurCapture={() => releaseMealRowFocus(row.id)}
                     className={`${rowBgClass} group transition-all duration-700 ease-in-out`}
                     style={fimbaTintStyle}
                   >
@@ -4364,6 +4507,9 @@ export default function MealsManager({
               return (
                 <div
                   key={`mobile-${row.id}`}
+                  data-meal-row-id={row.id}
+                  onFocusCapture={() => pinMealRowFocus(row.id)}
+                  onBlurCapture={() => releaseMealRowFocus(row.id)}
                   style={fimbaTintStyle}
                   className={`border rounded-md px-2 py-1.5 text-[11px] leading-tight ${
                     isDirty ? "border-amber-300 bg-amber-50/50" : tone.card
