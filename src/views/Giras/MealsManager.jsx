@@ -40,7 +40,6 @@ import {
   resolveRuleMealSlot,
   CANONICAL_MEAL_TYPE_IDS,
   CATERING_SERVICE,
-  fetchMealEventTypes,
   fetchMealRelatedEventTypes,
   isMealRelatedEvent,
   isCateringEvent,
@@ -68,6 +67,9 @@ import {
   filterFimbaPropuestasForMeals,
   canMergeMealRows,
   buildMergedMealState,
+  inheritMealArtistTagsForCreate,
+  effectiveMealRowPropuestas,
+  mealTypeSelectOptions,
 } from "../../utils/mealLogistics";
 import { createCoverageGapsWithToast } from "../../utils/fimbaMealCoverageCreate";
 import MealTypesEditorModal from "../../components/logistics/MealTypesEditorModal";
@@ -200,7 +202,7 @@ const resolveMealTypeSelection = (mealTypes, typeId, fallbackServicio = "") => {
 
 /**
  * Mini-modal al "+" de fila: fecha y tipo editables (defaults = fila origen).
- * Temp row sin hora_fin ni tags artistas (paridad con sibling add previo).
+ * Temp row sin hora_fin; tags artistas se heredan de la fila o del filtro activo.
  */
 function SiblingMealAddModal({
   draft,
@@ -1842,6 +1844,14 @@ export default function MealsManager({
   );
   const filterLocacionIds = activeMealFilters.locacionIds || [];
   const filterArtistaIds = activeMealFilters.artistaIds || [];
+  const filterCreatePropuestas = useMemo(
+    () =>
+      inheritMealArtistTagsForCreate(null, {
+        fallbackArtistaIds: filterArtistaIds,
+        propuestasCatalog: propuestas,
+      }),
+    [filterArtistaIds, propuestas],
+  );
   const setMealKindFilter = (v) => patchMealFilters({ mealKindFilter: v });
   const setFilterLocacionIds = (v) => patchMealFilters({ locacionIds: v });
   const setFilterArtistaIds = (v) => patchMealFilters({ artistaIds: v });
@@ -2037,6 +2047,7 @@ export default function MealsManager({
       id_locacion: "",
       convocados: [],
       selectedGrupos: [],
+      propuestas: opts.propuestas || [],
       visible_agenda: true,
       tecnica: false,
       isTemp: true,
@@ -2197,7 +2208,8 @@ export default function MealsManager({
   };
 
   /**
-   * Agrega fila temp (sin hora_fin; sin tags artistas — mismo patrón que antes).
+   * Agrega fila temp (sin hora_fin). Tags artistas: fila origen, o filtro activo
+   * (paridad Transportes) para que no desaparezca de la vista filtrada.
    * `overrides` permite otra fecha/servicio/tipo respecto de la fila origen.
    */
   const addSiblingMeal = (row, overrides = {}) => {
@@ -2207,6 +2219,10 @@ export default function MealsManager({
     const newRow = makeTempMealRow(fecha, servicio, {
       id_tipo_evento: overrides.id_tipo_evento,
       tipo_nombre: overrides.tipo_nombre,
+      propuestas: inheritMealArtistTagsForCreate(row, {
+        fallbackArtistaIds: filterArtistaIds,
+        propuestasCatalog: propuestas,
+      }),
     });
     setGrid((prev) => {
       const idx = prev.findIndex((r) => r.id === row.id);
@@ -2434,21 +2450,32 @@ export default function MealsManager({
       let row = { ...prevRow, [field]: normalizedVal, dirty: true };
 
       if (field === "id_tipo_evento") {
-        const tipoId = normalizedVal;
-        const tipoNombre =
-          typeNombreById(mealTypes, tipoId) || prevRow.tipo_nombre;
-        const base =
-          mealBaseFromTypeName(tipoNombre) ||
-          mealServicioFromEvent({
-            id_tipo_evento: tipoId,
-            tipos_evento: { nombre: tipoNombre },
-          }) ||
-          prevRow.servicio;
+        const resolved = resolveMealTypeSelection(
+          mealTypes,
+          normalizedVal,
+          prevRow.servicio,
+        );
+        const tipo = mealTypes?.find(
+          (t) => Number(t.id) === Number(resolved.id_tipo_evento),
+        );
+        const tipoNombre = resolved.tipo_nombre;
+        const base = resolved.servicio || prevRow.servicio;
         const oldLabel =
           prevRow.tipo_nombre ||
           serviceLabelOf(prevRow.servicio, prevRow.servicio_detalle);
+        row.id_tipo_evento = resolved.id_tipo_evento;
         row.tipo_nombre = tipoNombre;
         row.servicio = base;
+        if (tipo) {
+          row.tipos_evento = {
+            id: tipo.id,
+            nombre: tipo.nombre,
+            color: tipo.color,
+            id_categoria: tipo.id_categoria,
+            categorias_tipos_eventos: tipo.categorias_tipos_eventos,
+            is_catering: tipo.is_catering,
+          };
+        }
         if (!stripHtmlToPlain(prevRow.descripcion)) {
           row.descripcion = buildMealDescription(
             tipoNombre || base,
@@ -2783,13 +2810,28 @@ export default function MealsManager({
       });
       return;
     }
+    const wasTemp = Boolean(row.isTemp);
+    const createArtistTags = wasTemp
+      ? inheritMealArtistTagsForCreate(row, {
+          fallbackArtistaIds: filterArtistaIds,
+          propuestasCatalog: propuestas,
+        })
+      : [];
     const payload = {
       id_gira: gira.id,
       fecha: row.fecha,
       id_tipo_evento: tipoId,
       hora_inicio: row.hora_inicio || null,
       hora_fin: row.hora_fin || null,
-      descripcion: row.descripcion || `${label} Gira`,
+      descripcion:
+        row.descripcion ||
+        buildMealDescription(
+          label,
+          row.convocados,
+          catalogs,
+          createArtistTags.length ? createArtistTags : row.propuestas,
+        ) ||
+        `${label} Gira`,
       id_locacion: row.id_locacion || null,
       convocados: row.convocados || [],
       visible_agenda: row.visible_agenda,
@@ -2799,7 +2841,7 @@ export default function MealsManager({
     try {
       // Embeber tags FIMBA para no perder chips al guardar convocados/hora/etc.
       const selectMeal = `*, tipos_evento ( id, nombre, color, id_categoria ), eventos_fimba_propuestas ( id_propuesta, fimba_propuestas ( id, nombre, color, cantidad_planificada, requiere_comidas, estado ) )`;
-      const { data } = row.isTemp
+      const { data } = wasTemp
         ? await supabase
             .from("eventos")
             .insert([payload])
@@ -2824,6 +2866,25 @@ export default function MealsManager({
         }
       }
 
+      const createTagIds = [
+        ...new Set(
+          createArtistTags
+            .map((p) => Number(p?.id ?? p?.id_propuesta ?? p))
+            .filter((n) => Number.isFinite(n) && n > 0),
+        ),
+      ];
+      if (wasTemp && savedId != null && createTagIds.length) {
+        const { error: tagErr } = await setEventoFimbaPropuestas(
+          savedId,
+          createTagIds,
+        );
+        if (tagErr) {
+          toast.error(
+            "Comida guardada, pero falló asignar artistas: " + tagErr.message,
+          );
+        }
+      }
+
       const eventos_grupos = buildEventosGruposEmbed(
         row.selectedGrupos || [],
         giraGrupos,
@@ -2833,10 +2894,13 @@ export default function MealsManager({
         .map((link) => link.fimba_propuestas)
         .filter(Boolean);
       // Preferir embed fresco; si falla el join, conservar tags locales (no borrar artistas).
+      // Alta con filtro artista: los tags se escriben después del insert (join aún vacío).
       const preservedPropuestas =
         propuestasFromSelect.length > 0
           ? propuestasFromSelect
-          : row.propuestas || [];
+          : createArtistTags.length > 0
+            ? createArtistTags
+            : row.propuestas || [];
 
       const patched = {
         ...data,
@@ -3690,10 +3754,14 @@ export default function MealsManager({
                 }
 
                 const row = item.row;
+                const displayPropuestas = effectiveMealRowPropuestas(
+                  row,
+                  filterCreatePropuestas,
+                );
                 const breakdown = getEligibleBreakdown(row);
                 const eligible = breakdown.people;
                 const deductedCount = breakdown.deductedCount || 0;
-                const artistPax = fimbaArtistMealPax(row.propuestas || []);
+                const artistPax = fimbaArtistMealPax(displayPropuestas);
                 const comensalesLabel = formatComensalesBadgeLabel(
                   eligible.length,
                   artistPax,
@@ -3774,29 +3842,9 @@ export default function MealsManager({
                             className={`w-full text-[10px] font-bold border rounded px-1 py-1 outline-none ${
                               getMealServiceStyle(row.servicio).tag
                             } ${isDirty ? "ring-1 ring-amber-300" : ""}`}
-                            title="Tipo de evento real (agrupa por primera palabra en D/A/M/C)"
+                            title="Tipo de evento (Comidas del mismo servicio + Catering)"
                           >
-                            {(mealTypes.length
-                              ? mealTypes.filter((t) => {
-                                  const rowIsCatering =
-                                    row.servicio === CATERING_SERVICE ||
-                                    isCateringEvent(row);
-                                  if (rowIsCatering) {
-                                    return (
-                                      t.is_catering ||
-                                      t.servicio === CATERING_SERVICE ||
-                                      Number(t.id) === Number(row.id_tipo_evento)
-                                    );
-                                  }
-                                  return (
-                                    (!t.is_catering &&
-                                      (!t.servicio ||
-                                        t.servicio === row.servicio)) ||
-                                    Number(t.id) === Number(row.id_tipo_evento)
-                                  );
-                                })
-                              : []
-                            ).map((t) => (
+                            {mealTypeSelectOptions(mealTypes, row).map((t) => (
                               <option key={t.id} value={t.id}>
                                 {t.nombre}
                               </option>
@@ -3889,7 +3937,16 @@ export default function MealsManager({
                         className="px-1 w-40 max-w-44"
                         onClick={(e) => e.stopPropagation()}
                       >
-                        {row.isTemp ? (
+                        {row.isTemp && displayPropuestas.length > 0 ? (
+                          <FimbaEventArtistasTagsCell
+                            ev={{ ...row, propuestas: displayPropuestas }}
+                            canEdit={false}
+                            propuestas={propuestas}
+                            giraGrupos={giraGrupos}
+                            edicion={edicion}
+                            mealsOnly
+                          />
+                        ) : row.isTemp ? (
                           <span className="text-[10px] text-slate-400 italic">
                             Guardá para etiquetar
                           </span>
@@ -4114,10 +4171,14 @@ export default function MealsManager({
               }
 
               const row = item.row;
+              const displayPropuestas = effectiveMealRowPropuestas(
+                row,
+                filterCreatePropuestas,
+              );
               const breakdown = getEligibleBreakdown(row);
               const eligible = breakdown.people;
               const deductedCount = breakdown.deductedCount || 0;
-              const artistPax = fimbaArtistMealPax(row.propuestas || []);
+              const artistPax = fimbaArtistMealPax(displayPropuestas);
               const comensalesLabel = formatComensalesBadgeLabel(
                 eligible.length,
                 artistPax,
@@ -4126,9 +4187,7 @@ export default function MealsManager({
               const hasTurnoOver = rowHasTurnoOverInclusion(row);
               const isDirty = row.dirty;
               const tone = getMealServiceStyle(row.servicio);
-              const artistNames = filterFimbaPropuestasForMeals(
-                row.propuestas || [],
-              )
+              const artistNames = displayPropuestas
                 .map((p) => p.nombre)
                 .filter(Boolean)
                 .join(", ");
@@ -4319,7 +4378,7 @@ export default function MealsManager({
         onClose={() => setMealTypesEditorOpen(false)}
         onChanged={async () => {
           try {
-            const types = await fetchMealEventTypes(supabase);
+            const types = await fetchMealRelatedEventTypes(supabase);
             setMealTypes(types);
           } catch (e) {
             console.error(e);
@@ -4409,13 +4468,16 @@ function MobileMealEditor({ row, catalogs, mealTypes = [], onCancel, onSave }) {
             <select
               value={draft.id_tipo_evento ?? ""}
               onChange={(e) => {
-                const nextId = e.target.value ? Number(e.target.value) : null;
-                const tipoNombre =
-                  typeNombreById(mealTypes, nextId) || draft.tipo_nombre;
-                const base = mealBaseFromTypeName(tipoNombre) || row.servicio;
+                const resolved = resolveMealTypeSelection(
+                  mealTypes,
+                  e.target.value,
+                  draft.servicio || row.servicio,
+                );
+                const tipoNombre = resolved.tipo_nombre;
+                const base = resolved.servicio || row.servicio;
                 setDraft((p) => ({
                   ...p,
-                  id_tipo_evento: nextId,
+                  id_tipo_evento: resolved.id_tipo_evento,
                   tipo_nombre: tipoNombre,
                   servicio: base,
                   descripcion: rewriteMealDescriptionServiceLabel(
@@ -4427,18 +4489,14 @@ function MobileMealEditor({ row, catalogs, mealTypes = [], onCancel, onSave }) {
               }}
               className="w-full mt-1 border border-slate-300 rounded px-2 py-1.5 text-xs bg-white"
             >
-              {(mealTypes || [])
-                .filter(
-                  (t) =>
-                    !t.servicio ||
-                    t.servicio === row.servicio ||
-                    Number(t.id) === Number(draft.id_tipo_evento),
-                )
-                .map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.nombre}
-                  </option>
-                ))}
+              {mealTypeSelectOptions(mealTypes, {
+                ...row,
+                ...draft,
+              }).map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.nombre}
+                </option>
+              ))}
             </select>
           </div>
           <div className="grid grid-cols-2 gap-2">

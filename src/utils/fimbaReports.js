@@ -42,6 +42,11 @@ import {
 } from "./fimbaMealsStay";
 import { resolveParticipanteStay } from "./fimbaStay";
 import {
+  appendArtistMealSpecsSection,
+  collectArtistMealSpecsFromHoteleriaRows,
+  formatArtistMealSpecsHtml,
+} from "./mealsReportText";
+import {
   canonicalizeFimbaGenero,
   labelFimbaGeneroHotel,
   mapFimbaGeneroToSex,
@@ -427,6 +432,14 @@ export function buildFimbaComidasPedidoText(
       }
     }
   }
+  const specsText = appendArtistMealSpecsSection(
+    "",
+    collectArtistMealSpecsFromHoteleriaRows(hoteleriaRows),
+  );
+  if (specsText) {
+    lines.push("");
+    lines.push(specsText);
+  }
   return lines.join("\n").trim();
 }
 
@@ -802,6 +815,10 @@ export function printFimbaComidas(hoteleriaRows, { edicionNombre = "" } = {}) {
     }
     </tbody></table>`,
   ];
+  const specsHtml = formatArtistMealSpecsHtml(
+    collectArtistMealSpecsFromHoteleriaRows(hoteleriaRows),
+  );
+  if (specsHtml) parts.push(specsHtml);
   openPrintWindow(`Comidas — ${edicionNombre}`, parts.join(""));
 }
 

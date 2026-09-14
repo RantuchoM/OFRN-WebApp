@@ -13,6 +13,7 @@ import {
   resolveLocalidadEfectivaViaticos,
   resolveLocalidadResidencia,
 } from "../utils/integranteDomicilioViaticos";
+import { isAssignedVehicleAgendaStop } from "../utils/agendaHelpers";
 
 /** tipos_evento.id — Ensayo de ensamble (independiente o en programa). */
 const ID_TIPO_ENSAYO_ENSAMBLE = 13;
@@ -44,6 +45,22 @@ function passesEventoGruposFilter(item, myGrupoIds, skipFilter) {
     const gid = Number(eg.id_grupo ?? eg.giras_grupos?.id);
     return Number.isFinite(gid) && myGrupoIds.has(gid);
   });
+}
+
+/**
+ * Visibilidad de agenda por grupos, con excepción de paradas del vehículo
+ * asignado (o INTERNO): el tag de convocatoria del evento no oculta el
+ * boarding del músico si la logística lo sube a ese bus.
+ */
+function eventVisibleForMusicianGrupos(
+  item,
+  myGrupoIds,
+  skipFilter,
+  logisticsMap,
+) {
+  if (skipFilter) return true;
+  if (passesEventoGruposFilter(item, myGrupoIds, false)) return true;
+  return isAssignedVehicleAgendaStop(item, logisticsMap);
 }
 
 /**
@@ -119,7 +136,7 @@ export function getAgendaCacheKey(
   const scope = giraId
     ? `${giraId}${includeAssociatedEnsembleRehearsals ? "_ensReh" : ""}`
     : "general";
-  return `agenda_cache_${effectiveUserId}_${scope}_v9`;
+  return `agenda_cache_${effectiveUserId}_${scope}_v10`;
 }
 
 function eventBelongsToProgramAgenda(evt, giraId, includeAssociatedEnsembleRehearsals) {
@@ -479,6 +496,16 @@ export function useAgendaData({
               transportsByGira[t.id_gira].push(t);
             });
 
+            const grupoIdsByGira = {};
+            (myGruposRes?.data || []).forEach((row) => {
+              const gidGira = row.giras_grupos?.id_gira;
+              const gid = row.id_grupo;
+              if (gidGira == null || gid == null) return;
+              const key = String(gidGira);
+              if (!grupoIdsByGira[key]) grupoIdsByGira[key] = [];
+              grupoIdsByGira[key].push(String(gid));
+            });
+
             const profileWithResidencia = {
               ...userProfile,
               _loc_residencia:
@@ -582,6 +609,7 @@ export function useAgendaData({
                 instrumentos: userProfile.instrumentos || {},
                 rol_gira: tourRole,
                 estado_gira: estadoGira,
+                grupo_ids: grupoIdsByGira[String(gId)] || [],
                 es_adicional: false,
                 logistics: {},
               };
@@ -651,27 +679,31 @@ export function useAgendaData({
           }
 
           // Agenda de gira: todos los eventos de la gira, salvo filtro por grupos.
+          // Paradas del vehículo asignado saltan el tag de convocatoria.
           if (giraId) {
-            return passesEventoGruposFilter(
+            return eventVisibleForMusicianGrupos(
               item,
               myGrupoIds,
               skipGrupoFilter,
+              logisticsMap,
             );
           }
 
           if (isManagementProfile) return true;
           if (customMap.has(item.id)) {
-            return passesEventoGruposFilter(
+            return eventVisibleForMusicianGrupos(
               item,
               myGrupoIds,
               skipGrupoFilter,
+              logisticsMap,
             );
           }
           if (myEnsembleEventIds.has(item.id)) {
-            return passesEventoGruposFilter(
+            return eventVisibleForMusicianGrupos(
               item,
               myGrupoIds,
               skipGrupoFilter,
+              logisticsMap,
             );
           }
           if (item.programas) {
@@ -685,10 +717,11 @@ export function useAgendaData({
                 ["baja", "no_convocado", "ausente"].includes(myOverride.estado)
               )
                 return false;
-              return passesEventoGruposFilter(
+              return eventVisibleForMusicianGrupos(
                 item,
                 myGrupoIds,
                 skipGrupoFilter,
+                logisticsMap,
               );
             }
             const matchesFuente = sources.some(
@@ -697,10 +730,11 @@ export function useAgendaData({
                 (s.tipo === "FAMILIA" && s.valor_texto === myFamily),
             );
             if (!matchesFuente) return false;
-            return passesEventoGruposFilter(
+            return eventVisibleForMusicianGrupos(
               item,
               myGrupoIds,
               skipGrupoFilter,
+              logisticsMap,
             );
           }
           return false;
@@ -958,7 +992,14 @@ export function useAgendaData({
         }
 
         if (!skipGrupoFilterRt && (evt.eventos_grupos || []).length > 0) {
-          if (!passesEventoGruposFilter(evt, myGrupoIdsRt, false)) {
+          if (
+            !eventVisibleForMusicianGrupos(
+              evt,
+              myGrupoIdsRt,
+              false,
+              myTransportLogistics,
+            )
+          ) {
             setItems((prev) => prev.filter((item) => item.id !== id));
             return true;
           }
@@ -1006,6 +1047,7 @@ export function useAgendaData({
       userProfile,
       isEditor,
       isManagement,
+      myTransportLogistics,
     ],
   );
 

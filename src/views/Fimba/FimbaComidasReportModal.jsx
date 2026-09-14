@@ -16,6 +16,10 @@ import {
 import { exportFimbaComidasExcel } from "../../utils/fimbaExport";
 import FimbaMealsStayPanel from "./FimbaMealsStayPanel";
 import { toast } from "sonner";
+import {
+  ARTIST_MEAL_SPECS_HEADING,
+  collectArtistMealSpecsFromHoteleriaRows,
+} from "../../utils/mealsReportText";
 
 /**
  * Reporte de comidas FIMBA: resumen regímenes + detalle.
@@ -37,6 +41,11 @@ export default function FimbaComidasReportModal({
   );
   const model = useMemo(
     () => buildFimbaComidasPrintModel(hoteleriaRows),
+    [hoteleriaRows],
+  );
+
+  const artistMealSpecs = useMemo(
+    () => collectArtistMealSpecsFromHoteleriaRows(hoteleriaRows),
     [hoteleriaRows],
   );
 
@@ -187,6 +196,31 @@ export default function FimbaComidasReportModal({
                 ))}
               </tbody>
             </table>
+          )}
+
+          {artistMealSpecs.length > 0 && (
+            <div className="mt-6">
+              <h4 className="text-sm font-bold text-slate-800 mb-2">
+                {ARTIST_MEAL_SPECS_HEADING}
+              </h4>
+              {artistMealSpecs.map((a) => (
+                <div key={a.id} className="mb-4">
+                  <div className="text-xs font-bold text-slate-900 mb-1">
+                    {a.nombre}
+                  </div>
+                  {a.entries.map((e, i) => (
+                    <p
+                      key={`${a.id}-${i}`}
+                      className="text-xs text-slate-700 whitespace-pre-wrap mb-1.5"
+                    >
+                      <span className="font-semibold">{e.personLabel}</span>
+                      {": "}
+                      {e.nota}
+                    </p>
+                  ))}
+                </div>
+              ))}
+            </div>
           )}
         </div>
       </div>

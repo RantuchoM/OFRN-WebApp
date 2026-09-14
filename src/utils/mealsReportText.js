@@ -247,4 +247,213 @@ export function scopeMealsReportRowToArtista(
   return { ...row, counts, propuestas: scopedProps };
 }
 
+export const ARTIST_MEAL_SPECS_HEADING =
+  "Especificaciones de comidas — artistas";
+
+function partsListForPropuesta(partsByPropuesta, propuestaId) {
+  if (!partsByPropuesta) return [];
+  const key = String(propuestaId);
+  if (typeof partsByPropuesta.get === "function") {
+    return partsByPropuesta.get(key) || partsByPropuesta.get(propuestaId) || [];
+  }
+  return partsByPropuesta[key] || partsByPropuesta[propuestaId] || [];
+}
+
+function personMealSpecLabel(p) {
+  return `${p?.apellido || ""}, ${p?.nombre || ""}`.replace(/^,\s*/, "").trim() || "—";
+}
+
+/**
+ * Texto libre de dieta (`nota_alimentacion`): HTML → plano, conserva saltos.
+ * @param {unknown} raw
+ * @returns {string}
+ */
+export function normalizeArtistMealSpecText(raw) {
+  if (raw == null) return "";
+  let s = String(raw);
+  if (!s.trim()) return "";
+  s = s
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|li|h[1-6]|tr)>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&#160;/g, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n");
+  return s.trim();
+}
+
+function escapeMealSpecHtml(s) {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function pushArtistMealSpecEntry(map, artist, person) {
+  if (!artist?.id) return;
+  if (artist.requiere_comidas === false) return;
+  if (person?.activo === false) return;
+  const nota = normalizeArtistMealSpecText(person?.nota_alimentacion);
+  if (!nota) return;
+  const id = String(artist.id);
+  if (!map.has(id)) {
+    map.set(id, {
+      id,
+      nombre: artist.nombre || `Artista ${id}`,
+      entries: [],
+      seen: new Set(),
+    });
+  }
+  const bucket = map.get(id);
+  const key =
+    person?.id != null && person.id !== ""
+      ? `id:${person.id}`
+      : `n:${personMealSpecLabel(person)}|${nota}`;
+  if (bucket.seen.has(key)) return;
+  bucket.seen.add(key);
+  bucket.entries.push({
+    personLabel: personMealSpecLabel(person),
+    nota,
+  });
+}
+
+function finalizeArtistMealSpecs(map) {
+  return Array.from(map.values())
+    .map(({ seen, ...rest }) => ({
+      ...rest,
+      entries: rest.entries.sort((a, b) =>
+        a.personLabel.localeCompare(b.personLabel, "es", {
+          sensitivity: "base",
+        }),
+      ),
+    }))
+    .filter((a) => a.entries.length > 0)
+    .sort((a, b) =>
+      a.nombre.localeCompare(b.nombre, "es", { sensitivity: "base" }),
+    );
+}
+
+/**
+ * Notas libres de nominados FIMBA (`fimba_participantes.nota_alimentacion`)
+ * de artistas tagueados en las filas del reporte (respeta filtros).
+ *
+ * @param {Array<{ propuestas?: Array<{ id?: unknown, nombre?: string, requiere_comidas?: boolean }> }>} reportRows
+ * @param {Map|Record} partsByPropuesta
+ * @param {{ onlyArtistaIds?: Array<string|number>|null }} [opts]
+ * @returns {Array<{ id: string, nombre: string, entries: Array<{ personLabel: string, nota: string }> }>}
+ */
+export function collectArtistMealSpecsFromReportRows(
+  reportRows = [],
+  partsByPropuesta = new Map(),
+  opts = {},
+) {
+  const allow = opts.onlyArtistaIds?.length
+    ? new Set(opts.onlyArtistaIds.map(String))
+    : null;
+  const map = new Map();
+  for (const row of reportRows || []) {
+    for (const p of row.propuestas || []) {
+      if (!p?.id) continue;
+      if (allow && !allow.has(String(p.id))) continue;
+      const parts = partsListForPropuesta(partsByPropuesta, p.id);
+      for (const person of parts) {
+        pushArtistMealSpecEntry(map, p, person);
+      }
+    }
+  }
+  return finalizeArtistMealSpecs(map);
+}
+
+/**
+ * Misma fuente sobre filas de hotelería / estadía (Excel/PDF comidas FIMBA).
+ * @param {Array} hoteleriaRows
+ */
+export function collectArtistMealSpecsFromHoteleriaRows(hoteleriaRows = []) {
+  const map = new Map();
+  for (const r of hoteleriaRows || []) {
+    if (r.requiere_comidas === false || r.propuesta?.requiere_comidas === false) {
+      continue;
+    }
+    const artist = {
+      id: r.propuesta?.id ?? r.id_propuesta,
+      nombre: r.propuesta?.nombre || "",
+      requiere_comidas: r.propuesta?.requiere_comidas ?? r.requiere_comidas,
+    };
+    if (!artist.id) continue;
+    for (const person of r.personas || r.participantes || []) {
+      pushArtistMealSpecEntry(map, artist, person);
+    }
+  }
+  return finalizeArtistMealSpecs(map);
+}
+
+export function flattenArtistMealSpecsRows(specs = []) {
+  const rows = [];
+  for (const a of specs || []) {
+    for (const e of a.entries || []) {
+      rows.push({
+        artista: a.nombre,
+        persona: e.personLabel,
+        nota: e.nota,
+      });
+    }
+  }
+  return rows;
+}
+
+export function formatArtistMealSpecsText(specs = []) {
+  if (!specs?.length) return "";
+  const blocks = [ARTIST_MEAL_SPECS_HEADING];
+  for (const a of specs) {
+    const lines = [a.nombre];
+    for (const e of a.entries || []) {
+      if (e.nota.includes("\n")) {
+        const indented = e.nota
+          .split("\n")
+          .map((line) => `  ${line}`)
+          .join("\n");
+        lines.push(`${e.personLabel}:\n${indented}`);
+      } else {
+        lines.push(`${e.personLabel}: ${e.nota}`);
+      }
+    }
+    blocks.push(lines.join("\n"));
+  }
+  return blocks.join("\n\n");
+}
+
+export function formatArtistMealSpecsHtml(specs = []) {
+  if (!specs?.length) return "";
+  const parts = [
+    `<h2>${escapeMealSpecHtml(ARTIST_MEAL_SPECS_HEADING)}</h2>`,
+  ];
+  for (const a of specs) {
+    parts.push(`<div class="no-break">`);
+    parts.push(`<h3>${escapeMealSpecHtml(a.nombre)}</h3>`);
+    for (const e of a.entries || []) {
+      parts.push(
+        `<p style="white-space:pre-wrap;margin:0 0 8px"><strong>${escapeMealSpecHtml(e.personLabel)}</strong> — ${escapeMealSpecHtml(e.nota)}</p>`,
+      );
+    }
+    parts.push(`</div>`);
+  }
+  return parts.join("");
+}
+
+export function appendArtistMealSpecsSection(text, specs = []) {
+  const body = formatArtistMealSpecsText(specs);
+  if (!body) return text || "";
+  const head = String(text || "").trim();
+  return head ? `${head}\n\n${body}` : body;
+}
+
 export { ARTISTAS_FIMBA_DIET };

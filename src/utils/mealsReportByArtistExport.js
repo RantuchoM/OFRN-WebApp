@@ -9,9 +9,12 @@ import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
 import { toast } from "sonner";
 import {
-  buildMealsPedidoText,
-  scopeMealsReportRowToArtista,
+  ARTIST_MEAL_SPECS_HEADING,
   ARTISTAS_FIMBA_DIET,
+  appendArtistMealSpecsSection,
+  buildMealsPedidoText,
+  collectArtistMealSpecsFromReportRows,
+  scopeMealsReportRowToArtista,
 } from "./mealsReportText";
 import { fimbaArtistMealDietBreakdown } from "./mealLogistics";
 
@@ -121,9 +124,57 @@ export function buildMealsReportBundlesByArtista(
     }
   }
 
-  return Array.from(map.values()).sort((a, b) =>
-    a.nombre.localeCompare(b.nombre, "es", { sensitivity: "base" }),
-  );
+  return Array.from(map.values())
+    .map((bundle) => ({
+      ...bundle,
+      specs: collectArtistMealSpecsFromReportRows(
+        bundle.rows,
+        fimbaPartsByPropuesta,
+        { onlyArtistaIds: [bundle.id] },
+      ),
+    }))
+    .sort((a, b) =>
+      a.nombre.localeCompare(b.nombre, "es", { sensitivity: "base" }),
+    );
+}
+
+function appendArtistSpecsFooter(ws, specs, colCount) {
+  const entries = [];
+  for (const a of specs || []) {
+    for (const e of a.entries || []) {
+      entries.push({
+        artista: a.nombre,
+        personLabel: e.personLabel,
+        nota: e.nota,
+        multi: (specs || []).length > 1,
+      });
+    }
+  }
+  if (!entries.length) return;
+
+  ws.addRow([]);
+  const titleRow = ws.addRow([ARTIST_MEAL_SPECS_HEADING]);
+  const titleNum = titleRow.number;
+  if (colCount > 1) {
+    ws.mergeCells(titleNum, 1, titleNum, colCount);
+  }
+  titleRow.font = { bold: true, size: 12 };
+  titleRow.alignment = { wrapText: true, vertical: "top" };
+
+  for (const e of entries) {
+    const label = e.multi
+      ? `${e.artista} — ${e.personLabel}`
+      : e.personLabel;
+    const row = ws.addRow([label, e.nota]);
+    const n = row.number;
+    if (colCount > 2) {
+      ws.mergeCells(n, 2, n, colCount);
+    }
+    row.alignment = { wrapText: true, vertical: "top" };
+    const lines = String(e.nota || "").split("\n").length;
+    row.height = Math.max(18, Math.min(90, 15 * lines + 6));
+    row.getCell(1).font = { bold: true };
+  }
 }
 
 async function writeArtistWorkbook(fileName, bundles, giraNombre) {
@@ -185,6 +236,8 @@ async function writeArtistWorkbook(fileName, bundles, giraNombre) {
       }
       ws.addRow(data);
     }
+
+    appendArtistSpecsFooter(ws, bundle.specs, cols.length);
   }
 
   const buf = await wb.xlsx.writeBuffer();
@@ -209,9 +262,12 @@ async function writeArtistTextZip(fileName, bundles) {
       i += 1;
     }
     used.add(name.toLowerCase());
-    const text = buildMealsPedidoText(bundle.rows, {
-      includeStayBlocks: false,
-    });
+    const text = appendArtistMealSpecsSection(
+      buildMealsPedidoText(bundle.rows, {
+        includeStayBlocks: false,
+      }),
+      bundle.specs,
+    );
     const header = `Pedido de alimentación — ${bundle.nombre}\n\n`;
     zip.file(name, header + (text || "(sin servicios)"));
   }

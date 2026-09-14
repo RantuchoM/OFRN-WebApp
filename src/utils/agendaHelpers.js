@@ -114,6 +114,15 @@ export function getAgendaTransportFlags(item, myTransportLogistics = {}) {
 }
 
 /**
+ * Parada del bus asignado al músico (o traslado INTERNO).
+ * Debe quedar en la agenda aunque `eventos_grupos` liste otro grupo de
+ * convocatoria: el tag editorial del evento no anula la asignación logística.
+ */
+export function isAssignedVehicleAgendaStop(item, myTransportLogistics = {}) {
+  return getAgendaTransportFlags(item, myTransportLogistics).isMyTransport;
+}
+
+/**
  * Determina dónde dibujar la línea "ahora" en la agenda:
  * - { type: 'inside', eventId, progress } si estamos dentro de un evento (progress 0..1)
  * - { type: 'between', prevId, nextId } si el último evento ya terminó y estamos entre ese y el siguiente

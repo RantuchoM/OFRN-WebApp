@@ -21,6 +21,10 @@ import {
 import {
   buildFimbaMealsStayFromHoteleria,
 } from "./fimbaMealsStay";
+import {
+  collectArtistMealSpecsFromHoteleriaRows,
+  flattenArtistMealSpecsRows,
+} from "./mealsReportText";
 
 async function loadExcelJS() {
   const { default: ExcelJS } = await import("exceljs");
@@ -600,6 +604,12 @@ const COMIDAS_DIA_COLS = [
   { header: "Total día", key: "total", width: 12 },
 ];
 
+const COMIDAS_SPECS_COLS = [
+  { header: "Artista", key: "artista", width: 28 },
+  { header: "Persona", key: "persona", width: 28 },
+  { header: "Especificación", key: "nota", width: 60 },
+];
+
 const COMIDAS_ARTISTA_DIA_COLS = [
   { header: "Artista", key: "artista", width: 28 },
   { header: "Check-in", key: "checkin", width: 12 },
@@ -853,6 +863,16 @@ export async function exportFimbaComidasExcel(opts = {}) {
       name: "Resumen regímenes",
       columns: COMIDAS_RESUMEN_COLS,
       rows: resumen,
+    });
+  }
+  const specsRows = flattenArtistMealSpecsRows(
+    collectArtistMealSpecsFromHoteleriaRows(rows),
+  );
+  if (specsRows.length) {
+    sheets.push({
+      name: "Especificaciones",
+      columns: COMIDAS_SPECS_COLS,
+      rows: specsRows,
     });
   }
   await writeFimbaWorkbook(name, sheets);

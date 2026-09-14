@@ -40,8 +40,11 @@ import {
   MEAL_FILTER_ORCHESTRA_ONLY,
 } from "../../utils/mealLogistics";
 import {
-  buildMealsPedidoText,
   ARTISTAS_FIMBA_DIET,
+  ARTIST_MEAL_SPECS_HEADING,
+  appendArtistMealSpecsSection,
+  buildMealsPedidoText,
+  collectArtistMealSpecsFromReportRows,
 } from "../../utils/mealsReportText";
 import { exportMealsReportByArtista } from "../../utils/mealsReportByArtistExport";
 import { resolveLocalidadResidencia } from "../../utils/integranteDomicilioViaticos";
@@ -420,7 +423,7 @@ export default function MealsReport({
             const { data: parts, error: partsErr } = await supabase
               .from("fimba_participantes")
               .select(
-                "id_propuesta, tipo_alimentacion, nota_alimentacion, activo",
+                "id, id_propuesta, nombre, apellido, tipo_alimentacion, nota_alimentacion, activo",
               )
               .in("id_propuesta", propuestaIds);
             if (partsErr) throw partsErr;
@@ -866,13 +869,29 @@ export default function MealsReport({
     [activeRoster],
   );
 
+  const artistMealSpecs = useMemo(() => {
+    if (!fimbaMode) return [];
+    const onlyIds = selectedArtistaIds.filter(
+      (id) =>
+        id !== NO_ARTIST_KEY && id !== MEAL_FILTER_ORCHESTRA_ONLY,
+    );
+    return collectArtistMealSpecsFromReportRows(
+      filteredReport,
+      fimbaPartsByPropuesta,
+      { onlyArtistaIds: onlyIds.length > 0 ? onlyIds : null },
+    );
+  }, [fimbaMode, filteredReport, fimbaPartsByPropuesta, selectedArtistaIds]);
+
   const textSummary = useMemo(
     () =>
-      buildMealsPedidoText(filteredReport, {
-        nonLocalRoster,
-        includeStayBlocks: true,
-      }),
-    [filteredReport, nonLocalRoster],
+      appendArtistMealSpecsSection(
+        buildMealsPedidoText(filteredReport, {
+          nonLocalRoster,
+          includeStayBlocks: true,
+        }),
+        artistMealSpecs,
+      ),
+    [filteredReport, nonLocalRoster, artistMealSpecs],
   );
 
   /** Filas del reporte sin filtro de artista (base del batch por artista). */
@@ -1364,6 +1383,31 @@ export default function MealsReport({
             </tr>
           </tfoot>
         </table>
+
+        {artistMealSpecs.length > 0 && (
+          <section className="mt-10 pt-6 border-t-2 border-slate-800">
+            <h2 className="text-base font-bold text-slate-800 mb-4">
+              {ARTIST_MEAL_SPECS_HEADING}
+            </h2>
+            {artistMealSpecs.map((a) => (
+              <div key={a.id} className="mb-5 break-inside-avoid">
+                <h3 className="text-sm font-bold text-slate-900 mb-1.5">
+                  {a.nombre}
+                </h3>
+                {a.entries.map((e, i) => (
+                  <p
+                    key={`${a.id}-${i}`}
+                    className="text-sm text-slate-700 whitespace-pre-wrap mb-2"
+                  >
+                    <span className="font-semibold">{e.personLabel}</span>
+                    {": "}
+                    {e.nota}
+                  </p>
+                ))}
+              </div>
+            ))}
+          </section>
+        )}
       </div>
 
       {showSummaryModal &&

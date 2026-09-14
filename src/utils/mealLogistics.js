@@ -441,6 +441,75 @@ export function toggleMealOrchestraOnlyFilter(artistaIds = []) {
   return [MEAL_FILTER_ORCHESTRA_ONLY];
 }
 
+const MEAL_ARTIST_FILTER_SENTINELS = new Set([
+  MEAL_FILTER_ORCHESTRA_ONLY,
+  MEAL_FILTER_NO_ARTIST,
+]);
+
+function mealPropuestaIdKey(p) {
+  const id = p?.id ?? p?.id_propuesta ?? p;
+  if (id == null || id === "") return null;
+  return String(id);
+}
+
+/**
+ * IDs reales de artistas del filtro Artista (sin «Todos», Solo orquesta, Sin artistas).
+ * Vacío = no pre-etiquetar al crear.
+ */
+export function mealFilterArtistaIdsForCreate(artistaIds = []) {
+  const out = [];
+  const seen = new Set();
+  for (const raw of artistaIds || []) {
+    const id = String(raw ?? "").trim();
+    if (!id || MEAL_ARTIST_FILTER_SENTINELS.has(id)) continue;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
+}
+
+/**
+ * Tags FIMBA al crear comida (vacante, «+» sibling, insert).
+ * Paridad Transportes: hereda `sourceRow.propuestas`; si no hay, usa el filtro
+ * artista activo. No fuerza tag si el filtro está vacío / Solo orquesta.
+ *
+ * @param {object|null|undefined} sourceRow
+ * @param {{ fallbackArtistaIds?: Array<string|number>, propuestasCatalog?: Array }} [opts]
+ * @returns {object[]}
+ */
+export function inheritMealArtistTagsForCreate(sourceRow, opts = {}) {
+  const fromSource = filterFimbaPropuestasForMeals(
+    sourceRow?.propuestas || [],
+  ).filter((p) => mealPropuestaIdKey(p));
+  if (fromSource.length) return fromSource;
+
+  const filterIds = mealFilterArtistaIdsForCreate(opts.fallbackArtistaIds || []);
+  if (!filterIds.length) return [];
+
+  const catalogById = new Map();
+  for (const p of filterFimbaPropuestasForMeals(opts.propuestasCatalog || [])) {
+    const key = mealPropuestaIdKey(p);
+    if (key) catalogById.set(key, p);
+  }
+  return filterIds.map((id) => {
+    const fromCat = catalogById.get(id);
+    if (fromCat) return fromCat;
+    const num = Number(id);
+    return { id: Number.isFinite(num) ? num : id };
+  });
+}
+
+/** Propuestas a mostrar en fila temp: propias, o las del filtro artista activo. */
+export function effectiveMealRowPropuestas(row, fallbackPropuestas = []) {
+  const own = filterFimbaPropuestasForMeals(row?.propuestas || []);
+  if (own.length) return own;
+  if (row?.isTemp && (fallbackPropuestas || []).length) {
+    return filterFimbaPropuestasForMeals(fallbackPropuestas);
+  }
+  return own;
+}
+
 /** Default servicios visibles en gestor/asistencia/reporte (Desayuno off). */
 export const DEFAULT_MEAL_SERVICE_FILTER = [
   "Almuerzo",
@@ -1689,8 +1758,46 @@ export async function fetchMealEventTypes(supabase) {
 }
 
 /**
+ * Opciones del select SERVICIO en MealsManager (OFRN + FIMBA).
+ * Conserva subtipos del servicio actual (p. ej. Merienda / Merienda a bordo)
+ * y siempre agrega los tipos de categoría Catering (Almuerzo/Merienda/Cena…).
+ * En una fila ya Catering, también lista los tipos Comidas para poder volver.
+ *
+ * @param {Array} mealTypes
+ * @param {object} [row]
+ */
+export function mealTypeSelectOptions(mealTypes = [], row = {}) {
+  const list = mealTypes || [];
+  const currentId =
+    row?.id_tipo_evento != null && row.id_tipo_evento !== ""
+      ? Number(row.id_tipo_evento)
+      : null;
+  const rowIsCatering =
+    row?.servicio === CATERING_SERVICE || isCateringEvent(row);
+
+  const filtered = list.filter((t) => {
+    if (currentId != null && Number(t.id) === currentId) return true;
+    if (t.is_catering || t.servicio === CATERING_SERVICE) return true;
+    if (rowIsCatering) return !t.is_catering && t.servicio !== CATERING_SERVICE;
+    return (
+      !t.is_catering &&
+      t.servicio !== CATERING_SERVICE &&
+      (!t.servicio || t.servicio === row?.servicio)
+    );
+  });
+
+  const meals = [];
+  const catering = [];
+  for (const t of filtered) {
+    if (t.is_catering || t.servicio === CATERING_SERVICE) catering.push(t);
+    else meals.push(t);
+  }
+  return [...meals, ...catering];
+}
+
+/**
  * Tipos Comidas + Catering para el gestor (selectores / alta).
- * Resuelve Catering por id conocido o por nombre de categorÃÂÃÂ­a.
+ * Resuelve Catering por id conocido o por nombre de categoría.
  */
 export async function fetchMealRelatedEventTypes(supabase) {
   const { data, error } = await supabase
