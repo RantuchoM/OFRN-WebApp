@@ -20,6 +20,9 @@ import {
   IconX,
   IconCheck,
   IconPrinter,
+  IconFilter,
+  IconChevronDown,
+  IconChevronUp,
 } from "../../components/ui/Icons";
 import MultiSelectDropdown from "../../components/ui/MultiSelectDropdown";
 import LocationSelectWithCreate from "../../components/forms/LocationSelectWithCreate";
@@ -186,13 +189,9 @@ function FimbaAgendaSearchField({ onQueryChange, resetSignal = 0 }) {
 
   return (
     <div
+      className="fimba-agenda-search"
       style={{
-        position: "relative",
-        display: "flex",
-        alignItems: "center",
-        flexShrink: 0,
         border: `1px solid ${isActive ? "var(--fimba-accent, #d73289)" : "var(--fimba-border, #e2e8f0)"}`,
-        borderRadius: 999,
         background: "var(--fimba-surface, #fff)",
         boxShadow: isActive
           ? "0 0 0 1px rgba(215, 50, 137, 0.22)"
@@ -221,9 +220,6 @@ function FimbaAgendaSearchField({ onQueryChange, resetSignal = 0 }) {
         aria-label="Buscar en tipo, detalle, locación, destino, artistas y vehículos"
         className="fimba-input"
         style={{
-          width: "10.5rem",
-          minWidth: "7.5rem",
-          maxWidth: "14rem",
           border: 0,
           borderRadius: 999,
           background: "transparent",
@@ -501,6 +497,8 @@ export default function FimbaAgendaPage() {
   /** Query de búsqueda debounced (vía FimbaAgendaSearchField). */
   const [agendaSearchQuery, setAgendaSearchQuery] = useState("");
   const [searchResetSignal, setSearchResetSignal] = useState(0);
+  /** Móvil: filtros colapsados por defecto (Buscar / origen / categoría / …). */
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const handleAgendaSearchQueryChange = useCallback((query) => {
     startTransition(() => {
       setAgendaSearchQuery(query);
@@ -1649,6 +1647,15 @@ export default function FimbaAgendaPage() {
     includeTutti ||
     searchFilterActive;
 
+  const activeFilterCount = [
+    origenFilterActive,
+    categoryFilterActive,
+    locationFilterActive,
+    selectedPropuestaIds.length > 0,
+    selectedGrupoIds.length > 0 || includeTutti,
+    searchFilterActive,
+  ].filter(Boolean).length;
+
   const activeFilterLabels = useMemo(() => {
     const parts = [];
     if (origenFilterActive) {
@@ -2086,8 +2093,30 @@ export default function FimbaAgendaPage() {
           </div>
         </div>
         {!queryLocked && (
+        <div className="fimba-agenda-filters">
+        <button
+          type="button"
+          className="fimba-btn fimba-btn-ghost fimba-agenda-filters-toggle"
+          onClick={() => setFiltersOpen((v) => !v)}
+          aria-expanded={filtersOpen}
+          aria-controls="fimba-agenda-filters-row"
+        >
+          <IconFilter size={16} aria-hidden />
+          Filtros
+          {activeFilterCount > 0 ? (
+            <span className="fimba-agenda-filters-toggle-count">
+              {activeFilterCount}
+            </span>
+          ) : null}
+          {filtersOpen ? (
+            <IconChevronUp size={16} aria-hidden />
+          ) : (
+            <IconChevronDown size={16} aria-hidden />
+          )}
+        </button>
         <div
-          className={`fimba-agenda-filters-row${showFilterPending ? " fimba-filters-busy" : ""}`}
+          id="fimba-agenda-filters-row"
+          className={`fimba-agenda-filters-row${showFilterPending ? " fimba-filters-busy" : ""}${filtersOpen ? " is-open" : ""}`}
           aria-busy={showFilterPending || undefined}
         >
           <FimbaAgendaSearchField
@@ -2192,6 +2221,7 @@ export default function FimbaAgendaPage() {
               </div>
             </div>
             </div>
+        </div>
           )}
       </div>
 

@@ -58,6 +58,8 @@ const FIMBA_CSS = `
   }
   .fimba-root {
     min-height: 100vh;
+    max-width: 100%;
+    overflow-x: clip;
     background:
       radial-gradient(1200px 500px at 10% -10%, rgba(215, 50, 137, 0.12), transparent 55%),
       radial-gradient(900px 420px at 100% 0%, rgba(0, 177, 235, 0.14), transparent 50%),
@@ -82,7 +84,9 @@ const FIMBA_CSS = `
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 1rem;
+    gap: 0.75rem 1rem;
+    flex-wrap: wrap;
+    min-width: 0;
   }
   .fimba-brand {
     display: flex;
@@ -90,6 +94,8 @@ const FIMBA_CSS = `
     gap: 0.55rem;
     text-decoration: none;
     color: inherit;
+    min-width: 0;
+    flex: 0 1 auto;
   }
   .fimba-logo {
     font-weight: 800;
@@ -116,17 +122,21 @@ const FIMBA_CSS = `
     flex-wrap: wrap;
     justify-content: flex-end;
     min-width: 0;
+    max-width: 100%;
+    flex: 1 1 12rem;
   }
   /* Segmented control: Agenda | Transportes | Hotelería */
   .fimba-section-toggle {
     display: inline-flex;
     align-items: stretch;
+    flex-wrap: wrap;
     padding: 3px;
     border-radius: 10px;
     border: 1px solid var(--fimba-border);
     background: #f1f5f9;
     gap: 2px;
     max-width: 100%;
+    min-width: 0;
   }
   .fimba-section-toggle-item {
     display: inline-flex;
@@ -160,6 +170,10 @@ const FIMBA_CSS = `
   @media (max-width: 720px) {
     .fimba-section-toggle-label { display: none; }
     .fimba-section-toggle-item { padding: 0.42rem 0.55rem; }
+    .fimba-section-toggle {
+      width: 100%;
+      justify-content: flex-start;
+    }
   }
   /* Shell content: 90% viewport (floor when zoomed out); no fixed px max-width */
   .fimba-main {
@@ -178,6 +192,20 @@ const FIMBA_CSS = `
       max-width: 100%;
       padding-left: 1rem;
       padding-right: 1rem;
+    }
+    .fimba-header-inner {
+      align-items: flex-start;
+    }
+    .fimba-header-actions {
+      flex: 1 1 100%;
+      width: 100%;
+      justify-content: flex-end;
+    }
+    .fimba-main {
+      overflow-x: clip;
+    }
+    .fimba-print-btn {
+      white-space: nowrap;
     }
   }
   .fimba-edicion-wide,
@@ -204,6 +232,29 @@ const FIMBA_CSS = `
     flex-wrap: wrap;
     min-width: 0;
   }
+  .fimba-agenda-filters {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+  }
+  .fimba-agenda-filters-toggle {
+    display: none;
+  }
+  .fimba-agenda-filters-toggle-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.15rem;
+    height: 1.15rem;
+    padding: 0 0.3rem;
+    border-radius: 999px;
+    background: var(--fimba-accent, #d73289);
+    color: #fff;
+    font-size: 0.68rem;
+    font-weight: 800;
+    line-height: 1;
+  }
   .fimba-agenda-filters-row {
     display: flex;
     align-items: center;
@@ -211,9 +262,56 @@ const FIMBA_CSS = `
     flex-wrap: wrap;
     min-width: 0;
   }
+  .fimba-agenda-search {
+    position: relative;
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+    width: 10.5rem;
+    min-width: 7.5rem;
+    max-width: 14rem;
+    border-radius: 999px;
+  }
+  .fimba-agenda-search .fimba-input {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+  }
   @media (min-width: 1100px) {
     .fimba-agenda-filters-row {
       flex-wrap: nowrap;
+    }
+  }
+  @media (max-width: 767px) {
+    .fimba-agenda-filters-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      align-self: flex-start;
+      padding: 0.38rem 0.75rem;
+      font-size: 0.82rem;
+    }
+    .fimba-agenda-filters-row:not(.is-open) {
+      display: none;
+    }
+    .fimba-agenda-filters-row.is-open {
+      flex-direction: column;
+      align-items: stretch;
+    }
+    .fimba-agenda-filters-row.is-open .fimba-agenda-search,
+    .fimba-agenda-filters-row.is-open .fimba-agenda-filter-item,
+    .fimba-agenda-filters-row.is-open .fimba-agenda-filter-dropdown,
+    .fimba-agenda-filters-row.is-open .fimba-agenda-origen-chips {
+      width: 100%;
+      max-width: 100%;
+      flex: 1 1 auto;
+    }
+    .fimba-agenda-filters-row.is-open .fimba-agenda-origen-chips {
+      flex-wrap: wrap;
+    }
+    .fimba-agenda-filters-row.is-open .fimba-agenda-filter-item {
+      flex-direction: column;
+      align-items: stretch;
     }
   }
   .fimba-agenda-filter-item {
@@ -2666,6 +2764,7 @@ const FIMBA_CSS = `
     .fimba-sync-col,
     .fimba-sticky-sync,
     .fimba-agenda-filters-row,
+    .fimba-agenda-filters-toggle,
     .fimba-agenda-actions-row,
     .fimba-agenda-clear-filters,
     .fimba-agenda-copy-link,

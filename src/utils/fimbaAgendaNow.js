@@ -4,8 +4,12 @@
  * Visible por defecto (incluye en curso): el corte (`hora_fin`, o `hora_inicio`
  * si no hay fin) no es estrictamente anterior a now.
  * - Futuro: start >= now.
- * - En curso: ya empezó y aún no terminó (`hora_fin` >= now; overnight si fin ≤ inicio).
- * - Sin `hora_fin`: el evento es un punto en `hora_inicio` (se oculta apenas start < now).
+ * - En curso: ya empezó y aún no terminó (`hora_fin` >= now).
+ * - Overnight: solo si `hora_fin` < `hora_inicio` (cruza medianoche). Iguales
+ *   (`14:00`–`14:00`) son un punto en ese instante, no 24 h.
+ * - Sin `hora_fin` (o sin duración): punto en `hora_inicio` (se oculta apenas start < now).
+ * `fecha` es calendario `yyyy-MM-dd` anclado con `new Date(y, m, d, …)` local
+ * del dispositivo (ART en teléfonos Argentina); no se parsea como UTC.
  * Filas pending de create se tratan siempre como actuales.
  * Independiente de filtros (artista, origen, grupos, URL). No usa Realtime.
  */
@@ -58,7 +62,9 @@ export function fimbaAgendaEventEndDate(ev) {
   const end = localDateAt(ev.fecha, t);
   if (!end) return null;
   const start = fimbaAgendaEventStartDate(ev);
-  if (start && end.getTime() <= start.getTime()) {
+  // Overnight only when fin is earlier than inicio (crosses midnight).
+  // Equal times are zero-duration / point-in-time — not a 24h wrap.
+  if (start && end.getTime() < start.getTime()) {
     end.setDate(end.getDate() + 1);
   }
   return end;
