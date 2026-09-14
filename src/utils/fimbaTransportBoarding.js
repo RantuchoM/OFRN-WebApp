@@ -1105,8 +1105,11 @@ export function sumRidesOccupyingWindow(
 
 /**
  * Siguiente parada en la secuencia unificada del vehículo (OFRN + FIMBA).
- * El residual sintético baja en la parada inmediata siguiente del mismo
- * `giras_transportes` — no se saltean Arribos/paradas OFRN.
+ * El residual sintético baja en la siguiente parada **de movimiento** del mismo
+ * `giras_transportes` — no se saltean Arribos/paradas OFRN (`id_gira_transporte`)
+ * ni trayectos tipo transporte. Sí se saltean actividades FIMBA con flota
+ * (Concierto / Armado / etc. solo en `fimba_evento_transportes`) para no cerrar
+ * el residual en un stop de ocupación Δ 0.
  *
  * @param {Array<object>} sorted — ya filtrada como secuencia de boarding
  * @param {number} fromIdx
@@ -1116,7 +1119,14 @@ export function nextSyntheticAlightEvent(sorted, fromIdx) {
   if (!Number.isFinite(fromIdx) || fromIdx < 0 || fromIdx >= list.length - 1) {
     return null;
   }
-  return list[fromIdx + 1] || null;
+  for (let i = fromIdx + 1; i < list.length; i++) {
+    const ev = list[i];
+    const ofrnUnit =
+      ev?.id_gira_transporte != null && ev.id_gira_transporte !== "";
+    if (!isTransportTipoEvent(ev) && !ofrnUnit) continue;
+    return ev;
+  }
+  return null;
 }
 
 /**
@@ -1799,9 +1809,8 @@ export function listOffTrayectoRideEndpoints(opts = {}) {
  * - Tipo transporte con asignación a la unidad
  * - Parada OFRN (`id_gira_transporte` = unidad) — **nunca** se omiten
  * - Endpoint de ruta explícita ↑/↓ (p.ej. Concierto con subida/bajada real)
- *
- * Excluye: Concierto/hotel/etc. que solo tienen `fimba_evento_transportes`
- * sin ser tipo transporte ni endpoint ↑/↓ (no afectan subir/bajar).
+ * - Actividad no-transporte con flota (`fimba_evento_transportes`) — parada
+ *   de planilla/hoja (Δ 0); no inventa Sube/Baja sintéticas
  *
  * @param {object} ev
  * @param {number|string} idGiraTransporte
@@ -1829,9 +1838,9 @@ export function isVehicleBoardingSequenceEvent(
 
   // Parada OFRN de esta unidad: siempre en la secuencia unificada
   if (ofrnUnit) return true;
-  if (!onFleet && !isEndpoint) return false;
-  if (isTransportTipoEvent(ev)) return true;
   if (isEndpoint) return true;
+  // Trayecto FIMBA o actividad con vehículo asignado a esta unidad
+  if (onFleet) return true;
   return false;
 }
 

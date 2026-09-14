@@ -56,6 +56,7 @@ import {
   getFimbaEdicionById,
   giraTransporteIdsFromEvent,
   isFimbaTrasladoEvent,
+  isFimbaActividadConVehiculo,
   labelGiraTransporte,
   listFimbaAgenda,
   listFimbaFlota,
@@ -112,6 +113,7 @@ import {
   sortFimbaAgendaRows,
   sortFimbaPropuestasByNombre,
 } from "../../utils/fimbaAgendaSort";
+import { fimbaTipoRowTintStyle } from "../../utils/fimbaEventCategories";
 import {
   exportFimbaTransporteTodosExcel,
   exportFimbaTransporteVehiculoExcel,
@@ -4496,14 +4498,22 @@ export default function FimbaTransportPage() {
                     const cap = stop?.capacidad;
                     const libres = stop?.libres;
                     const overbook = Boolean(stop?.overbook);
+                    const isActividadVehiculo =
+                      !isContext && isFimbaActividadConVehiculo(ev);
                     const rowClass =
                       isContext
                         ? "fimba-row-contexto"
-                        : ev.origen === "ofrn"
-                        ? "fimba-row-ofrn"
-                        : ev.origen === "ambos"
-                          ? "fimba-row-ambos"
-                          : "";
+                        : isActividadVehiculo
+                          ? "fimba-row-actividad-vehiculo"
+                          : ev.origen === "ofrn"
+                            ? "fimba-row-ofrn"
+                            : ev.origen === "ambos"
+                              ? "fimba-row-ambos"
+                              : "";
+                    const tipoTint =
+                      isActividadVehiculo && !isContext
+                        ? fimbaTipoRowTintStyle(ev.tipo_color)
+                        : undefined;
                     const canEditStops =
                       !readOnly &&
                       !isContext &&
@@ -4709,6 +4719,7 @@ export default function FimbaTransportPage() {
                       deletingEventId === String(ev.id);
                     const evRowClass = [
                       rowClass,
+                      tipoTint ? "fimba-has-tipo-tint" : "",
                       editMode ? rowStatusClass(evStatus) : "",
                       isHighlighted ? "fimba-row-highlight" : "",
                       isDeletingRow ? "fimba-row-deleting" : "",
@@ -4862,6 +4873,11 @@ export default function FimbaTransportPage() {
                         )}
                       <tr
                         className={evRowClass}
+                        style={
+                          tipoTint && !isPendingCreate && !rowEditing
+                            ? tipoTint
+                            : undefined
+                        }
                         onDoubleClick={
                           readOnly ||
                           editMode ||
@@ -4933,6 +4949,16 @@ export default function FimbaTransportPage() {
                                   "Agenda"}
                               </span>
                             )}
+                            {isActividadVehiculo && (
+                              <span
+                                className="fimba-badge fimba-badge-actividad-vehiculo"
+                                title="Actividad con vehículo asignado (no traslado)"
+                              >
+                                {ev.tipo_nombre ||
+                                  ev.categoria_nombre ||
+                                  "Actividad"}
+                              </span>
+                            )}
                             {ev.es_fimba && (
                               <span className="fimba-badge fimba-badge-fimba">
                                 FIMBA
@@ -4943,7 +4969,10 @@ export default function FimbaTransportPage() {
                                 OFRN
                               </span>
                             )}
-                            {!isContext && !ev.es_fimba && !ev.es_ofrn && (
+                            {!isContext &&
+                              !isActividadVehiculo &&
+                              !ev.es_fimba &&
+                              !ev.es_ofrn && (
                               <span
                                 className="fimba-muted"
                                 style={{ fontSize: "0.75rem" }}

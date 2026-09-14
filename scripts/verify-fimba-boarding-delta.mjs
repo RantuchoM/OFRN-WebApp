@@ -48,13 +48,20 @@ function sortEventsBySchedule(events) {
   );
 }
 
-/** Siguiente parada del timeline unificado (incluye OFRN). */
+/** Siguiente parada de movimiento (salta actividades FIMBA solo-flota). */
 function nextSyntheticAlightEvent(sorted, fromIdx) {
   const list = sorted || [];
   if (!Number.isFinite(fromIdx) || fromIdx < 0 || fromIdx >= list.length - 1) {
     return null;
   }
-  return list[fromIdx + 1] || null;
+  for (let i = fromIdx + 1; i < list.length; i++) {
+    const ev = list[i];
+    const ofrnUnit =
+      ev?.id_gira_transporte != null && ev.id_gira_transporte !== "";
+    if (!isTransportTipoEvent(ev) && !ofrnUnit) continue;
+    return ev;
+  }
+  return null;
 }
 
 function resolveFimbaSeatsForVehicle(ev, idGiraTransporte) {
@@ -94,9 +101,8 @@ function isVehicleBoardingSequenceEvent(ev, tid, fleetIds, endpointIds) {
   const ofrnUnit =
     ev.id_gira_transporte != null && Number(ev.id_gira_transporte) === tid;
   if (ofrnUnit) return true;
-  if (!onFleet && !isEndpoint) return false;
-  if (isTransportTipoEvent(ev)) return true;
   if (isEndpoint) return true;
+  if (onFleet) return true;
   return false;
 }
 
@@ -244,8 +250,8 @@ assert(
   "Parada OFRN siempre en secuencia unificada",
 );
 assert(
-  !isVehicleBoardingSequenceEvent(evConciertoVs, tid, fleetIds, new Set()),
-  "Concierto con plazas flota (sin ↑/↓) no entra a secuencia",
+  isVehicleBoardingSequenceEvent(evConciertoVs, tid, fleetIds, new Set()),
+  "Concierto con plazas flota entra a secuencia (parada Δ 0 / planilla)",
 );
 assert(
   isVehicleBoardingSequenceEvent(
@@ -267,8 +273,8 @@ assert(
   "Arribo OFRN presente en timeline",
 );
 assert(
-  !vehicleEvents.some((e) => e.id === 3986 || e.id === 3987),
-  "Conciertos sin ↑/↓ ausentes",
+  vehicleEvents.some((e) => e.id === 3986 || e.id === 3987),
+  "Conciertos con flota presentes en timeline",
 );
 
 const fimbaRides = buildFimbaSyntheticRides(vehicleEvents, tid);
@@ -339,9 +345,17 @@ for (const s of seq.stops) {
   );
 }
 
-// Documenta bug viejo: hop Concierto → Δ −1 / −2
+// Actividades con flota: en secuencia como parada Δ 0 (no hop fantasma de plazas)
 assert(6 - 7 === -1 && 4 - 6 === -2, "documenta bug viejo hop Concierto");
-assert(!byId["3986"] && !byId["3987"], "sin filas Concierto fantasma");
+assert(byId["3986"] && byId["3987"], "Conciertos con flota en secuencia");
+assert(
+  byId["3986"]?.delta === 0 && byId["3987"]?.delta === 0,
+  "Conciertos flota: Δ 0 (sin Sube/Baja sintética)",
+);
+assert(
+  byId["3986"]?.en_transito === 11 && byId["3987"]?.en_transito === 11,
+  "Conciertos flota: tránsito arrastra (11) sin inventar ocupación",
+);
 
 // --- isFimbaRideAboardAtStop: ride abierto no marca eventos fuera de secuencia ---
 function isPresentAtStop(upIdx, downIdx, currentIdx) {

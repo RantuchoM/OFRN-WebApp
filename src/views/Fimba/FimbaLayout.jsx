@@ -993,7 +993,8 @@ const FIMBA_CSS = `
     background: rgba(215, 50, 137, 0.03);
   }
   /* Let <tr> tipo wash show through (origen tones paint td otherwise) */
-  .fimba-agenda-table tbody tr.fimba-has-tipo-tint td {
+  .fimba-agenda-table tbody tr.fimba-has-tipo-tint td,
+  .fimba-planilla-table tbody tr.fimba-has-tipo-tint td {
     background: transparent;
   }
   .fimba-agenda-event-card-top {
@@ -1557,6 +1558,12 @@ const FIMBA_CSS = `
   .fimba-planilla-table.fimba-table-edit .fimba-row-ambos .fimba-sticky-hora {
     background: #fdf7fb;
   }
+  .fimba-planilla-table.fimba-table-edit .fimba-row-actividad-vehiculo .fimba-sticky-sync,
+  .fimba-planilla-table.fimba-table-edit .fimba-row-actividad-vehiculo .fimba-sticky-origen,
+  .fimba-planilla-table.fimba-table-edit .fimba-row-actividad-vehiculo .fimba-sticky-fecha,
+  .fimba-planilla-table.fimba-table-edit .fimba-row-actividad-vehiculo .fimba-sticky-hora {
+    background: #f0fdfa;
+  }
   .fimba-hora-edit {
     display: flex;
     flex-direction: column;
@@ -2111,14 +2118,38 @@ const FIMBA_CSS = `
   .fimba-row-contexto td:first-child {
     box-shadow: inset 3px 0 0 #64748b;
   }
+  /* Actividad no-transporte con flota (teal, distinto de OFRN cyan / FIMBA magenta) */
+  .fimba-row-actividad-vehiculo td {
+    background: rgba(15, 118, 110, 0.05);
+  }
+  .fimba-row-actividad-vehiculo td:first-child {
+    box-shadow: inset 3px 0 0 #0f766e;
+  }
   .fimba-planilla-table .fimba-row-contexto .fimba-sticky-origen,
   .fimba-planilla-table .fimba-row-contexto .fimba-sticky-fecha,
   .fimba-planilla-table .fimba-row-contexto .fimba-sticky-hora {
     background: #f1f5f9;
   }
+  .fimba-planilla-table .fimba-row-actividad-vehiculo .fimba-sticky-origen,
+  .fimba-planilla-table .fimba-row-actividad-vehiculo .fimba-sticky-fecha,
+  .fimba-planilla-table .fimba-row-actividad-vehiculo .fimba-sticky-hora {
+    background: #f0fdfa;
+  }
+  .fimba-planilla-table .fimba-row-actividad-vehiculo td.fimba-planilla-col-secondary {
+    color: #0f766e;
+  }
+  .fimba-planilla-table .fimba-row-actividad-vehiculo .fimba-planilla-actions {
+    background: #f0fdfa;
+  }
   .fimba-badge-contexto {
     background: #e2e8f0;
     color: #334155;
+    font-weight: 700;
+  }
+  .fimba-badge-actividad-vehiculo {
+    background: rgba(15, 118, 110, 0.12);
+    color: #0f766e;
+    border: 1px solid rgba(15, 118, 110, 0.35);
     font-weight: 700;
   }
   /* Pending create: gray while DB write runs (Programar / recorrido) */

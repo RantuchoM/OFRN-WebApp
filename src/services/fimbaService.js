@@ -4506,22 +4506,31 @@ export async function listFimbaGiraGrupos(idGira) {
 }
 
 /**
+ * ¿Actividad de agenda (no Traslado/Transporte) con vehículo de flota asignado?
+ * Planilla Transportes las intercala con trayectos; no inventan Sube/Baja
+ * sintéticas (ver `isVehicleBoardingSequenceEvent` + `nextSyntheticAlightEvent`).
+ *
+ * @param {{ id_tipo_evento?: unknown, tipos_evento?: object|null, vehiculos?: unknown[], id_gira_transporte?: unknown }} ev
+ */
+export function isFimbaActividadConVehiculo(ev) {
+  if (!ev) return false;
+  if (actividadUsaTransporte(ev.id_tipo_evento, ev.tipos_evento)) return false;
+  return giraTransporteIdsFromEvent(ev).length > 0;
+}
+
+/**
  * ¿El evento es relevante para la planilla de trayectos / transportes?
  * - Tipo catálogo transporte (`actividadUsaTransporte`)
  * - Parada / tramo OFRN con unidad (`eventos.id_gira_transporte`)
- *
- * Un Concierto (u otro no-transporte) con fila en `fimba_evento_transportes`
- * **no** entra solo por eso: esa asignación no implica parada de boarding.
- * Para ↑/↓ en un venue no-transporte usar `fimba_propuesta_rutas` (el endpoint
- * entra a la secuencia de boarding vía `isVehicleBoardingSequenceEvent`).
+ * - Cualquier evento con flota FIMBA (`fimba_evento_transportes` → `vehiculos`)
+ *   aunque el tipo no sea Traslado (ej. «Armado de sala» con furgón)
  *
  * @param {{ id_tipo_evento?: unknown, tipos_evento?: object|null, vehiculos?: unknown[], id_gira_transporte?: unknown }} ev
  */
 export function isFimbaTrasladoEvent(ev) {
   if (!ev) return false;
   if (actividadUsaTransporte(ev.id_tipo_evento, ev.tipos_evento)) return true;
-  if (ev.id_gira_transporte != null && ev.id_gira_transporte !== "") return true;
-  return false;
+  return giraTransporteIdsFromEvent(ev).length > 0;
 }
 
 /**
@@ -5051,8 +5060,9 @@ export async function getFimbaAgendaEvento(edicionId, eventoId, opts = {}) {
 }
 
 /**
- * Lista trayectos de transportes FIMBA + paradas/traslados OFRN de la gira.
- * Subconjunto de agenda (`solo_traslados`): tipo transporte, flota FIMBA o `id_gira_transporte`.
+ * Lista trayectos de transportes FIMBA + paradas/traslados OFRN de la gira
+ * + actividades no-transporte con flota asignada (`isFimbaTrasladoEvent`).
+ * Subconjunto de agenda (`solo_traslados`).
  * @param {number|string} edicionId
  * @param {{
  *   id_propuesta?: number|string|null,
