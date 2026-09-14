@@ -46,6 +46,12 @@ import {
   buildMealsPedidoText,
   collectArtistMealSpecsFromReportRows,
 } from "../../utils/mealsReportText";
+import {
+  canonicalizeMealDiet,
+  compareMealDietLabels,
+  dietDisplayLabel,
+  dietShortLabel,
+} from "../../utils/dietOptions";
 import { exportMealsReportByArtista } from "../../utils/mealsReportByArtistExport";
 import { resolveLocalidadResidencia } from "../../utils/integranteDomicilioViaticos";
 import { useGiraSegmentos } from "../../hooks/useGiraSegmentos";
@@ -497,7 +503,7 @@ export default function MealsReport({
             else if (includePending && !status) shouldCount = true;
 
             if (shouldCount) {
-              const diet = person.alimentacion || "Estándar";
+              const diet = canonicalizeMealDiet(person.alimentacion);
               counts[diet] = (counts[diet] || 0) + 1;
               counts.Total++;
             }
@@ -794,17 +800,7 @@ export default function MealsReport({
         if (k !== "Total") diets.add(k);
       });
     });
-    return Array.from(diets).sort((a, b) => {
-      const rank = (d) => {
-        if (d === "Estándar" || d === "Regular") return 0;
-        if (d === ARTISTAS_FIMBA_DIET) return 2;
-        return 1;
-      };
-      const ra = rank(a);
-      const rb = rank(b);
-      if (ra !== rb) return ra - rb;
-      return a.localeCompare(b, "es");
-    });
+    return Array.from(diets).sort(compareMealDietLabels);
   }, [filteredReport]);
 
   const filterSummaryLabel = useMemo(() => {
@@ -1294,7 +1290,7 @@ export default function MealsReport({
               {allDiets.map((d) => (
                 <th
                   key={d}
-                  className={`py-2 px-1 w-0 text-right border-l text-xs uppercase font-bold whitespace-nowrap ${
+                  className={`py-2 px-1 w-0 text-right border-l text-xs font-bold whitespace-nowrap ${
                     d === ARTISTAS_FIMBA_DIET
                       ? "text-fuchsia-800"
                       : "text-slate-800"
@@ -1302,14 +1298,10 @@ export default function MealsReport({
                   title={
                     d === ARTISTAS_FIMBA_DIET
                       ? "Artistas FIMBA sin nominar / por confirmar"
-                      : d
+                      : dietDisplayLabel(d)
                   }
                 >
-                  {d === ARTISTAS_FIMBA_DIET
-                    ? "Art."
-                    : d.length <= 4
-                      ? d
-                      : d.slice(0, 4)}
+                  {d === ARTISTAS_FIMBA_DIET ? "Art." : dietShortLabel(d)}
                 </th>
               ))}
             </tr>

@@ -35,6 +35,7 @@ import {
   getIntegranteDeleteBlockers,
 } from "../../services/mergeIntegrantes";
 import { isProtectedIntegrante } from "../../utils/protectedIntegrantes";
+import { DIET_OPTIONS } from "../../utils/dietOptions";
 import {
   membershipActiveOnProgramDate,
   toIsoDateString,
@@ -58,15 +59,6 @@ const CONDITION_OPTIONS = [
   "Refuerzo",
   "Invitado",
   "Becario",
-];
-const DIET_OPTIONS = [
-  "General",
-  "Celíaca",
-  "Diabética",
-  "Vegetariana",
-  "Vegana",
-  "Sin Sal",
-  "Sin Lactosa",
 ];
 
 const MASS_EDIT_FIELDS = [

@@ -18,6 +18,7 @@ import {
 } from "date-fns";
 import { es } from "date-fns/locale";
 import { useGiraRoster } from "../../hooks/useGiraRoster";
+import { dietDisplayLabel, isStandardOfrnDiet } from "../../utils/dietOptions";
 import ManualTrigger from "../../components/manual/ManualTrigger";
 import { isUserConvoked, normalize } from "../../utils/giraUtils";
 import {
@@ -270,13 +271,13 @@ export default function MealsAttendancePersonal({ supabase, gira, userId }) {
             </span>
             <div className="flex items-center gap-2">
               <IconUtensils size={16} className="text-slate-400" />
-              {userData.alimentacion ? (
-                <span className="font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100 inline-block">
-                  {userData.alimentacion}
-                </span>
-              ) : (
+              {isStandardOfrnDiet(userData.alimentacion) ? (
                 <span className="text-slate-500 italic">
                   No especificada (Menú Estándar)
+                </span>
+              ) : (
+                <span className="font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100 inline-block">
+                  {dietDisplayLabel(userData.alimentacion)}
                 </span>
               )}
             </div>

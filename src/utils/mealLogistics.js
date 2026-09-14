@@ -11,6 +11,13 @@ import { isFimbaOnlyAgendaEvent } from "./agendaHelpers";
 import { stayDateFromEventOrMirror } from "./fimbaStay";
 import { enumerateExpectedAmcSlotsForStay } from "./fimbaMealsStay";
 
+export {
+  canonicalizeMealDiet,
+  compareMealDietLabels,
+  dietDisplayLabel,
+  dietShortLabel,
+} from "./dietOptions";
+
 /** Orden del dÃÂÃÂÃÂÃÂ­a para comparar inicio/fin de cobertura de comidas. */
 export const MEAL_SERVICE_ORDER = {
   Desayuno: 0,
@@ -1857,7 +1864,9 @@ export function fimbaArtistMealPax(propuestas = []) {
 
 /**
  * Etiqueta de columna para dieta de un participante FIMBA en MealsReport.
- * Presets ÃÂÃÂ¢ÃÂÃÂÃÂÃÂ label canÃÂÃÂÃÂÃÂ³nico; `otro` / nota libre ÃÂÃÂ¢ÃÂÃÂÃÂÃÂ ÃÂÃÂÃÂÃÂ«OtrosÃÂÃÂÃÂÃÂ» (evita N columnas por nota).
+ * Presets → label canónico; `otro` / nota libre → «Otros» (evita N columnas por nota).
+ * OFRN vacío/General/Estándar se unifican en `canonicalizeMealDiet` (`dietOptions.js`);
+ * FIMBA Regular no se fusiona con Estándar.
  * @param {{ tipo_alimentacion?: string|null, nota_alimentacion?: string|null }} part
  * @param {(tipo: string|null|undefined, nota?: string|null|undefined) => string} labelFn
  */

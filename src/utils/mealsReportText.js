@@ -6,6 +6,7 @@
 import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
 import { CATERING_SERVICE } from "./mealLogistics";
+import { canonicalizeMealDiet, compareMealDietLabels } from "./dietOptions";
 
 const ARTISTAS_FIMBA_DIET = "Artistas FIMBA";
 
@@ -77,18 +78,11 @@ export function buildMealsPedidoText(filteredRows = [], opts = {}) {
               ([k, v]) =>
                 k !== "Total" && k !== "base" && k !== "label" && v > 0,
             )
-            .sort(([a], [b]) => {
-              const rank = (d) => {
-                if (d === "Estándar" || d === "Regular") return 0;
-                if (d === ARTISTAS_FIMBA_DIET) return 2;
-                return 1;
-              };
-              const ra = rank(a);
-              const rb = rank(b);
-              if (ra !== rb) return ra - rb;
-              return a.localeCompare(b, "es");
-            })
-            .map(([diet, value]) => `${value} ${diet.toLowerCase()}`);
+            .sort(([a], [b]) => compareMealDietLabels(a, b))
+            .map(([diet, value]) => {
+              const label = canonicalizeMealDiet(diet);
+              return `${value} ${String(label).toLowerCase()}`;
+            });
 
           const details = diets.length > 0 ? ` (${diets.join(", ")})` : "";
           const base = counts.base;

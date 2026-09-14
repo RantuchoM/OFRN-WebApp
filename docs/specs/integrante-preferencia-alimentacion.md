@@ -18,9 +18,23 @@ Tabla: `public.integrantes`
 |---|---|
 | `nombre` / `apellido` | Nombre legal. Transporte, documentos, roster operativo. |
 | `nombre_preferencia` / `apellido_preferencia` | Opcionales. Si hay valor, reemplazan el legal **solo** en seating y sus informes. |
-| `alimentacion` | Ya existía. Ahora editable desde Mi Perfil. |
+| `alimentacion` | Ya existía. Ahora editable desde Mi Perfil. Vacío, **General** (histórico) y **Estándar** son el mismo bucket en Comidas. |
 
 Cada campo de preferencia se aplica por separado: se puede cambiar solo el nombre, solo el apellido, o ambos.
+
+## Dietas OFRN (Comidas)
+
+Fuente: `src/utils/dietOptions.js`. `DIET_OPTIONS` lista **Estándar** (ya no «General»). En matriz / reporte / PDF / Excel:
+
+| Valor en ficha (`integrantes.alimentacion`) | Columna / tooltip | Cabecera corta |
+|---|---|---|
+| vacío / `General` / `Estándar` | **Estándar** (una sola columna) | Estándar |
+| Sin Lactosa | Sin Lactosa | **s/Lact.** |
+| Sin Sal | Sin Sal | **s/sal** |
+| Sin TACC (FIMBA `sin_tacc`) | Sin TACC | **s/TACC** |
+| FIMBA Regular | **Regular** (no se fusiona con Estándar) | Regular |
+
+No abreviar con `substring(0,4)` (colisionaba GENE vs ESTÁ vs SIN). `dietsDiffer` trata vacío/General/Estándar como iguales (no dispara mail).
 
 ## UI
 ### Mi Perfil (`ProfileEditModal`) — flujo del músico

@@ -18,6 +18,7 @@ import { format, parseISO, isAfter, formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
 import { toast } from "sonner";
 import { matchesMultiTokenSearch } from "../../utils/sanitize";
+import { dietDisplayLabel } from "../../utils/dietOptions";
 import {
   isPersonEligibleForMealSlot,
   mealServicioFromEvent,
@@ -922,8 +923,7 @@ export default function MealsAttendance({
                       </span>
                       <span className="text-[9px] text-purple-500 font-medium truncate uppercase">
                         {person.instrumentos?.instrumento ||
-                          person.alimentacion ||
-                          "Estándar"}
+                          dietDisplayLabel(person.alimentacion)}
                       </span>
                     </div>
                   </td>

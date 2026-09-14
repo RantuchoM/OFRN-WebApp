@@ -31,6 +31,11 @@ import {
 } from "../../utils/giraUtils";
 import { resolveLocalidadResidencia } from "../../utils/integranteDomicilioViaticos";
 import {
+  canonicalizeMealDiet,
+  compareMealDietLabels,
+  isStandardOfrnDiet,
+} from "../../utils/dietOptions";
+import {
   isPersonEligibleForMealSlot,
   getMealServiceStyle,
   formatMealServiceLabel,
@@ -434,11 +439,11 @@ const personLocalidadLabel = (person) => {
 const buildComensalesDetail = (people = []) => {
   const dietCounts = {};
   (people || []).forEach((p) => {
-    const diet = (p.alimentacion || "Estándar").trim() || "Estándar";
+    const diet = canonicalizeMealDiet(p.alimentacion);
     dietCounts[diet] = (dietCounts[diet] || 0) + 1;
   });
   const dietSummary = Object.entries(dietCounts).sort(([a], [b]) =>
-    a === "Estándar" ? -1 : b === "Estándar" ? 1 : a.localeCompare(b, "es"),
+    compareMealDietLabels(a, b),
   );
 
   const sorted = [...(people || [])].sort((a, b) => {
@@ -755,8 +760,8 @@ function ComensalesDetailModal({
                         {p.apellido}, {p.nombre}
                       </span>
                       <span className="text-[10px] text-slate-400 uppercase truncate max-w-[40%] text-right shrink-0">
-                        {(p.alimentacion && p.alimentacion !== "Estándar"
-                          ? p.alimentacion
+                        {(!isStandardOfrnDiet(p.alimentacion)
+                          ? canonicalizeMealDiet(p.alimentacion)
                           : null) ||
                           p.instrumentos?.instrumento ||
                           ""}

@@ -22,7 +22,12 @@
   } from "../ui/Icons";
   import SearchableSelect from "../ui/SearchableSelect";
   import { useConfirmDialog } from "../../hooks/useConfirmDialog";
-  import { DIET_OPTIONS } from "../../utils/dietOptions";
+  import {
+    CANONICAL_STANDARD_DIET,
+    DIET_OPTIONS,
+    canonicalizeMealDiet,
+    dietSelectValue,
+  } from "../../utils/dietOptions";
   import { notifyAlimentacionChange } from "../../services/alimentacionChangeNotify";
 
   // --- CONSTANTES DE ESTILO ---
@@ -126,7 +131,7 @@
       link_cbu_img: "",
       link_cuil: "",
       last_verified_at: null,
-      alimentacion: "General",
+      alimentacion: CANONICAL_STANDARD_DIET,
       nombre_preferencia: "",
       apellido_preferencia: "",
     });
@@ -180,7 +185,7 @@
           link_cbu_img: userData.link_cbu_img || "",
           link_cuil: userData.link_cuil || "",
           last_verified_at: userData.last_verified_at || null,
-          alimentacion: userData.alimentacion || "General",
+          alimentacion: dietSelectValue(userData.alimentacion),
           nombre_preferencia: userData.nombre_preferencia || "",
           apellido_preferencia: userData.apellido_preferencia || "",
         };
@@ -318,7 +323,7 @@
           ...formData,
           nombre_preferencia: (formData.nombre_preferencia || "").trim() || null,
           apellido_preferencia: (formData.apellido_preferencia || "").trim() || null,
-          alimentacion: (formData.alimentacion || "").trim() || null,
+          alimentacion: canonicalizeMealDiet(formData.alimentacion) || null,
           last_modified_at: now,
           last_verified_at: now,
         };
@@ -689,7 +694,7 @@
                     <IconUtensils size={12} /> Tipo de alimentación
                   </label>
                   <select
-                    value={formData.alimentacion || "General"}
+                    value={dietSelectValue(formData.alimentacion)}
                     onChange={(e) =>
                       setFormData({ ...formData, alimentacion: e.target.value })
                     }

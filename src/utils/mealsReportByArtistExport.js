@@ -10,13 +10,13 @@ import { es } from "date-fns/locale";
 import { toast } from "sonner";
 import {
   ARTIST_MEAL_SPECS_HEADING,
-  ARTISTAS_FIMBA_DIET,
   appendArtistMealSpecsSection,
   buildMealsPedidoText,
   collectArtistMealSpecsFromReportRows,
   scopeMealsReportRowToArtista,
 } from "./mealsReportText";
 import { fimbaArtistMealDietBreakdown } from "./mealLogistics";
+import { compareMealDietLabels, dietShortLabel } from "./dietOptions";
 
 function safeFilePart(s) {
   return String(s || "FIMBA")
@@ -64,17 +64,7 @@ function collectDiets(rows) {
       if (k !== "Total") diets.add(k);
     });
   });
-  return Array.from(diets).sort((a, b) => {
-    const rank = (d) => {
-      if (d === "Estándar" || d === "Regular") return 0;
-      if (d === ARTISTAS_FIMBA_DIET) return 2;
-      return 1;
-    };
-    const ra = rank(a);
-    const rb = rank(b);
-    if (ra !== rb) return ra - rb;
-    return a.localeCompare(b, "es");
-  });
+  return Array.from(diets).sort(compareMealDietLabels);
 }
 
 /**
@@ -208,7 +198,7 @@ async function writeArtistWorkbook(fileName, bundles, giraNombre) {
       { header: "Lugar", key: "lugar", width: 32 },
       { header: "Total", key: "Total", width: 10 },
       ...diets.map((d) => ({
-        header: d === ARTISTAS_FIMBA_DIET ? "Art." : d,
+        header: dietShortLabel(d),
         key: d,
         width: 10,
       })),

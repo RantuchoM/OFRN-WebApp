@@ -11,7 +11,7 @@ import EnsembleMembershipEditor from "../../components/musicians/EnsembleMembers
 import LocalitySelectWithCreate from "../../components/forms/LocalitySelectWithCreate";
 import { useMusicianFormContext } from "./MusicianFormContext";
 import { toIsoDateString } from "../../utils/ensembleMembership";
-import { DIET_OPTIONS } from "../../utils/dietOptions";
+import { DIET_OPTIONS, dietSelectValue } from "../../utils/dietOptions";
 
 export default function MusicianPersonalSection() {
   const {
@@ -270,7 +270,7 @@ export default function MusicianPersonalSection() {
             <div className="space-y-1">
               <label className={labelClass}>Tipo de Alimentación</label>
               <select
-                value={formData.alimentacion || "General"}
+                value={dietSelectValue(formData.alimentacion)}
                 onChange={(e) => updateField("alimentacion", e.target.value)}
                 className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
               >
