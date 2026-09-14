@@ -26,6 +26,8 @@ Mejorar la experiencia de usuario en `RoomingManager.jsx` permitiendo una navega
 El modal **Mi Alojamiento** (`GiraCard` + `getMyRoomingStatus`) es self-service del integrante: hotel, tramo (si hay varios) y check-in/out. **No** muestra nombres de compañeros de habitación. El rooming interno (`RoomingManager`, reportes, Excel/PDF de staff) sigue listando ocupantes.
 
 - [x] Ocultar compañeros en Mi Alojamiento (vista músico)
+- [x] Check-in/out: **una sola regla ganadora** (`pickWinningLogisticsRule`: fuerza 5 ID personal > 4 categoría/rol > 3–1 territorio/general si `condicion === 'estable'`). No se unen fechas de reglas más débiles. Eventos vía `id, fecha, hora_inicio` (la columna `hora` no existe en `eventos`; pedirla vaciaba la logística y caía al tramo). Luego `getOccupancyStayDates` (booking explícito + noches de tramo, conservando llegada anticipada). `ausente` / exclusión hotelera → sin cama. Payload sin compañeros. Modal `z-[100]`.
+- [x] Caso gira 12 Gabriela Iglesias (`3305423`): regla región 212 = 16/09 14:00–19/09 23:45; regla personal 214 = **14/09 16:00–19/09 23:45** (Hotel Internacional). Mi Alojamiento debe mostrar el personal.
 
 ## Por qué esta solución
 

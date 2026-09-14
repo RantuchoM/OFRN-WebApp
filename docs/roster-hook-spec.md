@@ -13,4 +13,4 @@ Administrar el listado de personas convocadas (Roster) para una gira específica
 - **addIntegrantes**: Permite sumar nuevas personas al roster manual de la gira.
 
 ## 4. Regla de Negocio
-- Los cambios en este hook afectan directamente lo que devuelven los servicios de `giraService.js`. Si alguien se marca como 'ausente' aquí, debe desaparecer de la logística (Rooming staff, transporte, etc.). La vista músico **Mi Alojamiento** (`getMyRoomingStatus` / modal en `GiraCard`) muestra solo hotel y fechas del propio integrante: **no lista compañeros de habitación**.
+- Los cambios en este hook afectan directamente lo que devuelven los servicios de `giraService.js`. Si alguien se marca como 'ausente' aquí, debe desaparecer de la logística (Rooming staff, transporte, etc.). La vista músico **Mi Alojamiento** (`getMyRoomingStatus` / modal en `GiraCard`) muestra solo hotel y fechas del propio integrante: **no lista compañeros**. Check-in/out salen de **una** regla ganadora (`pickWinningLogisticsRule`: ID 5 > categoría 4 > territorio/general 3–1) y luego `getOccupancyStayDates`; `ausente` o exclusión hotelera no listan cama.

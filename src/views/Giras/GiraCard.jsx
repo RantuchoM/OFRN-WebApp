@@ -35,13 +35,16 @@ const sliceTime = (value, fallback) => {
   return s.length >= 5 ? s.slice(0, 5) : s;
 };
 
-const formatRoomingMoment = (fecha, hora, fallbackFecha, defaultTime) => {
-  const dateStr = fecha || fallbackFecha;
-  if (!dateStr) {
-    return { dayLabel: null, timeLabel: `${defaultTime} hs` };
-  }
+const formatRoomingMoment = (fecha, hora, defaultTime) => {
   const timeStr = sliceTime(hora, defaultTime);
-  const parsed = parseISO(dateStr);
+  if (!fecha) {
+    return { dayLabel: null, timeLabel: `${timeStr} hs` };
+  }
+  const day = String(fecha).slice(0, 10);
+  const parsed = new Date(`${day}T${timeStr}`);
+  if (Number.isNaN(parsed.getTime())) {
+    return { dayLabel: null, timeLabel: `${timeStr} hs` };
+  }
   return {
     dayLabel: format(parsed, "EEEE dd/MM", { locale: es }),
     timeLabel: `${timeStr} hs`,
@@ -1215,7 +1218,7 @@ export default function GiraCard({
       {showRoomingModal &&
         createPortal(
           <div
-            className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
             onClick={() => setShowRoomingModal(false)}
           >
             <div
@@ -1250,13 +1253,11 @@ export default function GiraCard({
                       const checkIn = formatRoomingMoment(
                         assignment.fecha_checkin,
                         assignment.hora_checkin,
-                        assignment.segmentFechaDesde || gira.fecha_desde,
                         "14:00",
                       );
                       const checkOut = formatRoomingMoment(
                         assignment.fecha_checkout,
                         assignment.hora_checkout,
-                        assignment.segmentFechaHasta || gira.fecha_hasta,
                         "10:00",
                       );
 

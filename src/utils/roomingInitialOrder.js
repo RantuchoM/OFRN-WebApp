@@ -6,7 +6,13 @@ import {
   startOfDay,
 } from "date-fns";
 import { es } from "date-fns/locale";
-import { normalize } from "./giraUtils";
+import {
+  compareLogisticsRulePrecedence,
+  getMatchStrength,
+  getRuleCategoryTiebreak,
+  normalize,
+  resolveRuleFieldInstant,
+} from "./giraUtils";
 import {
   formatDateDDMM,
   formatTramoLabel,
@@ -273,6 +279,195 @@ export function getStayDatesForTramo(booking, segmentRow, segmentSpec, log) {
   return { dateIn, dateOut, source };
 }
 
+/**
+ * Recorta la estadía al pedido de hotel cuando el booking tiene fechas
+ * explícitas (no ocupar cama fuera de esa reserva).
+ * Si `fecha_checkin`/`fecha_checkout` son null —caso real en producción—
+ * no se usa el tramo como cota: eso pisaba llegadas/salidas de logística.
+ */
+export function clipStayToHotelBounds(
+  dateIn,
+  dateOut,
+  booking,
+  _segmentRow,
+  _segmentSpec,
+) {
+  const fromBooking = getDatesFromBooking(booking);
+  const boundIn = fromBooking.dateIn;
+  const boundOut = fromBooking.dateOut;
+
+  let inClipped = dateIn;
+  let outClipped = dateOut;
+  if (boundIn && dateIn && dateIn < boundIn) inClipped = boundIn;
+  if (boundOut && dateOut && dateOut > boundOut) outClipped = boundOut;
+  if (boundIn && !dateIn) inClipped = boundIn;
+  if (boundOut && !dateOut) outClipped = boundOut;
+  return { dateIn: inClipped, dateOut: outClipped };
+}
+
+/**
+ * Check-in/out de ocupación de cama en un hotel/tramo.
+ * Misma cadena que staff: logística personal (`getStayDatesForTramo`) →
+ * recorte al booking → noches elegibles del tramo (`collectEligibleNights`).
+ */
+export function getOccupancyStayDates({
+  booking,
+  segmentRow = null,
+  segments = [],
+  log = null,
+  tramoIndice = null,
+} = {}) {
+  const resolvedIndice =
+    tramoIndice != null && !Number.isNaN(Number(tramoIndice))
+      ? Number(tramoIndice)
+      : segmentRow?.indice != null
+        ? Number(segmentRow.indice)
+        : null;
+  const segmentSpec = resolveSegmentSpec(segments, segmentRow, resolvedIndice);
+
+  let { dateIn: dIn, dateOut: dOut } = getStayDatesForTramo(
+    booking,
+    segmentRow,
+    segmentSpec,
+    log,
+  );
+
+  ({ dateIn: dIn, dateOut: dOut } = clipStayToHotelBounds(
+    dIn,
+    dOut,
+    booking,
+    segmentRow,
+    segmentSpec,
+  ));
+
+  if (!dIn || !dOut || Number.isNaN(dIn.getTime()) || Number.isNaN(dOut.getTime())) {
+    return { dateIn: null, dateOut: null };
+  }
+
+  const totalNights = differenceInCalendarDays(dOut, dIn);
+  if (totalNights <= 0) {
+    return { dateIn: null, dateOut: null };
+  }
+
+  if (resolvedIndice == null) {
+    return { dateIn: dIn, dateOut: dOut };
+  }
+
+  const eligibleNights = collectEligibleNights(
+    dIn,
+    dOut,
+    segments,
+    resolvedIndice,
+    segmentRow,
+  );
+  if (!eligibleNights.length) {
+    return { dateIn: null, dateOut: null };
+  }
+
+  const nightGroups = groupConsecutiveNights(eligibleNights);
+  const firstClip = buildClippedRange(dIn, dOut, nightGroups[0], totalNights);
+  const lastClip = buildClippedRange(
+    dIn,
+    dOut,
+    nightGroups[nightGroups.length - 1],
+    totalNights,
+  );
+  return {
+    dateIn: firstClip.clippedIn,
+    dateOut: lastClip.clippedOut,
+  };
+}
+
+export function formatOccupancyStay(dateIn, dateOut) {
+  const inOk = dateIn && !Number.isNaN(dateIn.getTime());
+  const outOk = dateOut && !Number.isNaN(dateOut.getTime());
+  return {
+    fecha_checkin: inOk ? format(dateIn, "yyyy-MM-dd") : null,
+    hora_checkin: inOk ? format(dateIn, "HH:mm") : null,
+    fecha_checkout: outOk ? format(dateOut, "yyyy-MM-dd") : null,
+    hora_checkout: outOk ? format(dateOut, "HH:mm") : null,
+  };
+}
+
+/**
+ * Una sola regla ganadora (fuerza 5 ID > 4 categoría/rol > 3–1 territorio/general).
+ * No se unen fechas de reglas más débiles: in y out salen de esa regla.
+ */
+export function pickWinningLogisticsRule(
+  person,
+  rules = [],
+  localities = [],
+  events = [],
+  segments = [],
+) {
+  const ranked = (rules || [])
+    .map((rule, idx) => {
+      const options = {
+        segments,
+        instant:
+          resolveRuleFieldInstant(rule, "checkin", events) ||
+          resolveRuleFieldInstant(rule, "checkout", events),
+        field: "checkin",
+      };
+      return {
+        rule,
+        strength: getMatchStrength(rule, person, localities, options),
+        categoryTiebreak: getRuleCategoryTiebreak(rule, person, options),
+        idx,
+      };
+    })
+    .filter((item) => item.strength > 0)
+    .sort(compareLogisticsRulePrecedence);
+  return ranked.length ? ranked[ranked.length - 1].rule : null;
+}
+
+function milestoneFromEventOrRule(event, rule, dateField, timeField) {
+  if (event?.fecha) {
+    const hora = event.hora_inicio || event.hora || event.time || null;
+    return {
+      fecha: event.fecha,
+      date: event.fecha,
+      hora_inicio: hora,
+      hora,
+      time: hora,
+    };
+  }
+  if (rule?.[dateField]) {
+    return {
+      fecha: rule[dateField],
+      date: rule[dateField],
+      time: rule[timeField] || null,
+      hora: rule[timeField] || null,
+    };
+  }
+  return {};
+}
+
+/** Logística `{ checkin, checkout }` solo de la regla ganadora. */
+export function logisticsLogFromRule(rule, events = []) {
+  if (!rule) return { checkin: {}, checkout: {} };
+  const checkinEv = (events || []).find(
+    (e) => String(e.id) === String(rule.id_evento_checkin),
+  );
+  const checkoutEv = (events || []).find(
+    (e) => String(e.id) === String(rule.id_evento_checkout),
+  );
+  return {
+    checkin: milestoneFromEventOrRule(
+      checkinEv,
+      rule,
+      "fecha_checkin",
+      "hora_checkin",
+    ),
+    checkout: milestoneFromEventOrRule(
+      checkoutEv,
+      rule,
+      "fecha_checkout",
+      "hora_checkout",
+    ),
+  };
+}
+
 function getRoomOccupantIds(room) {
   const ids = new Set();
   (room.occupants || []).forEach((o) => {
@@ -302,6 +497,12 @@ function getAllRoomPersonIds(room) {
   });
   (room.id_integrantes_asignados || []).forEach((id) => ids.add(Number(id)));
   return ids;
+}
+
+/** ¿El integrante figura en la habitación (cama o cuna), por IDs o `asignaciones_config`? */
+export function roomIncludesPerson(room, personId) {
+  if (!room || personId == null || personId === "") return false;
+  return getAllRoomPersonIds(room).has(Number(personId));
 }
 
 function isAssignedToSegmentRoom(personId, room) {

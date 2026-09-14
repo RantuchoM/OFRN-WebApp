@@ -17,8 +17,25 @@ import {
   sortEnsamblesParticipantes,
   sortFamiliasParticipantes,
 } from "../utils/participantesSort";
-import { formatTramoTitle } from "../utils/giraTramos";
-import { buildGiraInstrumentOverrideMap } from "../utils/giraUtils";
+import { formatTramoTitle, resolvePersonIsLocal } from "../utils/giraTramos";
+import { buildGiraInstrumentOverrideMap, normalize } from "../utils/giraUtils";
+import {
+  bookingBelongsToSegment,
+  formatOccupancyStay,
+  getOccupancyStayDates,
+  logisticsLogFromRule,
+  pickWinningLogisticsRule,
+  roomIncludesPerson,
+} from "../utils/roomingInitialOrder";
+import { fetchGiraSegmentosBundle } from "./giraSegmentosService";
+import {
+  enrichRosterWithGrupoIds,
+  fetchGiraGrupos,
+} from "./giraGruposService";
+import {
+  resolveLocalidadEfectivaViaticos,
+  resolveLocalidadResidencia,
+} from "../utils/integranteDomicilioViaticos";
 import { isRepertorioPlaceholder } from "../utils/repertorioRowDisplay";
 import { fetchDirectRepertorioAssignmentsForObra } from "./repertorioPlaceholderOpciones";
 
@@ -752,12 +769,25 @@ export const getTransportesByGira = async (supabase, giraId) => {
 
 export const getMyRoomingStatus = async (supabase, giraId, userId) => {
   try {
-    const numericUserId = parseInt(userId);
+    const numericUserId = integranteIdForDb(userId);
+    if (numericUserId == null) return { assignments: [] };
 
-    const [bookingsRes, segmentsRes] = await Promise.all([
+    const [
+      bookingsRes,
+      giRes,
+      intRes,
+      exclRes,
+      segmentBundle,
+      rulesRes,
+      eventsRes,
+      locsRes,
+      sedesRes,
+      gruposPack,
+    ] = await Promise.all([
       supabase
         .from("programas_hospedajes")
-        .select(`
+        .select(
+          `
           id,
           fecha_checkin,
           fecha_checkout,
@@ -767,58 +797,175 @@ export const getMyRoomingStatus = async (supabase, giraId, userId) => {
           hoteles (nombre),
           hospedaje_habitaciones (
             id,
+            id_hospedaje,
             id_integrantes_asignados,
+            asignaciones_config,
             tipo,
             es_matrimonial
           )
-        `)
+        `,
+        )
         .eq("id_programa", giraId)
         .order("fecha_checkin"),
       supabase
-        .from("giras_tramo_segmentos")
-        .select("id, indice, fecha_desde, fecha_hasta")
+        .from("giras_integrantes")
+        .select("id_integrante, estado, rol")
         .eq("id_gira", giraId)
-        .order("indice"),
+        .eq("id_integrante", numericUserId)
+        .maybeSingle(),
+      supabase
+        .from("integrantes")
+        .select(
+          `id, condicion, genero, cargo, id_localidad, id_loc_viaticos, id_domicilio_laboral,
+           instrumentos(familia),
+           residencia:localidades!id_localidad(id, localidad, id_region),
+           viaticos:localidades!id_loc_viaticos(id, localidad, id_region)`,
+        )
+        .eq("id", numericUserId)
+        .maybeSingle(),
+      supabase
+        .from("giras_hospedajes_excluidos")
+        .select("id_integrante")
+        .eq("id_programa", giraId)
+        .eq("id_integrante", numericUserId)
+        .maybeSingle(),
+      fetchGiraSegmentosBundle(supabase, giraId).catch(() => ({
+        segments: [],
+        segmentRows: [],
+        cortesCount: 0,
+      })),
+      supabase.from("giras_logistica_reglas").select("*").eq("id_gira", giraId),
+      supabase
+        .from("eventos")
+        .select("id, fecha, hora_inicio")
+        .eq("id_gira", giraId)
+        .eq("is_deleted", false),
+      supabase.from("localidades").select("id, localidad, id_region"),
+      supabase
+        .from("giras_localidades")
+        .select("id_localidad")
+        .eq("id_gira", giraId),
+      fetchGiraGrupos(supabase, giraId).catch(() => ({ grupos: [] })),
     ]);
 
     const { data: bookings, error } = bookingsRes;
     if (error) throw error;
     if (!bookings?.length) return { assignments: [] };
 
-    const segmentById = new Map(
-      (segmentsRes.data || []).map((s) => [Number(s.id), s]),
+    const estadoGira = giRes.data?.estado;
+    if (normalize(estadoGira) === "ausente") return { assignments: [] };
+    if (exclRes.data?.id_integrante != null) return { assignments: [] };
+
+    let events = eventsRes.data || [];
+    if (eventsRes.error) {
+      console.warn(
+        "[GiraService] getMyRoomingStatus eventos:",
+        eventsRes.error.message,
+      );
+      events = [];
+    }
+
+    const rules = rulesRes.data || [];
+    const eventIds = [
+      ...new Set(
+        rules.flatMap((r) =>
+          [r.id_evento_checkin, r.id_evento_checkout].filter(Boolean),
+        ),
+      ),
+    ];
+    const missingEventIds = eventIds.filter(
+      (id) => !events.some((e) => String(e.id) === String(id)),
     );
+    if (missingEventIds.length) {
+      const { data: extraEvents, error: extraErr } = await supabase
+        .from("eventos")
+        .select("id, fecha, hora_inicio")
+        .in("id", missingEventIds)
+        .eq("is_deleted", false);
+      if (extraErr) {
+        console.warn(
+          "[GiraService] getMyRoomingStatus eventos por id:",
+          extraErr.message,
+        );
+      } else if (extraEvents?.length) {
+        events = [...events, ...extraEvents];
+      }
+    }
+
+    const integrante = intRes.data;
+    const locEfectiva = resolveLocalidadEfectivaViaticos(integrante);
+    const locResidencia = resolveLocalidadResidencia(integrante);
+    const tourLocSet = new Set(
+      (sedesRes.data || []).map((s) => String(s.id_localidad)),
+    );
+    const personBase = {
+      ...(integrante || { id: numericUserId }),
+      id: numericUserId,
+      estado_gira: estadoGira || "confirmado",
+      rol_gira: giRes.data?.rol,
+      rol: giRes.data?.rol,
+      id_localidad: locEfectiva.id,
+      localidades: locEfectiva.objeto,
+      id_localidad_residencia: locResidencia.id,
+      localidades_residencia: locResidencia.objeto,
+    };
+    personBase.is_local = resolvePersonIsLocal(personBase, {
+      segments: segmentBundle?.segments || [],
+      tourLocSet,
+      cortesCount: segmentBundle?.cortesCount ?? 0,
+    });
+    const [person] = enrichRosterWithGrupoIds(
+      [personBase],
+      gruposPack?.grupos || [],
+    );
+
+    const winningRule = pickWinningLogisticsRule(
+      person,
+      rules,
+      locsRes.data || [],
+      events,
+      segmentBundle?.segments || [],
+    );
+    const log = logisticsLogFromRule(winningRule, events);
+
+    const segmentRows = segmentBundle?.segmentRows || [];
+    const segments = segmentBundle?.segments || [];
+    const defaultSegmentId = segmentRows[0]?.id ?? null;
 
     const assignments = [];
 
     for (const booking of bookings) {
-      const foundRoom = booking.hospedaje_habitaciones?.find((room) =>
-        room.id_integrantes_asignados?.includes(numericUserId),
+      const foundRoom = (booking.hospedaje_habitaciones || []).find((room) =>
+        roomIncludesPerson(room, numericUserId),
       );
       if (!foundRoom) continue;
 
-      const segment =
-        booking.id_segmento != null
-          ? segmentById.get(Number(booking.id_segmento))
-          : null;
+      const segRow =
+        segmentRows.find((s) =>
+          bookingBelongsToSegment(booking, s, segmentRows, defaultSegmentId),
+        ) || null;
+
+      const stay = getOccupancyStayDates({
+        booking,
+        segmentRow: segRow,
+        segments,
+        log,
+        tramoIndice: segRow?.indice ?? null,
+      });
+      if (!stay.dateIn || !stay.dateOut) continue;
 
       assignments.push({
         hotel: booking.hoteles?.nombre || "Sin nombre asignado",
-        fecha_checkin: booking.fecha_checkin,
-        fecha_checkout: booking.fecha_checkout,
-        hora_checkin: booking.hora_checkin,
-        hora_checkout: booking.hora_checkout,
-        segmentIndex: segment?.indice ?? null,
-        segmentLabel: segment
+        ...formatOccupancyStay(stay.dateIn, stay.dateOut),
+        segmentIndex: segRow?.indice ?? null,
+        segmentLabel: segRow
           ? formatTramoTitle(
-              segment.indice,
-              segment.fecha_desde,
-              segment.fecha_hasta,
+              segRow.indice,
+              segRow.fecha_desde,
+              segRow.fecha_hasta,
             )
           : null,
-        segmentFechaDesde: segment?.fecha_desde ?? null,
-        segmentFechaHasta: segment?.fecha_hasta ?? null,
-        room: foundRoom,
+        room: { id: foundRoom.id, tipo: foundRoom.tipo },
       });
     }
 
