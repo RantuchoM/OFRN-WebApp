@@ -347,26 +347,8 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
 
   return (
     <section style={{ marginBottom: "1.5rem" }}>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: 10,
-          flexWrap: "wrap",
-          gap: 8,
-        }}
-      >
-        <h2
-          style={{
-            margin: 0,
-            fontSize: "1.05rem",
-            color: "var(--fimba-deep)",
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-          }}
-        >
+      <div className="fimba-agenda-page-head" style={{ marginBottom: 10 }}>
+        <h2 className="fimba-agenda-planilla-label">
           <IconClock size={16} /> Agenda
           {refreshing && (
             <span
@@ -378,15 +360,17 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
             </span>
           )}
         </h2>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <div className="fimba-agenda-actions-row">
           <button
             type="button"
             className="fimba-btn fimba-btn-ghost"
             onClick={handleExportPdf}
             disabled={loading || eventosVisibles.length === 0}
             title="Descargar PDF de la vista actual (desde ahora, o con anteriores si están visibles)"
+            aria-label="Descargar PDF"
           >
-            <IconPrinter size={14} /> Descargar PDF
+            <IconPrinter size={14} />
+            <span className="fimba-btn-label">Descargar PDF</span>
           </button>
           {editable ? (
             <button
@@ -399,11 +383,14 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
                   preselectPropuesta: propuesta.id,
                 })
               }
+              title="Nuevo evento"
+              aria-label="Nuevo evento"
             >
-              <IconPlus size={16} /> Nuevo evento
+              <IconPlus size={16} />
+              <span className="fimba-btn-label">Nuevo evento</span>
             </button>
           ) : (
-            <span className="fimba-muted" style={{ fontSize: "0.8rem" }}>
+            <span className="fimba-muted fimba-btn-label" style={{ fontSize: "0.8rem" }}>
               Solo lectura · eventos y traslados de este artista
             </span>
           )}

@@ -167,12 +167,22 @@ const FIMBA_CSS = `
     background: var(--fimba-deep, #94216d);
     color: #ffffff;
   }
-  @media (max-width: 720px) {
+  @media (max-width: 767px) {
     .fimba-section-toggle-label { display: none; }
-    .fimba-section-toggle-item { padding: 0.42rem 0.55rem; }
+    .fimba-section-toggle-item {
+      padding: 0.42rem 0.55rem;
+      flex-shrink: 0;
+    }
     .fimba-section-toggle {
       width: 100%;
+      max-width: 100%;
+      flex-wrap: nowrap;
       justify-content: flex-start;
+      overflow-x: auto;
+      overflow-y: hidden;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: thin;
+      overscroll-behavior-x: contain;
     }
   }
   /* Shell content: 90% viewport (floor when zoomed out); no fixed px max-width */
@@ -185,27 +195,86 @@ const FIMBA_CSS = `
     /* Allow wide planillas to own their scroll; do not clip children */
     overflow-x: visible;
   }
+  @media (max-width: 767px) {
+    .fimba-header-inner,
+    .fimba-main {
+      width: 100%;
+      max-width: 100%;
+      padding-left: 0.85rem;
+      padding-right: 0.85rem;
+    }
+    .fimba-header-inner {
+      align-items: center;
+      gap: 0.4rem 0.45rem;
+      padding-top: 0.55rem;
+      padding-bottom: 0.55rem;
+    }
+    .fimba-brand {
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+    .fimba-logo {
+      font-size: 1.2rem;
+    }
+    /* Flatten so brand + theme/print/volver share row 1; nav strip is row 2 */
+    .fimba-header-actions {
+      display: contents;
+    }
+    .fimba-theme-toggle,
+    .fimba-print-btn,
+    .fimba-header-session,
+    .fimba-volver-ofrn {
+      flex-shrink: 0;
+    }
+    .fimba-print-btn-label {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+    .fimba-print-btn,
+    .fimba-theme-toggle {
+      padding: 0.38rem;
+      min-width: 2.25rem;
+      justify-content: center;
+    }
+    .fimba-volver-ofrn {
+      padding: 0.38rem 0.55rem;
+      font-size: 0.78rem;
+      white-space: nowrap;
+    }
+    .fimba-volver-ofrn-long {
+      display: none;
+    }
+    .fimba-header-session {
+      max-width: 7.5rem;
+    }
+    .fimba-header-session .fimba-muted {
+      max-width: 100% !important;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .fimba-section-toggle {
+      order: 20;
+      flex: 1 1 100%;
+      min-width: 0;
+    }
+    .fimba-main {
+      overflow-x: clip;
+      padding-top: 1.1rem;
+    }
+  }
   @media (max-width: 640px) {
     .fimba-header-inner,
     .fimba-main {
       width: 100%;
       max-width: 100%;
-      padding-left: 1rem;
-      padding-right: 1rem;
-    }
-    .fimba-header-inner {
-      align-items: flex-start;
-    }
-    .fimba-header-actions {
-      flex: 1 1 100%;
-      width: 100%;
-      justify-content: flex-end;
-    }
-    .fimba-main {
-      overflow-x: clip;
-    }
-    .fimba-print-btn {
-      white-space: nowrap;
     }
   }
   .fimba-edicion-wide,
@@ -216,6 +285,27 @@ const FIMBA_CSS = `
   .fimba-backline-wide {
     min-width: 0;
     max-width: 100%;
+  }
+  .fimba-agenda-page-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    align-items: flex-start;
+    margin-bottom: 1.25rem;
+    flex-wrap: wrap;
+    min-width: 0;
+  }
+  .fimba-agenda-page-title h1 {
+    margin: 0;
+    font-size: 1.5rem;
+    color: var(--fimba-deep);
+  }
+  .fimba-agenda-page-lead {
+    margin: 0.35rem 0 0;
+  }
+  .fimba-agenda-back {
+    text-decoration: none;
+    margin-bottom: 12px;
   }
   .fimba-agenda-toolbar {
     display: flex;
@@ -231,6 +321,19 @@ const FIMBA_CSS = `
     gap: 10px;
     flex-wrap: wrap;
     min-width: 0;
+  }
+  .fimba-agenda-planilla-label {
+    margin: 0;
+    font-size: 1.05rem;
+    color: var(--fimba-deep);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .fimba-agenda-planilla-title-text {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
   }
   .fimba-agenda-filters {
     display: flex;
@@ -283,6 +386,54 @@ const FIMBA_CSS = `
     }
   }
   @media (max-width: 767px) {
+    .fimba-agenda-back {
+      margin-bottom: 0.45rem;
+      padding: 0.32rem 0.6rem;
+      font-size: 0.8rem;
+    }
+    .fimba-agenda-page-head {
+      align-items: center;
+      flex-wrap: nowrap;
+      gap: 0.45rem;
+      margin-bottom: 0.55rem;
+    }
+    .fimba-agenda-page-title {
+      min-width: 0;
+      flex: 1 1 auto;
+    }
+    .fimba-agenda-page-title h1 {
+      font-size: 1.25rem;
+      line-height: 1.2;
+    }
+    .fimba-agenda-page-lead {
+      margin-top: 0.2rem;
+      font-size: 0.78rem;
+      line-height: 1.3;
+    }
+    .fimba-agenda-actions-row {
+      flex-wrap: nowrap;
+      gap: 0.35rem;
+      justify-content: flex-end;
+      flex-shrink: 0;
+    }
+    .fimba-agenda-actions-row .fimba-btn-label {
+      display: none;
+    }
+    .fimba-agenda-actions-row .fimba-btn {
+      padding: 0.42rem;
+      min-width: 2.35rem;
+      justify-content: center;
+    }
+    .fimba-agenda-planilla-title-text {
+      display: none;
+    }
+    .fimba-agenda-toolbar-head:not(:has(.fimba-muted)) {
+      display: none;
+    }
+    .fimba-agenda-toolbar {
+      margin-bottom: 8px;
+      gap: 6px;
+    }
     .fimba-agenda-filters-toggle {
       display: inline-flex;
       align-items: center;
@@ -2687,6 +2838,14 @@ const FIMBA_CSS = `
   }
   .fimba-print-btn {
     flex-shrink: 0;
+    position: relative;
+  }
+  .fimba-header-session {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
   }
 
   @media print {
@@ -3060,21 +3219,15 @@ export default function FimbaLayout({ mode = "staff", subtitle, children }) {
                 className="fimba-btn fimba-btn-ghost fimba-print-btn"
                 onClick={() => window.print()}
                 title="Abre el diálogo de impresión del sistema. Elegí Guardar como PDF para exportar."
+                aria-label="Imprimir / PDF"
               >
-                <IconPrinter size={14} /> Imprimir / PDF
+                <IconPrinter size={14} />
+                <span className="fimba-print-btn-label">Imprimir / PDF</span>
               </button>
             )}
             {showSectionToggle && <FimbaSectionToggle />}
             {showSalir && (
-              <div
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 8,
-                  flexWrap: "wrap",
-                  justifyContent: "flex-end",
-                }}
-              >
+              <div className="fimba-header-session">
                 {sessionLabel && (
                   <span
                     className="fimba-muted"
@@ -3106,12 +3259,12 @@ export default function FimbaLayout({ mode = "staff", subtitle, children }) {
             {!isToken && isOfrnStaff && (
               <Link
                 to="/"
-                className="fimba-btn fimba-btn-ghost"
+                className="fimba-btn fimba-btn-ghost fimba-volver-ofrn"
                 onClick={() => {
                   if (consultaToken) clearFimbaConsultaEdicionSession();
                 }}
               >
-                Volver a OFRN
+                <span className="fimba-volver-ofrn-long">Volver a </span>OFRN
               </Link>
             )}
           </div>

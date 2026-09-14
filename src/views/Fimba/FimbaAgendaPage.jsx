@@ -1997,47 +1997,65 @@ export default function FimbaAgendaPage() {
       {!agendaOnly && (
         <Link
           to={backHref}
-          className="fimba-btn fimba-btn-ghost"
-          style={{ textDecoration: "none", marginBottom: 12 }}
+          className="fimba-btn fimba-btn-ghost fimba-agenda-back"
         >
           <IconArrowLeft size={14} /> {artistaId ? "Artista" : edicion.nombre}
         </Link>
       )}
 
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          gap: "1rem",
-          alignItems: "flex-start",
-          marginBottom: "1.25rem",
-          flexWrap: "wrap",
-        }}
-      >
-        <div>
-          <h1 style={{ margin: 0, fontSize: "1.5rem", color: "var(--fimba-deep)" }}>
-            Agenda
-          </h1>
-          <p className="fimba-muted" style={{ margin: "0.35rem 0 0" }}>
+      <div className="fimba-agenda-page-head">
+        <div className="fimba-agenda-page-title">
+          <h1>Agenda</h1>
+          <p className="fimba-muted fimba-agenda-page-lead">
             {queryLocked
               ? "Consulta fija · la vista no se puede cambiar desde este enlace"
               : "Planilla unificada · FIMBA + orquesta OFRN (misma gira)"}
           </p>
         </div>
-        {!readOnly && (
+        <div className="fimba-agenda-actions-row">
+          {!readOnly && (
+            <button
+              type="button"
+              className="fimba-btn fimba-btn-primary"
+              onClick={() =>
+                setModal({
+                  mode: "create",
+                  preselectPropuesta: selectedPropuestaIds[0] || artistaId || null,
+                })
+              }
+              title="Nuevo evento"
+              aria-label="Nuevo evento"
+            >
+              <IconPlus size={16} />
+              <span className="fimba-btn-label">Nuevo evento</span>
+            </button>
+          )}
+          {canCopyConsultaLink && (
+            <button
+              type="button"
+              className="fimba-btn fimba-btn-ghost"
+              onClick={handleCopyShareLink}
+              title="Enlace público con token único: agenda filtrada fija, sin login"
+              aria-label={copyLinkOk ? "Enlace copiado" : "Copiar enlace de consulta"}
+            >
+              <IconCopy size={14} />
+              <span className="fimba-btn-label">
+                {copyLinkOk ? "Enlace copiado" : "Copiar enlace de consulta"}
+              </span>
+            </button>
+          )}
           <button
             type="button"
-            className="fimba-btn fimba-btn-primary"
-            onClick={() =>
-              setModal({
-                mode: "create",
-                preselectPropuesta: selectedPropuestaIds[0] || artistaId || null,
-              })
-            }
+            className="fimba-btn fimba-btn-ghost"
+            onClick={handleExportPdf}
+            disabled={refreshing || eventosVisibles.length === 0}
+            title="Descargar PDF de la vista actual (desde ahora, o con anteriores si están visibles)"
+            aria-label="Descargar PDF"
           >
-            <IconPlus size={16} /> Nuevo evento
+            <IconPrinter size={14} />
+            <span className="fimba-btn-label">Descargar PDF</span>
           </button>
-        )}
+        </div>
       </div>
 
       {error && (
@@ -2048,8 +2066,10 @@ export default function FimbaAgendaPage() {
 
       <div className="fimba-agenda-toolbar">
         <div className="fimba-agenda-toolbar-head">
-        <h2 style={{ margin: 0, fontSize: "1.05rem", color: "var(--fimba-deep)", display: "flex", alignItems: "center", gap: 6 }}>
-          <IconClock size={16} /> Planilla
+        <h2 className="fimba-agenda-planilla-label">
+          <span className="fimba-agenda-planilla-title-text">
+            <IconClock size={16} /> Planilla
+          </span>
           {refreshing && (
             <span
               className="fimba-muted"
@@ -2069,28 +2089,6 @@ export default function FimbaAgendaPage() {
             </span>
           )}
         </h2>
-          <div className="fimba-agenda-actions-row">
-            {canCopyConsultaLink && (
-              <button
-                type="button"
-                className="fimba-btn fimba-btn-ghost"
-                onClick={handleCopyShareLink}
-                title="Enlace público con token único: agenda filtrada fija, sin login"
-              >
-                <IconCopy size={14} />{" "}
-                {copyLinkOk ? "Enlace copiado" : "Copiar enlace de consulta"}
-              </button>
-            )}
-            <button
-              type="button"
-              className="fimba-btn fimba-btn-ghost"
-              onClick={handleExportPdf}
-              disabled={refreshing || eventosVisibles.length === 0}
-              title="Descargar PDF de la vista actual (desde ahora, o con anteriores si están visibles)"
-            >
-              <IconPrinter size={14} /> Descargar PDF
-            </button>
-          </div>
         </div>
         {!queryLocked && (
         <div className="fimba-agenda-filters">
