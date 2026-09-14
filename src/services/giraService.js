@@ -20,6 +20,7 @@ import {
 import { formatTramoTitle } from "../utils/giraTramos";
 import { buildGiraInstrumentOverrideMap } from "../utils/giraUtils";
 import { isRepertorioPlaceholder } from "../utils/repertorioRowDisplay";
+import { fetchDirectRepertorioAssignmentsForObra } from "./repertorioPlaceholderOpciones";
 
 /**
  * Resuelve los IDs de los integrantes de una gira:
@@ -559,6 +560,72 @@ export const syncProgramRepertoire = async (supabase, programId) => {
   if (retry.error) throw retry.error;
   return retry.data;
 };
+
+function programLabelForDriveSync(prog) {
+  return [prog.nomenclador, prog.nombre_gira].filter(Boolean).join(" ").trim()
+    || `Programa ${prog.id}`;
+}
+
+/** Programas únicos con la obra en `repertorio_obras` (no seating ni placeholders). */
+export function uniqueProgramsFromRepertorioAssignments(rows = []) {
+  const map = new Map();
+  for (const row of rows) {
+    const prog = row.programas_repertorios?.programas;
+    if (prog?.id == null || map.has(prog.id)) continue;
+    map.set(prog.id, {
+      id: prog.id,
+      nombre_gira: prog.nombre_gira,
+      nomenclador: prog.nomenclador,
+      mes_letra: prog.mes_letra,
+      fecha_desde: prog.fecha_desde,
+      tipo: prog.tipo,
+      bloque: row.programas_repertorios?.nombre || null,
+    });
+  }
+  return [...map.values()];
+}
+
+/**
+ * Sincroniza shortcuts de Drive de cada programa que ya incluye la obra.
+ * Reutiliza `sync_repertoire_shortcuts` (no copia carpetas al Archivo).
+ * Un fallo no aborta el resto.
+ */
+export const syncObraAssignedProgramsDrive = async (supabase, obraId) => {
+  const rows = await fetchDirectRepertorioAssignmentsForObra(supabase, obraId);
+  const programs = uniqueProgramsFromRepertorioAssignments(rows);
+  const synced = [];
+  const failed = [];
+  for (const prog of programs) {
+    try {
+      await syncProgramRepertoire(supabase, prog.id);
+      synced.push(prog);
+    } catch (err) {
+      failed.push({
+        ...prog,
+        error: err?.message || "Error desconocido",
+      });
+    }
+  }
+  return { programs, synced, failed };
+};
+
+export function formatObraProgramDriveSyncToast({ programs, synced, failed }) {
+  if (!programs?.length) return null;
+  const ok = (synced || []).map(programLabelForDriveSync);
+  const ko = (failed || []).map(
+    (p) => `${programLabelForDriveSync(p)}${p.error ? ` (${p.error})` : ""}`,
+  );
+  if (failed.length === 0) {
+    return { type: "success", message: `Drive sincronizado: ${ok.join(", ")}` };
+  }
+  if (synced.length === 0) {
+    return { type: "error", message: `No se pudo sincronizar Drive: ${ko.join("; ")}` };
+  }
+  return {
+    type: "warning",
+    message: `Drive OK: ${ok.join(", ")}. Falló: ${ko.join("; ")}`,
+  };
+}
 
 export const deleteRepertoireBlockWithDrive = async (supabase, repertoireBlockId) => {
   const { data, error } = await supabase.functions.invoke("manage-drive", {

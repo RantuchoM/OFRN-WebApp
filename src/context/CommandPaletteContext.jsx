@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import {
   destinationLeavesSeating,
@@ -12,6 +12,17 @@ import {
   managementPalettePath,
 } from '../constants/managementPalette';
 import CommandPalette from '../components/ui/CommandPalette';
+import CommandPaletteEntityOverlays from '../components/ui/CommandPaletteEntityOverlays';
+import { useDebouncedCallback } from '../hooks/useDebouncedCallback';
+import {
+  PALETTE_ENTITY_MIN_QUERY,
+  PALETTE_PERSON_SEARCH_ALIASES,
+  PALETTE_REPERTOIRE_SEARCH_ALIASES,
+  formatObraComposerLabel,
+  formatPersonLabel,
+  searchPaletteObras,
+  searchPalettePeople,
+} from '../utils/commandPaletteEntitySearch';
 import { 
     IconSettings, IconMusic, IconCalendar, 
     IconUsers, IconTruck, IconFileText, IconGrid, 
@@ -54,7 +65,13 @@ const CommandPaletteContext = createContext();
 export const CommandPaletteProvider = ({ children }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [registeredCommands, setRegisteredCommands] = useState({});
-  const [girasCommands, setGirasCommands] = useState([]); 
+  const [girasCommands, setGirasCommands] = useState([]);
+  const [entityActions, setEntityActions] = useState([]);
+  const [isSearchingEntities, setIsSearchingEntities] = useState(false);
+  const [entitySearchMode, setEntitySearchMode] = useState(null);
+  const [paletteWorkId, setPaletteWorkId] = useState(null);
+  const [paletteMusicianId, setPaletteMusicianId] = useState(null);
+  const entitySearchGen = useRef(0); 
   
   const rawNavigate = useNavigate();
   const location = useLocation();
@@ -591,16 +608,175 @@ export const CommandPaletteProvider = ({ children }) => {
   // ===========================================================================
   // 5. COMBINACIÓN
   // ===========================================================================
+  const canSearchObras = useMemo(() => {
+    if (!user || isGuest) return false;
+    return !!(isArchivista || isEditor || isManagement || isArreglador);
+  }, [user, isGuest, isArchivista, isEditor, isManagement, isArreglador]);
+
+  const canSearchPeople = useMemo(() => {
+    if (!user) return false;
+    const isDirector = roles?.includes("director");
+    return !!(isManagement || isDirector);
+  }, [user, isManagement, roles]);
+
   const allActions = useMemo(() => {
     const localActions = Object.values(registeredCommands).flat();
-    
+    const searchCommands = [];
+
+    if (canSearchPeople) {
+      searchCommands.push({
+        id: "search-persona",
+        label: "Buscar personas",
+        subtitle: "Por nombre, instrumento o id — sin cargar el padrón",
+        icon: <IconUser size={14} className="text-emerald-600" />,
+        section: "Búsqueda",
+        aliases: PALETTE_PERSON_SEARCH_ALIASES,
+        keepOpen: true,
+        run: () => {
+          setEntityActions([]);
+          setEntitySearchMode("persona");
+        },
+      });
+    }
+    if (canSearchObras) {
+      searchCommands.push({
+        id: "search-obra",
+        label: "Buscar repertorio",
+        subtitle: "Por título, compositor o id — sin cargar el catálogo",
+        icon: <IconMusicNote size={14} className="text-violet-500" />,
+        section: "Búsqueda",
+        aliases: PALETTE_REPERTOIRE_SEARCH_ALIASES,
+        keepOpen: true,
+        run: () => {
+          setEntityActions([]);
+          setEntitySearchMode("obra");
+        },
+      });
+    }
+
     return [
-        ...contextCommands, // 1. Prioridad: Contexto actual
-        ...localActions,    // 2. Acciones locales del componente
-        ...globalCommands,  // 3. Navegación global
-        ...girasCommands    // 4. Histórico de giras
+        ...searchCommands,
+        ...contextCommands,
+        ...localActions,
+        ...globalCommands,
+        ...girasCommands
     ];
-  }, [registeredCommands, globalCommands, girasCommands, contextCommands]);
+  }, [registeredCommands, globalCommands, girasCommands, contextCommands, canSearchObras, canSearchPeople]);
+
+  const openWorkFromPalette = useCallback((obraId) => {
+    setIsOpen(false);
+    setEntitySearchMode(null);
+    setPaletteMusicianId(null);
+    setPaletteWorkId(obraId);
+  }, []);
+
+  const openPersonFromPalette = useCallback((integranteId) => {
+    const numericId = Number(integranteId);
+    if (!Number.isFinite(numericId)) return;
+    setIsOpen(false);
+    setEntitySearchMode(null);
+    setPaletteWorkId(null);
+    setPaletteMusicianId(numericId);
+  }, []);
+
+  const exitEntitySearchMode = useCallback(() => {
+    entitySearchGen.current += 1;
+    setEntitySearchMode(null);
+    setEntityActions([]);
+    setIsSearchingEntities(false);
+  }, []);
+
+  const closePalette = useCallback(() => {
+    entitySearchGen.current += 1;
+    setIsOpen(false);
+    setEntitySearchMode(null);
+    setEntityActions([]);
+    setIsSearchingEntities(false);
+  }, []);
+
+  const runEntitySearch = useCallback(
+    async (rawQuery, mode, gen) => {
+      if (gen !== entitySearchGen.current) return;
+      const trimmed = String(rawQuery || "").trim();
+      const searchObras = mode === "obra" && canSearchObras;
+      const searchPeople = mode === "persona" && canSearchPeople;
+
+      if (trimmed.length < PALETTE_ENTITY_MIN_QUERY || (!searchObras && !searchPeople)) {
+        setEntityActions([]);
+        setIsSearchingEntities(false);
+        return;
+      }
+
+      setIsSearchingEntities(true);
+      try {
+        const [obras, people] = await Promise.all([
+          searchObras ? searchPaletteObras(supabase, trimmed) : Promise.resolve([]),
+          searchPeople ? searchPalettePeople(supabase, trimmed) : Promise.resolve([]),
+        ]);
+        if (gen !== entitySearchGen.current) return;
+
+        const obraActions = (obras || []).map((obra) => ({
+          id: `obra-${obra.id}`,
+          label: obra.titulo || `Obra ${obra.id}`,
+          subtitle: formatObraComposerLabel(obra) || undefined,
+          icon: <IconMusicNote size={14} className="text-violet-500" />,
+          section: "Obras",
+          run: () => openWorkFromPalette(obra.id),
+        }));
+
+        const personActions = (people || []).map((person) => ({
+          id: `persona-${person.id}`,
+          label: formatPersonLabel(person),
+          subtitle: person.instrumentos?.instrumento || person.condicion || undefined,
+          icon: <IconUser size={14} className="text-emerald-600" />,
+          section: "Personas",
+          run: () => openPersonFromPalette(person.id),
+        }));
+
+        setEntityActions([...obraActions, ...personActions]);
+      } catch (err) {
+        console.error("Error buscando obras/personas en la paleta:", err);
+        if (gen === entitySearchGen.current) setEntityActions([]);
+      } finally {
+        if (gen === entitySearchGen.current) setIsSearchingEntities(false);
+      }
+    },
+    [canSearchObras, canSearchPeople, openWorkFromPalette, openPersonFromPalette],
+  );
+
+  const debouncedEntitySearch = useDebouncedCallback(runEntitySearch, 250);
+
+  const handlePaletteQueryChange = useCallback(
+    (nextQuery, mode) => {
+      const trimmed = String(nextQuery || "").trim();
+      entitySearchGen.current += 1;
+      const gen = entitySearchGen.current;
+      const activeMode = mode === "obra" || mode === "persona" ? mode : null;
+      if (!activeMode || trimmed.length < PALETTE_ENTITY_MIN_QUERY) {
+        setEntityActions([]);
+        setIsSearchingEntities(false);
+        debouncedEntitySearch("", null, gen);
+        return;
+      }
+      setIsSearchingEntities(true);
+      debouncedEntitySearch(trimmed, activeMode, gen);
+    },
+    [debouncedEntitySearch],
+  );
+
+  const wasPaletteOpen = useRef(false);
+  useEffect(() => {
+    if (isOpen) {
+      wasPaletteOpen.current = true;
+      return;
+    }
+    if (!wasPaletteOpen.current) return;
+    wasPaletteOpen.current = false;
+    entitySearchGen.current += 1;
+    setEntitySearchMode(null);
+    setEntityActions([]);
+    setIsSearchingEntities(false);
+  }, [isOpen]);
 
   // Teclado (Ctrl+K / Cmd+K)
   useEffect(() => {
@@ -643,8 +819,19 @@ export const CommandPaletteProvider = ({ children }) => {
       {children}
       <CommandPalette 
         isOpen={isOpen} 
-        onClose={() => setIsOpen(false)} 
-        actions={allActions} 
+        onClose={closePalette} 
+        actions={allActions}
+        entityActions={entityActions}
+        isSearchingEntities={isSearchingEntities}
+        searchMode={entitySearchMode}
+        onExitSearchMode={exitEntitySearchMode}
+        onQueryChange={handlePaletteQueryChange}
+      />
+      <CommandPaletteEntityOverlays
+        workId={paletteWorkId}
+        musicianId={paletteMusicianId}
+        onCloseWork={() => setPaletteWorkId(null)}
+        onCloseMusician={() => setPaletteMusicianId(null)}
       />
     </CommandPaletteContext.Provider>
   );

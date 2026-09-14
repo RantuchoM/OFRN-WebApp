@@ -193,7 +193,7 @@ export async function fetchDirectRepertorioAssignmentsForObra(supabase, obraId) 
       programas_repertorios (
         id,
         nombre,
-        programas ( id, nombre_gira, mes_letra, nomenclador, fecha_desde )
+        programas ( id, nombre_gira, mes_letra, nomenclador, fecha_desde, tipo )
       )
     `,
     )
@@ -241,7 +241,7 @@ export async function fetchPlaceholderOpcionesForObra(supabase, obraId) {
         programas_repertorios (
           id,
           nombre,
-          programas ( id, nombre_gira, mes_letra, nomenclador, fecha_desde )
+          programas ( id, nombre_gira, mes_letra, nomenclador, fecha_desde, tipo )
         )
       )
     `,

@@ -6,17 +6,20 @@ Menú de navegación rápida accesible con **Ctrl+K** (o **Cmd+K** en macOS) y d
 ## Archivos
 | Archivo | Rol |
 |---------|-----|
-| `src/context/CommandPaletteContext.jsx` | Registro de comandos globales, contextuales y de giras |
-| `src/components/ui/CommandPalette.jsx` | UI modal con búsqueda |
+| `src/context/CommandPaletteContext.jsx` | Registro de comandos globales, contextuales, de giras y apertura de fichas |
+| `src/components/ui/CommandPalette.jsx` | UI modal (portal a `document.body`, `z-[200]`) con búsqueda |
+| `src/components/ui/CommandPaletteEntityOverlays.jsx` | Portales de `WorkForm` (`z-[9999]`) y `MusicianForm` (`z-[100]`) |
+| `src/utils/commandPaletteEntitySearch.js` | Búsqueda limitada de obras e integrantes (ilike + ranking cliente) |
 | `src/components/ui/CommandBarTrigger.jsx` | Botón que dispara `open-command-palette` |
 | `src/constants/managementPalette.js` | **Fuente de verdad** para rutas de informes de Gestión en Ctrl+K |
 
 ## Secciones del menú
-1. **Contexto actual** — vistas de la gira, repertorio, ensambles o gestión según URL activa
-2. **Acciones locales** — registradas por componentes vía `useCommandPalette`
-3. **General / Gestión / Ayuda** — navegación global filtrada por rol
-4. **Informes de Gestión** — un comando por informe (`/management/{slug}`)
-5. **Historial de Giras** — acceso directo a programas desde DB
+1. **Búsqueda** — comandos `Buscar personas` / `Buscar repertorio` (entrada al buscador lazy; **no** hay fetch al abrir Ctrl+K)
+2. **Contexto actual** — vistas de la gira, repertorio, ensambles o gestión según URL activa
+3. **Acciones locales** — registradas por componentes vía `useCommandPalette`
+4. **General / Gestión / Ayuda** — navegación global filtrada por rol
+5. **Informes de Gestión** — un comando por informe (`/management/{slug}`)
+6. **Historial de Giras** — acceso directo a programas desde DB
 
 ## Vistas de App en Ctrl+K
 Los comandos globales replican la visibilidad del sidebar (`App.jsx` → `allMenuItems`):
@@ -75,3 +78,39 @@ No hace falta duplicar la URL en más sitios: `buildManagementPaletteCommands()`
 - [x] Coordinación con detección de coordinador de ensamble
 - [x] Historial de giras: deep-link por `giraId` carga programa fuera del filtro de fechas y abre Roster (management) o Agenda (personal)
 - [x] Búsqueda del paleta: tokens AND, sin tildes/mayúsculas (`matchesMultiTokenSearch`; spec `docs/specs/busqueda-texto.md`)
+- [x] **Buscar personas / repertorio en dos pasos** (sin prefetch del catálogo al abrir Ctrl+K), abriendo `MusicianForm` / `WorkForm`
+- [x] Ranking: `pers…` clava **Buscar personas**; `rep…` / `obra`/`obras` clava **Buscar repertorio** (por encima de «Ir a Personas/Repertorio»)
+
+## Búsqueda de obras y personas (dos pasos, sin volcar tablas)
+
+**Al abrir la paleta (Ctrl/Cmd+K o el botón de la barra) no se consulta `obras` ni `integrantes`.** Solo se listan comandos ya registrados (navegación, contexto, historial de giras). No hay diferencia “ínfima”: un catálogo de miles de obras no entra en memoria al pulsar Ctrl+K.
+
+### Cómo se usa
+1. Abrir la paleta.
+2. Elegir **Buscar personas** o **Buscar repertorio** (arriba, sección *Búsqueda*). También aparecen **primero** al escribir `pers…`, `persona(s)`, `rep…`, `repertorio`, `obra` u `obras`. La paleta **sigue abierta** y pasa a modo búsqueda.
+3. Recién ahí se escribe. A los **2+ caracteres**, con debounce **250 ms**, hay un `ilike` acotado (`applyMultiTokenOrIlike` + ranking cliente) con **límite 20**. No se descarga la tabla completa.
+4. Elegir un resultado abre la ficha: `WorkForm` (`z-[9999]`) o `MusicianForm` (id numérico, `z-[100]`). ESC o ← vuelve a los comandos; ESC de nuevo cierra.
+
+| Modo | Qué busca | Al elegir |
+|------|-----------|-----------|
+| **Buscar repertorio** | Título, compositor/arreglador o id numérico | `WorkForm` con `{ id }`, `context="archive"` |
+| **Buscar personas** | Nombre, apellido, preferencia, instrumento o id numérico | `MusicianForm` con id **INT** de `integrantes` (nunca UUID) |
+
+### Ranking de los comandos de búsqueda
+`rankPaletteCommands` filtra con el scorer habitual **más alias**, y **pinnea al tope** si el query (≥ 3 caracteres) es prefijo de un alias o coincide exacto:
+
+| Comando | Alias | Queries que lo clavan primero |
+|---------|-------|-------------------------------|
+| Buscar personas | `personas`, `persona` | `pers`, `perso`, `persona`, `personas` |
+| Buscar repertorio | `repertorio`, `obras`, `obra` | `rep`, `reper…`, `repertorio`, `obra`, `obras` |
+
+Así no quedan debajo de «Ir a Personas» / «Ir a Repertorio». Con 1–2 letras no se pinnea.
+
+Visibilidad (misma regla que «Ir a Repertorio» / «Ir a Personas»):
+
+- Obras: no invitado + archivista / editor / management / arreglador
+- Personas: management o director
+
+Vacantes (`es_simulacion = true`) **no** aparecen. Un cache global de la fila, si existiera, solo se reutilizaría **al abrir el id elegido**; nunca se precarga el padrón al montar la paleta.
+
+Iconos solo de `Icons.jsx`. Paleta `z-[200]`; comandos de navegación intactos.

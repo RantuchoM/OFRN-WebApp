@@ -174,13 +174,34 @@ export function lateAssignmentChangesEqual(a, b) {
   );
 }
 
+export const SEATING_SIN_ASIGNACION_LABEL = "sin asignación";
+
 export function formatPartsLabel(ids, particellasById) {
   const names = normalizePartIds(ids).map((id) => {
     const part = particellasById?.get?.(String(id));
     return getPartDisplayName(part) || `Particella ${id}`;
   });
-  if (names.length === 0) return "sin asignación";
+  if (names.length === 0) return SEATING_SIN_ASIGNACION_LABEL;
   return names.join(", ");
+}
+
+/** Sin atril/parte previa: no usar flecha desde “sin asignación”. */
+export function isSeatingSinAsignacionLabel(label) {
+  const s = String(label ?? "").trim();
+  return s === "" || s === SEATING_SIN_ASIGNACION_LABEL;
+}
+
+/**
+ * Copy de mail para un cambio de seating.
+ * Alta (sin previo): `{nuevaEtiqueta} (NUEVA)`. Con previo: `A → B`.
+ */
+export function formatSeatingMailAssignmentChange(fromLabel, toLabel) {
+  const to =
+    String(toLabel ?? "").trim() || SEATING_SIN_ASIGNACION_LABEL;
+  if (isSeatingSinAsignacionLabel(fromLabel)) {
+    return `${to} (NUEVA)`;
+  }
+  return `${String(fromLabel).trim()} → ${to}`;
 }
 
 export function formatAssignmentChangeLine(obraTitle, fromLabel, toLabel) {
@@ -220,13 +241,11 @@ export const SEATING_CAMBIO_MAIL_VARIANT = "SEATING_CAMBIO";
 
 export function formatSeatingCambioReason(changes) {
   return (changes || [])
-    .map((c) =>
-      formatAssignmentChangeLine(
-        c.obraTitle || "Obra",
-        c.fromLabel || "sin asignación",
-        c.toLabel || "sin asignación",
-      ),
-    )
+    .map((c) => {
+      const from = c.fromLabel || SEATING_SIN_ASIGNACION_LABEL;
+      const to = c.toLabel || SEATING_SIN_ASIGNACION_LABEL;
+      return `- ${c.obraTitle || "Obra"}: ${formatSeatingMailAssignmentChange(from, to)}`;
+    })
     .join("\n");
 }
 
@@ -266,11 +285,16 @@ export function buildSeatingCambioMailTask(musician, { now = Date.now() } = {}) 
     nombrePrimero: nombre,
     apellidoPrimero: apellido,
     reason: formatSeatingCambioReason(musician.changes),
-    novedades: (musician.changes || []).map((c) => ({
-      obra: c.obraTitle || "Obra",
-      from: c.fromLabel || "sin asignación",
-      to: c.toLabel || "sin asignación",
-    })),
+    novedades: (musician.changes || []).map((c) => {
+      const from = c.fromLabel || SEATING_SIN_ASIGNACION_LABEL;
+      const to = c.toLabel || SEATING_SIN_ASIGNACION_LABEL;
+      return {
+        obra: c.obraTitle || "Obra",
+        from,
+        to,
+        cambio: formatSeatingMailAssignmentChange(from, to),
+      };
+    }),
   };
 }
 

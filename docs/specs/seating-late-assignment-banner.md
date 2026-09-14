@@ -68,7 +68,10 @@ No hay un stack de correo aparte. Se reutiliza `sendConvocatoriaNotificationTask
 - **Una tarea por músico** (no BCC masivo): cada cuerpo lleva solo las novedades de esa persona.
 - **Variante:** `SEATING_CAMBIO`.
 - **Asunto:** `Novedades de seating | {nombre_gira}`.
-- **Cuerpo (tuteo, tono de alta/baja):** saludo, gira + nomenclador, fechas/zona, lista `obra: desde → hasta`, enlace de repertorio si hay, cierre operativo.
+- **Cuerpo (tuteo, tono de alta/baja):** saludo, gira + nomenclador, fechas/zona, lista de asignaciones, enlace de repertorio si hay, cierre operativo.
+  - **Alta (sin asignación previa):** `{nuevaEtiqueta} (NUEVA)` — p. ej. `Perc Bombo (NUEVA)`. No usar `sin asignación → …`.
+  - **Cambio (había atril/parte):** `A → B` — p. ej. `Flauta 1 → Flauta 2`.
+  - **Baja de parte:** `Clarinete 2 → sin asignación` (sigue el estilo flecha).
 - **From / reply:** `From` = `"Filarmónica SCRN" <${GMAIL_USER}>` (el de roster/convocatoria). **Reply-To** = `filarmonica.scrn@gmail.com` (ya aplicado a todo `mails_produccion`, incluida `SEATING_CAMBIO` / `convocatoria_gira`).
 - Fallback: si la función aún no tiene la variante, `reason` lleva las mismas líneas (bloque “Motivo” del else genérico).
 
@@ -90,3 +93,4 @@ No hay un stack de correo aparte. Se reutiliza `sendConvocatoriaNotificationTask
 - [x] Mail enviable por músico (variante `SEATING_CAMBIO`, confirmación, skip sin mail)
 - [x] Reply-To `filarmonica.scrn@gmail.com` (ya en `mails_produccion`; From sin cambio)
 - [x] No salir de Seating sin Enviar / No enviar si hay pendientes de esta visita
+- [x] Mail de alta sin previo: `{etiqueta} (NUEVA)` (no `sin asignación → …`)

@@ -1757,41 +1757,81 @@ export async function fetchMealEventTypes(supabase) {
   return (data || []).map(mapMealTypeRow);
 }
 
+function isCateringTypeOption(t) {
+  return Boolean(t?.is_catering || t?.servicio === CATERING_SERVICE);
+}
+
+/** Orden D/A/M/C para el picker; en Catering usa el resto del nombre. */
+function mealTypePickerSortKey(t, inCateringGroup) {
+  const nombre = String(t?.nombre || "").trim();
+  let svc = null;
+  if (inCateringGroup) {
+    const rest = nombre.replace(/^catering\s+/i, "").trim();
+    svc = mealBaseFromTypeName(rest);
+    if (svc === CATERING_SERVICE) svc = null;
+  } else {
+    svc =
+      t?.servicio && t.servicio !== CATERING_SERVICE
+        ? t.servicio
+        : mealBaseFromTypeName(nombre);
+    if (svc === CATERING_SERVICE) svc = null;
+  }
+  const order =
+    svc != null && MEAL_SERVICE_ORDER[svc] != null
+      ? MEAL_SERVICE_ORDER[svc]
+      : 50;
+  const isCanon = Boolean(
+    svc && nombre.toLowerCase() === String(svc).toLowerCase(),
+  );
+  return { order, isCanon, nombre };
+}
+
+function compareMealTypePickerOptions(a, b, inCateringGroup) {
+  const ka = mealTypePickerSortKey(a, inCateringGroup);
+  const kb = mealTypePickerSortKey(b, inCateringGroup);
+  if (ka.order !== kb.order) return ka.order - kb.order;
+  if (ka.isCanon !== kb.isCanon) return ka.isCanon ? -1 : 1;
+  return ka.nombre.localeCompare(kb.nombre, "es", { sensitivity: "base" });
+}
+
 /**
  * Opciones del select SERVICIO en MealsManager (OFRN + FIMBA).
- * Conserva subtipos del servicio actual (p. ej. Merienda / Merienda a bordo)
- * y siempre agrega los tipos de categoría Catering (Almuerzo/Merienda/Cena…).
- * En una fila ya Catering, también lista los tipos Comidas para poder volver.
+ * Lista **todos** los tipos de categoría Comidas y Catering (cualquier comida
+ * o catering), agrupados Comidas → Catering y ordenados D/A/M/C
+ * (p. ej. Merienda antes de Merienda a bordo; Catering Almuerzo / Merienda / Cena).
+ * Si el tipo actual no está en el catálogo, se inserta en su grupo.
  *
  * @param {Array} mealTypes
  * @param {object} [row]
  */
 export function mealTypeSelectOptions(mealTypes = [], row = {}) {
-  const list = mealTypes || [];
+  const list = [...(mealTypes || [])];
   const currentId =
     row?.id_tipo_evento != null && row.id_tipo_evento !== ""
       ? Number(row.id_tipo_evento)
       : null;
-  const rowIsCatering =
-    row?.servicio === CATERING_SERVICE || isCateringEvent(row);
-
-  const filtered = list.filter((t) => {
-    if (currentId != null && Number(t.id) === currentId) return true;
-    if (t.is_catering || t.servicio === CATERING_SERVICE) return true;
-    if (rowIsCatering) return !t.is_catering && t.servicio !== CATERING_SERVICE;
-    return (
-      !t.is_catering &&
-      t.servicio !== CATERING_SERVICE &&
-      (!t.servicio || t.servicio === row?.servicio)
-    );
-  });
+  if (
+    currentId != null &&
+    Number.isFinite(currentId) &&
+    !list.some((t) => Number(t.id) === currentId)
+  ) {
+    list.push({
+      id: currentId,
+      nombre: row.tipo_nombre || row.servicio,
+      servicio: row.servicio,
+      is_catering:
+        row.servicio === CATERING_SERVICE || isCateringEvent(row),
+    });
+  }
 
   const meals = [];
   const catering = [];
-  for (const t of filtered) {
-    if (t.is_catering || t.servicio === CATERING_SERVICE) catering.push(t);
+  for (const t of list) {
+    if (isCateringTypeOption(t)) catering.push(t);
     else meals.push(t);
   }
+  meals.sort((a, b) => compareMealTypePickerOptions(a, b, false));
+  catering.sort((a, b) => compareMealTypePickerOptions(a, b, true));
   return [...meals, ...catering];
 }
 

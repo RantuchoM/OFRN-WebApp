@@ -40,6 +40,7 @@ Ejemplo: query `José G` → `Gómez, José` (prefijo de apellido + orden) antes
 - [x] Helpers canónicos en `sanitize.js`
 - [x] Ranking por score (`scoreMultiTokenSearch` / `filterAndRankMultiTokenSearch`)
 - [x] `SearchableSelect`, `FilterDropdown`, Command Palette (Ctrl+K)
+- [x] Paleta Ctrl+K: **Buscar personas** / **Buscar repertorio** en dos pasos; `pers…`/`rep…` van primero; `ilike` + ranking, límite 20; **sin** prefetch al abrir
 - [x] Personas (`MusiciansView` + highlight), horas cátedra, roster, logística, comidas, ensambles
 - [x] Agenda OFRN/FIMBA, repertorio, arreglos, datos, locaciones, entradas, FIMBA, SCRN
 - [x] Selectores de gira/programa (`applyMultiTokenOrIlike` en FIMBA alta y assign repertorio)

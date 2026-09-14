@@ -25,7 +25,7 @@ export const CommandBarTrigger = ({ className = "" }) => {
       <div className="flex items-center gap-2 overflow-hidden">
         <IconSearch size={16} className="text-slate-400 group-hover:text-indigo-500 transition-colors shrink-0" />
         <span className="text-sm text-slate-400 font-medium group-hover:text-slate-600 truncate">
-          Buscar o navegar...
+          Buscar comando, personas o repertorio...
         </span>
       </div>
       

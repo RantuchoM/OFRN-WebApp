@@ -102,7 +102,8 @@ Permitir mover obras dentro del mismo bloque y entre bloques con feedback visual
 | `src/components/repertoire/RepertoireWorkPickerModal.jsx` | Modal «Buscar Obra»; vista móvil con tarjetas al estilo RepertoireManager. |
 | `src/utils/instrumentationFilterPresets.js` | Definición de presets y helpers de etiqueta/activo. |
 | `src/views/Repertoire/RepertoireView.jsx` | Usa modal compartido y presets en columna Orgánico. |
-| `src/views/Repertoire/WorkForm.jsx` | Sustitución sección arcos por BowingSetManager edit; eliminación estado/handlers de arcos. **Autocomplete de título:** al escribir con compositor elegido, desplegable de obras existentes con acciones según `context` (`archive` vs `program`). |
+| `src/views/Repertoire/WorkForm.jsx` | Sustitución sección arcos por BowingSetManager edit; eliminación estado/handlers de arcos. **Autocomplete de título:** al escribir con compositor elegido, desplegable de obras existentes con acciones según `context` (`archive` vs `program`). **Historial** de programas + sync Drive al pasar a Oficial. |
+| `src/components/repertoire/WorkProgramHistoryModal.jsx` | Modal portal de programas/giras de una obra (`repertorio_obras`); Ir → repertorio de la gira. |
 
 ---
 
@@ -140,6 +141,16 @@ Evitar crear obras duplicadas cuando el usuario ya eligió compositor y está es
 - Para otra versión instrumental o de arreglo, usar **Nuevo Arreglo** (`createArrangementFromExistingWork` / botón en footer del formulario).
 - [x] Bloqueo en `updateField` y `saveFieldToDb`
 - [x] UI de estado no editable cuando `estado === "Oficial"`
+- **Sync Drive al pasar a Oficial (2026-09-14):** si el estado anterior es `Solicitud` o `Entregado`, tras persistir se llama `syncObraAssignedProgramsDrive` → `syncProgramRepertoire` (`sync_repertoire_shortcuts`, con fallback `sync_program_metadata`) por cada programa único con fila en `repertorio_obras`. No usa `copiar_carpeta_a_archivo`. No toca seating. Toast lista programas OK y fallidos (un fallo no aborta el resto). Sin asignaciones: no hay toast de Drive.
+
+### Historial / Programas (`WorkForm`)
+- Botón **Historial** en la cabecera (obra persistida). Modal portal a `document.body`, `z-[10050]` (encima del WorkForm `z-[9999]`, mismo patrón que Encargar arreglo).
+- Fuente: `repertorio_obras.id_obra` → `programas_repertorios` → `programas`. No existe `programas_obras`. Seating (`seating_asignaciones`) es downstream y no se consulta. Editores también ven slots placeholder (`repertorio_obras_placeholder_opciones`).
+- Click **Ir** → `AppNavLink` `/?tab=giras&view=REPERTOIRE&giraId=` (`giras-url-routing.md`); clic con rueda abre pestaña. Empty state si no hay programas.
+- Componente compartido: `WorkProgramHistoryModal.jsx` (también Archivo / `RepertoireView`).
+- [x] Listado real de asignaciones + navegación a gira
+- [x] Empty state
+- [x] Drive sync Solicitud/Entregado → Oficial por programa asignado
 
 ### Encargo «Para arreglar» (`WorkForm`)
 - Al pasar a `Para arreglar` o cambiar el integrante asignado, se asigna `id_integrante_arreglador` (default `4340365` si vacío) **y** ese integrante queda como arreglador visible de la obra (`id_arreglador` + `obras_compositores.rol = 'arreglador'`). Helper: `src/utils/syncObraArreglador.js`. Mismo sync en fila rápida del dashboard de arreglos.
@@ -699,6 +710,7 @@ Obra **nueva** (#**3595**), distinta de #3491 (ARIAS solo orquesta, tag `Medoza 
 - [x] El rol **`arreglador`** puede abrir **Repertorio / Archivo** en **solo lectura** (menú, command palette y `?tab=repertorio`).
 - [x] `canEdit` en `RepertoireView`: `isEditor || isArchivista || isManagement`. Arreglador sin esos roles ve listado, filtros, export «Ya programado», historial, links Drive y copiar enlaces; **no** puede crear/editar/eliminar obras, gestionar compositores/tags, selección masiva ni asignar a programa.
 - [x] Badge **«Solo lectura»** en el encabezado cuando `!canEdit`.
+- [x] **Ctrl+K:** comando **Buscar repertorio**; al escribir, `ilike` limitado (no se carga el archivo completo al abrir la paleta). Spec `docs/specs/command-palette.md`.
 
 ---
 

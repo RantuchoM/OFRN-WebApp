@@ -26,6 +26,7 @@ import {
   IconMail,
   IconChevronUp,
   IconChevronDown,
+  IconHistory,
 } from "../../components/ui/Icons";
 import { formatSecondsToTime, inputToSeconds } from "../../utils/time";
 import { useAuth } from "../../context/AuthContext";
@@ -66,6 +67,13 @@ import {
   readManageDriveResponseBody,
 } from "../../utils/paraAcomodarDrive";
 import { normalizeObraAudios } from "../../utils/repertoireAudioTracks";
+import WorkProgramHistoryModal from "../../components/repertoire/WorkProgramHistoryModal";
+import {
+  formatObraProgramDriveSyncToast,
+  syncObraAssignedProgramsDrive,
+} from "../../services/giraService";
+
+const OFICIAL_DRIVE_SYNC_FROM = new Set(["Solicitud", "Entregado"]);
 
 /**
  * `unique_part_per_work`: (id_obra, id_instrumento, nombre_archivo) debe ser único.
@@ -552,6 +560,7 @@ export default function WorkForm({
   });
   const [solicitarAjusteOpen, setSolicitarAjusteOpen] = useState(false);
   const [solicitarAjusteSaving, setSolicitarAjusteSaving] = useState(false);
+  const [historyModalOpen, setHistoryModalOpen] = useState(false);
   const handleQuickCompCreated = (newComp) => {
     const newOption = {
       id: newComp.id,
@@ -1379,6 +1388,32 @@ export default function WorkForm({
       });
   };
 
+  const syncAssignedProgramsDriveAfterOficial = async (obraId) => {
+    if (!obraId) return;
+    const toastId = toast.loading("Sincronizando carpetas Drive de los programas…");
+    try {
+      const result = await syncObraAssignedProgramsDrive(supabase, obraId);
+      const report = formatObraProgramDriveSyncToast(result);
+      if (!report) {
+        toast.dismiss(toastId);
+        return;
+      }
+      if (report.type === "success") {
+        toast.success(report.message, { id: toastId });
+      } else if (report.type === "error") {
+        toast.error(report.message, { id: toastId });
+      } else {
+        toast.warning(report.message, { id: toastId });
+      }
+    } catch (e) {
+      console.error("syncObraAssignedProgramsDrive:", e);
+      toast.error(
+        e?.message || "No se pudo sincronizar Drive de los programas.",
+        { id: toastId },
+      );
+    }
+  };
+
   const saveFieldToDb = async (field, value, overrides = {}) => {
     if (!formData.id) return;
     if (field === "instrumentacion" && particellas.length > 0) return;
@@ -1415,7 +1450,11 @@ export default function WorkForm({
         payload["id_integrante_arreglador"] = value ? Number(value) : null;
       } else payload[field] = value === "" ? null : value;
 
-      await supabase.from("obras").update(payload).eq("id", formData.id);
+      const { error: updateError } = await supabase
+        .from("obras")
+        .update(payload)
+        .eq("id", formData.id);
+      if (updateError) throw updateError;
 
       const assignedIntegrante =
         field === "id_integrante_arreglador"
@@ -1439,6 +1478,15 @@ export default function WorkForm({
       setFieldStatusWithReset(field, "success");
       setTimeout(() => setSaveStatus("idle"), 2000);
       if (onSave) onSave(formData.id, false);
+
+      const previousEstado = overrides.previousEstado;
+      if (
+        field === "estado" &&
+        value === "Oficial" &&
+        OFICIAL_DRIVE_SYNC_FROM.has(previousEstado)
+      ) {
+        syncAssignedProgramsDriveAfterOficial(formData.id);
+      }
 
       // manage-drive: al pasar a Entregado → copia a «Para acomodar» (mismo flujo que entrega de arreglos)
       if (field === "estado" && value === "Entregado" && (data.link_drive || "").trim() && formData.id) {
@@ -1491,6 +1539,14 @@ export default function WorkForm({
     }
     if (field === "estado" && val === "Oficial" && !isAdmin) {
       toast.error("Solo un admin puede pasar una obra a estado Oficial.");
+      return;
+    }
+    if (field === "estado" && val === "Oficial") {
+      const previousEstado = formData.estado;
+      setFormData((prev) => ({ ...prev, estado: val }));
+      if (formData.id) {
+        saveFieldToDb("estado", val, { previousEstado });
+      }
       return;
     }
     if (field === "estado" && val === "Para arreglar") {
@@ -2202,6 +2258,17 @@ export default function WorkForm({
                   </div>
                 )}
               </div>
+            )}
+            {formData.id && (
+              <button
+                type="button"
+                onClick={() => setHistoryModalOpen(true)}
+                className="inline-flex items-center gap-1 bg-white/90 text-slate-800 border border-white/50 rounded-lg px-2.5 py-1.5 text-[11px] sm:text-xs font-bold hover:bg-white shadow-sm transition-colors"
+                title="Programas y giras donde está esta obra"
+              >
+                <IconHistory size={14} className="shrink-0" />
+                Historial
+              </button>
             )}
           </div>
         </div>
@@ -3130,6 +3197,17 @@ export default function WorkForm({
         overlayClassName="z-[10050]"
         pickerOverlayClassName="z-[10100]"
       />
+
+      {historyModalOpen && formData.id && (
+        <WorkProgramHistoryModal
+          work={{ id: formData.id, titulo: formData.titulo }}
+          onClose={() => setHistoryModalOpen(false)}
+          supabase={supabase}
+          isEditor={isEditor || isAdmin}
+          overlayClassName="z-[10050]"
+          onNavigate={onCancel}
+        />
+      )}
 
       <ArregloQuickEncargoModal
         isOpen={encargoQuickModalOpen}

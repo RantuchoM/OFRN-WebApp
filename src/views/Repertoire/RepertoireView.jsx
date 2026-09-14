@@ -19,14 +19,12 @@ import {
   IconClock,
   IconHistory,
   IconX,
-  IconCalendar,
   IconCheck,
   IconList,
   IconSettings,
   IconEyeOff,
   IconChevronLeft,
   IconChevronRight,
-  IconExternalLink,
   IconMoreVertical,
   IconCopy,
   IconDownload,
@@ -35,6 +33,7 @@ import { toast } from "sonner";
 import { format, isBefore, isToday, parseISO, addDays } from "date-fns";
 import { es } from "date-fns/locale";
 import WorkForm from "./WorkForm";
+import WorkProgramHistoryModal from "../../components/repertoire/WorkProgramHistoryModal";
 import ConfirmDialog from "../../components/ui/ConfirmDialog";
 import ComposersManager from "./ComposersManager";
 import TagsManager from "./TagsManager";
@@ -54,10 +53,6 @@ import { formatProgramaVigenteLine } from "../../utils/repertoireProgramaFormat"
 import YaProgramadoExportModal from "../../components/repertoire/YaProgramadoExportModal";
 import { useAuth } from "../../context/AuthContext";
 import AssignProgramModal from "../../components/repertoire/AssignProgramModal";
-import {
-  fetchPlaceholderOpcionesForObra,
-  fetchProgramIdsWithPlaceholders,
-} from "../../services/repertorioPlaceholderOpciones";
 import { stripHtml } from "../../utils/eventDisplayUtils";
 import {
   getObraEstadoArchiveMobileCardClass,
@@ -203,179 +198,6 @@ const hasStrings = (text) => {
 };
 
 // --- 2. MODALES ---
-
-const HistoryModal = ({ work, onClose, supabase, isEditor }) => {
-  const [searchParams, setSearchParams] = useSearchParams();
-  const [loading, setLoading] = useState(true);
-  const [history, setHistory] = useState([]);
-  const [opcionesSlots, setOpcionesSlots] = useState([]);
-  const [programsWithPlaceholders, setProgramsWithPlaceholders] = useState(
-    () => new Set(),
-  );
-
-  useEffect(() => {
-    const fetchHistory = async () => {
-      if (!work?.id) return;
-      setLoading(true);
-      try {
-        const [{ data, error }, opciones] = await Promise.all([
-          supabase
-            .from("repertorio_obras")
-            .select(`
-            programas_repertorios (
-              nombre,
-              programas (id, nombre_gira, fecha_desde, mes_letra, nomenclador, tipo)
-            )
-          `)
-            .eq("id_obra", work.id),
-          isEditor
-            ? fetchPlaceholderOpcionesForObra(supabase, work.id)
-            : Promise.resolve([]),
-        ]);
-        if (error) throw error;
-        const historyData = data
-          .map((item) => ({
-            bloque: item.programas_repertorios?.nombre,
-            gira: item.programas_repertorios?.programas,
-          }))
-          .filter((h) => h.gira);
-        historyData.sort(
-          (a, b) => new Date(b.gira.fecha_desde) - new Date(a.gira.fecha_desde),
-        );
-        setHistory(historyData || []);
-        setOpcionesSlots(opciones || []);
-
-        const programIds = [
-          ...new Set(
-            [
-              ...historyData.map((h) => h.gira?.id),
-              ...(opciones || []).map(
-                (o) =>
-                  o.repertorio_obras?.programas_repertorios?.programas?.id,
-              ),
-            ].filter(Boolean),
-          ),
-        ];
-        const withPh = await fetchProgramIdsWithPlaceholders(
-          supabase,
-          programIds,
-        );
-        setProgramsWithPlaceholders(withPh);
-      } catch (err) {
-        console.error("Error history:", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchHistory();
-  }, [work, supabase, isEditor]);
-
-  const goToGiraRepertoire = (giraId) => {
-    setSearchParams({ tab: "giras", view: "REPERTOIRE", giraId: String(giraId) });
-    onClose();
-  };
-
-  return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in">
-      <div className="bg-white w-full max-w-md rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[80vh]">
-        <div className="px-5 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-          <div>
-            <h3 className="font-bold text-slate-800 text-lg flex items-center gap-2">
-              <IconHistory className="text-indigo-600" /> Historial
-            </h3>
-            <div className="text-xs text-slate-500 line-clamp-1">
-              <RichTextPreview content={work.titulo} />
-            </div>
-          </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1 hover:bg-slate-200 rounded">
-            <IconX size={20} />
-          </button>
-        </div>
-        <div className="flex-1 overflow-y-auto p-4 bg-slate-50/50">
-          {loading ? (
-            <div className="text-center py-8 text-indigo-500"><IconLoader className="animate-spin inline" /></div>
-          ) : history.length === 0 && opcionesSlots.length === 0 ? (
-            <div className="text-center py-8 text-slate-400 italic text-sm">Sin historial registrado.</div>
-          ) : (
-            <div className="space-y-3">
-              {isEditor && opcionesSlots.length > 0 && (
-                <div className="rounded-lg border border-violet-200 bg-violet-50/60 p-3 space-y-2">
-                  <div className="text-[10px] font-bold uppercase text-violet-800">
-                    Opción en slots a definir
-                  </div>
-                  {opcionesSlots.map((op) => {
-                    const slot = op.repertorio_obras;
-                    const prog =
-                      slot?.programas_repertorios?.programas;
-                    const bloque = slot?.programas_repertorios?.nombre;
-                    return (
-                      <div
-                        key={op.id}
-                        className="text-xs text-slate-700 bg-white/80 rounded border border-violet-100 px-2 py-1.5"
-                      >
-                        <span className="font-semibold text-violet-900">
-                          {slot?.titulo_placeholder || "Slot a definir"}
-                        </span>
-                        {prog && (
-                          <span className="text-slate-500">
-                            {" "}
-                            · {prog.nomenclador} {prog.nombre_gira}
-                            {bloque ? ` (${bloque})` : ""}
-                          </span>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-              {history.map((item, idx) => (
-                <div
-                  key={idx}
-                  className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm flex justify-between items-center gap-3 hover:border-indigo-200 hover:bg-indigo-50/30 transition-colors group"
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="text-[10px] font-bold text-indigo-700 uppercase mb-0.5 flex flex-wrap items-center gap-1">
-                      <span>
-                        {item.gira.nomenclador} · {item.gira.mes_letra}
-                        {item.gira.tipo && (
-                          <span className="text-slate-500 font-medium ml-1">
-                            · {item.gira.tipo}
-                          </span>
-                        )}
-                      </span>
-                      {programsWithPlaceholders.has(item.gira.id) && (
-                        <span className="inline-flex items-center text-[8px] bg-violet-100 text-violet-800 px-1.5 py-0.5 rounded border border-violet-200 font-semibold normal-case tracking-normal">
-                          Tiene slots a definir
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-sm font-bold text-slate-800">{item.gira.nombre_gira}</div>
-                    {item.bloque && <div className="text-[10px] text-slate-500 mt-1 bg-slate-50 inline-block px-1.5 rounded border border-slate-100">Bloque: {item.bloque}</div>}
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    {item.gira.fecha_desde && (
-                      <div className="text-xs text-slate-500 bg-slate-100 px-2 py-1 rounded flex items-center gap-1">
-                        <IconCalendar size={12} /> {format(new Date(item.gira.fecha_desde), "MMM yy", { locale: es })}
-                      </div>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => goToGiraRepertoire(item.gira.id)}
-                      className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-bold text-indigo-600 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 opacity-80 group-hover:opacity-100 transition-opacity"
-                      title="Ir al repertorio de esta gira"
-                    >
-                      <IconExternalLink size={12} /> Ir
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-};
 
 const ColumnManager = ({ visibleColumns, onChange }) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -2612,11 +2434,12 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
       {canEdit && showComposersManager && <ComposersManager supabase={supabase} onClose={() => { setShowComposersManager(false); fetchWorks(); }} />}
       {canEdit && showTagsManager && <TagsManager supabase={supabase} onClose={() => { setShowTagsManager(false); fetchWorks(); fetchTags(); }} />}
       {historyWork && (
-        <HistoryModal
+        <WorkProgramHistoryModal
           work={historyWork}
           onClose={() => setHistoryWork(null)}
           supabase={supabase}
           isEditor={isEditor}
+          overlayClassName="z-[100]"
         />
       )}
       {assignWork && (

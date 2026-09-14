@@ -39,6 +39,18 @@
         .replace(/"/g, "&quot;");
     }
 
+    const SEATING_SIN_ASIGNACION_LABEL = "sin asignación";
+
+    /** Alta sin atril previo: `{etiqueta} (NUEVA)`. Con previo: `A → B`. */
+    function formatSeatingMailAssignmentChange(fromRaw: unknown, toRaw: unknown): string {
+      const from = String(fromRaw ?? "").trim();
+      const to = String(toRaw ?? "").trim() || SEATING_SIN_ASIGNACION_LABEL;
+      if (!from || from === SEATING_SIN_ASIGNACION_LABEL) {
+        return `${to} (NUEVA)`;
+      }
+      return `${from} → ${to}`;
+    }
+
     function nombreSaludoConvocatoria(payloadNombre: string, d: any): string {
       const nRaw = d?.primer_integrante_nombre ?? d?.nombre_primero;
       const aRaw = d?.primer_integrante_apellido ?? d?.apellido_primero;
@@ -615,9 +627,12 @@
           const novedadesItems = novedades
             .map((n: any) => {
               const obra = escapeHtmlMail(n?.obra || "Obra");
-              const from = escapeHtmlMail(n?.from || "sin asignación");
-              const to = escapeHtmlMail(n?.to || "sin asignación");
-              return `<li style="margin: 4px 0;"><strong>${obra}</strong>: ${from} → ${to}</li>`;
+              const cambioRaw =
+                typeof n?.cambio === "string" && n.cambio.trim()
+                  ? n.cambio.trim()
+                  : formatSeatingMailAssignmentChange(n?.from, n?.to);
+              const cambio = escapeHtmlMail(cambioRaw);
+              return `<li style="margin: 4px 0;"><strong>${obra}</strong>: ${cambio}</li>`;
             })
             .join("");
           const novedadesBlock = novedadesItems

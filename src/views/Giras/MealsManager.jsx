@@ -200,6 +200,39 @@ const resolveMealTypeSelection = (mealTypes, typeId, fallbackServicio = "") => {
   return { id_tipo_evento: id, tipo_nombre: tipoNombre || servicio, servicio };
 };
 
+/** Optgroups Comidas → Catering para el select Servicio (catálogo completo). */
+function MealServiceTypeOptionGroups({ mealTypes, row }) {
+  const opts = mealTypeSelectOptions(mealTypes, row);
+  const meals = [];
+  const catering = [];
+  for (const t of opts) {
+    if (t.is_catering || t.servicio === CATERING_SERVICE) catering.push(t);
+    else meals.push(t);
+  }
+  return (
+    <>
+      {meals.length > 0 && (
+        <optgroup label="Comidas">
+          {meals.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.nombre}
+            </option>
+          ))}
+        </optgroup>
+      )}
+      {catering.length > 0 && (
+        <optgroup label="Catering">
+          {catering.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.nombre}
+            </option>
+          ))}
+        </optgroup>
+      )}
+    </>
+  );
+}
+
 /**
  * Mini-modal al "+" de fila: fecha y tipo editables (defaults = fila origen).
  * Temp row sin hora_fin; tags artistas se heredan de la fila o del filtro activo.
@@ -212,17 +245,6 @@ function SiblingMealAddModal({
   onConfirm,
 }) {
   if (!draft || typeof document === "undefined") return null;
-
-  const typeOptions = mealTypes.length
-    ? mealTypes
-    : draft.id_tipo_evento
-      ? [
-          {
-            id: draft.id_tipo_evento,
-            nombre: draft.tipo_nombre || draft.servicio,
-          },
-        ]
-      : [];
 
   return createPortal(
     <div
@@ -289,20 +311,9 @@ function SiblingMealAddModal({
               className={`mt-1 w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 ${
                 getMealServiceStyle(draft.servicio).tag
               }`}
+              title="Tipo de evento (todas las Comidas y Catering)"
             >
-              {typeOptions.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.nombre}
-                </option>
-              ))}
-              {!typeOptions.some(
-                (t) => Number(t.id) === Number(draft.id_tipo_evento),
-              ) &&
-                draft.id_tipo_evento && (
-                  <option value={draft.id_tipo_evento}>
-                    {draft.tipo_nombre || draft.servicio}
-                  </option>
-                )}
+              <MealServiceTypeOptionGroups mealTypes={mealTypes} row={draft} />
             </select>
           </div>
         </div>
@@ -3842,22 +3853,12 @@ export default function MealsManager({
                             className={`w-full text-[10px] font-bold border rounded px-1 py-1 outline-none ${
                               getMealServiceStyle(row.servicio).tag
                             } ${isDirty ? "ring-1 ring-amber-300" : ""}`}
-                            title="Tipo de evento (Comidas del mismo servicio + Catering)"
+                            title="Tipo de evento (todas las Comidas y Catering)"
                           >
-                            {mealTypeSelectOptions(mealTypes, row).map((t) => (
-                              <option key={t.id} value={t.id}>
-                                {t.nombre}
-                              </option>
-                            ))}
-                            {!mealTypes.some(
-                              (t) =>
-                                Number(t.id) === Number(row.id_tipo_evento),
-                            ) &&
-                              row.id_tipo_evento && (
-                                <option value={row.id_tipo_evento}>
-                                  {row.tipo_nombre || row.servicio}
-                                </option>
-                              )}
+                            <MealServiceTypeOptionGroups
+                              mealTypes={mealTypes}
+                              row={row}
+                            />
                           </select>
                           {!row.isTemp && (
                             <button
@@ -4488,15 +4489,12 @@ function MobileMealEditor({ row, catalogs, mealTypes = [], onCancel, onSave }) {
                 }));
               }}
               className="w-full mt-1 border border-slate-300 rounded px-2 py-1.5 text-xs bg-white"
+              title="Tipo de evento (todas las Comidas y Catering)"
             >
-              {mealTypeSelectOptions(mealTypes, {
-                ...row,
-                ...draft,
-              }).map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.nombre}
-                </option>
-              ))}
+              <MealServiceTypeOptionGroups
+                mealTypes={mealTypes}
+                row={{ ...row, ...draft }}
+              />
             </select>
           </div>
           <div className="grid grid-cols-2 gap-2">
