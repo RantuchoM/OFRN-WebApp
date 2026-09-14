@@ -9,6 +9,7 @@ Permitir unir ≥2 eventos de comida/catering del **mismo turno** (`fecha` + `se
 - Deshabilitado en `readOnly`.
 - UI: botón **Fusionar** en el panel flotante de edición masiva (`BulkEditPanel`).
 - ConfirmDialog antes de ejecutar.
+- **Eliminar (2026-09-14):** mismo panel; borra las comidas **guardadas** seleccionadas (no vacantes). ConfirmDialog z-110 avisa el conteo. Oculto en `readOnly`. OFRN + FIMBA.
 
 ## Survivor
 Se conserva el evento más “completo”:

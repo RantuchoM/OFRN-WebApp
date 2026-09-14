@@ -510,6 +510,175 @@ export function effectiveMealRowPropuestas(row, fallbackPropuestas = []) {
   return own;
 }
 
+function coerceMealLocacionId(raw) {
+  if (raw == null || raw === "") return null;
+  if (String(raw) === MEAL_FILTER_NO_LOC) return null;
+  const num = Number(raw);
+  return Number.isFinite(num) ? num : raw;
+}
+
+/**
+ * Locación concreta del filtro Locación para alta.
+ * Solo si hay exactamente un id real (no «todos», no «Sin locación», no multi).
+ */
+export function mealFilterLocacionIdForCreate(locacionIds = []) {
+  const concrete = [];
+  const seen = new Set();
+  for (const raw of locacionIds || []) {
+    const id = coerceMealLocacionId(raw);
+    if (id == null) continue;
+    const key = String(id);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    concrete.push(id);
+  }
+  if (concrete.length !== 1) return null;
+  return concrete[0];
+}
+
+/**
+ * Locación al crear: la de la fila origen si hay; si no, el filtro singleton.
+ */
+export function inheritMealLocacionForCreate(sourceRow, opts = {}) {
+  const fromSource = coerceMealLocacionId(
+    sourceRow?.id_locacion ?? sourceRow?.locaciones?.id ?? sourceRow?.locKey,
+  );
+  if (fromSource != null) return fromSource;
+  return mealFilterLocacionIdForCreate(opts.fallbackLocacionIds || []);
+}
+
+/** Tipo Catering por defecto (Almuerzo / id 34 si está en catálogo). */
+export function defaultCateringMealType(mealTypes = []) {
+  const list = (mealTypes || []).filter(
+    (t) => t?.is_catering || t?.servicio === CATERING_SERVICE,
+  );
+  if (!list.length) return null;
+  const byName = list.find((t) =>
+    /^catering\s*almuerzo$/i.test(String(t.nombre || "").trim()),
+  );
+  if (byName) return byName;
+  const byId = list.find((t) => Number(t.id) === 34);
+  return byId || list[0];
+}
+
+function mealCreateServiceSet(serviceFilter) {
+  if (!serviceFilter) return null;
+  return serviceFilter instanceof Set
+    ? serviceFilter
+    : new Set(serviceFilter);
+}
+
+/**
+ * ¿El alta quedaría oculta por filtro Catering (clase o solo-servicio Catering)?
+ */
+export function mealCreateNeedsCateringTipo(row, opts = {}) {
+  if (isCateringEvent(row) || row?.servicio === CATERING_SERVICE) {
+    return false;
+  }
+  const kindFilter = opts.mealKindFilter || "all";
+  if (kindFilter === "catering") return true;
+  const serviceSet = mealCreateServiceSet(opts.serviceFilter);
+  if (!serviceSet || serviceSet.size === 0) return false;
+  const onlyCatering = [...serviceSet].every((s) => s === CATERING_SERVICE);
+  return onlyCatering && serviceSet.has(CATERING_SERVICE);
+}
+
+/** Patch tipo/servicio Catering para que la fila nueva coincida con el filtro. */
+export function inheritMealKindForCreate(sourceRow, opts = {}) {
+  if (!mealCreateNeedsCateringTipo(sourceRow, opts)) return {};
+  const tipo = defaultCateringMealType(opts.mealTypes || []);
+  if (!tipo) {
+    return { servicio: CATERING_SERVICE };
+  }
+  return {
+    servicio: CATERING_SERVICE,
+    id_tipo_evento: tipo.id,
+    tipo_nombre: tipo.nombre || CATERING_SERVICE,
+    tipos_evento: tipo,
+  };
+}
+
+/** IDs de `giras_grupos` del filtro editorial (sin Tutti / vacíos). */
+export function mealFilterGrupoIdsForCreate(filterGrupoIds = []) {
+  return [
+    ...new Set(
+      (filterGrupoIds || [])
+        .map(Number)
+        .filter((n) => Number.isFinite(n) && n > 0),
+    ),
+  ];
+}
+
+/**
+ * Grupos al crear: los de la fila origen, o los del filtro de grupos activo.
+ * No fuerza si el filtro es «todos» / solo Tutti (sin ids).
+ */
+export function inheritMealGruposForCreate(sourceRow, opts = {}) {
+  const fromSource = mealFilterGrupoIdsForCreate(
+    sourceRow?.selectedGrupos || [],
+  );
+  if (fromSource.length) return fromSource;
+  return mealFilterGrupoIdsForCreate(opts.filterGrupoIds || []);
+}
+
+/**
+ * Características de filtros activos para alta (vacante, «+», insert).
+ * No pisa locación/artistas/grupos ya setados en `sourceRow`.
+ * `skipKind`: overlay de vacantes D/A/M/C (no convertir el walk a Catering).
+ *
+ * @param {object|null|undefined} sourceRow
+ * @param {{ fallbackLocacionIds?: Array, fallbackArtistaIds?: Array, propuestasCatalog?: Array, mealKindFilter?: string, serviceFilter?: Array|Set, mealTypes?: Array, filterGrupoIds?: Array, skipKind?: boolean }} [opts]
+ */
+export function inheritMealCreateFields(sourceRow, opts = {}) {
+  const patch = {};
+  const loc = inheritMealLocacionForCreate(sourceRow, opts);
+  if (loc != null) patch.id_locacion = loc;
+
+  const propuestas = inheritMealArtistTagsForCreate(sourceRow, {
+    fallbackArtistaIds: opts.fallbackArtistaIds,
+    propuestasCatalog: opts.propuestasCatalog,
+  });
+  if (propuestas.length) patch.propuestas = propuestas;
+
+  const selectedGrupos = inheritMealGruposForCreate(sourceRow, opts);
+  if (selectedGrupos.length) patch.selectedGrupos = selectedGrupos;
+
+  if (!opts.skipKind) {
+    Object.assign(patch, inheritMealKindForCreate(sourceRow, opts));
+  }
+  return patch;
+}
+
+/**
+ * Overlay de vacantes: locación / artistas / grupos del filtro, sin cambiar tipo.
+ * No muta `row` si no hay nada que heredar.
+ */
+export function applyMealCreateFilterInheritance(row, opts = {}) {
+  if (!row?.isTemp) return row;
+  const inherited = inheritMealCreateFields(row, { ...opts, skipKind: true });
+  const next = { ...row };
+  let changed = false;
+  if (
+    (next.id_locacion == null || next.id_locacion === "") &&
+    inherited.id_locacion != null
+  ) {
+    next.id_locacion = inherited.id_locacion;
+    changed = true;
+  }
+  if (!(next.propuestas || []).length && inherited.propuestas?.length) {
+    next.propuestas = inherited.propuestas;
+    changed = true;
+  }
+  if (
+    !(next.selectedGrupos || []).length &&
+    inherited.selectedGrupos?.length
+  ) {
+    next.selectedGrupos = inherited.selectedGrupos;
+    changed = true;
+  }
+  return changed ? next : row;
+}
+
 /** Default servicios visibles en gestor/asistencia/reporte (Desayuno off). */
 export const DEFAULT_MEAL_SERVICE_FILTER = [
   "Almuerzo",
@@ -579,7 +748,9 @@ export function sortMealManagerGrid(rows) {
 
 /**
  * Filtro puro de filas/eventos de comida (Manager / Asistencia / Reporte).
- * Nunca muta `rows`. Vacantes (`isTemp`) ignoran locaciÃÂÃÂÃÂÃÂ³n/artista para poder crear.
+ * Nunca muta `rows`. Vacantes (`isTemp`) ignoran locación/artista para poder
+ * crear (esas características se heredan en overlay/`saveRow`). Sí respetan
+ * clase Comidas/Catering y filtro de servicio: un temp Catering no se oculta.
  *
  * @param {object[]} rows
  * @param {{ mealKindFilter?: string, serviceFilter?: string[]|Set, locacionIds?: string[], artistaIds?: string[] }} filters
@@ -611,8 +782,7 @@ export function filterMealManagerRows(rows, filters = {}) {
     if (serviceSet && !serviceSet.has(servicio)) return false;
 
     if (r?.isTemp) {
-      if (mealKindFilter === "catering") return false;
-      if (servicio === CATERING_SERVICE) return false;
+      if (!passesMealKindFilter(r, mealKindFilter)) return false;
       return true;
     }
 

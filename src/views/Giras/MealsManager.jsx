@@ -68,6 +68,10 @@ import {
   canMergeMealRows,
   buildMergedMealState,
   inheritMealArtistTagsForCreate,
+  inheritMealCreateFields,
+  applyMealCreateFilterInheritance,
+  mealCreateNeedsCateringTipo,
+  inheritMealKindForCreate,
   effectiveMealRowPropuestas,
   mealTypeSelectOptions,
 } from "../../utils/mealLogistics";
@@ -1689,6 +1693,10 @@ const BulkEditPanel = ({
   mergeDisabledReason = "",
   onMerge = null,
   merging = false,
+  canDelete = false,
+  deleteDisabledReason = "",
+  onDelete = null,
+  deleting = false,
 }) => {
   const [values, setValues] = useState({
     hora_inicio: "",
@@ -1738,11 +1746,36 @@ const BulkEditPanel = ({
           </div>
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
+          {typeof onDelete === "function" && (
+            <button
+              type="button"
+              onClick={onDelete}
+              disabled={!canDelete || deleting || merging}
+              title={
+                canDelete
+                  ? "Eliminar las comidas guardadas seleccionadas"
+                  : deleteDisabledReason ||
+                    "Seleccioná al menos una comida guardada"
+              }
+              className={`text-xs font-black px-3 py-1.5 rounded-lg shadow-md active:scale-95 transition-all flex items-center gap-1 ${
+                canDelete && !deleting && !merging
+                  ? "bg-red-500 hover:bg-red-600 text-white"
+                  : "bg-indigo-900/50 text-indigo-300 cursor-not-allowed"
+              }`}
+            >
+              {deleting ? (
+                <IconLoader size={14} className="animate-spin" />
+              ) : (
+                <IconTrash size={14} />
+              )}{" "}
+              Eliminar
+            </button>
+          )}
           {typeof onMerge === "function" && (
             <button
               type="button"
               onClick={onMerge}
-              disabled={!canMerge || merging}
+              disabled={!canMerge || merging || deleting}
               title={
                 canMerge
                   ? "Fusionar comidas del mismo día y servicio"
@@ -1750,7 +1783,7 @@ const BulkEditPanel = ({
                     "Seleccioná ≥2 comidas con la misma fecha y servicio"
               }
               className={`text-xs font-black px-3 py-1.5 rounded-lg shadow-md active:scale-95 transition-all flex items-center gap-1 ${
-                canMerge && !merging
+                canMerge && !merging && !deleting
                   ? "bg-amber-400 hover:bg-amber-300 text-amber-950"
                   : "bg-indigo-900/50 text-indigo-300 cursor-not-allowed"
               }`}
@@ -1766,7 +1799,8 @@ const BulkEditPanel = ({
           <button
             type="button"
             onClick={() => onApply(values)}
-            className="bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-black px-3 py-1.5 rounded-lg shadow-md active:scale-95 transition-all flex items-center gap-1"
+            disabled={deleting || merging}
+            className="bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 disabled:pointer-events-none text-white text-xs font-black px-3 py-1.5 rounded-lg shadow-md active:scale-95 transition-all flex items-center gap-1"
           >
             <IconCheck size={14} strokeWidth={3} /> Aplicar
           </button>
@@ -1830,6 +1864,7 @@ export default function MealsManager({
   const [siblingAddDraft, setSiblingAddDraft] = useState(null);
   const [selectedRows, setSelectedRows] = useState(new Set());
   const [mergingMeals, setMergingMeals] = useState(false);
+  const [deletingMeals, setDeletingMeals] = useState(false);
   const [localMealFilters, setLocalMealFilters] = useState(() =>
     createDefaultMealFilters(),
   );
@@ -1874,6 +1909,26 @@ export default function MealsManager({
     });
   };
   const [mealTypes, setMealTypes] = useState([]);
+  const mealCreateInheritOpts = useMemo(
+    () => ({
+      fallbackLocacionIds: filterLocacionIds,
+      fallbackArtistaIds: filterArtistaIds,
+      propuestasCatalog: propuestas,
+      mealKindFilter,
+      serviceFilter,
+      mealTypes,
+      filterGrupoIds,
+    }),
+    [
+      filterLocacionIds,
+      filterArtistaIds,
+      propuestas,
+      mealKindFilter,
+      serviceFilter,
+      mealTypes,
+      filterGrupoIds,
+    ],
+  );
   const [mealTypesEditorOpen, setMealTypesEditorOpen] = useState(false);
   const [resettingNames, setResettingNames] = useState(false);
   const debounceRef = useRef({});
@@ -2055,9 +2110,9 @@ export default function MealsManager({
       hora_inicio: "",
       hora_fin: "",
       descripcion: "",
-      id_locacion: "",
+      id_locacion: opts.id_locacion ?? "",
       convocados: [],
-      selectedGrupos: [],
+      selectedGrupos: opts.selectedGrupos || [],
       propuestas: opts.propuestas || [],
       visible_agenda: true,
       tecnica: false,
@@ -2202,25 +2257,29 @@ export default function MealsManager({
     setGrid(sortMealManagerGrid(newGrid));
   };
 
-  /** Abre mini-modal "+" con fecha/tipo editables (defaults = fila). */
+  /** Abre mini-modal "+" con fecha/tipo editables (defaults = fila / filtro). */
   const openSiblingMealAdd = (row) => {
     if (!row?.fecha || !row?.servicio) return;
     const idTipo =
       row.id_tipo_evento != null && row.id_tipo_evento !== ""
         ? Number(row.id_tipo_evento)
         : typeIdForBase(mealTypes, row.servicio);
-    setSiblingAddDraft({
+    let draft = {
       sourceRowId: row.id,
       fecha: row.fecha,
       servicio: row.servicio,
       id_tipo_evento: idTipo,
       tipo_nombre: row.tipo_nombre || typeNombreById(mealTypes, idTipo) || row.servicio,
-    });
+    };
+    if (mealCreateNeedsCateringTipo(draft, mealCreateInheritOpts)) {
+      draft = { ...draft, ...inheritMealKindForCreate(draft, mealCreateInheritOpts) };
+    }
+    setSiblingAddDraft(draft);
   };
 
   /**
-   * Agrega fila temp (sin hora_fin). Tags artistas: fila origen, o filtro activo
-   * (paridad Transportes) para que no desaparezca de la vista filtrada.
+   * Agrega fila temp (sin hora_fin). Hereda filtros activos (locación, artista,
+   * catering, grupos) para que no desaparezca de la vista filtrada.
    * `overrides` permite otra fecha/servicio/tipo respecto de la fila origen.
    */
   const addSiblingMeal = (row, overrides = {}) => {
@@ -2234,7 +2293,17 @@ export default function MealsManager({
         fallbackArtistaIds: filterArtistaIds,
         propuestasCatalog: propuestas,
       }),
+      id_locacion: row.id_locacion || "",
+      selectedGrupos: row.selectedGrupos || [],
     });
+    const inherited = inheritMealCreateFields(newRow, mealCreateInheritOpts);
+    Object.assign(newRow, inherited);
+    if ((newRow.selectedGrupos || []).length) {
+      newRow.eventos_grupos = buildEventosGruposEmbed(
+        newRow.selectedGrupos,
+        giraGrupos,
+      );
+    }
     setGrid((prev) => {
       const idx = prev.findIndex((r) => r.id === row.id);
       if (idx === -1) return sortMealManagerGrid([...prev, newRow]);
@@ -2618,8 +2687,71 @@ export default function MealsManager({
     return { ok: false, reason: "No se pueden fusionar estas filas" };
   }, [readOnly, selectedRowsForMerge]);
 
+  const handleBulkDeleteSelectedMeals = async () => {
+    if (readOnly || deletingMeals || mergingMeals) return;
+    const persisted = selectedRowsForMerge;
+    const n = persisted.length;
+    if (n === 0) {
+      toast.info("Seleccioná al menos una comida guardada para eliminar.");
+      return;
+    }
+    const ok = await confirm({
+      title: n === 1 ? "Eliminar comida" : "Eliminar comidas",
+      message:
+        n === 1
+          ? "¿Eliminar la comida seleccionada? Esta acción no se puede deshacer."
+          : `¿Eliminar las ${n} comidas seleccionadas? Esta acción no se puede deshacer.`,
+      destructive: true,
+      confirmText: n === 1 ? "Eliminar" : `Eliminar ${n}`,
+      overlayClassName: "z-[110]",
+    });
+    if (!ok) return;
+
+    const dropIds = persisted.map((r) => r.id);
+    const dropSet = new Set(dropIds.map(String));
+    setDeletingMeals(true);
+    setDeletingRows((prev) => {
+      const next = new Set(prev);
+      dropIds.forEach((id) => next.add(id));
+      return next;
+    });
+    try {
+      const { error } = await supabase.from("eventos").delete().in("id", dropIds);
+      if (error) throw error;
+
+      setGrid((prev) => prev.filter((r) => !dropSet.has(String(r.id))));
+      setSelectedRows(new Set());
+      if (comensalesDetailRow && dropSet.has(String(comensalesDetailRow.id))) {
+        setComensalesDetailRow(null);
+      }
+      toast.success(
+        n === 1 ? "Comida eliminada." : `Eliminadas ${n} comidas.`,
+      );
+      refreshGridData().catch((e) => console.error(e));
+    } catch (e) {
+      console.error(e);
+      toast.error(
+        e?.message
+          ? `No se pudo eliminar: ${e.message}`
+          : "No se pudieron eliminar las comidas",
+      );
+      try {
+        await refreshGridData();
+      } catch (_) {
+        /* ignore */
+      }
+    } finally {
+      setDeletingMeals(false);
+      setDeletingRows((prev) => {
+        const next = new Set(prev);
+        dropIds.forEach((id) => next.delete(id));
+        return next;
+      });
+    }
+  };
+
   const handleMergeSelectedMeals = async () => {
-    if (readOnly || mergingMeals) return;
+    if (readOnly || mergingMeals || deletingMeals) return;
     const eligibility = canMergeMealRows(selectedRowsForMerge);
     if (!eligibility.ok) {
       toast.info(
@@ -2803,15 +2935,23 @@ export default function MealsManager({
   const saveRow = async (row) => {
     if (!row.fecha || !row.hora_inicio) return;
     setSavingRows((prev) => new Set(prev).add(row.id));
-    
+
+    const wasTemp = Boolean(row.isTemp);
+    const inherited = wasTemp
+      ? inheritMealCreateFields(row, mealCreateInheritOpts)
+      : {};
+    const mergedServicio = inherited.servicio || row.servicio;
     const label =
+      inherited.tipo_nombre ||
       row.tipo_nombre ||
-      serviceLabelOf(row.servicio, row.servicio_detalle) ||
-      row.servicio;
+      serviceLabelOf(mergedServicio, row.servicio_detalle) ||
+      mergedServicio;
     const tipoId =
-      row.id_tipo_evento != null
-        ? Number(row.id_tipo_evento)
-        : typeIdForBase(mealTypes, row.servicio);
+      inherited.id_tipo_evento != null
+        ? Number(inherited.id_tipo_evento)
+        : row.id_tipo_evento != null
+          ? Number(row.id_tipo_evento)
+          : typeIdForBase(mealTypes, mergedServicio);
     if (!tipoId) {
       toast.error("Elegí un tipo de comida válido");
       setSavingRows((prev) => {
@@ -2821,13 +2961,19 @@ export default function MealsManager({
       });
       return;
     }
-    const wasTemp = Boolean(row.isTemp);
     const createArtistTags = wasTemp
-      ? inheritMealArtistTagsForCreate(row, {
-          fallbackArtistaIds: filterArtistaIds,
-          propuestasCatalog: propuestas,
-        })
+      ? inherited.propuestas?.length
+        ? inherited.propuestas
+        : inheritMealArtistTagsForCreate(row, {
+            fallbackArtistaIds: filterArtistaIds,
+            propuestasCatalog: propuestas,
+          })
       : [];
+    const mergedLocacion = row.id_locacion || inherited.id_locacion || null;
+    const mergedGrupos =
+      (row.selectedGrupos || []).length > 0
+        ? row.selectedGrupos
+        : inherited.selectedGrupos || [];
     const payload = {
       id_gira: gira.id,
       fecha: row.fecha,
@@ -2843,7 +2989,7 @@ export default function MealsManager({
           createArtistTags.length ? createArtistTags : row.propuestas,
         ) ||
         `${label} Gira`,
-      id_locacion: row.id_locacion || null,
+      id_locacion: mergedLocacion,
       convocados: row.convocados || [],
       visible_agenda: row.visible_agenda,
       tecnica: !!row.tecnica,
@@ -2870,7 +3016,7 @@ export default function MealsManager({
         const { error: gruposError } = await setEventoGrupos(
           supabase,
           savedId,
-          row.selectedGrupos || [],
+          mergedGrupos,
         );
         if (gruposError) {
           toast.error("Comida guardada, pero falló asignar grupos: " + gruposError.message);
@@ -2897,7 +3043,7 @@ export default function MealsManager({
       }
 
       const eventos_grupos = buildEventosGruposEmbed(
-        row.selectedGrupos || [],
+        mergedGrupos,
         giraGrupos,
       );
 
@@ -2915,26 +3061,30 @@ export default function MealsManager({
 
       const patched = {
         ...data,
-        tipos_evento: data.tipos_evento || {
+        tipos_evento: data.tipos_evento || inherited.tipos_evento || {
           id: data.id_tipo_evento,
           nombre:
             typeNombreById(mealTypes, data.id_tipo_evento) ||
+            inherited.tipo_nombre ||
             row.tipo_nombre,
         },
         servicio: mealServicioFromEvent({
           ...data,
-          tipos_evento: data.tipos_evento || {
+          tipos_evento: data.tipos_evento || inherited.tipos_evento || {
             nombre:
               typeNombreById(mealTypes, data.id_tipo_evento) ||
+              inherited.tipo_nombre ||
               row.tipo_nombre,
           },
-        }),
+        }) || mergedServicio,
         tipo_nombre:
           data.tipos_evento?.nombre ||
           typeNombreById(mealTypes, data.id_tipo_evento) ||
+          inherited.tipo_nombre ||
           row.tipo_nombre,
         id_tipo_evento: data.id_tipo_evento,
-        selectedGrupos: row.selectedGrupos || [],
+        id_locacion: data.id_locacion ?? mergedLocacion,
+        selectedGrupos: mergedGrupos,
         eventos_grupos,
         propuestas: preservedPropuestas,
         isTemp: false,
@@ -3090,12 +3240,17 @@ export default function MealsManager({
   const filteredGrid = useMemo(
     () =>
       sortMealManagerGrid(
-        filterMealManagerRows(grid, {
-          mealKindFilter,
-          serviceFilter,
-          locacionIds: filterLocacionIds,
-          artistaIds: filterArtistaIds,
-        }),
+        filterMealManagerRows(
+          (grid || []).map((r) =>
+            applyMealCreateFilterInheritance(r, mealCreateInheritOpts),
+          ),
+          {
+            mealKindFilter,
+            serviceFilter,
+            locacionIds: filterLocacionIds,
+            artistaIds: filterArtistaIds,
+          },
+        ),
       ),
     [
       grid,
@@ -3103,6 +3258,7 @@ export default function MealsManager({
       mealKindFilter,
       filterLocacionIds,
       filterArtistaIds,
+      mealCreateInheritOpts,
     ],
   );
 
@@ -3594,6 +3750,14 @@ export default function MealsManager({
           mergeDisabledReason={mealMergeEligibility.reason}
           onMerge={readOnly ? null : handleMergeSelectedMeals}
           merging={mergingMeals}
+          canDelete={!readOnly && selectedRowsForMerge.length > 0}
+          deleteDisabledReason={
+            readOnly
+              ? "Solo lectura"
+              : "Seleccioná al menos una comida guardada"
+          }
+          onDelete={readOnly ? null : handleBulkDeleteSelectedMeals}
+          deleting={deletingMeals}
         />
       )}
 
