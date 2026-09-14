@@ -1111,10 +1111,12 @@ const FIMBA_CSS = `
     }
   }
   @media print {
-    .fimba-agenda-mobile {
+    .fimba-agenda-mobile,
+    .fimba-transport-mobile {
       display: none !important;
     }
-    .fimba-agenda-desktop {
+    .fimba-agenda-desktop,
+    .fimba-transport-desktop {
       display: block !important;
     }
     .fimba-agenda-desktop[hidden] {
@@ -1914,6 +1916,289 @@ const FIMBA_CSS = `
   .fimba-veh-filter-chip__export-btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+  }
+  .fimba-veh-filter {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+  }
+  .fimba-transport-toolbar {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .fimba-transport-toolbar-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .fimba-transport-title {
+    margin: 0;
+    font-size: 1.05rem;
+    color: var(--fimba-deep);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .fimba-transport-toolbar-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .fimba-transport-programar-btn {
+    padding: 0.35rem 0.7rem;
+    font-size: 0.78rem;
+    font-weight: 700;
+    background: var(--fimba-deep);
+    color: #fff;
+    border-color: var(--fimba-deep);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .fimba-transport-filters-toggle {
+    display: none;
+  }
+  .fimba-transport-filters-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    min-width: 0;
+  }
+  .fimba-transport-filter-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+  }
+  .fimba-transport-filter-item .fimba-label {
+    margin: 0;
+    white-space: nowrap;
+  }
+  .fimba-transport-filter-item .fimba-select {
+    width: auto;
+    min-width: 180px;
+  }
+  .fimba-transport-origen-chips {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .fimba-transport-origen-select,
+  .fimba-veh-filter-dropdown {
+    display: none;
+  }
+  .fimba-transport-mobile {
+    display: none;
+    flex-direction: column;
+    gap: 0.55rem;
+    padding: 0.7rem;
+  }
+  .fimba-transport-event-card {
+    gap: 0.35rem;
+    padding: 0.6rem 0.7rem;
+  }
+  .fimba-transport-event-card--contexto {
+    background: #f8fafc;
+    border-style: dashed;
+  }
+  .fimba-transport-card-when {
+    display: flex;
+    align-items: center;
+    gap: 0.28rem;
+    flex-shrink: 0;
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+    font-size: 0.82rem;
+    color: var(--fimba-deep, #94216d);
+    white-space: nowrap;
+  }
+  .fimba-transport-card-date {
+    font-weight: 600;
+    color: var(--fimba-muted, #64748b);
+    font-size: 0.75rem;
+  }
+  .fimba-transport-card-route {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.3rem;
+    font-size: 0.78rem;
+    color: var(--fimba-muted, #64748b);
+    line-height: 1.3;
+    min-width: 0;
+  }
+  .fimba-transport-card-route > span {
+    min-width: 0;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+  .fimba-transport-card-pausa-badge {
+    background: rgba(14, 116, 144, 0.1);
+    color: #0e7490;
+    font-size: 0.65rem;
+    padding: 0.05rem 0.35rem;
+    flex-shrink: 0;
+  }
+  .fimba-transport-card-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem 0.65rem;
+    font-size: 0.75rem;
+    min-width: 0;
+  }
+  .fimba-transport-card-veh {
+    font-weight: 700;
+    color: var(--fimba-deep, #94216d);
+  }
+  .fimba-transport-card-board {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.4rem;
+  }
+  .fimba-transport-card-board-col {
+    appearance: none;
+    font: inherit;
+    color: inherit;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.2rem;
+    min-width: 0;
+    padding: 0.3rem 0.4rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    background: #fff;
+    text-align: left;
+    cursor: pointer;
+  }
+  .fimba-transport-card-board-col:disabled {
+    cursor: default;
+    opacity: 0.85;
+  }
+    border-color: #86efac;
+    background: rgba(220, 252, 231, 0.45);
+  }
+  .fimba-transport-card-board-col.is-down.has-people {
+    border-color: #fda4af;
+    background: rgba(255, 228, 230, 0.45);
+  }
+  .fimba-transport-card-board-head {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.72rem;
+    font-weight: 800;
+  }
+  .fimba-transport-card-board-col.is-up .fimba-transport-card-board-head {
+    color: #166534;
+  }
+  .fimba-transport-card-board-col.is-down .fimba-transport-card-board-head {
+    color: #9f1239;
+  }
+  .fimba-transport-card-board-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    min-width: 0;
+  }
+  .fimba-transport-card-board-empty {
+    font-size: 0.68rem;
+    color: var(--fimba-muted, #64748b);
+  }
+  .fimba-transport-pause-card {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    padding: 0.35rem 0.5rem;
+    border-radius: 8px;
+    border: 1px dashed #67e8f9;
+    background: rgba(14, 116, 144, 0.06);
+    color: #0e7490;
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+  .fimba-transport-pause-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+  }
+  @media (max-width: 767px) {
+    .fimba-transport-help {
+      display: none;
+    }
+    .fimba-transport-filters-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.38rem 0.75rem;
+      font-size: 0.82rem;
+    }
+    .fimba-transport-filters-row:not(.is-open) {
+      display: none;
+    }
+    .fimba-transport-filters-row.is-open {
+      flex-direction: column;
+      align-items: stretch;
+    }
+    .fimba-transport-filters-row.is-open .fimba-transport-filter-item,
+    .fimba-transport-filters-row.is-open .fimba-select,
+    .fimba-transport-filters-row.is-open .fimba-veh-filter-dropdown {
+      width: 100%;
+      max-width: 100%;
+    }
+    .fimba-transport-filter-item {
+      flex-direction: column;
+      align-items: stretch;
+    }
+    .fimba-transport-filter-item .fimba-select {
+      width: 100%;
+      min-width: 0;
+    }
+    .fimba-transport-origen-chips {
+      display: none;
+    }
+    .fimba-transport-origen-select {
+      display: flex;
+    }
+    .fimba-veh-filter {
+      display: none !important;
+    }
+    .fimba-veh-filter-dropdown {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 6px;
+    }
+    .fimba-transport-programar-btn .fimba-btn-label {
+      display: none;
+    }
+    .fimba-transport-programar-btn {
+      padding: 0.42rem;
+      min-width: 2.35rem;
+      justify-content: center;
+    }
+    .fimba-transport-desktop {
+      display: none !important;
+    }
+    .fimba-transport-mobile {
+      display: flex;
+    }
+    .fimba-planilla-card:has(.fimba-transport-mobile) {
+      max-height: none;
+      overflow: visible;
+    }
   }
   .fimba-input, .fimba-select, .fimba-textarea {
     width: 100%;
@@ -2955,6 +3240,9 @@ const FIMBA_CSS = `
     .fimba-sticky-sync,
     .fimba-agenda-filters-row,
     .fimba-agenda-filters-toggle,
+    .fimba-transport-filters-toggle,
+    .fimba-transport-filters-row,
+    .fimba-transport-mobile,
     .fimba-agenda-actions-row,
     .fimba-agenda-clear-filters,
     .fimba-agenda-copy-link,

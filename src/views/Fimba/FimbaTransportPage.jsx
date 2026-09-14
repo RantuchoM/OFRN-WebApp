@@ -31,6 +31,9 @@ import {
   IconExternalLink,
   IconMoreVertical,
   IconRepeat,
+  IconFilter,
+  IconChevronDown,
+  IconChevronUp,
 } from "../../components/ui/Icons";
 import MultiSelectDropdown from "../../components/ui/MultiSelectDropdown";
 import { useConfirmDialog } from "../../hooks/useConfirmDialog";
@@ -56,7 +59,6 @@ import {
   getFimbaEdicionById,
   giraTransporteIdsFromEvent,
   isFimbaTrasladoEvent,
-  isFimbaActividadConVehiculo,
   labelGiraTransporte,
   listFimbaAgenda,
   listFimbaFlota,
@@ -76,30 +78,22 @@ import {
   updateFimbaVehiculo,
 } from "../../services/fimbaService";
 import {
-  boardingMetricsForEventRow,
   buildAllVehicleBoardingSequences,
   defaultIntermediateStopSchedule,
   extractOfrnRidesForVehicle,
   formatBoardChipLabel,
-  formatEventLocation,
-  isVehiclePauseBetweenStops,
   listFleetMismatchPropuestaRoutes,
   listOffTrayectoRideEndpoints,
-  previousAssignedStopInVehicleSequence,
-  nextAssignedStopInVehicleSequence,
-  resolveStopBoardAlightChips,
   TRANSPORT_DESTINO_SIN_SIGUIENTE,
   TRANSPORT_DESTINO_SIN_LOCACION,
 } from "../../utils/fimbaTransportBoarding";
 import {
   buildDestinoStopSchedule,
-  buildMovimientosIntermediosDefaults,
   createDestinoStopEvent,
   inheritStopTagsFromEvent,
   offsetEventDateTime,
 } from "../../utils/fimbaDestinoStopCreate";
 import {
-  isFimbaPendingCreateEvent,
   mergeServerEventsPreservingPending,
   settlePendingWithCreatedEvents,
   stripPendingCreateByToken,
@@ -109,6 +103,7 @@ import {
   eventMatchesPropuestaRouteFilter,
 } from "../../utils/fimbaAgendaUrlParams";
 import { resolveLeaveDirtyInlineRowEdit } from "../../utils/fimbaPlanillaRowEdit";
+import { buildTransportRowView } from "../../utils/fimbaTransportRowView";
 import {
   sortFimbaAgendaRows,
   sortFimbaPropuestasByNombre,
@@ -119,6 +114,10 @@ import {
   exportFimbaTransporteVehiculoExcel,
 } from "../../utils/fimbaExport";
 import FimbaTransportReportsMenu from "./FimbaTransportReportsMenu";
+import FimbaTransportEventCard, {
+  FimbaAgendaDayDividerMobile,
+  FimbaTransportPauseDivider,
+} from "./FimbaTransportEventCard";
 import LocationSelectWithCreate from "../../components/forms/LocationSelectWithCreate";
 import FimbaDestinoStopModal from "./FimbaDestinoStopModal";
 import FimbaEventoFormModal from "./FimbaEventoFormModal";
@@ -938,6 +937,8 @@ export default function FimbaTransportPage() {
   const [filtroArtista, setFiltroArtista] = useState(filterFromQuery || "");
   /** Default Todos: ver rutas FIMBA + OFRN de la gira. */
   const [filtroOrigen, setFiltroOrigen] = useState("all");
+  /** Móvil: filtros colapsados por defecto (origen / artista / vehículo / otros). */
+  const [filtersOpen, setFiltersOpen] = useState(false);
   /**
    * Multi-select de unidades `giras_transportes.id`.
    * Vacío = todos; con ids = filas que usan alguna de esas unidades
@@ -1980,6 +1981,72 @@ export default function FimbaTransportPage() {
     }
     return map;
   }, [eventos, contextEventos, sequencesByVehicle]);
+
+  const transportRowCtx = useMemo(
+    () => ({
+      eventosFiltrados,
+      vehiculos,
+      sequencesByVehicle,
+      preferVehicleIdsForMetrics,
+      showVehiclePauses,
+      propuestaRoutes,
+      propuestas,
+      ofrnRouteRules,
+      ofrnPassengers,
+      ofrnLocalities,
+      ofrnRegions,
+      giraGrupos,
+      eventByIdForBoarding,
+      tipoById,
+      creatingIntermediateFromId,
+      deletingEventId,
+      highlightEventIds,
+      readOnly,
+    }),
+    [
+      eventosFiltrados,
+      vehiculos,
+      sequencesByVehicle,
+      preferVehicleIdsForMetrics,
+      showVehiclePauses,
+      propuestaRoutes,
+      propuestas,
+      ofrnRouteRules,
+      ofrnPassengers,
+      ofrnLocalities,
+      ofrnRegions,
+      giraGrupos,
+      eventByIdForBoarding,
+      tipoById,
+      creatingIntermediateFromId,
+      deletingEventId,
+      highlightEventIds,
+      readOnly,
+    ],
+  );
+
+  const trayectoRows = useMemo(
+    () =>
+      eventosFiltrados.map((ev, idx) =>
+        buildTransportRowView(ev, idx, transportRowCtx),
+      ),
+    [eventosFiltrados, transportRowCtx],
+  );
+
+  const vehiculoFilterOptions = useMemo(
+    () =>
+      vehiculos.map((gt) => ({
+        value: Number(gt.id),
+        label: labelGiraTransporte(gt),
+      })),
+    [vehiculos],
+  );
+
+  const transportFilterCount =
+    (filtroArtista ? 1 : 0) +
+    (!filtroArtista && filtroOrigen !== "all" ? 1 : 0) +
+    (vehiculoFilterActive ? 1 : 0) +
+    (otrosEventosActive ? 1 : 0);
 
   const ofrnRidesForAudit = useMemo(() => {
     const out = [];
@@ -3222,7 +3289,7 @@ export default function FimbaTransportPage() {
             )}
           </div>
         </div>
-        <p className="fimba-muted" style={{ margin: "0 0 0.75rem", fontSize: "0.82rem" }}>
+        <p className="fimba-muted fimba-transport-help" style={{ margin: "0 0 0.75rem", fontSize: "0.82rem" }}>
           Flota de la gira OFRN (
           <code style={{ fontSize: "0.78rem" }}>giras_transportes</code>
           ). El nombre es el del catálogo (
@@ -3641,79 +3708,98 @@ export default function FimbaTransportPage() {
 
       {/* Trayectos = planilla FIMBA + OFRN transporte */}
       <section>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            gap: 12,
-            marginBottom: 10,
-            flexWrap: "wrap",
-          }}
-        >
-          <h2
-            style={{
-              margin: 0,
-              fontSize: "1.05rem",
-              color: "var(--fimba-deep)",
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-            }}
-          >
-            <IconClock size={16} /> Trayectos
-          </h2>
-          <div className="fimba-no-print" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-            {!readOnly && (
+        <div className="fimba-transport-toolbar">
+          <div className="fimba-transport-toolbar-head">
+            <h2 className="fimba-transport-title">
+              <IconClock size={16} /> Trayectos
+            </h2>
+            <div className="fimba-no-print fimba-transport-toolbar-actions">
+              {!readOnly && (
+                <button
+                  type="button"
+                  className="fimba-btn fimba-transport-programar-btn"
+                  onClick={() => setShowProgramar(true)}
+                  title="Programar un viaje: salida + llegada + vehículo óptimo"
+                  aria-label="Programar transporte"
+                >
+                  <IconCalendarPlus size={14} />
+                  <span className="fimba-btn-label">Programar transporte</span>
+                </button>
+              )}
               <button
                 type="button"
-                className="fimba-btn"
-                onClick={() => setShowProgramar(true)}
-                title="Programar un viaje: salida + llegada + vehículo óptimo"
-                style={{
-                  padding: "0.35rem 0.7rem",
-                  fontSize: "0.78rem",
-                  fontWeight: 700,
-                  background: "var(--fimba-deep)",
-                  color: "#fff",
-                  borderColor: "var(--fimba-deep)",
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 6,
-                }}
+                className="fimba-btn fimba-btn-ghost fimba-transport-filters-toggle"
+                onClick={() => setFiltersOpen((v) => !v)}
+                aria-expanded={filtersOpen}
+                aria-controls="fimba-transport-filters-row"
               >
-                <IconCalendarPlus size={14} /> Programar transporte
+                <IconFilter size={16} aria-hidden />
+                Filtros
+                {transportFilterCount > 0 ? (
+                  <span className="fimba-agenda-filters-toggle-count">
+                    {transportFilterCount}
+                  </span>
+                ) : null}
+                {filtersOpen ? (
+                  <IconChevronUp size={16} aria-hidden />
+                ) : (
+                  <IconChevronDown size={16} aria-hidden />
+                )}
               </button>
-            )}
+            </div>
+          </div>
+          <div
+            id="fimba-transport-filters-row"
+            className={`fimba-no-print fimba-transport-filters-row${showFilterPending ? " fimba-filters-busy" : ""}${filtersOpen ? " is-open" : ""}`}
+            aria-busy={showFilterPending || undefined}
+          >
             {!filtroArtista && (
-              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                {ORIGEN_FILTERS.map((f) => {
-                  const on = filtroOrigen === f.value;
-                  return (
-                    <button
-                      key={f.value}
-                      type="button"
-                      className={`fimba-btn fimba-chip${on ? " fimba-chip-on" : ""}`}
-                      onClick={() => setFiltroOrigen(f.value)}
-                      style={{
-                        padding: "0.3rem 0.65rem",
-                        fontSize: "0.78rem",
-                      }}
-                    >
-                      {f.label}
-                    </button>
-                  );
-                })}
-              </div>
+              <>
+                <div className="fimba-transport-origen-chips">
+                  {ORIGEN_FILTERS.map((f) => {
+                    const on = filtroOrigen === f.value;
+                    return (
+                      <button
+                        key={f.value}
+                        type="button"
+                        className={`fimba-btn fimba-chip${on ? " fimba-chip-on" : ""}`}
+                        onClick={() => setFiltroOrigen(f.value)}
+                        style={{
+                          padding: "0.3rem 0.65rem",
+                          fontSize: "0.78rem",
+                        }}
+                      >
+                        {f.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="fimba-transport-filter-item fimba-transport-origen-select">
+                  <label className="fimba-label" htmlFor="fimba-transport-filtro-origen">
+                    Origen
+                  </label>
+                  <select
+                    id="fimba-transport-filtro-origen"
+                    className="fimba-select"
+                    value={filtroOrigen}
+                    onChange={(e) => setFiltroOrigen(e.target.value)}
+                  >
+                    {ORIGEN_FILTERS.map((f) => (
+                      <option key={f.value} value={f.value}>
+                        {f.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </>
             )}
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <label className="fimba-label" style={{ margin: 0 }} htmlFor="fimba-transport-filtro-artista">
+            <div className="fimba-transport-filter-item">
+              <label className="fimba-label" htmlFor="fimba-transport-filtro-artista">
                 Artista
               </label>
               <select
                 id="fimba-transport-filtro-artista"
                 className="fimba-select"
-                style={{ width: "auto", minWidth: 180 }}
                 value={filtroArtista || ""}
                 aria-busy={showFilterPending || undefined}
                 onChange={(e) => setFiltroArtista(e.target.value)}
@@ -3725,24 +3811,47 @@ export default function FimbaTransportPage() {
                   </option>
                 ))}
               </select>
-              {showFilterPending && (
-                <span
-                  className="fimba-muted fimba-filter-pending-inline"
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 6,
-                    fontSize: "0.78rem",
-                    fontWeight: 600,
-                    color: "var(--fimba-deep)",
-                  }}
-                  aria-live="polite"
-                >
-                  <IconLoader size={14} />
-                  Aplicando filtro…
-                </span>
-              )}
             </div>
+            {vehiculos.length > 0 && (
+              <div className="fimba-transport-filter-item fimba-veh-filter-dropdown">
+                <label className="fimba-label">Vehículo</label>
+                <MultiSelectDropdown
+                  className="w-full"
+                  label="Vehículo"
+                  placeholder="Todos los vehículos"
+                  options={vehiculoFilterOptions}
+                  value={selectedVehiculoIds}
+                  onChange={(ids) => {
+                    const next = (ids || [])
+                      .map(Number)
+                      .filter(Number.isFinite);
+                    setSelectedVehiculoIds(
+                      next.length >= vehiculos.length ? [] : next,
+                    );
+                  }}
+                  compact
+                  summaryMode="names"
+                  summaryMaxNames={2}
+                />
+                {selectedVehiculoIds.length === 1 ? (
+                  (() => {
+                    const gt = vehiculos.find(
+                      (g) => Number(g.id) === Number(selectedVehiculoIds[0]),
+                    );
+                    return gt ? (
+                      <FimbaTransportReportsMenu
+                        vehiculo={gt}
+                        sequence={sequencesByVehicle.get(Number(gt.id))}
+                        edicionNombre={edicionLabel}
+                        ofrnPassengerById={ofrnPassengerById}
+                        participantesByPropuesta={participantesByPropuesta}
+                        compact
+                      />
+                    ) : null;
+                  })()
+                ) : null}
+              </div>
+            )}
             <button
               type="button"
               className={`fimba-btn fimba-chip${
@@ -3761,6 +3870,23 @@ export default function FimbaTransportPage() {
               <IconEye size={13} /> Ver otros eventos
               {otrosEventosActive ? ` (${otrosCategoryIds.length + otrosPropuestaIds.length + otrosGrupoIds.length})` : ""}
             </button>
+            {showFilterPending && (
+              <span
+                className="fimba-muted fimba-filter-pending-inline"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  fontSize: "0.78rem",
+                  fontWeight: 600,
+                  color: "var(--fimba-deep)",
+                }}
+                aria-live="polite"
+              >
+                <IconLoader size={14} />
+                Aplicando filtro…
+              </span>
+            )}
           </div>
         </div>
         {boardingIntegrityCount > 0 && (
@@ -4173,7 +4299,7 @@ export default function FimbaTransportPage() {
             </p>
           </div>
         )}
-        <p className="fimba-muted" style={{ margin: "0 0 0.75rem", fontSize: "0.82rem" }}>
+        <p className="fimba-muted fimba-transport-help" style={{ margin: "0 0 0.75rem", fontSize: "0.82rem" }}>
           Cada fila es un trayecto o parada ordenado por fecha/hora. Subida/bajada
           cuenta en <em>cada</em> parada con ↑/↓ (no solo la primera y la última
           del viaje). Tránsito/cap usa las mismas reglas de ruta +{" "}
@@ -4201,13 +4327,6 @@ export default function FimbaTransportPage() {
           <div
             className={`fimba-no-print fimba-veh-filter${showFilterPending ? " fimba-filters-busy" : ""}`}
             aria-busy={showFilterPending || undefined}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              flexWrap: "wrap",
-              marginBottom: 12,
-            }}
           >
             <span
               className="fimba-muted"
@@ -4336,7 +4455,143 @@ export default function FimbaTransportPage() {
             aria-busy={showFilterPending || undefined}
           >
             <FimbaFilterApplyingOverlay show={showFilterPending} />
-            <div className="fimba-planilla-scroll" role="region" aria-label="Planilla de trayectos (desplazá horizontalmente para ver todas las columnas)">
+            <div className="fimba-transport-mobile">
+              {trayectoRows.map((row) => {
+                const { ev } = row;
+                const openEdit = () =>
+                  setModal({
+                    mode: "edit",
+                    evento: ev,
+                    forceTransporte: !row.isContext,
+                  });
+                return (
+                  <React.Fragment key={`m-${ev.id}`}>
+                    {row.showDayDivider || row.idx === 0 ? (
+                      <FimbaAgendaDayDividerMobile
+                        fecha={row.dayKey}
+                        first={row.idx === 0}
+                      />
+                    ) : null}
+                    {row.pauseBeforeRow ? (
+                      <FimbaTransportPauseDivider
+                        readOnly={readOnly}
+                        canCreate={row.canPauseCreate}
+                        creatingTop={row.isCreatingPauseTop}
+                        creatingBottom={row.isCreatingPauseBottom}
+                        onCreateTop={() =>
+                          createPauseOffsetStop({
+                            actionKey: row.pauseActionKeyTop,
+                            prevEv: row.pausePrevEv,
+                            nextEv: ev,
+                            vehicleId: row.primaryVehicleId,
+                            deltaMinutes: 60,
+                          })
+                        }
+                        onCreateBottom={() =>
+                          createPauseOffsetStop({
+                            actionKey: row.pauseActionKeyBottom,
+                            prevEv: row.pausePrevEv,
+                            nextEv: ev,
+                            vehicleId: row.primaryVehicleId,
+                            deltaMinutes: -60,
+                          })
+                        }
+                        onRecorrido={() =>
+                          openRecorridoIntermedio({
+                            prevEv: row.pausePrevEv,
+                            nextEv: ev,
+                            vehicleId: row.primaryVehicleId,
+                          })
+                        }
+                      />
+                    ) : null}
+                    <FimbaTransportEventCard
+                      row={row}
+                      readOnly={readOnly}
+                      selectChecked={selectedEventIds.has(String(ev.id))}
+                      onSelectChange={
+                        readOnly
+                          ? null
+                          : () => toggleSelectEvent(ev.id)
+                      }
+                      onActivate={openEdit}
+                      onEdit={readOnly ? null : openEdit}
+                      onOpenUp={() =>
+                        openStopRules(ev, "up", {
+                          transportId: row.primaryVehicleId,
+                        })
+                      }
+                      onOpenDown={() =>
+                        openStopRules(ev, "down", {
+                          transportId: row.primaryVehicleId,
+                        })
+                      }
+                      onAddIntermediate={
+                        readOnly
+                          ? null
+                          : () => openIntermediateStop(ev, row.metrics)
+                      }
+                      artistasNode={
+                        <FimbaEventArtistasTagsCell
+                          ev={ev}
+                          canEdit={!readOnly}
+                          showOfrnChips
+                          propuestas={propuestas}
+                          giraGrupos={giraGrupos}
+                          edicion={edicion}
+                          onSaved={async () => {
+                            await softRefresh({ eventos: true });
+                          }}
+                        />
+                      }
+                      actionsNode={
+                        readOnly ? null : (
+                          <PlanillaRowActionsMenu
+                            canDuplicate={!row.isContext}
+                            canMovimientos={
+                              !row.isContext &&
+                              row.primaryVehicleId != null &&
+                              row.primaryVehicleId !== ""
+                            }
+                            movimientosDisabledReason={
+                              row.movimientosDisabledReason
+                            }
+                            deleting={row.isDeletingRow}
+                            disabled={
+                              deletingEventId != null ||
+                              creatingIntermediateFromId != null
+                            }
+                            onEdit={openEdit}
+                            onDuplicate={() => handleDuplicate(ev)}
+                            onMovimientos={() =>
+                              openMovimientosIntermedios({
+                                anchorEv: ev,
+                                prevEv: row.prevStopForVehicle,
+                                nextEv:
+                                  row.nextStopForVehicle ||
+                                  row.metrics?.next_event_raw ||
+                                  null,
+                                vehicleId: row.primaryVehicleId,
+                                horaFinHint: ev?.hora_fin
+                                  ? String(ev.hora_fin).slice(0, 5)
+                                  : null,
+                                horaFinFecha: ev?.hora_fin
+                                  ? String(ev.fecha || "").slice(0, 10)
+                                  : null,
+                                warnIntervening:
+                                  row.warnInterveningMovimientos,
+                              })
+                            }
+                            onDelete={() => handleDelete(ev)}
+                          />
+                        )
+                      }
+                    />
+                  </React.Fragment>
+                );
+              })}
+            </div>
+            <div className="fimba-planilla-scroll fimba-transport-desktop" role="region" aria-label="Planilla de trayectos (desplazá horizontalmente para ver todas las columnas)">
               <table
                 className={`fimba-table fimba-planilla-table${editMode ? " fimba-table-edit" : ""}`}
               >
@@ -4427,282 +4682,50 @@ export default function FimbaTransportPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {eventosFiltrados.map((ev, idx) => {
-                    const dayKey = String(ev.fecha || "").slice(0, 10);
-                    const prevDayKey =
-                      idx > 0
-                        ? String(eventosFiltrados[idx - 1]?.fecha || "").slice(
-                            0,
-                            10,
-                          )
-                        : "";
-                    const showDayDivider =
-                      idx > 0 && dayKey !== prevDayKey;
-                    const isContext = Boolean(ev.es_contexto_agenda);
-                    const ofrnVeh =
-                      vehiculos.find(
-                        (g) => Number(g.id) === Number(ev.id_gira_transporte),
-                      ) || null;
-                    const vehLabel =
-                      isContext
-                        ? "—"
-                        : (ev.vehiculos || []).length > 0
-                        ? (ev.vehiculos || [])
-                            .map((r) => {
-                              const label = labelGiraTransporte(r.giras_transportes);
-                              const pl = Math.max(0, Number(r.plazas) || 0);
-                              // Reserva técnica: solo mostrar si > 0 (0 = sin cupo anónimo)
-                              return pl > 0 ? `${label} (reserva ${pl})` : label;
-                            })
-                            .join(", ") || "—"
-                        : ofrnVeh
-                          ? labelGiraTransporte(ofrnVeh)
-                          : ev.es_ofrn && !ev.es_fimba
-                            ? "—"
-                            : "SIN SERVICIO";
-                    const metrics = isContext
-                      ? {
-                          primary: null,
-                          perVehicle: [],
-                          location: formatEventLocation(ev),
-                          destino_siguiente: null,
-                          hora_fin_display: {
-                            value: ev.hora_fin
-                              ? String(ev.hora_fin).slice(0, 5)
-                              : null,
-                            isCalculated: false,
-                          },
-                          next_event: null,
-                        }
-                      : boardingMetricsForEventRow(
+                  {trayectoRows.map((row) => {
+                    const {
                       ev,
-                      sequencesByVehicle,
-                      preferVehicleIdsForMetrics,
-                          { enablePause: showVehiclePauses },
-                    );
-                    const stop = metrics.primary?.stop || null;
-                    const multiVeh =
-                      (metrics.perVehicle || []).filter((p) => p.stop).length > 1;
-                    const locacion = metrics.location || formatEventLocation(ev);
-                    const destinoSiguiente = isContext
-                      ? "—"
-                      : metrics.destino_siguiente != null &&
-                      metrics.destino_siguiente !== "—"
-                        ? metrics.destino_siguiente
-                        : TRANSPORT_DESTINO_SIN_SIGUIENTE;
-                    const horaFinDisp = metrics.hora_fin_display || {
-                      value: null,
-                      isCalculated: false,
-                    };
-                    const enTransito = stop?.en_transito;
-                    const cap = stop?.capacidad;
-                    const libres = stop?.libres;
-                    const overbook = Boolean(stop?.overbook);
-                    const isActividadVehiculo =
-                      !isContext && isFimbaActividadConVehiculo(ev);
-                    const rowClass =
-                      isContext
-                        ? "fimba-row-contexto"
-                        : isActividadVehiculo
-                          ? "fimba-row-actividad-vehiculo"
-                          : ev.origen === "ofrn"
-                            ? "fimba-row-ofrn"
-                            : ev.origen === "ambos"
-                              ? "fimba-row-ambos"
-                              : "";
-                    const tipoTint =
-                      isActividadVehiculo && !isContext
-                        ? fimbaTipoRowTintStyle(ev.tipo_color)
-                        : undefined;
-                    const canEditStops =
-                      !readOnly &&
-                      !isContext &&
-                      (giraTransporteIdsFromEvent(ev).length > 0 ||
-                        vehiculos.length > 0);
-                    const primaryVehicleId =
-                      metrics.primary?.id_gira_transporte ??
-                      metrics.perVehicle?.[0]?.id_gira_transporte ??
-                      giraTransporteIdsFromEvent(ev)[0] ??
-                      null;
-                    const upsBoard = isContext
-                      ? { chips: [], total: 0 }
-                      : resolveStopBoardAlightChips({
-                      eventId: ev.id,
-                      idGiraTransporte: primaryVehicleId,
-                      type: "up",
-                      propuestaRoutes,
-                      propuestas,
-                      stop,
-                      ofrnRouteRules,
-                      ofrnPassengers,
-                      ofrnLocalities,
-                      ofrnRegions,
-                      giraGrupos,
-                      eventById: eventByIdForBoarding,
-                      tipoById,
-                    });
-                    const downsBoard = isContext
-                      ? { chips: [], total: 0 }
-                      : resolveStopBoardAlightChips({
-                      eventId: ev.id,
-                      idGiraTransporte: primaryVehicleId,
-                      type: "down",
-                      propuestaRoutes,
-                      propuestas,
-                      stop,
-                      ofrnRouteRules,
-                      ofrnPassengers,
-                      ofrnLocalities,
-                      ofrnRegions,
-                      giraGrupos,
-                      eventById: eventByIdForBoarding,
-                      tipoById,
-                    });
-                    const isCreatingIntermediateHere =
-                      creatingIntermediateFromId != null &&
-                      creatingIntermediateFromId === String(ev.id);
-                    const canAddIntermediate =
-                      !readOnly &&
-                      !isContext &&
-                      creatingIntermediateFromId == null &&
-                      primaryVehicleId != null &&
-                      primaryVehicleId !== "";
-                    const nextEvForRow =
-                      metrics?.next_event_raw || metrics?.next_event || null;
-                    const pauseAfterRow =
-                      showVehiclePauses && Boolean(metrics?.pause_after);
-                    const pausePrevEv =
-                      showVehiclePauses &&
-                      !isContext &&
-                      (() => {
-                        const vid = Number(primaryVehicleId);
-                        if (!Number.isFinite(vid)) return null;
-                        const seq = sequencesByVehicle.get(vid);
-                        return previousAssignedStopInVehicleSequence(
-                          seq,
-                          ev.id,
-                          vid,
-                        );
-                      })();
-                    const prevStopForVehicle = (() => {
-                      if (isContext) return null;
-                      const vid = Number(primaryVehicleId);
-                      if (!Number.isFinite(vid)) return null;
-                      const seq = sequencesByVehicle.get(vid);
-                      return previousAssignedStopInVehicleSequence(
-                        seq,
-                        ev.id,
-                        vid,
-                      );
-                    })();
-                    const nextStopForVehicle = (() => {
-                      if (isContext) return null;
-                      const vid = Number(primaryVehicleId);
-                      if (!Number.isFinite(vid)) return null;
-                      const seq = sequencesByVehicle.get(vid);
-                      return nextAssignedStopInVehicleSequence(
-                        seq,
-                        ev.id,
-                        vid,
-                      );
-                    })();
-                    const movimientosDefaults = !isContext
-                      ? buildMovimientosIntermediosDefaults(
-                          ev,
-                          prevStopForVehicle,
-                          {
-                            // Fin real del evento (persistido). NO usar
-                            // hora_fin_display (= com del next): empuja el
-                            // retorno después del next y solo queda la ida.
-                            horaFinHint: ev?.hora_fin
-                              ? String(ev.hora_fin).slice(0, 5)
-                              : null,
-                            horaFinFecha: ev?.hora_fin
-                              ? String(ev.fecha || "").slice(0, 10)
-                              : null,
-                            nextEv: nextStopForVehicle || null,
-                          },
-                        )
-                      : { ok: false, reason: "no_prev" };
-                    const movimientosDisabledReason = (() => {
-                      if (!movimientosDefaults || movimientosDefaults.ok) {
-                        return null;
-                      }
-                      const map = {
-                        no_prev:
-                          "Sin parada anterior en este vehículo",
-                        no_prev_loc:
-                          "La parada anterior no tiene locación",
-                        no_anchor_loc:
-                          "Este evento no tiene locación de catálogo",
-                        same_loc:
-                          "Misma locación que la anterior (usá recorrido intermedio en la pausa)",
-                        no_gap:
-                          "No hay hueco horario entre la anterior/siguiente para ida y vuelta",
-                      };
-                      return (
-                        map[movimientosDefaults.reason] ||
-                        "No se pueden crear movimientos"
-                      );
-                    })();
-                    const warnInterveningMovimientos = (() => {
-                      if (!prevStopForVehicle?.id || !primaryVehicleId) {
-                        return false;
-                      }
-                      const vid = Number(primaryVehicleId);
-                      const seq = sequencesByVehicle.get(vid);
-                      const immediateNext = nextAssignedStopInVehicleSequence(
-                        seq,
-                        prevStopForVehicle.id,
-                        vid,
-                      );
-                      return (
-                        immediateNext != null &&
-                        String(immediateNext.id) !== String(ev.id)
-                      );
-                    })();
-                    const pauseBeforeRow =
-                      showVehiclePauses &&
-                      Boolean(pausePrevEv) &&
-                      (() => {
-                        const vid = Number(primaryVehicleId);
-                        if (!Number.isFinite(vid)) return false;
-                        // 1) Direct location key match (same locación → vehicle staying put)
-                        if (isVehiclePauseBetweenStops(pausePrevEv, ev)) {
-                          return true;
-                        }
-                        // 2) Fallback: compute pause_after for prevEv via boardingMetrics.
-                        //    Keeps the divider aligned with the same "next assigned stop"
-                        //    logic used by destino/hora fin, even if sortedEvents contains
-                        //    hidden endpoint rows between the two visible stops.
-                        const prevMetrics = boardingMetricsForEventRow(
-                          pausePrevEv,
-                          sequencesByVehicle,
-                          [vid],
-                          { enablePause: true },
-                        );
-                        return Boolean(prevMetrics?.pause_after);
-                      })();
-                    const pauseActionKeyTop = pausePrevEv
-                      ? `pause-top:${pausePrevEv.id}`
-                      : null;
-                    const pauseActionKeyBottom = `pause-bottom:${ev.id}`;
-                    const isCreatingPauseTop =
-                      creatingIntermediateFromId != null &&
-                      creatingIntermediateFromId === pauseActionKeyTop;
-                    const isCreatingPauseBottom =
-                      creatingIntermediateFromId != null &&
-                      creatingIntermediateFromId === pauseActionKeyBottom;
-                    const canPauseCreate =
-                      !readOnly &&
-                      pauseBeforeRow &&
-                      pausePrevEv &&
-                      primaryVehicleId != null &&
-                      primaryVehicleId !== "" &&
-                      creatingIntermediateFromId == null;
-                    const nextEvHasRealStop = Boolean(nextEvForRow);
-                    const horaCom = sliceTime(ev.hora_inicio);
-                    const aBordo = stop?.a_bordo || null;
+                      dayKey,
+                      showDayDivider,
+                      isContext,
+                      vehLabel,
+                      metrics,
+                      multiVeh,
+                      locacion,
+                      destinoSiguiente,
+                      horaFinDisp,
+                      enTransito,
+                      cap,
+                      libres,
+                      overbook,
+                      isActividadVehiculo,
+                      rowClass,
+                      tipoTint,
+                      canEditStops,
+                      primaryVehicleId,
+                      upsBoard,
+                      downsBoard,
+                      isCreatingIntermediateHere,
+                      canAddIntermediate,
+                      pauseAfterRow,
+                      pausePrevEv,
+                      prevStopForVehicle,
+                      nextStopForVehicle,
+                      movimientosDisabledReason,
+                      warnInterveningMovimientos,
+                      pauseBeforeRow,
+                      pauseActionKeyTop,
+                      pauseActionKeyBottom,
+                      isCreatingPauseTop,
+                      isCreatingPauseBottom,
+                      canPauseCreate,
+                      nextEvHasRealStop,
+                      horaCom,
+                      aBordo,
+                      isPendingCreate,
+                      isHighlighted,
+                      isDeletingRow,
+                    } = row;
                     const evKey = String(ev.id);
                     const evDraft = eventDrafts[evKey] || draftFromEvent(ev);
                     const evStatus = eventRowStatus[evKey] || "idle";
@@ -4710,13 +4733,6 @@ export default function FimbaTransportPage() {
                     const rowEditing = isRowEditing(ev.id);
                     const canAssignVeh =
                       editMode && !isContext && canInlineAssignVehicle(ev);
-                    const isPendingCreate = isFimbaPendingCreateEvent(ev);
-                    const isHighlighted = highlightEventIds.some(
-                      (id) => String(id) === String(ev.id),
-                    );
-                    const isDeletingRow =
-                      deletingEventId != null &&
-                      deletingEventId === String(ev.id);
                     const evRowClass = [
                       rowClass,
                       tipoTint ? "fimba-has-tipo-tint" : "",
