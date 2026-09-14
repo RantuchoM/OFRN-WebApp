@@ -900,8 +900,11 @@ export function sequenceEventsForExport(sequence) {
 
 /**
  * Pasajeros CNRT / hoja de ruta a partir de la secuencia de boarding.
- * OFRN: nómina personal. FIMBA: intenta participantes de la propuesta (hasta plazas);
+ * OFRN: nómina personal.
+ * FIMBA (CNRT): intenta participantes de la propuesta (hasta plazas);
  * resto = filas sintéticas «plaza N».
+ * FIMBA (hoja de ruta, `fimbaArtistSummaryOnly`): una fila por ride =
+ * nombre de artista + cantidad de plazas (sin nómina parcial).
  *
  * @returns {{ passengers: Array, gaps: string[] }}
  */
@@ -911,6 +914,7 @@ export function buildFimbaTransportPassengers(
     transportId,
     ofrnPassengerById = null,
     participantesByPropuesta = null,
+    fimbaArtistSummaryOnly = false,
   } = {},
 ) {
   const gaps = [];
@@ -960,6 +964,35 @@ export function buildFimbaTransportPassengers(
     const seats = Math.max(0, Number(r.seats) || 0);
     if (seats <= 0) continue;
     const propId = r.id_propuesta;
+    const artista =
+      r.nombre ||
+      (propId != null ? `Artista #${propId}` : "FIMBA");
+    const logistics = {
+      transports: [
+        {
+          id: tid,
+          subidaId: r.subidaId,
+          bajadaId: r.bajadaId,
+        },
+      ],
+    };
+
+    if (fimbaArtistSummaryOnly) {
+      passengers.push({
+        id: `fimba-artist-${propId || "x"}-${r.subidaId}-${r.bajadaId}-${r.key || seats}`,
+        apellido: String(artista).toUpperCase(),
+        nombre: String(seats),
+        dni: "",
+        genero: "",
+        fecha_nac: null,
+        nacionalidad: "Argentina",
+        seats,
+        isFimbaArtistSummary: true,
+        logistics,
+      });
+      continue;
+    }
+
     const named =
       propId != null && participantesByPropuesta
         ? (participantesByPropuesta.get(String(propId)) ||
@@ -968,9 +1001,6 @@ export function buildFimbaTransportPassengers(
             .filter((p) => p.activo !== false)
             .slice()
         : [];
-    const artista =
-      r.nombre ||
-      (propId != null ? `Artista #${propId}` : "FIMBA");
 
     let used = 0;
     for (let i = 0; i < seats; i += 1) {
@@ -990,15 +1020,7 @@ export function buildFimbaTransportPassengers(
           })(),
           fecha_nac: null,
           nacionalidad: "Argentina",
-          logistics: {
-            transports: [
-              {
-                id: tid,
-                subidaId: r.subidaId,
-                bajadaId: r.bajadaId,
-              },
-            ],
-          },
+          logistics,
         });
       } else {
         passengers.push({
@@ -1009,15 +1031,7 @@ export function buildFimbaTransportPassengers(
           genero: "",
           fecha_nac: null,
           nacionalidad: "Argentina",
-          logistics: {
-            transports: [
-              {
-                id: tid,
-                subidaId: r.subidaId,
-                bajadaId: r.bajadaId,
-              },
-            ],
-          },
+          logistics,
         });
       }
     }
@@ -1041,6 +1055,7 @@ export function buildFimbaTransportPassengers(
   );
 
   if (
+    !fimbaArtistSummaryOnly &&
     sequence?.fimbaRides?.length &&
     !gaps.some((g) => g.includes("abordaje FIMBA"))
   ) {
@@ -1139,14 +1154,14 @@ export async function exportFimbaHojaRuta(opts = {}) {
     endId,
     exportFormat = "pdf",
     ofrnPassengerById = null,
-    participantesByPropuesta = null,
   } = opts;
   const label = labelGiraTransporte(vehiculo) || `Vehiculo_${vehiculo?.id}`;
   const events = sequenceEventsForExport(sequence);
   const { passengers, gaps } = buildFimbaTransportPassengers(sequence, {
     transportId: vehiculo?.id,
     ofrnPassengerById,
-    participantesByPropuesta,
+    // Hoja de ruta: FIMBA = artista + cantidad (sin nómina parcial).
+    fimbaArtistSummaryOnly: true,
   });
   const exportData = buildRoadmapExportData({
     events,

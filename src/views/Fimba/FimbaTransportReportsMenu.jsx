@@ -281,8 +281,9 @@ export default function FimbaTransportReportsMenu({
                 );
               })}
               <p className="px-3 py-2 text-[10px] text-amber-800 bg-amber-50 border-t border-amber-100 leading-snug">
-                CNRT/hoja de ruta: OFRN con DNI; FIMBA intenta nominados del
-                artista (hasta plazas). Plazas sin nombre = filas sintéticas.
+                CNRT: OFRN con DNI; FIMBA intenta nominados del artista (hasta
+                plazas). Hoja de ruta: FIMBA solo artista + cantidad (sin
+                nómina).
               </p>
             </div>,
             document.body,

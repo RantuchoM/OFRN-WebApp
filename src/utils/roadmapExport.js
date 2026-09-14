@@ -290,6 +290,11 @@ export function buildRoadmapExportData({
     return { subidaId: t?.subidaId ?? null, bajadaId: t?.bajadaId ?? null };
   };
 
+  const seatWeight = (p) =>
+    p?.isFimbaArtistSummary
+      ? Math.max(0, Number(p.seats) || 0)
+      : 1;
+
   let stops = activeEvents.map((evt, idx) => {
     const ups = passengers
       .filter((p) => String(getStops(p).subidaId) === String(evt.id))
@@ -298,9 +303,9 @@ export function buildRoadmapExportData({
       .filter((p) => String(getStops(p).bajadaId) === String(evt.id))
       .sort((a, b) => (a.apellido || "").localeCompare(b.apellido || ""));
 
-    const paxOnBoard = passengers.filter((p) => {
+    const paxOnBoard = passengers.reduce((sum, p) => {
       const { subidaId, bajadaId } = getStops(p);
-      if (!subidaId || !bajadaId) return false;
+      if (!subidaId || !bajadaId) return sum;
       const upIdx = sortedEvts.findIndex(
         (e) => String(e.id) === String(subidaId),
       );
@@ -310,8 +315,9 @@ export function buildRoadmapExportData({
       const currentIdx = sortedEvts.findIndex(
         (e) => String(e.id) === String(evt.id),
       );
-      return upIdx <= currentIdx && downIdx > currentIdx;
-    }).length;
+      if (!(upIdx <= currentIdx && downIdx > currentIdx)) return sum;
+      return sum + seatWeight(p);
+    }, 0);
 
     return { evt, stopNum: idx + 1, ups, downs, paxOnBoard };
   });
@@ -533,6 +539,7 @@ export function formatViaticosParadaWarningMessage(issues) {
 
 function formatPassengerNombre(p, paxLocalities, alignViaticos) {
   if (alignViaticos) return p.nombre || "";
+  if (p?.isFimbaArtistSummary) return String(p.nombre ?? p.seats ?? "");
   const loc = getPassengerResidenceLabel(p, paxLocalities);
   return loc ? `${p.nombre} (${loc})` : p.nombre || "";
 }
@@ -549,6 +556,26 @@ function buildStopHeaderText(stopNum, evt, alignViaticos) {
 
 function passengerNameColumnLabel(alignViaticos) {
   return alignViaticos ? "NOMBRE" : "NOMBRE / RESIDENCIA";
+}
+
+/** Plazas a mostrar en SUBEN/BAJAN (FIMBA resumen = seats; OFRN = 1 por fila). */
+export function boardingListSeatCount(passengers = []) {
+  return (passengers || []).reduce((sum, p) => {
+    if (p?.isFimbaArtistSummary) {
+      return sum + Math.max(0, Number(p.seats) || Number(p.nombre) || 0);
+    }
+    return sum + 1;
+  }, 0);
+}
+
+function splitBoardingPassengers(passengers = []) {
+  const people = [];
+  const artists = [];
+  for (const p of passengers || []) {
+    if (p?.isFimbaArtistSummary) artists.push(p);
+    else people.push(p);
+  }
+  return { people, artists };
 }
 
 function buildPlaceLabel(evt) {
@@ -608,10 +635,12 @@ export async function generateRoadmapExcel(
     worksheet.mergeCells(`B${placeRow.number}:C${placeRow.number}`);
 
     if (ups.length > 0) {
+      const seatCount = boardingListSeatCount(ups);
+      const { people, artists } = splitBoardingPassengers(ups);
       const subenHeader = worksheet.addRow([
-        `SUBEN (${ups.length})`,
-        passengerNameColumnLabel(alignViaticos),
-        "DNI",
+        `SUBEN (${seatCount})`,
+        "",
+        "",
       ]);
       subenHeader.font = { bold: true, color: { argb: "FF2E7D32" } };
       subenHeader.getCell(1).fill = {
@@ -619,21 +648,44 @@ export async function generateRoadmapExcel(
         pattern: "solid",
         fgColor: { argb: "FFEBF7ED" },
       };
+      worksheet.mergeCells(`A${subenHeader.number}:C${subenHeader.number}`);
 
-      ups.forEach((p) => {
-        worksheet.addRow([
-          p.apellido?.toUpperCase(),
-          formatPassengerNombre(p, paxLocalities, alignViaticos),
-          p.dni || "-",
+      if (people.length > 0) {
+        const peopleHead = worksheet.addRow([
+          "APELLIDO",
+          passengerNameColumnLabel(alignViaticos),
+          "DNI",
         ]);
-      });
+        peopleHead.font = { bold: true, color: { argb: "FF2E7D32" } };
+        people.forEach((p) => {
+          worksheet.addRow([
+            p.apellido?.toUpperCase(),
+            formatPassengerNombre(p, paxLocalities, alignViaticos),
+            p.dni || "-",
+          ]);
+        });
+      }
+
+      if (artists.length > 0) {
+        const artHead = worksheet.addRow(["ARTISTA", "CANTIDAD", ""]);
+        artHead.font = { bold: true, color: { argb: "FF2E7D32" } };
+        artists.forEach((p) => {
+          worksheet.addRow([
+            p.apellido?.toUpperCase() || "",
+            String(p.nombre ?? p.seats ?? ""),
+            "",
+          ]);
+        });
+      }
     }
 
     if (downs.length > 0) {
+      const seatCount = boardingListSeatCount(downs);
+      const { people, artists } = splitBoardingPassengers(downs);
       const bajanHeader = worksheet.addRow([
-        `BAJAN (${downs.length})`,
-        passengerNameColumnLabel(alignViaticos),
-        "DNI",
+        `BAJAN (${seatCount})`,
+        "",
+        "",
       ]);
       bajanHeader.font = { bold: true, color: { argb: "FFC62828" } };
       bajanHeader.getCell(1).fill = {
@@ -641,14 +693,35 @@ export async function generateRoadmapExcel(
         pattern: "solid",
         fgColor: { argb: "FFFEEBEB" },
       };
+      worksheet.mergeCells(`A${bajanHeader.number}:C${bajanHeader.number}`);
 
-      downs.forEach((p) => {
-        worksheet.addRow([
-          p.apellido?.toUpperCase(),
-          formatPassengerNombre(p, paxLocalities, alignViaticos),
-          p.dni || "-",
+      if (people.length > 0) {
+        const peopleHead = worksheet.addRow([
+          "APELLIDO",
+          passengerNameColumnLabel(alignViaticos),
+          "DNI",
         ]);
-      });
+        peopleHead.font = { bold: true, color: { argb: "FFC62828" } };
+        people.forEach((p) => {
+          worksheet.addRow([
+            p.apellido?.toUpperCase(),
+            formatPassengerNombre(p, paxLocalities, alignViaticos),
+            p.dni || "-",
+          ]);
+        });
+      }
+
+      if (artists.length > 0) {
+        const artHead = worksheet.addRow(["ARTISTA", "CANTIDAD", ""]);
+        artHead.font = { bold: true, color: { argb: "FFC62828" } };
+        artists.forEach((p) => {
+          worksheet.addRow([
+            p.apellido?.toUpperCase() || "",
+            String(p.nombre ?? p.seats ?? ""),
+            "",
+          ]);
+        });
+      }
     }
 
     const totalRow = worksheet.addRow([
@@ -689,39 +762,79 @@ function drawPassengerTable(
   doc.text(title, 14, startY);
   startY += 2;
 
-  const body = passengers.map((p) => [
-    p.apellido?.toUpperCase() || "",
-    formatPassengerNombre(p, paxLocalities, alignViaticos),
-    p.dni || "-",
-  ]);
+  const { people, artists } = splitBoardingPassengers(passengers);
 
-  autoTable(doc, {
-    startY,
-    head: [["APELLIDO", passengerNameColumnLabel(alignViaticos), "DNI"]],
-    body,
-    theme: "grid",
-    styles: {
-      font: "helvetica",
-      fontSize: 9,
-      cellPadding: 2,
-      overflow: "linebreak",
-      valign: "top",
-    },
-    headStyles: {
-      fillColor: headerColor,
-      textColor: 255,
-      fontStyle: "bold",
-      fontSize: 8,
-    },
-    columnStyles: {
-      0: { cellWidth: 45 },
-      1: { cellWidth: 95 },
-      2: { cellWidth: 35 },
-    },
-    margin: { left: 14, right: 14 },
-  });
+  if (people.length > 0) {
+    const body = people.map((p) => [
+      p.apellido?.toUpperCase() || "",
+      formatPassengerNombre(p, paxLocalities, alignViaticos),
+      p.dni || "-",
+    ]);
 
-  return doc.lastAutoTable.finalY + 4;
+    autoTable(doc, {
+      startY,
+      head: [["APELLIDO", passengerNameColumnLabel(alignViaticos), "DNI"]],
+      body,
+      theme: "grid",
+      styles: {
+        font: "helvetica",
+        fontSize: 9,
+        cellPadding: 2,
+        overflow: "linebreak",
+        valign: "top",
+      },
+      headStyles: {
+        fillColor: headerColor,
+        textColor: 255,
+        fontStyle: "bold",
+        fontSize: 8,
+      },
+      columnStyles: {
+        0: { cellWidth: 45 },
+        1: { cellWidth: 95 },
+        2: { cellWidth: 35 },
+      },
+      margin: { left: 14, right: 14 },
+    });
+    startY = doc.lastAutoTable.finalY + 3;
+  }
+
+  if (artists.length > 0) {
+    const body = artists.map((p) => [
+      p.apellido?.toUpperCase() || "",
+      String(p.nombre ?? p.seats ?? ""),
+    ]);
+
+    autoTable(doc, {
+      startY,
+      head: [["ARTISTA", "CANTIDAD"]],
+      body,
+      theme: "grid",
+      styles: {
+        font: "helvetica",
+        fontSize: 9,
+        cellPadding: 2,
+        overflow: "linebreak",
+        valign: "top",
+      },
+      headStyles: {
+        fillColor: headerColor,
+        textColor: 255,
+        fontStyle: "bold",
+        fontSize: 8,
+      },
+      columnStyles: {
+        0: { cellWidth: 120 },
+        1: { cellWidth: 35, halign: "center" },
+      },
+      margin: { left: 14, right: 14 },
+    });
+    startY = doc.lastAutoTable.finalY + 4;
+  } else if (people.length > 0) {
+    startY += 1;
+  }
+
+  return startY;
 }
 
 export async function generateRoadmapPdf(
@@ -792,7 +905,7 @@ export async function generateRoadmapPdf(
       doc,
       autoTable,
       y,
-      `SUBEN (${ups.length})`,
+      `SUBEN (${boardingListSeatCount(ups)})`,
       ups,
       paxLocalities,
       [46, 125, 50],
@@ -808,7 +921,7 @@ export async function generateRoadmapPdf(
       doc,
       autoTable,
       y,
-      `BAJAN (${downs.length})`,
+      `BAJAN (${boardingListSeatCount(downs)})`,
       downs,
       paxLocalities,
       [198, 40, 40],

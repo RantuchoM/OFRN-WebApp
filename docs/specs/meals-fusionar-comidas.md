@@ -11,6 +11,7 @@ Permitir unir ≥2 eventos de comida/catering del **mismo turno** (`fecha` + `se
 - ConfirmDialog antes de ejecutar.
 - **Eliminar (2026-09-14):** mismo panel; borra las comidas **guardadas** seleccionadas (no vacantes). ConfirmDialog z-110 avisa el conteo. Oculto en `readOnly`. OFRN + FIMBA.
 - **Dropdowns del panel (2026-09-14):** locación (`- Lugar -`) y convocados (`Seleccionar…`) portal a `document.body` `z-[110]`; si la barra está al fondo, el menú abre hacia arriba (`getFixedMenuPosition`). El panel no recorta (sin `overflow-hidden`).
+- **Select-all header (2026-09-14):** el checkbox/tilde del thead opera sobre `visibleGrid` (filas tras filtros locación/artista/catering/servicio/segmento/grupos + pins de edición), no sobre el `grid` completo. Ciclo: vacantes reales visibles → todas visibles → limpiar. Checked/indeterminate según selección **dentro** del set visible.
 
 ## Survivor
 Se conserva el evento más “completo”:
@@ -48,4 +49,5 @@ Hard `DELETE` de los no-survivor (paridad `deleteRow`). Junctions `eventos_grupo
 - [x] Recalc turno + refresh
 - [x] Botón Fusionar en panel flotante
 - [x] Dropdowns bulk locación/convocados portal z-110 (flip up)
+- [x] Select-all header acotado a `visibleGrid` (filtros + pins)
 - [x] OFRN + FIMBA

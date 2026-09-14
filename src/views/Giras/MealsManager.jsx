@@ -3465,7 +3465,15 @@ export default function MealsManager({
     [visibleGrid, fimbaMode],
   );
 
-  const realEventIds = useMemo(() => grid.filter((r) => !r.isTemp).map((r) => r.id), [grid]);
+  /** Select-all / master checkbox: only rows currently rendered (`visibleGrid`). */
+  const visibleRowIds = useMemo(
+    () => (visibleGrid || []).map((r) => r.id),
+    [visibleGrid],
+  );
+  const visibleRealEventIds = useMemo(
+    () => (visibleGrid || []).filter((r) => !r.isTemp).map((r) => r.id),
+    [visibleGrid],
+  );
 
   const toggleServiceFilter = (svc) => {
     setServiceFilter((prev) => {
@@ -3516,8 +3524,16 @@ export default function MealsManager({
       handleDescBlur(row);
     }
   };
-  const isMasterChecked = selectedRows.size === grid.length && grid.length > 0;
-  const isOnlyRealSelected = selectedRows.size === realEventIds.length && realEventIds.every((id) => selectedRows.has(id)) && realEventIds.length > 0;
+  const selectedVisibleCount = visibleRowIds.reduce(
+    (n, id) => (selectedRows.has(id) ? n + 1 : n),
+    0,
+  );
+  const isMasterChecked =
+    visibleRowIds.length > 0 && selectedVisibleCount === visibleRowIds.length;
+  const isOnlyRealSelected =
+    visibleRealEventIds.length > 0 &&
+    selectedVisibleCount === visibleRealEventIds.length &&
+    visibleRealEventIds.every((id) => selectedRows.has(id));
 
   return (
     <div className="flex flex-col h-full min-h-0 bg-slate-50 overflow-hidden">
@@ -4005,7 +4021,17 @@ export default function MealsManager({
               <tr>
                 <th className="w-1 border-b border-slate-200 bg-slate-100 sticky top-0 z-20 shadow-[0_1px_0_0_#e2e8f0]"></th>
                 <th className="px-2 py-3 w-10 text-center border-b border-slate-200 bg-slate-100 sticky top-0 z-20 shadow-[0_1px_0_0_#e2e8f0]">
-                  <div onClick={() => isMasterChecked ? setSelectedRows(new Set()) : isOnlyRealSelected ? setSelectedRows(new Set(grid.map((r) => r.id))) : setSelectedRows(new Set(realEventIds))} className={`w-4 h-4 mx-auto rounded border flex items-center justify-center cursor-pointer transition-colors ${isMasterChecked || isOnlyRealSelected ? "bg-indigo-600 border-indigo-600 text-white" : "bg-white border-slate-300"}`}>
+                  <div
+                    onClick={() =>
+                      isMasterChecked
+                        ? setSelectedRows(new Set())
+                        : isOnlyRealSelected
+                          ? setSelectedRows(new Set(visibleRowIds))
+                          : setSelectedRows(new Set(visibleRealEventIds))
+                    }
+                    className={`w-4 h-4 mx-auto rounded border flex items-center justify-center cursor-pointer transition-colors ${isMasterChecked || isOnlyRealSelected ? "bg-indigo-600 border-indigo-600 text-white" : "bg-white border-slate-300"}`}
+                    title="Seleccionar filas visibles"
+                  >
                     {isMasterChecked ? <IconCheck size={10} strokeWidth={4} /> : isOnlyRealSelected ? <div className="w-2 h-0.5 bg-white"></div> : null}
                   </div>
                 </th>

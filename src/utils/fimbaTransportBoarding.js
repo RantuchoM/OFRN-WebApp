@@ -32,9 +32,10 @@
  * solo blankea Destino/Hora fin y libera ranking al programar. Un ride
  * abierto (↑ sin ↓) sigue ocupando plazas tras la pausa y el cambio de día.
  *
- * Rutas FIMBA con `id_gira_transporte` ≠ flota del evento ↑ se excluyen del
- * conteo de ese vehículo (`isFimbaPropuestaRutaFleetAligned`) para no inventar
- * plazas fantasma cuando la planilla filtrada oculta la subida.
+ * Rutas FIMBA con `id_gira_transporte` ≠ flota del evento ↑ **o** ↓ se
+ * excluyen del conteo de ese vehículo (`isFimbaPropuestaRutaFleetAligned`)
+ * para no inventar plazas fantasma / inyectar paradas ajenas (p.ej. ↓-only
+ * en evento de otra unidad) cuando la planilla filtrada oculta el extremo.
  *
  * Δ en parada = board_seats − alight_seats (net; bajadas dejan de contar en
  * en_transito vía isOnBoardAfterStop: downIdx > i).
@@ -1212,16 +1213,48 @@ function resolveRutaSubidaEvent(ruta, eventById = null) {
 }
 
 /**
+ * Resuelve el evento ↓ de una ruta (embed o lookup).
+ * @param {object|null|undefined} ruta
+ * @param {Map<string, object>|Record<string, object>|null|undefined} eventById
+ */
+function resolveRutaBajadaEvent(ruta, eventById = null) {
+  if (!ruta) return null;
+  return resolveRideEndpointEvent(
+    ruta.id_evento_bajada,
+    ruta.evento_bajada,
+    eventById,
+  );
+}
+
+/**
+ * ¿Un extremo declara flota que incluye `want`?
+ * Sin flota declarada → no contradice (true).
+ * @param {object|null|undefined} ev
+ * @param {number} want
+ */
+function endpointFleetIncludesVehicle(ev, want) {
+  const fleet = eventFleetGiraTransporteIds(ev);
+  if (fleet.length === 0) return true;
+  return fleet.some((id) => Number(id) === want);
+}
+
+/**
  * ¿La ruta FIMBA pertenece a la flota del vehículo `idGiraTransporte`?
  *
- * Si el evento ↑ declara flota (`vehiculos` / `id_gira_transporte`) y **ningún**
- * id coincide con el gt de la ruta, es un desalineamiento (ruta mal asignada):
- * no debe sumar plazas fantasma en ese vehículo. Sin flota en el ↑ → se confía
- * en `ruta.id_gira_transporte` (true).
+ * Si el evento ↑ **o** ↓ declara flota (`vehiculos` / `id_gira_transporte`) y
+ * **ningún** id coincide con el gt de la ruta, es un desalineamiento (ruta
+ * mal asignada): no debe sumar plazas fantasma ni inyectar esa parada en la
+ * secuencia / hoja de ruta del vehículo. Sin flota en los extremos presentes
+ * → se confía en `ruta.id_gira_transporte` (true).
  *
  * Caso 2026-09-10: Sol Liebeskind ruta #50 con gt 226 pero ↑ en evento de gt 232
  * → open ride sumaba +2 en Chevrolet tras la pausa aunque la planilla filtrada
  * no mostraba la subida.
+ *
+ * Caso 2026-09-14: Camarada Tango Quartet ruta #27 gt 226, ↑ NULL, ↓ evento
+ * **3867** (flota gt **232** Toyota) → hoja Chevrolet inyectaba parada
+ * «Traslado al Aeropuerto» 15/09 09:50 ajena. El check solo-↑ devolvía true
+ * al no haber subida.
  *
  * @param {object|null|undefined} ruta
  * @param {number|string|null|undefined} idGiraTransporte
@@ -1239,9 +1272,10 @@ export function isFimbaPropuestaRutaFleetAligned(
   );
   if (!Number.isFinite(want) || !ruta) return true;
   const upEv = resolveRutaSubidaEvent(ruta, eventById);
-  const fleet = eventFleetGiraTransporteIds(upEv);
-  if (fleet.length === 0) return true;
-  return fleet.some((id) => Number(id) === want);
+  const downEv = resolveRutaBajadaEvent(ruta, eventById);
+  if (upEv && !endpointFleetIncludesVehicle(upEv, want)) return false;
+  if (downEv && !endpointFleetIncludesVehicle(downEv, want)) return false;
+  return true;
 }
 
 /**
@@ -1261,7 +1295,7 @@ export function isFimbaPropuestaRutaFleetAligned(
  *   color?: string|null,
  *   id_gira_transporte: unknown|null,
  *   endpointFleetIds: number[],
- *   end: 'up',
+ *   end: 'up'|'down',
  *   eventId: unknown,
  *   event: object|null,
  *   whenLabel: string,
@@ -1295,23 +1329,40 @@ export function listFleetMismatchPropuestaRoutes(opts = {}) {
     if (plazas <= 0) continue;
     if (isFimbaPropuestaRutaFleetAligned(r, tid, eventById)) continue;
     const upEv = resolveRutaSubidaEvent(r, eventById);
-    if (!upEv) continue;
+    const downEv = resolveRutaBajadaEvent(r, eventById);
+    const upFleet = eventFleetGiraTransporteIds(upEv);
+    const downFleet = eventFleetGiraTransporteIds(downEv);
+    const wantN = Number(tid);
+    const upBad =
+      Boolean(upEv) &&
+      upFleet.length > 0 &&
+      !upFleet.some((id) => Number(id) === wantN);
+    const downBad =
+      Boolean(downEv) &&
+      downFleet.length > 0 &&
+      !downFleet.some((id) => Number(id) === wantN);
+    const end = upBad || !downBad ? "up" : "down";
+    const focusEv = end === "up" ? upEv : downEv;
+    if (!focusEv) continue;
     const nombre =
       r?.propuesta?.nombre ||
       `Artista #${r?.id_propuesta ?? "?"}`;
     rows.push({
-      key: `fimba-fleet-mismatch-${r.id ?? `${r.id_propuesta}-${r.id_evento_subida}`}`,
+      key: `fimba-fleet-mismatch-${r.id ?? `${r.id_propuesta}-${r.id_evento_subida}-${r.id_evento_bajada}`}`,
       kind: "fimba_fleet_mismatch",
       label: String(nombre).trim() || `Artista #${r.id_propuesta}`,
       plazas,
       color: r?.propuesta?.color || null,
       id_gira_transporte: tid,
-      endpointFleetIds: eventFleetGiraTransporteIds(upEv),
-      end: "up",
-      eventId: upEv.id,
-      event: upEv,
-      whenLabel: formatOffTrayectoEndpointWhen(upEv, tipoById),
-      pairEventId: r.id_evento_bajada ?? null,
+      endpointFleetIds: eventFleetGiraTransporteIds(focusEv),
+      end,
+      eventId: focusEv.id,
+      event: focusEv,
+      whenLabel: formatOffTrayectoEndpointWhen(focusEv, tipoById),
+      pairEventId:
+        end === "up"
+          ? (r.id_evento_bajada ?? null)
+          : (r.id_evento_subida ?? null),
       rutaId: r.id ?? null,
       openRide: isOpenFimbaRide(r),
     });
@@ -1321,7 +1372,7 @@ export function listFleetMismatchPropuestaRoutes(opts = {}) {
 
 /**
  * Ids de eventos que son ↑/↓ de rides explícitos FIMBA o OFRN en una unidad.
- * Omite rutas FIMBA con flota ↑ desalineada (no inyectar stubs fantasma).
+ * Omite rutas FIMBA con flota ↑/↓ desalineada (no inyectar stubs fantasma).
  * @param {Array<object>} propuestaRoutes
  * @param {Array<object>} ofrnRides
  * @param {number|string} idGiraTransporte
