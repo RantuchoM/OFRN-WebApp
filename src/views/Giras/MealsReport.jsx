@@ -9,6 +9,7 @@ import {
   IconCheck,
   IconDownload,
   IconFiles,
+  IconMapPin,
 } from "../../components/ui/Icons";
 import MultiSelectDropdown from "../../components/ui/MultiSelectDropdown";
 import MealOrchestraOnlyFilterChip from "../../components/logistics/MealOrchestraOnlyFilterChip";
@@ -42,8 +43,12 @@ import {
 import {
   buildMealsPedidoText,
   ARTISTAS_FIMBA_DIET,
+  collectMealCasos,
 } from "../../utils/mealsReportText";
-import { exportMealsReportByArtista } from "../../utils/mealsReportByArtistExport";
+import {
+  exportMealsReportByArtista,
+  exportMealsReportByLocacion,
+} from "../../utils/mealsReportGroupedExport";
 import { resolveLocalidadResidencia } from "../../utils/integranteDomicilioViaticos";
 import { useGiraSegmentos } from "../../hooks/useGiraSegmentos";
 import { buildIntegranteGruposMap } from "../../services/giraGruposService";
@@ -252,8 +257,8 @@ export default function MealsReport({
     ensamblesById: new Map(),
   });
   const [showSummaryModal, setShowSummaryModal] = useState(false);
-  const [showArtistExportModal, setShowArtistExportModal] = useState(false);
-  const [artistExportBusy, setArtistExportBusy] = useState(false);
+  const [groupedExportMode, setGroupedExportMode] = useState(null);
+  const [groupedExportBusy, setGroupedExportBusy] = useState(false);
   const [copied, setCopied] = useState(false);
   const filtersControlled =
     mealFilters != null && typeof onMealFiltersChange === "function";
@@ -420,7 +425,7 @@ export default function MealsReport({
             const { data: parts, error: partsErr } = await supabase
               .from("fimba_participantes")
               .select(
-                "id_propuesta, tipo_alimentacion, nota_alimentacion, activo",
+                "id, id_propuesta, nombre, apellido, tipo_alimentacion, nota_alimentacion, activo",
               )
               .in("id_propuesta", propuestaIds);
             if (partsErr) throw partsErr;
@@ -485,6 +490,7 @@ export default function MealsReport({
             }
           }
 
+          const ofrnCounted = [];
           for (const person of ofrnPeople) {
             const status = attendanceMap[`${evt.id}-${person.id}`];
             let shouldCount = false;
@@ -497,6 +503,7 @@ export default function MealsReport({
               const diet = person.alimentacion || "Estándar";
               counts[diet] = (counts[diet] || 0) + 1;
               counts.Total++;
+              ofrnCounted.push(person);
             }
           }
 
@@ -546,6 +553,13 @@ export default function MealsReport({
             if (artistTotal > 0) counts.Total += artistTotal;
           }
 
+          const casos = collectMealCasos({
+            ofrnPeople: ofrnCounted,
+            propuestas: fimbaMode ? propuestas : [],
+            participantesByPropuestaId: participantesByPropuestaId,
+            labelFn: labelFimbaAlimentacion,
+          });
+
           return {
             id: evt.id,
             fecha: evt.fecha,
@@ -569,6 +583,7 @@ export default function MealsReport({
             ofrnCounts,
             rawEvent: evt,
             counts,
+            casos,
           };
         });
 
@@ -769,7 +784,13 @@ export default function MealsReport({
         delete counts[ARTISTAS_FIMBA_DIET];
       }
       counts.Total = (Number(ofrn.Total) || 0) + artistTotal;
-      return { ...row, counts };
+      const casos = (row.casos || []).filter((c) => {
+        if (c?.origen === "OFRN") return true;
+        return (
+          c?.id_propuesta != null && artistSet.has(String(c.id_propuesta))
+        );
+      });
+      return { ...row, counts, propuestas: scopedProps, casos };
     });
   }, [
     reportData,
@@ -925,27 +946,38 @@ export default function MealsReport({
     [coverageGaps],
   );
 
-  const handleExportByArtista = async (modes) => {
-    setArtistExportBusy(true);
+  const handleExportGrouped = async (modes) => {
+    setGroupedExportBusy(true);
     try {
-      const onlyIds =
-        selectedArtistaIds.length > 0
-          ? selectedArtistaIds.filter(
-              (id) =>
-                id !== NO_ARTIST_KEY && id !== MEAL_FILTER_ORCHESTRA_ONLY,
-            )
-          : null;
-      await exportMealsReportByArtista({
-        reportRows: reportRowsForArtistBatch,
-        fimbaPartsByPropuesta,
-        labelFn: labelFimbaAlimentacion,
-        onlyArtistaIds: onlyIds,
-        giraNombre: gira?.nombre_gira || gira?.nomenclador || "Gira",
-        modes,
-      });
-      setShowArtistExportModal(false);
+      const giraNombre = gira?.nombre_gira || gira?.nomenclador || "Gira";
+      if (groupedExportMode === "locacion") {
+        await exportMealsReportByLocacion({
+          reportRows: filteredReport,
+          onlyLocKeys:
+            selectedLocationKeys.length > 0 ? selectedLocationKeys : null,
+          giraNombre,
+          modes,
+        });
+      } else {
+        const onlyIds =
+          selectedArtistaIds.length > 0
+            ? selectedArtistaIds.filter(
+                (id) =>
+                  id !== NO_ARTIST_KEY && id !== MEAL_FILTER_ORCHESTRA_ONLY,
+              )
+            : null;
+        await exportMealsReportByArtista({
+          reportRows: reportRowsForArtistBatch,
+          fimbaPartsByPropuesta,
+          labelFn: labelFimbaAlimentacion,
+          onlyArtistaIds: onlyIds,
+          giraNombre,
+          modes,
+        });
+      }
+      setGroupedExportMode(null);
     } finally {
-      setArtistExportBusy(false);
+      setGroupedExportBusy(false);
     }
   };
 
@@ -1181,17 +1213,25 @@ export default function MealsReport({
           {fimbaMode && (
             <button
               type="button"
-              onClick={() => setShowArtistExportModal(true)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-bold h-[34px] border ${
-                fimbaMode
-                  ? "border-[#d73289] text-[#d73289] bg-white hover:bg-fuchsia-50"
-                  : "border-indigo-600 text-indigo-700 bg-white"
-              }`}
+              onClick={() => setGroupedExportMode("artista")}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-bold h-[34px] border border-[#d73289] text-[#d73289] bg-white hover:bg-fuchsia-50"
               title="Excel multi-hoja y/o ZIP de textos pedido, uno por artista"
             >
               <IconFiles size={16} /> Por artista
             </button>
           )}
+          <button
+            type="button"
+            onClick={() => setGroupedExportMode("locacion")}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-bold h-[34px] border bg-white ${
+              fimbaMode
+                ? "border-[#d73289] text-[#d73289] hover:bg-fuchsia-50"
+                : "border-indigo-600 text-indigo-700 hover:bg-indigo-50"
+            }`}
+            title="Excel multi-hoja y/o ZIP de textos pedido, uno por locación"
+          >
+            <IconMapPin size={16} /> Por locación
+          </button>
           <button
             type="button"
             onClick={() => setShowSummaryModal(true)}
@@ -1421,11 +1461,13 @@ export default function MealsReport({
           document.body,
         )}
 
-      {showArtistExportModal &&
+      {groupedExportMode &&
         createPortal(
           <div
             className="fixed inset-0 z-[100] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 print:hidden"
-            onClick={() => !artistExportBusy && setShowArtistExportModal(false)}
+            onClick={() =>
+              !groupedExportBusy && setGroupedExportMode(null)
+            }
           >
             <div
               className="w-full max-w-md bg-white rounded-xl shadow-2xl border border-slate-200 flex flex-col"
@@ -1433,12 +1475,14 @@ export default function MealsReport({
             >
               <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
                 <h3 className="text-sm font-bold text-slate-800">
-                  Exportar por artista
+                  {groupedExportMode === "locacion"
+                    ? "Exportar por locación"
+                    : "Exportar por artista"}
                 </h3>
                 <button
                   type="button"
-                  disabled={artistExportBusy}
-                  onClick={() => setShowArtistExportModal(false)}
+                  disabled={groupedExportBusy}
+                  onClick={() => setGroupedExportMode(null)}
                   className="p-1 text-slate-400 hover:text-slate-700"
                   title="Cerrar"
                 >
@@ -1446,31 +1490,47 @@ export default function MealsReport({
                 </button>
               </div>
               <div className="p-4 space-y-3 text-sm text-slate-600">
-                <p className="m-0">
-                  Genera un archivo por cada artista tagueado en comidas
-                  {selectedArtistaIds.length > 0
-                    ? " (solo los del filtro Artista activo)"
-                    : ""}
-                  . Respeta filtros de tipo/locación/convocados.
-                </p>
+                {groupedExportMode === "locacion" ? (
+                  <p className="m-0">
+                    Genera un archivo por cada lugar de comida
+                    {selectedLocationKeys.length > 0
+                      ? " (solo las locaciones del filtro activo)"
+                      : ""}
+                    . Incluye el cuadro de dietas y la lista nominativa con
+                    especificaciones alimenticias. Respeta el resto de filtros
+                    (tipo, artista, convocados).
+                  </p>
+                ) : (
+                  <p className="m-0">
+                    Genera un archivo por cada artista tagueado en comidas
+                    {selectedArtistaIds.length > 0
+                      ? " (solo los del filtro Artista activo)"
+                      : ""}
+                    . Incluye el cuadro de dietas y las especificaciones de
+                    cada nominado. Respeta filtros de tipo/locación/convocados.
+                  </p>
+                )}
                 <ul className="list-disc pl-5 m-0 space-y-1 text-xs">
                   <li>
                     <strong>Excel</strong>: multi-hoja (Índice + una hoja cuadro
-                    por artista)
+                    y nominados por{" "}
+                    {groupedExportMode === "locacion" ? "locación" : "artista"})
                   </li>
                   <li>
-                    <strong>ZIP textos</strong>: un .txt de pedido por artista
+                    <strong>ZIP textos</strong>: un .txt de pedido por{" "}
+                    {groupedExportMode === "locacion" ? "locación" : "artista"}{" "}
+                    (dietas + excepciones nominativas)
                   </li>
                 </ul>
               </div>
               <div className="px-4 py-3 border-t border-slate-200 flex flex-wrap justify-end gap-2">
                 <button
                   type="button"
-                  disabled={artistExportBusy}
-                  onClick={() => handleExportByArtista(["excel"])}
+                  disabled={groupedExportBusy}
+                  onClick={() => handleExportGrouped(["excel"])}
                   className="px-3 py-1.5 rounded-lg text-xs font-bold border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50"
                 >
-                  {artistExportBusy ? (
+                  {groupedExportBusy ? (
                     <IconLoader size={14} className="animate-spin inline" />
                   ) : (
                     <IconDownload size={14} className="inline mr-1" />
@@ -1479,20 +1539,26 @@ export default function MealsReport({
                 </button>
                 <button
                   type="button"
-                  disabled={artistExportBusy}
-                  onClick={() => handleExportByArtista(["zip"])}
+                  disabled={groupedExportBusy}
+                  onClick={() => handleExportGrouped(["zip"])}
                   className="px-3 py-1.5 rounded-lg text-xs font-bold border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50"
                 >
                   Solo ZIP textos
                 </button>
                 <button
                   type="button"
-                  disabled={artistExportBusy}
-                  onClick={() => handleExportByArtista(["excel", "zip"])}
-                  className="px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-[#d73289] hover:opacity-90 disabled:opacity-50 inline-flex items-center gap-1"
+                  disabled={groupedExportBusy}
+                  onClick={() => handleExportGrouped(["excel", "zip"])}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold text-white disabled:opacity-50 inline-flex items-center gap-1 ${
+                    fimbaMode
+                      ? "bg-[#d73289] hover:opacity-90"
+                      : "bg-indigo-600 hover:bg-indigo-700"
+                  }`}
                 >
-                  {artistExportBusy ? (
+                  {groupedExportBusy ? (
                     <IconLoader size={14} className="animate-spin" />
+                  ) : groupedExportMode === "locacion" ? (
+                    <IconMapPin size={14} />
                   ) : (
                     <IconFiles size={14} />
                   )}
