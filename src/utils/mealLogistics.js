@@ -225,6 +225,8 @@ export function isCanonicalMealTypeId(id) {
  * Tipo canÃÂÃÂÃÂÃÂ³nico D/A/M/C a partir del nombre del tipo de evento.
  * Regla de negocio: la **primera palabra** del nombre determina el grupo.
  * Ej: "Merienda a bordo" ÃÂÃÂ¢ÃÂÃÂÃÂÃÂ Merienda; "Almuerzo (Vianda)" ÃÂÃÂ¢ÃÂÃÂÃÂÃÂ Almuerzo.
+ * "Catering Merienda" no cae aquÃÂ­ (primera palabra = Catering); usar
+ * `mealAmcFromCateringLabel`.
  */
 export function mealBaseFromTypeName(nombre) {
   if (!nombre) return null;
@@ -239,6 +241,37 @@ export function mealBaseFromTypeName(nombre) {
   }
   // Fallback legado: el nombre completo comienza con el tipo
   return normalizeMealServiceBase(raw);
+}
+
+/**
+ * Slot A/M/C (o Desayuno) embebido en un label Catering.
+ * "Catering Merienda" → Merienda; "Catering Almuerzo a bordo" → Almuerzo;
+ * "Catering" solo → null (queda slot sintético Catering).
+ */
+export function mealAmcFromCateringLabel(nombre) {
+  if (!nombre) return null;
+  const raw = String(nombre).trim();
+  if (!raw) return null;
+  const lower = raw.toLowerCase();
+  if (lower === "catering") return null;
+  const rest = raw.replace(/^catering\s+/i, "").trim();
+  if (!rest || rest.toLowerCase() === "catering") return null;
+  const amc = mealBaseFromTypeName(rest) || normalizeMealServiceBase(rest);
+  if (!amc || amc === CATERING_SERVICE) return null;
+  return MEAL_SERVICES.includes(amc) ? amc : null;
+}
+
+/**
+ * Nombre de tipo efectivo para mapear Catering → A/M/C (embed, fila Manager, etc.).
+ */
+export function cateringTypeLabelFromEvent(evt) {
+  if (!evt) return "";
+  return String(
+    evt.tipos_evento?.nombre ||
+      evt.tipo_nombre ||
+      evt.nombre ||
+      "",
+  ).trim();
 }
 
 /** Color hex por defecto alineado a los estilos de badge. */
@@ -309,8 +342,16 @@ export function isMealRelatedEvent(evt) {
 /** 'comidas' | 'catering' | null */
 export function mealRelatedKind(evt) {
   if (isCateringEvent(evt)) return "catering";
+  // Fila Manager / tipo sin categoría embed: nombre «Catering …».
+  if (mealAmcFromCateringLabel(cateringTypeLabelFromEvent(evt)) != null) {
+    return "catering";
+  }
+  const typeLower = cateringTypeLabelFromEvent(evt).toLowerCase();
+  if (typeLower === "catering" || typeLower.startsWith("catering ")) {
+    return "catering";
+  }
   if (isMealEvent(evt)) return "comidas";
-  // Filas del Manager a menudo traen `servicio` canÃÂÃÂÃÂÃÂ³nico sin embed fresco de tipos_evento.
+  // Filas del Manager a menudo traen `servicio` canÃÂnico sin embed fresco de tipos_evento.
   const svc = String(evt?.servicio || "").trim();
   if (svc === CATERING_SERVICE) return "catering";
   if (MEAL_SERVICES.includes(svc) || normalizeMealServiceBase(svc)) return "comidas";
@@ -319,13 +360,26 @@ export function mealRelatedKind(evt) {
 
 /**
  * ÃÂÃÂÃÂÃÂ¿Pasa el filtro de clase comida/catering?
+ * `comidas` incluye Catering tipado A/M/C (p.ej. Catering Merienda), que
+ * ocupa el mismo slot de grilla/cobertura que una Merienda de cat. Comidas.
  * @param {'all'|'comidas'|'catering'} kindFilter
  */
 export function passesMealKindFilter(evt, kindFilter = "all") {
   if (kindFilter == null || kindFilter === "all") return true;
   const kind = mealRelatedKind(evt);
-  if (kindFilter === "comidas") return kind === "comidas";
   if (kindFilter === "catering") return kind === "catering";
+  if (kindFilter === "comidas") {
+    if (kind === "comidas") return true;
+    if (kind === "catering") {
+      const amc =
+        mealAmcFromCateringLabel(cateringTypeLabelFromEvent(evt)) ||
+        (MEAL_SERVICES.includes(String(evt?.servicio || "").trim())
+          ? String(evt.servicio).trim()
+          : null);
+      return Boolean(amc);
+    }
+    return false;
+  }
   return true;
 }
 
@@ -557,7 +611,14 @@ export function inheritMealLocacionForCreate(sourceRow, opts = {}) {
 /** Tipo Catering por defecto (Almuerzo / id 34 si está en catálogo). */
 export function defaultCateringMealType(mealTypes = []) {
   const list = (mealTypes || []).filter(
-    (t) => t?.is_catering || t?.servicio === CATERING_SERVICE,
+    (t) =>
+      t?.is_catering ||
+      t?.servicio === CATERING_SERVICE ||
+      mealAmcFromCateringLabel(t?.nombre) != null ||
+      String(t?.nombre || "")
+        .trim()
+        .toLowerCase()
+        .startsWith("catering"),
   );
   if (!list.length) return null;
   const byName = list.find((t) =>
@@ -597,8 +658,14 @@ export function inheritMealKindForCreate(sourceRow, opts = {}) {
   if (!tipo) {
     return { servicio: CATERING_SERVICE };
   }
+  const servicio =
+    mealServicioFromEvent({
+      tipos_evento: tipo,
+      tipo_nombre: tipo.nombre,
+      servicio: tipo.servicio,
+    }) || CATERING_SERVICE;
   return {
-    servicio: CATERING_SERVICE,
+    servicio,
     id_tipo_evento: tipo.id,
     tipo_nombre: tipo.nombre || CATERING_SERVICE,
     tipos_evento: tipo,
@@ -797,7 +864,17 @@ export function filterMealManagerRows(rows, filters = {}) {
       r?.servicio ||
       mealServicioFromEvent(r) ||
       null;
-    if (serviceSet && !serviceSet.has(servicio)) return false;
+    if (serviceSet) {
+      const inSet = servicio && serviceSet.has(servicio);
+      // Chip «Cat»: cualquier evento de categoría Catering (aunque el slot
+      // sea Merienda/Almuerzo/Cena por nombre «Catering Merienda»).
+      const cateringChip =
+        serviceSet.has(CATERING_SERVICE) &&
+        (isCateringEvent(r) ||
+          r?.servicio === CATERING_SERVICE ||
+          mealRelatedKind(r) === "catering");
+      if (!inSet && !cateringChip) return false;
+    }
 
     if (r?.isTemp) {
       if (!passesMealKindFilter(r, mealKindFilter)) return false;
@@ -1247,21 +1324,42 @@ export function isPersonEligibleForMealSlot(
 }
 
 /**
- * Resuelve el slot canÃÂÃÂÃÂÃÂ³nico D/A/M/C de un evento de comida, o `Catering`.
- * Prioriza el nombre del tipo (primera palabra), luego ids 7ÃÂÃÂ¢ÃÂÃÂÃÂÃÂ10, luego `servicio` en fila.
+ * Resuelve el slot canónico D/A/M/C de un evento de comida, o `Catering`.
+ * Catering tipado (p.ej. "Catering Merienda") → Merienda / Almuerzo / Cena
+ * para grilla, filtros de servicio y cobertura A/M/C. Solo el tipo bare
+ * "Catering" (sin A/M/C en el nombre) queda en el slot sintético Catering.
+ * Prioriza el nombre del tipo, luego ids 7–10, luego `servicio` en fila.
  */
 export function mealServicioFromEvent(evt) {
-  if (isCateringEvent(evt)) return CATERING_SERVICE;
+  if (isCateringEvent(evt)) {
+    const amc = mealAmcFromCateringLabel(cateringTypeLabelFromEvent(evt));
+    if (amc) return amc;
+    if (evt?.servicio && MEAL_SERVICES.includes(String(evt.servicio).trim())) {
+      return String(evt.servicio).trim();
+    }
+    return CATERING_SERVICE;
+  }
 
   const fromTypeName = mealBaseFromTypeName(evt?.tipos_evento?.nombre);
-  if (fromTypeName) return fromTypeName;
+  if (fromTypeName && fromTypeName !== CATERING_SERVICE) return fromTypeName;
+  // Nombre "Catering …" sin categoría embed (fila parcialmente hidratada).
+  const amcFromName = mealAmcFromCateringLabel(
+    evt?.tipos_evento?.nombre || evt?.tipo_nombre || evt?.nombre,
+  );
+  if (amcFromName) return amcFromName;
+  if (fromTypeName === CATERING_SERVICE) return CATERING_SERVICE;
 
   if (evt?.id_tipo_evento != null && MEAL_TYPE_ID_TO_SERVICE[evt.id_tipo_evento]) {
     return MEAL_TYPE_ID_TO_SERVICE[evt.id_tipo_evento];
   }
 
   if (evt?.servicio) {
-    if (String(evt.servicio).trim() === CATERING_SERVICE) return CATERING_SERVICE;
+    if (String(evt.servicio).trim() === CATERING_SERVICE) {
+      const amc = mealAmcFromCateringLabel(
+        evt?.tipos_evento?.nombre || evt?.tipo_nombre || evt?.nombre,
+      );
+      return amc || CATERING_SERVICE;
+    }
     return (
       mealBaseFromTypeName(evt.servicio) ||
       normalizeMealServiceBase(evt.servicio) ||
@@ -1269,6 +1367,15 @@ export function mealServicioFromEvent(evt) {
     );
   }
   return null;
+}
+
+/**
+ * Slot A/M/C usado por cobertura FIMBA (y bookends tagged).
+ * Igual que `mealServicioFromEvent` para Catering tipado; Desayuno/Catering
+ * bare anclan ventana pero no se exigen en A/M/C.
+ */
+export function mealCoverageServicioFromEvent(evt) {
+  return mealServicioFromEvent(evt);
 }
 
 /**
@@ -1959,12 +2066,12 @@ function mapMealTypeRow(t) {
     String(t.nombre || "")
       .trim()
       .toLowerCase() === "catering";
+  const amc = isCatering ? mealAmcFromCateringLabel(t.nombre) : null;
   return {
     ...t,
     is_catering: isCatering,
-    servicio: isCatering
-      ? CATERING_SERVICE
-      : mealBaseFromTypeName(t.nombre) || null,
+    // Catering tipado → slot A/M/C; bare Catering → slot sintético.
+    servicio: isCatering ? amc || CATERING_SERVICE : mealBaseFromTypeName(t.nombre) || null,
     detalle: isCatering ? "" : mealDetalleFromTypeName(t.nombre),
   };
 }
@@ -2182,7 +2289,9 @@ export function resolveFimbaPropuestaStayForCoverage(propuesta) {
  * bookends Early/Late (`enumerateExpectedAmcSlotsForStay`).
  * Sin estadía completa → fallback primera↔última comida tagueada.
  * Sin estadía ni tags → omitido con nota (`skipped`).
- * Desayuno/Catering pueden anclar el borde tagged pero no se exigen.
+ * Desayuno / Catering bare pueden anclar el borde tagged pero no se exigen.
+ * Catering tipado (Almuerzo/Merienda/Cena) **sí** cubre el slot A/M/C
+ * correspondiente (`mealServicioFromEvent` / «Catering Merienda» → Merienda).
  *
  * @param {Array<{ fecha?: string, servicio?: string, propuestas?: Array<{ id?: unknown, nombre?: string, requiere_comidas?: boolean, estado?: string }>, rawEvent?: object }>} mealRows
  * @param {{
@@ -2197,8 +2306,11 @@ export function findFimbaArtistMealCoverageGaps(mealRows = [], opts = {}) {
   const resolveServicio =
     opts.resolveServicio ||
     ((row) =>
+      mealCoverageServicioFromEvent(row?.rawEvent || row) ||
+      (row?.servicio && MEAL_SERVICES.includes(String(row.servicio).trim())
+        ? String(row.servicio).trim()
+        : null) ||
       row?.servicio ||
-      mealServicioFromEvent(row?.rawEvent || row) ||
       null);
 
   /** @type {Map<string, { id: string, nombre: string, propuesta: object|null, slots: { fecha: string, servicio: string, slotKey: number }[] }>} */

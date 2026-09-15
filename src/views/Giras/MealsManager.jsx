@@ -47,7 +47,6 @@ import {
   CATERING_SERVICE,
   fetchMealRelatedEventTypes,
   isMealRelatedEvent,
-  isCateringEvent,
   isOrchestraMealRow,
   findCoincidingGrupoMealRows,
   deductGrupoMembersFromOrchestraEligible,
@@ -210,10 +209,14 @@ const resolveMealTypeSelection = (mealTypes, typeId, fallbackServicio = "") => {
   const isCatering =
     Boolean(tipo?.is_catering) ||
     tipo?.servicio === CATERING_SERVICE ||
-    (mealBaseFromTypeName(tipoNombre) == null &&
-      String(tipoNombre).toLowerCase().includes("catering"));
+    String(tipoNombre).toLowerCase().startsWith("catering");
+  // Catering Merienda/Almuerzo/Cena → slot A/M/C; bare Catering → sintético.
   const servicio = isCatering
-    ? CATERING_SERVICE
+    ? mealServicioFromEvent({
+        tipos_evento: tipo || { nombre: tipoNombre, id_categoria: 9 },
+        tipo_nombre: tipoNombre,
+        servicio: tipo?.servicio,
+      }) || CATERING_SERVICE
     : mealBaseFromTypeName(tipoNombre) ||
       tipo?.servicio ||
       fallbackServicio ||
@@ -2237,11 +2240,13 @@ export default function MealsManager({
         };
       })
       .filter(Boolean);
-    const cateringMeals = normalizedMeals.filter(
-      (m) => m.servicio === CATERING_SERVICE || isCateringEvent(m),
+    // Catering tipado (Catering Merienda → servicio Merienda) entra al walk
+    // D/A/M/C y cubre vacante/cobertura. Solo bare «Catering» queda aparte.
+    const cateringOnlyMeals = normalizedMeals.filter(
+      (m) => m.servicio === CATERING_SERVICE,
     );
     const slotMeals = normalizedMeals.filter(
-      (m) => m.servicio !== CATERING_SERVICE && !isCateringEvent(m),
+      (m) => m.servicio !== CATERING_SERVICE,
     );
     const toIntKey = (d, s) => {
       const fecha = toDateKey(d);
@@ -2322,9 +2327,9 @@ export default function MealsManager({
         curDate.setDate(curDate.getDate() + 1);
       }
     }
-    // Catering: sin vacantes; se listan los eventos reales (misma gira).
+    // Catering bare (sin A/M/C en el nombre): sin vacantes; eventos reales.
     // Importante: no dejarlos al final del array — se reordenan con el sort global.
-    cateringMeals.forEach((m) => {
+    cateringOnlyMeals.forEach((m) => {
       newGrid.push({
         ...m,
         servicio: CATERING_SERVICE,
@@ -2332,8 +2337,7 @@ export default function MealsManager({
         dirty: false,
       });
     });
-    // Merge D/A/M/C (walk) + Catering → orden cronológico estable
-    // (fecha → servicio → hora → id).
+    // Merge D/A/M/C (incl. Catering tipado) + Catering bare → orden estable.
     setGrid(sortMealManagerGrid(newGrid));
   };
 
@@ -3578,7 +3582,7 @@ export default function MealsManager({
                     opt.id === "all"
                       ? "Comidas y catering"
                       : opt.id === "comidas"
-                        ? "Solo categoría Comidas (D/A/M/C)"
+                        ? "Comidas D/A/M/C e incluye Catering tipado (p.ej. Catering Merienda)"
                         : "Solo categoría Catering"
                   }
                 >

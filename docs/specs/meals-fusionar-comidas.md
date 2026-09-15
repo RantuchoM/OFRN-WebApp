@@ -5,7 +5,7 @@ Permitir unir ≥2 eventos de comida/catering del **mismo turno** (`fecha` + `se
 
 ## Enablement
 - Selección ≥2 filas **reales** (no `isTemp`).
-- Misma `fecha` (YYYY-MM-DD) y mismo `servicio` (Desayuno / Almuerzo / Merienda / Cena / Catering).
+- Misma `fecha` (YYYY-MM-DD) y mismo `servicio` (Desayuno / Almuerzo / Merienda / Cena / Catering bare). **Nota 2026-09-15:** Catering tipado (p.ej. Catering Merienda) resuelve `servicio=Merienda`, así que puede fusionarse con una Merienda de cat. Comidas del mismo día.
 - Deshabilitado en `readOnly`.
 - UI: botón **Fusionar** en el panel flotante de edición masiva (`BulkEditPanel`).
 - ConfirmDialog antes de ejecutar.
