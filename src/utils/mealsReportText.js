@@ -5,17 +5,198 @@
 
 import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
-import { CATERING_SERVICE } from "./mealLogistics";
+import {
+  CATERING_SERVICE,
+  filterFimbaPropuestasForMeals,
+  fimbaArtistMealDietBreakdown,
+  mealCoincidenceKey,
+} from "./mealLogistics";
 import { canonicalizeMealDiet, compareMealDietLabels } from "./dietOptions";
 
 const ARTISTAS_FIMBA_DIET = "Artistas FIMBA";
 
+function uniquePropuestas(rows = []) {
+  const map = new Map();
+  for (const row of rows) {
+    for (const p of filterFimbaPropuestasForMeals(row?.propuestas || [])) {
+      if (p?.id == null) continue;
+      const key = String(p.id);
+      if (!map.has(key)) map.set(key, p);
+    }
+  }
+  return Array.from(map.values());
+}
+
+function uniqueOfrnPeople(rows = []) {
+  const map = new Map();
+  for (const row of rows) {
+    for (const p of row?.ofrnPeople || []) {
+      if (p?.id == null) continue;
+      const key = String(p.id);
+      if (!map.has(key)) map.set(key, p);
+    }
+  }
+  return Array.from(map.values());
+}
+
+function ofrnCountsFromPeople(people = []) {
+  const counts = { Total: 0 };
+  for (const p of people) {
+    const diet = canonicalizeMealDiet(p.diet || p.alimentacion);
+    counts[diet] = (counts[diet] || 0) + 1;
+    counts.Total += 1;
+  }
+  return counts;
+}
+
+function sumOfrnCounts(rows = []) {
+  const counts = { Total: 0 };
+  for (const row of rows) {
+    const src = row?.ofrnCounts || {};
+    for (const [diet, n] of Object.entries(src)) {
+      if (!n) continue;
+      counts[diet] = (counts[diet] || 0) + n;
+    }
+  }
+  return counts;
+}
+
+function mergeHoras(rows = []) {
+  const horas = [
+    ...new Set(
+      (rows || [])
+        .map((r) => String(r?.hora || "").trim().slice(0, 5))
+        .filter(Boolean),
+    ),
+  ].sort();
+  if (horas.length === 0) return rows[0]?.hora || "";
+  if (horas.length === 1) return horas[0];
+  return horas.join(" / ");
+}
+
+function mergeServicioLabels(rows = [], servicio) {
+  const labels = [
+    ...new Set(
+      (rows || [])
+        .map((r) => r?.servicioLabel || r?.servicio)
+        .filter(Boolean)
+        .map(String),
+    ),
+  ];
+  if (labels.length <= 1) return labels[0] || servicio;
+  return servicio;
+}
+
+function mealsReportPlaceLabel(row) {
+  const name = String(row?.locacionLabel || "").trim();
+  if (name && name !== "Sin ubicación") return name;
+  const lugar = String(row?.lugar || "").trim();
+  if (lugar && lugar !== "Sin ubicación") return lugar;
+  return "";
+}
+
+/**
+ * Vista del MealsReport: une filas que comparten fecha + tipo (D/A/M/C/Catering)
+ * + locación, aunque vengan de eventos distintos.
+ * No escribe BD ni fusiona `eventos` (eso sigue siendo el botón Fusionar del Gestor).
+ * OFRN por persona única; artistas por propuesta única (recalcula dietas).
+ *
+ * @param {object[]} rows
+ * @param {{
+ *   includeArtists?: boolean,
+ *   partsByPropuesta?: Map|Record,
+ *   labelFn?: Function,
+ *   dietBreakdownFn?: Function,
+ * }} [opts]
+ */
+export function unifyMealsReportRowsByTypeAndPlace(rows = [], opts = {}) {
+  const {
+    includeArtists = false,
+    partsByPropuesta,
+    labelFn,
+    dietBreakdownFn = fimbaArtistMealDietBreakdown,
+  } = opts;
+
+  const groups = new Map();
+  const keyOrder = [];
+  for (const row of rows || []) {
+    if (!row) continue;
+    const key = mealCoincidenceKey(row) || `solo:${row.id}`;
+    if (!groups.has(key)) {
+      groups.set(key, []);
+      keyOrder.push(key);
+    }
+    groups.get(key).push(row);
+  }
+
+  return keyOrder.map((key) => {
+    const group = groups.get(key) || [];
+    if (group.length <= 1) return group[0];
+
+    const first = group[0];
+    const ofrnPeople = uniqueOfrnPeople(group);
+    const ofrnCounts = ofrnPeople.length
+      ? ofrnCountsFromPeople(ofrnPeople)
+      : sumOfrnCounts(group);
+    const propuestas = uniquePropuestas(group);
+    const counts = { ...ofrnCounts };
+
+    if (includeArtists) {
+      const { dietCounts, residualArt, total: artistTotal } = dietBreakdownFn(
+        propuestas,
+        partsByPropuesta,
+        labelFn,
+      );
+      for (const [diet, n] of Object.entries(dietCounts || {})) {
+        if (!n) continue;
+        counts[diet] = (counts[diet] || 0) + n;
+      }
+      if (residualArt > 0) {
+        counts[ARTISTAS_FIMBA_DIET] =
+          (counts[ARTISTAS_FIMBA_DIET] || 0) + residualArt;
+      } else {
+        delete counts[ARTISTAS_FIMBA_DIET];
+      }
+      counts.Total = (Number(ofrnCounts.Total) || 0) + (Number(artistTotal) || 0);
+    }
+
+    const convocados = [
+      ...new Set(group.flatMap((r) => r.convocados || []).map(String)),
+    ];
+    const eventIds = group.flatMap((r) =>
+      Array.isArray(r.eventIds) && r.eventIds.length
+        ? r.eventIds
+        : r.id != null
+          ? [r.id]
+          : [],
+    );
+
+    return {
+      ...first,
+      id: `u:${key}`,
+      eventIds,
+      merged: true,
+      hora: mergeHoras(group),
+      servicioLabel: mergeServicioLabels(group, first.servicio),
+      convocados,
+      propuestas,
+      ofrnPeople,
+      ofrnCounts,
+      counts,
+    };
+  });
+}
+
 /**
  * @param {Array<{ fecha: string, servicio: string, servicioLabel?: string, counts: Record<string, number> }>} filteredRows
- * @param {{ nonLocalRoster?: object[], includeStayBlocks?: boolean }} [opts]
+ * @param {{ nonLocalRoster?: object[], includeStayBlocks?: boolean, groupByLugar?: boolean }} [opts]
  */
 export function buildMealsPedidoText(filteredRows = [], opts = {}) {
-  const { nonLocalRoster = [], includeStayBlocks = true } = opts;
+  const {
+    nonLocalRoster = [],
+    includeStayBlocks = true,
+    groupByLugar = false,
+  } = opts;
 
   const formatDayHeader = (isoDate) => {
     const label = format(parseISO(isoDate), "EEEE dd/MM", { locale: es });
@@ -42,12 +223,17 @@ export function buildMealsPedidoText(filteredRows = [], opts = {}) {
   const perDate = {};
   filteredRows.forEach((row) => {
     if (!perDate[row.fecha]) perDate[row.fecha] = {};
-    const groupKey = row.servicioLabel || row.servicio;
+    const typeKey = row.servicioLabel || row.servicio;
+    const placeKey = groupByLugar
+      ? String(row.locKey ?? row.id_locacion ?? "")
+      : "";
+    const groupKey = groupByLugar ? `${typeKey}\0${placeKey}` : typeKey;
     if (!perDate[row.fecha][groupKey]) {
       perDate[row.fecha][groupKey] = {
         Total: 0,
         base: row.servicio,
-        label: groupKey,
+        label: typeKey,
+        place: groupByLugar ? mealsReportPlaceLabel(row) : "",
       };
     }
     perDate[row.fecha][groupKey].Total += row.counts?.Total || 0;
@@ -66,7 +252,9 @@ export function buildMealsPedidoText(filteredRows = [], opts = {}) {
         const oa = serviceOrder.indexOf(a.base);
         const ob = serviceOrder.indexOf(b.base);
         if (oa !== ob) return (oa < 0 ? 99 : oa) - (ob < 0 ? 99 : ob);
-        return String(a.label).localeCompare(String(b.label), "es");
+        const byLabel = String(a.label).localeCompare(String(b.label), "es");
+        if (byLabel !== 0) return byLabel;
+        return String(a.place || "").localeCompare(String(b.place || ""), "es");
       });
 
       const dateRows = groups
@@ -76,7 +264,11 @@ export function buildMealsPedidoText(filteredRows = [], opts = {}) {
           const diets = Object.entries(counts)
             .filter(
               ([k, v]) =>
-                k !== "Total" && k !== "base" && k !== "label" && v > 0,
+                k !== "Total" &&
+                k !== "base" &&
+                k !== "label" &&
+                k !== "place" &&
+                v > 0,
             )
             .sort(([a], [b]) => compareMealDietLabels(a, b))
             .map(([diet, value]) => {
@@ -93,7 +285,8 @@ export function buildMealsPedidoText(filteredRows = [], opts = {}) {
             String(counts.label).toLowerCase() !==
               String(base || "").toLowerCase();
           const name = isSub ? String(counts.label).toLowerCase() : pluralRoot;
-          return `${counts.Total} ${name}${details}`;
+          const placeSuffix = counts.place ? ` en ${counts.place}` : "";
+          return `${counts.Total} ${name}${placeSuffix}${details}`;
         })
         .filter(Boolean);
 
