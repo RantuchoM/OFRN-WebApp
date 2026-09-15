@@ -54,14 +54,23 @@ function agendaRowLabel(ev) {
  *
  * @param {object} a
  * @param {object} b
+ * @param {{ sameTimeRank?: (ev: object) => number }} [opts]
+ *   Rank after fecha+hora (lower first). Transportes: actividad con vehículo = 0,
+ *   trayecto tipo transporte = 1 → el no-transporte sale primero a igual horario.
  * @returns {number}
  */
-export function compareFimbaAgendaRows(a, b) {
+export function compareFimbaAgendaRows(a, b, opts) {
   const fechaCmp = String(a?.fecha || "").localeCompare(String(b?.fecha || ""));
   if (fechaCmp) return fechaCmp;
 
   const horaCmp = timeKey(a?.hora_inicio).localeCompare(timeKey(b?.hora_inicio));
   if (horaCmp) return horaCmp;
+
+  if (typeof opts?.sameTimeRank === "function") {
+    const rankA = Number(opts.sameTimeRank(a)) || 0;
+    const rankB = Number(opts.sameTimeRank(b)) || 0;
+    if (rankA !== rankB) return rankA - rankB;
+  }
 
   const labelCmp = compareEsText(agendaRowLabel(a), agendaRowLabel(b));
   if (labelCmp) return labelCmp;
@@ -80,8 +89,11 @@ export function compareFimbaAgendaRows(a, b) {
 /**
  * @template T
  * @param {T[]|null|undefined} rows
+ * @param {{ sameTimeRank?: (ev: T) => number }} [opts]
  * @returns {T[]}
  */
-export function sortFimbaAgendaRows(rows) {
-  return [...(rows || [])].sort(compareFimbaAgendaRows);
+export function sortFimbaAgendaRows(rows, opts) {
+  const list = [...(rows || [])];
+  if (!opts) return list.sort(compareFimbaAgendaRows);
+  return list.sort((a, b) => compareFimbaAgendaRows(a, b, opts));
 }

@@ -2010,6 +2010,27 @@ const FIMBA_CSS = `
     background: #f8fafc;
     border-style: dashed;
   }
+  .fimba-transport-event-card--actividad {
+    color: #64748b;
+  }
+  .fimba-transport-event-card--actividad .fimba-agenda-event-card-detalle {
+    font-size: 0.82rem;
+    font-weight: 500;
+    color: #64748b;
+  }
+  .fimba-transport-event-card--actividad .fimba-transport-card-when,
+  .fimba-transport-event-card--actividad .fimba-agenda-event-card-time {
+    font-size: 0.76rem;
+    font-weight: 600;
+    color: #64748b;
+  }
+  .fimba-transport-event-card--actividad .fimba-transport-card-route,
+  .fimba-transport-event-card--actividad .fimba-transport-card-veh,
+  .fimba-transport-event-card--actividad .fimba-transport-card-transito {
+    font-size: 0.72rem;
+    font-weight: 500;
+    color: #64748b;
+  }
   .fimba-transport-card-when {
     display: flex;
     align-items: center;
@@ -2406,6 +2427,8 @@ const FIMBA_CSS = `
   /* Actividad no-transporte con flota (teal, distinto de OFRN cyan / FIMBA magenta) */
   .fimba-row-actividad-vehiculo td {
     background: rgba(15, 118, 110, 0.05);
+    font-size: 0.78rem;
+    color: #64748b;
   }
   .fimba-row-actividad-vehiculo td:first-child {
     box-shadow: inset 3px 0 0 #0f766e;
@@ -2421,7 +2444,10 @@ const FIMBA_CSS = `
     background: #f0fdfa;
   }
   .fimba-planilla-table .fimba-row-actividad-vehiculo td.fimba-planilla-col-secondary {
-    color: #0f766e;
+    color: #94a3b8;
+  }
+  .fimba-planilla-table .fimba-row-actividad-vehiculo .fimba-detalle-cell {
+    font-weight: 500;
   }
   .fimba-planilla-table .fimba-row-actividad-vehiculo .fimba-planilla-actions {
     background: #f0fdfa;

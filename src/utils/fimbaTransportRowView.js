@@ -121,13 +121,15 @@ export function buildTransportRowView(ev, idx, ctx) {
   const canEditStops =
     !readOnly &&
     !isContext &&
+    !isActividadVehiculo &&
     (giraTransporteIdsFromEvent(ev).length > 0 || vehiculos.length > 0);
+  const hideBoardRules = isContext || isActividadVehiculo;
   const primaryVehicleId =
     metrics.primary?.id_gira_transporte ??
     metrics.perVehicle?.[0]?.id_gira_transporte ??
     giraTransporteIdsFromEvent(ev)[0] ??
     null;
-  const upsBoard = isContext
+  const upsBoard = hideBoardRules
     ? { chips: [], total: 0 }
     : resolveStopBoardAlightChips({
         eventId: ev.id,
@@ -144,7 +146,7 @@ export function buildTransportRowView(ev, idx, ctx) {
         eventById: eventByIdForBoarding,
         tipoById,
       });
-  const downsBoard = isContext
+  const downsBoard = hideBoardRules
     ? { chips: [], total: 0 }
     : resolveStopBoardAlightChips({
         eventId: ev.id,
@@ -297,6 +299,7 @@ export function buildTransportRowView(ev, idx, ctx) {
     rowClass,
     tipoTint,
     canEditStops,
+    hideBoardRules,
     primaryVehicleId,
     upsBoard,
     downsBoard,

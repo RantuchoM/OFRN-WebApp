@@ -59,6 +59,7 @@ import {
   getFimbaEdicionById,
   giraTransporteIdsFromEvent,
   isFimbaTrasladoEvent,
+  isFimbaActividadConVehiculo,
   labelGiraTransporte,
   listFimbaAgenda,
   listFimbaFlota,
@@ -1736,7 +1737,9 @@ export default function FimbaTransportPage() {
         .map((ev) => ({ ...ev, es_contexto_agenda: true }));
     }
 
-    return sortFimbaAgendaRows([...list, ...context]);
+    return sortFimbaAgendaRows([...list, ...context], {
+      sameTimeRank: (ev) => (isFimbaActividadConVehiculo(ev) ? 0 : 1),
+    });
   }, [
     eventos,
     deferredFiltroArtista,
@@ -4699,6 +4702,7 @@ export default function FimbaTransportPage() {
                       libres,
                       overbook,
                       isActividadVehiculo,
+                      hideBoardRules,
                       rowClass,
                       tipoTint,
                       canEditStops,
@@ -4916,6 +4920,8 @@ export default function FimbaTransportPage() {
                             ? "Guardando…"
                             : isContext
                             ? "Evento de agenda (contexto). Sin subidas/bajadas de transporte."
+                            : isActividadVehiculo
+                            ? "Actividad con vehículo (no traslado). Sin reglas de subida/bajada."
                             : readOnly
                             ? undefined
                             : editMode
@@ -5335,7 +5341,7 @@ export default function FimbaTransportPage() {
                                 : "Detalle / obs."
                           }
                           style={{
-                            fontWeight: 600,
+                            fontWeight: isActividadVehiculo ? 500 : 600,
                             ...(!readOnly &&
                             !isCellEditing(ev.id, "actividad") &&
                             !hasHtmlMarkup(ev.actividad)
@@ -5567,7 +5573,7 @@ export default function FimbaTransportPage() {
                           />
                         </td>
                         <td className="fimba-planilla-board">
-                          {isContext ? (
+                          {hideBoardRules ? (
                             <span className="fimba-muted" style={{ fontSize: "0.8rem" }}>
                               —
                             </span>
@@ -5604,7 +5610,7 @@ export default function FimbaTransportPage() {
                           )}
                         </td>
                         <td className="fimba-planilla-board">
-                          {isContext ? (
+                          {hideBoardRules ? (
                             <span className="fimba-muted" style={{ fontSize: "0.8rem" }}>
                               —
                             </span>

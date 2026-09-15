@@ -181,13 +181,18 @@ export default function FimbaTransportEventCard({
       ? row.destinoSiguiente
       : null;
 
-  const rowTone = row.isContext
-    ? "fimba-transport-event-card--contexto"
-    : ev?.origen === "ofrn"
-      ? "fimba-agenda-event-card--ofrn"
-      : ev?.origen === "ambos"
-        ? "fimba-agenda-event-card--ambos"
-        : "";
+  const rowTone = [
+    row.isContext
+      ? "fimba-transport-event-card--contexto"
+      : ev?.origen === "ofrn"
+        ? "fimba-agenda-event-card--ofrn"
+        : ev?.origen === "ambos"
+          ? "fimba-agenda-event-card--ambos"
+          : "",
+    row.isActividadVehiculo ? "fimba-transport-event-card--actividad" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   const ignoreClick =
     "button, a, input, select, textarea, label, .fimba-artistas-tags-cell, .fimba-agenda-card-menu, .fimba-transport-card-board, .fimba-agenda-event-card-actions, .fimba-agenda-event-card-detalle, .fimba-detalle-preview-row, .fimba-detalle-images-btn";
@@ -223,8 +228,10 @@ export default function FimbaTransportEventCard({
       title={
         row.isPendingCreate
           ? "Guardando…"
-          : row.isContext
+            : row.isContext
             ? "Evento de agenda (contexto)"
+            : row.isActividadVehiculo
+              ? "Actividad con vehículo (no traslado). Sin reglas de subida/bajada."
             : interactive
               ? readOnly
                 ? "Ver trayecto"
@@ -418,7 +425,7 @@ export default function FimbaTransportEventCard({
         ) : null}
       </div>
 
-      {!row.isContext ? (
+      {!row.hideBoardRules ? (
         <div className="fimba-transport-card-board">
           <CompactBoard
             direction="up"
