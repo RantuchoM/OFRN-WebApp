@@ -14,6 +14,7 @@ import {
   buildMealsPedidoText,
   collectArtistMealSpecsFromReportRows,
   scopeMealsReportRowToArtista,
+  unifyMealsReportRowsByTypeAndPlace,
 } from "./mealsReportText";
 import { fimbaArtistMealDietBreakdown } from "./mealLogistics";
 import { compareMealDietLabels, dietShortLabel } from "./dietOptions";
@@ -115,14 +116,22 @@ export function buildMealsReportBundlesByArtista(
   }
 
   return Array.from(map.values())
-    .map((bundle) => ({
-      ...bundle,
-      specs: collectArtistMealSpecsFromReportRows(
-        bundle.rows,
-        fimbaPartsByPropuesta,
-        { onlyArtistaIds: [bundle.id] },
-      ),
-    }))
+    .map((bundle) => {
+      const rows = unifyMealsReportRowsByTypeAndPlace(bundle.rows, {
+        includeArtists: true,
+        partsByPropuesta: fimbaPartsByPropuesta,
+        labelFn,
+      });
+      return {
+        ...bundle,
+        rows,
+        specs: collectArtistMealSpecsFromReportRows(
+          rows,
+          fimbaPartsByPropuesta,
+          { onlyArtistaIds: [bundle.id] },
+        ),
+      };
+    })
     .sort((a, b) =>
       a.nombre.localeCompare(b.nombre, "es", { sensitivity: "base" }),
     );
@@ -255,6 +264,7 @@ async function writeArtistTextZip(fileName, bundles) {
     const text = appendArtistMealSpecsSection(
       buildMealsPedidoText(bundle.rows, {
         includeStayBlocks: false,
+        groupByLugar: true,
       }),
       bundle.specs,
     );
