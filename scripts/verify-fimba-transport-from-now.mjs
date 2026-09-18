@@ -131,6 +131,15 @@ function splitFimbaAgendaFromNow(events, opts = {}) {
   };
 }
 
+function fimbaFromNowSectionDayKey(fecha, opts = {}) {
+  const day = String(fecha || "").slice(0, 10);
+  const todayKey = String(opts.todayKey || "").slice(0, 10);
+  if (opts.showPast) return day;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return day;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(todayKey)) return day;
+  return day < todayKey ? todayKey : day;
+}
+
 const now = new Date(2026, 8, 18, 11, 0, 0, 0);
 
 const pastPoint = {
@@ -304,6 +313,27 @@ assert(
     (ev) => resolveFimbaTransportFromNowEnd(ev, overnightIn),
   ),
   "overnight sigue en curso a las 07:00 del día siguiente",
+);
+assert(
+  fimbaFromNowSectionDayKey("2026-09-17", {
+    todayKey: "2026-09-18",
+    showPast: false,
+  }) === "2026-09-18",
+  "vista colapsada: overnight de ayer se agrupa en hoy (sin divisor de ayer)",
+);
+assert(
+  fimbaFromNowSectionDayKey("2026-09-17", {
+    todayKey: "2026-09-18",
+    showPast: true,
+  }) === "2026-09-17",
+  "Ver eventos anteriores: ayer vuelve a ser su propio día",
+);
+assert(
+  fimbaFromNowSectionDayKey("2026-09-18", {
+    todayKey: "2026-09-18",
+    showPast: false,
+  }) === "2026-09-18",
+  "hoy permanece hoy",
 );
 
 const list = [pastPoint, inTransit, nextStop, futureStop];

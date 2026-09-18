@@ -16,6 +16,7 @@ import {
 } from "../services/fimbaService";
 import { isFimbaPendingCreateEvent } from "./fimbaProgramarTransporte";
 import { fimbaTipoRowTintStyle } from "./fimbaEventCategories";
+import { fimbaFromNowSectionDayKey } from "./fimbaAgendaNow";
 
 function sliceTime(t) {
   if (!t) return "—";
@@ -47,12 +48,17 @@ export function buildTransportRowView(ev, idx, ctx) {
     highlightEventIds = [],
     readOnly = false,
     visibleEventIds = null,
+    todayKey = "",
+    showPast = false,
   } = ctx;
 
-  const dayKey = String(ev.fecha || "").slice(0, 10);
+  const dayKey = fimbaFromNowSectionDayKey(ev.fecha, { todayKey, showPast });
   const prevDayKey =
     idx > 0
-      ? String(eventosFiltrados[idx - 1]?.fecha || "").slice(0, 10)
+      ? fimbaFromNowSectionDayKey(eventosFiltrados[idx - 1]?.fecha, {
+          todayKey,
+          showPast,
+        })
       : "";
   const showDayDivider = idx > 0 && dayKey !== prevDayKey;
   const isContext = Boolean(ev.es_contexto_agenda);

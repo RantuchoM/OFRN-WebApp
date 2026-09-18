@@ -139,7 +139,7 @@ import {
 import FimbaAgendaPastToggle from "./FimbaAgendaPastToggle";
 import { supabase } from "../../services/supabase";
 import { hasHtmlMarkup, stripHtml } from "../../utils/eventDisplayUtils";
-import { formatFechaLargaEs, formatWeekdayFullLocal } from "../../utils/dates";
+import { formatFechaLargaEs, formatWeekdayFullLocal, getTodayDateStringLocal } from "../../utils/dates";
 import { toast } from "sonner";
 
 /** Índice id_propuesta → participantes activos (batch, sin hotelería). */
@@ -1811,6 +1811,7 @@ export default function FimbaTransportPage() {
     toggleShowPast,
     visibleEvents: eventosVisibles,
     pastCount,
+    now,
   } = useFimbaAgendaFromNow(eventosFiltrados, {
     focusEventId,
     getEndDate: getTransportEndDate,
@@ -1822,6 +1823,11 @@ export default function FimbaTransportPage() {
       ...(highlightEventIds || []),
     ],
   });
+
+  const todayKey = useMemo(() => {
+    void now;
+    return getTodayDateStringLocal();
+  }, [now]);
 
   useEffect(() => {
     if (focusEventId == null) return;
@@ -2087,6 +2093,8 @@ export default function FimbaTransportPage() {
       highlightEventIds,
       readOnly,
       visibleEventIds: visibleEventIdSet,
+      todayKey,
+      showPast,
     }),
     [
       eventosVisibles,
@@ -2108,6 +2116,8 @@ export default function FimbaTransportPage() {
       highlightEventIds,
       readOnly,
       visibleEventIdSet,
+      todayKey,
+      showPast,
     ],
   );
 

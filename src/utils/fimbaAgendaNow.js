@@ -15,6 +15,8 @@
  * Transportes reusa el mismo corte. «En curso» solo si la siguiente parada es
  * el mismo día o el día calendario siguiente (tramo overnight). Un hueco con
  * divisor de día (p. ej. 13/09 → 20/09, vehículo parado) no mantiene la fila.
+ * Vista colapsada: el primer divisor es **hoy**; un tramo overnight que sigue
+ * en curso se lista al inicio de hoy (no reabre el día de ayer).
  */
 
 import { getNowLocal } from "./dates";
@@ -138,6 +140,22 @@ export function isFimbaAgendaEventFromNow(ev, now = getNowLocal(), getEndDate) {
   const end = customEnd instanceof Date ? customEnd : fimbaAgendaEventEndDate(ev);
   const cutoff = end || start;
   return cutoff.getTime() >= nowMs;
+}
+
+/**
+ * Día de sección para divisores. En vista «desde ahora» un tramo overnight
+ * que arrancó ayer y sigue en curso se agrupa en **hoy** (ayer no reaparece).
+ *
+ * @param {string|null|undefined} fecha
+ * @param {{ todayKey?: string, showPast?: boolean }} [opts]
+ */
+export function fimbaFromNowSectionDayKey(fecha, opts = {}) {
+  const day = String(fecha || "").slice(0, 10);
+  const todayKey = String(opts.todayKey || "").slice(0, 10);
+  if (opts.showPast) return day;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return day;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(todayKey)) return day;
+  return day < todayKey ? todayKey : day;
 }
 
 /**
