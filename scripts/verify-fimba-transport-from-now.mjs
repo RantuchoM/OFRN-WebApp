@@ -376,7 +376,7 @@ assert(
     screenshotNow,
     (ev) => resolveFimbaTransportFromNowEnd(ev, dejaLlegada),
   ),
-  "Agenda: overnight 17/09 21:30 → 18/09 10:30 sigue en curso a las 08:47",
+  "sin flag: overnight 17/09 21:30 → 18/09 10:30 sigue en curso a las 08:47",
 );
 assert(
   !isFimbaAgendaEventFromNow(
@@ -436,6 +436,62 @@ const transportExpanded = splitFimbaAgendaFromNow(transportList, {
 assert(
   transportExpanded.visibleEvents.map((e) => e.id).join(",") === "20,21,4",
   "Ver eventos anteriores revela el tramo que salió ayer",
+);
+
+const agendaOvernight = {
+  id: 30,
+  fecha: "2026-09-17",
+  hora_inicio: "21:30",
+  hora_fin: "10:30",
+};
+const agendaLiveToday = {
+  id: 31,
+  fecha: "2026-09-18",
+  hora_inicio: "08:00",
+  hora_fin: "10:00",
+};
+const agendaFutureToday = {
+  id: 32,
+  fecha: "2026-09-18",
+  hora_inicio: "15:00",
+  hora_fin: "16:00",
+};
+assert(
+  isFimbaAgendaEventFromNow(agendaOvernight, screenshotNow),
+  "sin flag: Agenda overnight 21:30–10:30 sigue en curso a las 08:47",
+);
+assert(
+  !isFimbaAgendaEventFromNow(agendaOvernight, screenshotNow, null, {
+    hidePreviousCalendarDays: true,
+  }),
+  "Agenda: overnight que salió ayer no aparece a las 08:47",
+);
+assert(
+  isFimbaAgendaEventFromNow(agendaLiveToday, screenshotNow, null, {
+    hidePreviousCalendarDays: true,
+  }),
+  "Agenda: evento de hoy en curso sí aparece a las 08:47",
+);
+const agendaCollapsed = splitFimbaAgendaFromNow(
+  [agendaOvernight, agendaLiveToday, agendaFutureToday],
+  { now: screenshotNow, hidePreviousCalendarDays: true },
+);
+assert(
+  agendaCollapsed.visibleEvents.map((e) => e.id).join(",") === "31,32",
+  "Agenda colapsada = hoy desde ahora (sin overnight de ayer)",
+);
+assert(agendaCollapsed.pastCount === 1, "el overnight de ayer cuenta como pasado");
+const agendaExpanded = splitFimbaAgendaFromNow(
+  [agendaOvernight, agendaLiveToday, agendaFutureToday],
+  {
+    now: screenshotNow,
+    showPast: true,
+    hidePreviousCalendarDays: true,
+  },
+);
+assert(
+  agendaExpanded.visibleEvents.map((e) => e.id).join(",") === "30,31,32",
+  "Agenda: Ver eventos anteriores revela el overnight de ayer",
 );
 
 const list = [pastPoint, inTransit, nextStop, futureStop];

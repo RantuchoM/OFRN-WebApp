@@ -15,8 +15,8 @@
  * Transportes reusa el mismo corte. «En curso» solo si la siguiente parada es
  * el mismo día o el día calendario siguiente (tramo overnight). Un hueco con
  * divisor de día (p. ej. 13/09 → 20/09, vehículo parado) no mantiene la fila.
- * Vista colapsada Transportes (`hidePreviousCalendarDays`): no lista filas
- * cuya `fecha` es **anterior a hoy**, aunque el tramo overnight siga en curso
+ * Vista colapsada Agenda y Transportes (`hidePreviousCalendarDays`): no lista
+ * filas cuya `fecha` es **anterior a hoy**, aunque el overnight siga en curso
  * (p. ej. 17/09 21:30 → 18/09 10:30 a las 08:47). Van a «Ver eventos
  * anteriores». El listado arranca **hoy a la hora actual**; no reabre ayer.
  */

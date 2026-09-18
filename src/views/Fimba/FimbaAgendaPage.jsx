@@ -1495,6 +1495,7 @@ export default function FimbaAgendaPage() {
     pastCount,
   } = useFimbaAgendaFromNow(eventosFiltrados, {
     focusEventId,
+    hidePreviousCalendarDays: true,
     forceExpandIds: [
       editingRowId,
       modal?.evento?.id,

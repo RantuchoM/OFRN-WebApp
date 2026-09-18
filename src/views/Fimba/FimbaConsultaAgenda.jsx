@@ -222,6 +222,7 @@ export default function FimbaConsultaAgenda({ propuesta, editable = false }) {
     pastCount,
   } = useFimbaAgendaFromNow(eventosOrdenados, {
     focusEventId,
+    hidePreviousCalendarDays: true,
     forceExpandIds: [modal?.evento?.id],
   });
 

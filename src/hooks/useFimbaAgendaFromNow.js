@@ -8,6 +8,8 @@ const NOW_TICK_MS = 60_000;
  * Vista «desde ahora» sobre una lista ya filtrada.
  * `focusEventId` / `forceExpandIds` revelan el pasado si el ancla es anterior.
  *
+ * Default `hidePreviousCalendarDays=true`: no lista filas de días anteriores.
+ *
  * @param {object[]} filteredEvents
  * @param {{
  *   focusEventId?: number|string|null,
@@ -20,7 +22,7 @@ export function useFimbaAgendaFromNow(filteredEvents, opts = {}) {
   const [showPast, setShowPast] = useState(false);
   const [nowTick, setNowTick] = useState(() => Date.now());
   const getEndDate = opts.getEndDate;
-  const hidePreviousCalendarDays = Boolean(opts.hidePreviousCalendarDays);
+  const hidePreviousCalendarDays = opts.hidePreviousCalendarDays !== false;
 
   useEffect(() => {
     const t = setInterval(() => setNowTick(Date.now()), NOW_TICK_MS);
