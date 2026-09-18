@@ -1815,6 +1815,7 @@ export default function FimbaTransportPage() {
   } = useFimbaAgendaFromNow(eventosFiltrados, {
     focusEventId,
     getEndDate: getTransportEndDate,
+    hidePreviousCalendarDays: true,
     forceExpandIds: [
       editingRowId,
       modal?.evento?.id,

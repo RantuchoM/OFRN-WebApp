@@ -13,12 +13,14 @@ const NOW_TICK_MS = 60_000;
  *   focusEventId?: number|string|null,
  *   forceExpandIds?: Array<number|string|null|undefined>,
  *   getEndDate?: (ev: object) => Date|null|undefined,
+ *   hidePreviousCalendarDays?: boolean,
  * }} [opts]
  */
 export function useFimbaAgendaFromNow(filteredEvents, opts = {}) {
   const [showPast, setShowPast] = useState(false);
   const [nowTick, setNowTick] = useState(() => Date.now());
   const getEndDate = opts.getEndDate;
+  const hidePreviousCalendarDays = Boolean(opts.hidePreviousCalendarDays);
 
   useEffect(() => {
     const t = setInterval(() => setNowTick(Date.now()), NOW_TICK_MS);
@@ -31,8 +33,14 @@ export function useFimbaAgendaFromNow(filteredEvents, opts = {}) {
   }, [nowTick]);
 
   const split = useMemo(
-    () => splitFimbaAgendaFromNow(filteredEvents, { now, showPast, getEndDate }),
-    [filteredEvents, now, showPast, getEndDate],
+    () =>
+      splitFimbaAgendaFromNow(filteredEvents, {
+        now,
+        showPast,
+        getEndDate,
+        hidePreviousCalendarDays,
+      }),
+    [filteredEvents, now, showPast, getEndDate, hidePreviousCalendarDays],
   );
 
   const focusKey = [

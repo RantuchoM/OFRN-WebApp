@@ -100,9 +100,22 @@ function resolveFimbaTransportFromNowEnd(ev, nextEv) {
   return fimbaAgendaEventEndDate(ev);
 }
 
-function isFimbaAgendaEventFromNow(ev, now, getEndDate) {
+function localCalendarDayKey(dt) {
+  if (!(dt instanceof Date) || Number.isNaN(dt.getTime())) return "";
+  const y = dt.getFullYear();
+  const mm = String(dt.getMonth() + 1).padStart(2, "0");
+  const dd = String(dt.getDate()).padStart(2, "0");
+  return `${y}-${mm}-${dd}`;
+}
+
+function isFimbaAgendaEventFromNow(ev, now, getEndDate, opts = {}) {
   if (!ev) return false;
   if (isPendingCreateRow(ev)) return true;
+  if (opts.hidePreviousCalendarDays) {
+    const day = String(ev.fecha || "").slice(0, 10);
+    const today = localCalendarDayKey(now);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(day) && today && day < today) return false;
+  }
   const start = fimbaAgendaEventStartDate(ev);
   if (!start) return true;
   const nowMs = now.getTime();
@@ -116,12 +129,20 @@ function splitFimbaAgendaFromNow(events, opts = {}) {
   const now = opts.now;
   const showPast = Boolean(opts.showPast);
   const getEndDate = opts.getEndDate;
+  const hidePreviousCalendarDays = Boolean(opts.hidePreviousCalendarDays);
   const list = Array.isArray(events) ? events : [];
   const pastEvents = [];
   const fromNowEvents = [];
   for (const ev of list) {
-    if (isFimbaAgendaEventFromNow(ev, now, getEndDate)) fromNowEvents.push(ev);
-    else pastEvents.push(ev);
+    if (
+      isFimbaAgendaEventFromNow(ev, now, getEndDate, {
+        hidePreviousCalendarDays,
+      })
+    ) {
+      fromNowEvents.push(ev);
+    } else {
+      pastEvents.push(ev);
+    }
   }
   return {
     pastEvents,
@@ -334,6 +355,87 @@ assert(
     showPast: false,
   }) === "2026-09-18",
   "hoy permanece hoy",
+);
+
+const screenshotNow = new Date(2026, 8, 18, 8, 47, 0, 0);
+const dejaContrabajo = {
+  id: 20,
+  fecha: "2026-09-17",
+  hora_inicio: "21:30",
+  hora_fin: null,
+};
+const dejaLlegada = {
+  id: 21,
+  fecha: "2026-09-18",
+  hora_inicio: "10:30",
+  hora_fin: null,
+};
+assert(
+  isFimbaAgendaEventFromNow(
+    dejaContrabajo,
+    screenshotNow,
+    (ev) => resolveFimbaTransportFromNowEnd(ev, dejaLlegada),
+  ),
+  "Agenda: overnight 17/09 21:30 → 18/09 10:30 sigue en curso a las 08:47",
+);
+assert(
+  !isFimbaAgendaEventFromNow(
+    dejaContrabajo,
+    screenshotNow,
+    (ev) => resolveFimbaTransportFromNowEnd(ev, dejaLlegada),
+    { hidePreviousCalendarDays: true },
+  ),
+  "Transportes: tramo que salió ayer no aparece a las 08:47",
+);
+assert(
+  isFimbaAgendaEventFromNow(
+    dejaLlegada,
+    screenshotNow,
+    null,
+    { hidePreviousCalendarDays: true },
+  ),
+  "Transportes: parada de hoy 10:30 sí aparece a las 08:47",
+);
+assert(
+  isFimbaAgendaEventFromNow(
+    overnightLeg,
+    new Date(2026, 8, 18, 7, 0, 0, 0),
+    (ev) => resolveFimbaTransportFromNowEnd(ev, overnightNext),
+    { hidePreviousCalendarDays: true },
+  ) === false,
+  "Transportes: overnight 17/09 23:00 tampoco aparece a las 07:00",
+);
+assert(
+  isFimbaAgendaEventFromNow(pending, screenshotNow, null, {
+    hidePreviousCalendarDays: true,
+  }),
+  "pending create de ayer sigue visible en Transportes",
+);
+
+const transportList = [dejaContrabajo, dejaLlegada, futureStop];
+const transportEnd = (ev) => {
+  if (ev.id === 20) return resolveFimbaTransportFromNowEnd(ev, dejaLlegada);
+  return resolveFimbaTransportFromNowEnd(ev, null);
+};
+const transportCollapsed = splitFimbaAgendaFromNow(transportList, {
+  now: screenshotNow,
+  getEndDate: transportEnd,
+  hidePreviousCalendarDays: true,
+});
+assert(
+  transportCollapsed.visibleEvents.map((e) => e.id).join(",") === "21,4",
+  "vista Transportes colapsada = solo hoy desde ahora (sin 17/09)",
+);
+assert(transportCollapsed.pastCount === 1, "el tramo de ayer cuenta como pasado");
+const transportExpanded = splitFimbaAgendaFromNow(transportList, {
+  now: screenshotNow,
+  showPast: true,
+  getEndDate: transportEnd,
+  hidePreviousCalendarDays: true,
+});
+assert(
+  transportExpanded.visibleEvents.map((e) => e.id).join(",") === "20,21,4",
+  "Ver eventos anteriores revela el tramo que salió ayer",
 );
 
 const list = [pastPoint, inTransit, nextStop, futureStop];

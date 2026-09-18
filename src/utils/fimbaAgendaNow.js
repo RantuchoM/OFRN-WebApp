@@ -15,8 +15,10 @@
  * Transportes reusa el mismo corte. «En curso» solo si la siguiente parada es
  * el mismo día o el día calendario siguiente (tramo overnight). Un hueco con
  * divisor de día (p. ej. 13/09 → 20/09, vehículo parado) no mantiene la fila.
- * Vista colapsada: el primer divisor es **hoy**; un tramo overnight que sigue
- * en curso se lista al inicio de hoy (no reabre el día de ayer).
+ * Vista colapsada Transportes (`hidePreviousCalendarDays`): no lista filas
+ * cuya `fecha` es **anterior a hoy**, aunque el tramo overnight siga en curso
+ * (p. ej. 17/09 21:30 → 18/09 10:30 a las 08:47). Van a «Ver eventos
+ * anteriores». El listado arranca **hoy a la hora actual**; no reabre ayer.
  */
 
 import { getNowLocal } from "./dates";
@@ -75,6 +77,14 @@ export function fimbaAgendaEventEndDate(ev) {
   return end;
 }
 
+function localCalendarDayKey(dt) {
+  if (!(dt instanceof Date) || Number.isNaN(dt.getTime())) return "";
+  const y = dt.getFullYear();
+  const mm = String(dt.getMonth() + 1).padStart(2, "0");
+  const dd = String(dt.getDate()).padStart(2, "0");
+  return `${y}-${mm}-${dd}`;
+}
+
 function nextCalendarDay(fecha) {
   const day = String(fecha || "").slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
@@ -128,13 +138,24 @@ export function resolveFimbaTransportFromNowEnd(ev, nextEv) {
  * @param {object|null|undefined} ev
  * @param {Date} [now]
  * @param {(ev: object) => Date|null|undefined} [getEndDate]
+ * @param {{ hidePreviousCalendarDays?: boolean }} [opts]
  */
-export function isFimbaAgendaEventFromNow(ev, now = getNowLocal(), getEndDate) {
+export function isFimbaAgendaEventFromNow(
+  ev,
+  now = getNowLocal(),
+  getEndDate,
+  opts = {},
+) {
   if (!ev) return false;
   if (isPendingCreateRow(ev)) return true;
+  const nowDate = now instanceof Date ? now : getNowLocal();
+  if (opts.hidePreviousCalendarDays) {
+    const day = String(ev.fecha || "").slice(0, 10);
+    const today = localCalendarDayKey(nowDate);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(day) && today && day < today) return false;
+  }
   const start = fimbaAgendaEventStartDate(ev);
   if (!start) return true;
-  const nowDate = now instanceof Date ? now : getNowLocal();
   const nowMs = nowDate.getTime();
   const customEnd = typeof getEndDate === "function" ? getEndDate(ev) : null;
   const end = customEnd instanceof Date ? customEnd : fimbaAgendaEventEndDate(ev);
@@ -143,8 +164,8 @@ export function isFimbaAgendaEventFromNow(ev, now = getNowLocal(), getEndDate) {
 }
 
 /**
- * Día de sección para divisores. En vista «desde ahora» un tramo overnight
- * que arrancó ayer y sigue en curso se agrupa en **hoy** (ayer no reaparece).
+ * Día de sección para divisores. Red de seguridad: si alguna fila pre-hoy
+ * sigue visible (pending / expandido), no reabre el divisor de ayer.
  *
  * @param {string|null|undefined} fecha
  * @param {{ todayKey?: string, showPast?: boolean }} [opts]
@@ -182,18 +203,31 @@ export function parseFimbaAgendaFocusEventId(searchParams, hash = "") {
 
 /**
  * @param {object[]} events
- * @param {{ now?: Date, showPast?: boolean, getEndDate?: (ev: object) => Date|null|undefined }} [opts]
+ * @param {{
+ *   now?: Date,
+ *   showPast?: boolean,
+ *   getEndDate?: (ev: object) => Date|null|undefined,
+ *   hidePreviousCalendarDays?: boolean,
+ * }} [opts]
  */
 export function splitFimbaAgendaFromNow(events, opts = {}) {
   const now = opts.now instanceof Date ? opts.now : getNowLocal();
   const showPast = Boolean(opts.showPast);
   const getEndDate = opts.getEndDate;
+  const hidePreviousCalendarDays = Boolean(opts.hidePreviousCalendarDays);
   const list = Array.isArray(events) ? events : [];
   const pastEvents = [];
   const fromNowEvents = [];
   for (const ev of list) {
-    if (isFimbaAgendaEventFromNow(ev, now, getEndDate)) fromNowEvents.push(ev);
-    else pastEvents.push(ev);
+    if (
+      isFimbaAgendaEventFromNow(ev, now, getEndDate, {
+        hidePreviousCalendarDays,
+      })
+    ) {
+      fromNowEvents.push(ev);
+    } else {
+      pastEvents.push(ev);
+    }
   }
   return {
     pastEvents,
