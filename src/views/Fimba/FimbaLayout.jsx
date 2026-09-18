@@ -592,6 +592,7 @@ const FIMBA_CSS = `
     cursor: pointer;
     text-align: left;
     font-family: inherit;
+    flex-shrink: 0;
   }
   .fimba-agenda-past-toggle:hover {
     background: rgba(215, 50, 137, 0.1);

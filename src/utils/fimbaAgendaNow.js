@@ -12,6 +12,8 @@
  * del dispositivo (ART en teléfonos Argentina); no se parsea como UTC.
  * Filas pending de create se tratan siempre como actuales.
  * Independiente de filtros (artista, origen, grupos, URL). No usa Realtime.
+ * Transportes reusa el mismo corte; el fin operativo de un trayecto es el
+ * inicio de la siguiente parada del vehículo (`getEndDate` / `resolveFimbaTransportFromNowEnd`).
  */
 
 import { getNowLocal } from "./dates";
@@ -71,18 +73,37 @@ export function fimbaAgendaEventEndDate(ev) {
 }
 
 /**
+ * Fin operativo de un trayecto para el corte «desde ahora».
+ * `nextEv` = siguiente parada del mismo vehículo (omitir si hay pausa).
+ * Filas de contexto agenda usan `hora_fin` persistida, como la planilla Agenda.
+ *
+ * @param {object|null|undefined} ev
+ * @param {object|null|undefined} [nextEv]
+ * @returns {Date|null}
+ */
+export function resolveFimbaTransportFromNowEnd(ev, nextEv) {
+  if (!ev) return null;
+  if (ev.es_contexto_agenda) return fimbaAgendaEventEndDate(ev);
+  const nextStart = nextEv ? fimbaAgendaEventStartDate(nextEv) : null;
+  if (nextStart) return nextStart;
+  return fimbaAgendaEventEndDate(ev);
+}
+
+/**
  * ¿La fila debe verse en la vista por defecto (desde ahora)?
  * @param {object|null|undefined} ev
  * @param {Date} [now]
+ * @param {(ev: object) => Date|null|undefined} [getEndDate]
  */
-export function isFimbaAgendaEventFromNow(ev, now = getNowLocal()) {
+export function isFimbaAgendaEventFromNow(ev, now = getNowLocal(), getEndDate) {
   if (!ev) return false;
   if (isPendingCreateRow(ev)) return true;
   const start = fimbaAgendaEventStartDate(ev);
   if (!start) return true;
   const nowDate = now instanceof Date ? now : getNowLocal();
   const nowMs = nowDate.getTime();
-  const end = fimbaAgendaEventEndDate(ev);
+  const customEnd = typeof getEndDate === "function" ? getEndDate(ev) : null;
+  const end = customEnd instanceof Date ? customEnd : fimbaAgendaEventEndDate(ev);
   const cutoff = end || start;
   return cutoff.getTime() >= nowMs;
 }
@@ -111,16 +132,17 @@ export function parseFimbaAgendaFocusEventId(searchParams, hash = "") {
 
 /**
  * @param {object[]} events
- * @param {{ now?: Date, showPast?: boolean }} [opts]
+ * @param {{ now?: Date, showPast?: boolean, getEndDate?: (ev: object) => Date|null|undefined }} [opts]
  */
 export function splitFimbaAgendaFromNow(events, opts = {}) {
   const now = opts.now instanceof Date ? opts.now : getNowLocal();
   const showPast = Boolean(opts.showPast);
+  const getEndDate = opts.getEndDate;
   const list = Array.isArray(events) ? events : [];
   const pastEvents = [];
   const fromNowEvents = [];
   for (const ev of list) {
-    if (isFimbaAgendaEventFromNow(ev, now)) fromNowEvents.push(ev);
+    if (isFimbaAgendaEventFromNow(ev, now, getEndDate)) fromNowEvents.push(ev);
     else pastEvents.push(ev);
   }
   return {

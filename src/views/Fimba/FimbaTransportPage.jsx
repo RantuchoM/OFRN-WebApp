@@ -7,7 +7,7 @@ import React, {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useParams, useSearchParams } from "react-router-dom";
 import {
   IconArrowLeft,
   IconPlus,
@@ -83,8 +83,10 @@ import {
   defaultIntermediateStopSchedule,
   extractOfrnRidesForVehicle,
   formatBoardChipLabel,
+  isVehiclePauseBetweenStops,
   listFleetMismatchPropuestaRoutes,
   listOffTrayectoRideEndpoints,
+  nextAssignedStopInVehicleSequence,
   TRANSPORT_DESTINO_SIN_SIGUIENTE,
   TRANSPORT_DESTINO_SIN_LOCACION,
 } from "../../utils/fimbaTransportBoarding";
@@ -129,6 +131,12 @@ import FimbaRecorridoIntermedioModal from "./FimbaRecorridoIntermedioModal";
 import { FimbaEventDetallePreview } from "./FimbaEventDetalleField";
 import FimbaStopRulesManager from "./FimbaStopRulesManager";
 import { useFimbaAccess } from "../../hooks/useFimbaAccess";
+import { useFimbaAgendaFromNow } from "../../hooks/useFimbaAgendaFromNow";
+import {
+  parseFimbaAgendaFocusEventId,
+  resolveFimbaTransportFromNowEnd,
+} from "../../utils/fimbaAgendaNow";
+import FimbaAgendaPastToggle from "./FimbaAgendaPastToggle";
 import { supabase } from "../../services/supabase";
 import { hasHtmlMarkup, stripHtml } from "../../utils/eventDisplayUtils";
 import { formatFechaLargaEs, formatWeekdayFullLocal } from "../../utils/dates";
@@ -915,6 +923,7 @@ const ORIGEN_FILTERS = [
  */
 export default function FimbaTransportPage() {
   const { edicionId, artistaId } = useParams();
+  const location = useLocation();
   const { readOnly } = useFimbaAccess();
   const { confirm, dialog: confirmDialog } = useConfirmDialog();
   const [searchParams] = useSearchParams();
@@ -1754,9 +1763,94 @@ export default function FimbaTransportPage() {
     deferredOtrosGrupoIds,
   ]);
 
+  const preferVehicleIdsForMetrics =
+    deferredVehiculoIds.length > 0 &&
+    deferredVehiculoIds.length < vehiculos.length
+      ? deferredVehiculoIds
+      : null;
+
+  /** Pausas (divisor + blank Destino/Hora fin) solo con exactamente 1 vehículo filtrado. */
+  const showVehiclePauses = deferredVehiculoIds.length === 1;
+
+  const getTransportEndDate = useCallback(
+    (ev) => {
+      if (!ev || ev.es_contexto_agenda) {
+        return resolveFimbaTransportFromNowEnd(ev, null);
+      }
+      const prefer = Array.isArray(preferVehicleIdsForMetrics)
+        ? preferVehicleIdsForMetrics
+        : [];
+      const ids = (prefer.length ? prefer : giraTransporteIdsFromEvent(ev)).map(
+        Number,
+      );
+      let next = null;
+      for (const vid of ids) {
+        if (!Number.isFinite(vid)) continue;
+        next = nextAssignedStopInVehicleSequence(
+          sequencesByVehicle.get(vid),
+          ev.id,
+          vid,
+        );
+        if (next) break;
+      }
+      if (
+        next &&
+        showVehiclePauses &&
+        isVehiclePauseBetweenStops(ev, next)
+      ) {
+        next = null;
+      }
+      return resolveFimbaTransportFromNowEnd(ev, next);
+    },
+    [preferVehicleIdsForMetrics, sequencesByVehicle, showVehiclePauses],
+  );
+
+  const focusEventId = useMemo(
+    () => parseFimbaAgendaFocusEventId(searchParams, location.hash),
+    [searchParams, location.hash],
+  );
+
+  const {
+    showPast,
+    toggleShowPast,
+    visibleEvents: eventosVisibles,
+    pastCount,
+  } = useFimbaAgendaFromNow(eventosFiltrados, {
+    focusEventId,
+    getEndDate: getTransportEndDate,
+    forceExpandIds: [
+      editingRowId,
+      modal?.evento?.id,
+      stopRulesModal?.event?.id,
+      destinoModal?.ev?.id,
+      ...(highlightEventIds || []),
+    ],
+  });
+
+  useEffect(() => {
+    if (focusEventId == null) return;
+    const id = String(focusEventId);
+    if (!eventosVisibles.some((ev) => String(ev.id) === id)) return;
+    const t = window.setTimeout(() => {
+      const nodes = document.querySelectorAll(`[data-fimba-evento-id="${id}"]`);
+      for (const n of nodes) {
+        if (n.getClientRects().length > 0) {
+          n.scrollIntoView({ block: "center", behavior: "smooth" });
+          break;
+        }
+      }
+    }, 50);
+    return () => window.clearTimeout(t);
+  }, [focusEventId, showPast, eventosVisibles]);
+
   const visibleEventIds = useMemo(
-    () => eventosFiltrados.map((ev) => String(ev.id)),
-    [eventosFiltrados],
+    () => eventosVisibles.map((ev) => String(ev.id)),
+    [eventosVisibles],
+  );
+
+  const visibleEventIdSet = useMemo(
+    () => new Set(visibleEventIds),
+    [visibleEventIds],
   );
 
   useEffect(() => {
@@ -1953,15 +2047,6 @@ export default function FimbaTransportPage() {
     softRefresh({ rutas: true });
   };
 
-  const preferVehicleIdsForMetrics =
-    deferredVehiculoIds.length > 0 &&
-    deferredVehiculoIds.length < vehiculos.length
-      ? deferredVehiculoIds
-      : null;
-
-  /** Pausas (divisor + blank Destino/Hora fin) solo con exactamente 1 vehículo filtrado. */
-  const showVehiclePauses = deferredVehiculoIds.length === 1;
-
   const tipoById = useMemo(() => {
     const map = new Map();
     for (const t of catalogTipos || []) {
@@ -1987,7 +2072,7 @@ export default function FimbaTransportPage() {
 
   const transportRowCtx = useMemo(
     () => ({
-      eventosFiltrados,
+      eventosFiltrados: eventosVisibles,
       vehiculos,
       sequencesByVehicle,
       preferVehicleIdsForMetrics,
@@ -2005,9 +2090,10 @@ export default function FimbaTransportPage() {
       deletingEventId,
       highlightEventIds,
       readOnly,
+      visibleEventIds: visibleEventIdSet,
     }),
     [
-      eventosFiltrados,
+      eventosVisibles,
       vehiculos,
       sequencesByVehicle,
       preferVehicleIdsForMetrics,
@@ -2025,15 +2111,16 @@ export default function FimbaTransportPage() {
       deletingEventId,
       highlightEventIds,
       readOnly,
+      visibleEventIdSet,
     ],
   );
 
   const trayectoRows = useMemo(
     () =>
-      eventosFiltrados.map((ev, idx) =>
+      eventosVisibles.map((ev, idx) =>
         buildTransportRowView(ev, idx, transportRowCtx),
       ),
-    [eventosFiltrados, transportRowCtx],
+    [eventosVisibles, transportRowCtx],
   );
 
   const vehiculoFilterOptions = useMemo(
@@ -4458,7 +4545,20 @@ export default function FimbaTransportPage() {
             aria-busy={showFilterPending || undefined}
           >
             <FimbaFilterApplyingOverlay show={showFilterPending} />
-            <div className="fimba-transport-mobile">
+            <FimbaAgendaPastToggle
+              showPast={showPast}
+              pastCount={pastCount}
+              onToggle={toggleShowPast}
+            />
+            {eventosVisibles.length === 0 ? (
+              <p className="fimba-muted fimba-agenda-from-now-empty">
+                No hay trayectos desde ahora.
+              </p>
+            ) : null}
+            <div
+              className="fimba-transport-mobile"
+              hidden={eventosVisibles.length === 0}
+            >
               {trayectoRows.map((row) => {
                 const { ev } = row;
                 const openEdit = () =>
@@ -4594,7 +4694,7 @@ export default function FimbaTransportPage() {
                 );
               })}
             </div>
-            <div className="fimba-planilla-scroll fimba-transport-desktop" role="region" aria-label="Planilla de trayectos (desplazá horizontalmente para ver todas las columnas)">
+            <div className="fimba-planilla-scroll fimba-transport-desktop" hidden={eventosVisibles.length === 0} role="region" aria-label="Planilla de trayectos (desplazá horizontalmente para ver todas las columnas)">
               <table
                 className={`fimba-table fimba-planilla-table${editMode ? " fimba-table-edit" : ""}`}
               >
@@ -4893,6 +4993,7 @@ export default function FimbaTransportPage() {
                         )}
                       <tr
                         className={evRowClass}
+                        data-fimba-evento-id={ev.id}
                         style={
                           tipoTint && !isPendingCreate && !rowEditing
                             ? tipoTint

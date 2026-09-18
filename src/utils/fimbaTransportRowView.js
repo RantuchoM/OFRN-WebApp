@@ -46,6 +46,7 @@ export function buildTransportRowView(ev, idx, ctx) {
     deletingEventId = null,
     highlightEventIds = [],
     readOnly = false,
+    visibleEventIds = null,
   } = ctx;
 
   const dayKey = String(ev.fecha || "").slice(0, 10);
@@ -232,9 +233,14 @@ export function buildTransportRowView(ev, idx, ctx) {
     );
     return immediateNext != null && String(immediateNext.id) !== String(ev.id);
   })();
+  const pausePrevIsVisible =
+    visibleEventIds == null ||
+    (pausePrevEv?.id != null &&
+      visibleEventIds.has(String(pausePrevEv.id)));
   const pauseBeforeRow =
     showVehiclePauses &&
     Boolean(pausePrevEv) &&
+    pausePrevIsVisible &&
     (() => {
       const vid = Number(primaryVehicleId);
       if (!Number.isFinite(vid)) return false;
