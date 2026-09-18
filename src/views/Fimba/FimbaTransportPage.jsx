@@ -1793,16 +1793,12 @@ export default function FimbaTransportPage() {
         );
         if (next) break;
       }
-      if (
-        next &&
-        showVehiclePauses &&
-        isVehiclePauseBetweenStops(ev, next)
-      ) {
+      if (next && isVehiclePauseBetweenStops(ev, next)) {
         next = null;
       }
       return resolveFimbaTransportFromNowEnd(ev, next);
     },
-    [preferVehicleIdsForMetrics, sequencesByVehicle, showVehiclePauses],
+    [preferVehicleIdsForMetrics, sequencesByVehicle],
   );
 
   const focusEventId = useMemo(

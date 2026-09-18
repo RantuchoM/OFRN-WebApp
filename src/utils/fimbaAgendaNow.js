@@ -12,8 +12,9 @@
  * del dispositivo (ART en teléfonos Argentina); no se parsea como UTC.
  * Filas pending de create se tratan siempre como actuales.
  * Independiente de filtros (artista, origen, grupos, URL). No usa Realtime.
- * Transportes reusa el mismo corte; el fin operativo de un trayecto es el
- * inicio de la siguiente parada del vehículo (`getEndDate` / `resolveFimbaTransportFromNowEnd`).
+ * Transportes reusa el mismo corte. «En curso» solo si la siguiente parada es
+ * el mismo día o el día calendario siguiente (tramo overnight). Un hueco con
+ * divisor de día (p. ej. 13/09 → 20/09, vehículo parado) no mantiene la fila.
  */
 
 import { getNowLocal } from "./dates";
@@ -72,10 +73,39 @@ export function fimbaAgendaEventEndDate(ev) {
   return end;
 }
 
+function nextCalendarDay(fecha) {
+  const day = String(fecha || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+  const y = Number(day.slice(0, 4));
+  const mo = Number(day.slice(5, 7));
+  const d = Number(day.slice(8, 10));
+  const dt = new Date(y, mo - 1, d + 1);
+  const yy = dt.getFullYear();
+  const mm = String(dt.getMonth() + 1).padStart(2, "0");
+  const dd = String(dt.getDate()).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
+}
+
+/**
+ * ¿La siguiente parada cierra un tramo en curso (mismo día u overnight)?
+ * Huecos de 2+ días (divisores de día de por medio, vehículo parado) = no.
+ */
+export function fimbaTransportNextIsOngoingLeg(ev, nextEv) {
+  if (!ev || !nextEv) return false;
+  const a = String(ev.fecha || "").slice(0, 10);
+  const b = String(nextEv.fecha || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(a) || !/^\d{4}-\d{2}-\d{2}$/.test(b)) {
+    return false;
+  }
+  if (a === b) return true;
+  return nextCalendarDay(a) === b;
+}
+
 /**
  * Fin operativo de un trayecto para el corte «desde ahora».
- * `nextEv` = siguiente parada del mismo vehículo (omitir si hay pausa).
- * Filas de contexto agenda usan `hora_fin` persistida, como la planilla Agenda.
+ * `nextEv` = siguiente parada del mismo vehículo. Solo cuenta si es el mismo
+ * día o el día siguiente (overnight). Pausas / huecos largos: el caller pasa
+ * `nextEv` null. Filas de contexto agenda usan `hora_fin` persistida.
  *
  * @param {object|null|undefined} ev
  * @param {object|null|undefined} [nextEv]
@@ -84,8 +114,10 @@ export function fimbaAgendaEventEndDate(ev) {
 export function resolveFimbaTransportFromNowEnd(ev, nextEv) {
   if (!ev) return null;
   if (ev.es_contexto_agenda) return fimbaAgendaEventEndDate(ev);
-  const nextStart = nextEv ? fimbaAgendaEventStartDate(nextEv) : null;
-  if (nextStart) return nextStart;
+  if (nextEv && fimbaTransportNextIsOngoingLeg(ev, nextEv)) {
+    const nextStart = fimbaAgendaEventStartDate(nextEv);
+    if (nextStart) return nextStart;
+  }
   return fimbaAgendaEventEndDate(ev);
 }
 

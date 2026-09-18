@@ -66,11 +66,37 @@ function fimbaAgendaEventEndDate(ev) {
   return end;
 }
 
+function nextCalendarDay(fecha) {
+  const day = String(fecha || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+  const y = Number(day.slice(0, 4));
+  const mo = Number(day.slice(5, 7));
+  const d = Number(day.slice(8, 10));
+  const dt = new Date(y, mo - 1, d + 1);
+  const yy = dt.getFullYear();
+  const mm = String(dt.getMonth() + 1).padStart(2, "0");
+  const dd = String(dt.getDate()).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
+}
+
+function fimbaTransportNextIsOngoingLeg(ev, nextEv) {
+  if (!ev || !nextEv) return false;
+  const a = String(ev.fecha || "").slice(0, 10);
+  const b = String(nextEv.fecha || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(a) || !/^\d{4}-\d{2}-\d{2}$/.test(b)) {
+    return false;
+  }
+  if (a === b) return true;
+  return nextCalendarDay(a) === b;
+}
+
 function resolveFimbaTransportFromNowEnd(ev, nextEv) {
   if (!ev) return null;
   if (ev.es_contexto_agenda) return fimbaAgendaEventEndDate(ev);
-  const nextStart = nextEv ? fimbaAgendaEventStartDate(nextEv) : null;
-  if (nextStart) return nextStart;
+  if (nextEv && fimbaTransportNextIsOngoingLeg(ev, nextEv)) {
+    const nextStart = fimbaAgendaEventStartDate(nextEv);
+    if (nextStart) return nextStart;
+  }
   return fimbaAgendaEventEndDate(ev);
 }
 
@@ -228,6 +254,56 @@ assert(
     (ev) => resolveFimbaTransportFromNowEnd(ev, null),
   ),
   "pausa / sin next: punto en hora_inicio, se oculta tras largar",
+);
+
+const parkedUnload = {
+  id: 10,
+  fecha: "2026-09-13",
+  hora_inicio: "16:00",
+  hora_fin: null,
+};
+const parkedNextWeek = {
+  id: 11,
+  fecha: "2026-09-20",
+  hora_inicio: "08:00",
+  hora_fin: null,
+};
+assert(
+  !isFimbaAgendaEventFromNow(
+    parkedUnload,
+    now,
+    (ev) => resolveFimbaTransportFromNowEnd(ev, parkedNextWeek),
+  ),
+  "hueco 13/09 → 20/09 (divisores de día) no queda en curso el 18/09",
+);
+
+const overnightOut = {
+  id: 12,
+  fecha: "2026-09-17",
+  hora_inicio: "21:30",
+  hora_fin: null,
+};
+const overnightIn = {
+  id: 13,
+  fecha: "2026-09-18",
+  hora_inicio: "08:00",
+  hora_fin: null,
+};
+assert(
+  !isFimbaAgendaEventFromNow(
+    overnightOut,
+    now,
+    (ev) => resolveFimbaTransportFromNowEnd(ev, overnightIn),
+  ),
+  "overnight 17/09 21:30 → 18/09 08:00 ya llegó a las 11:00",
+);
+assert(
+  isFimbaAgendaEventFromNow(
+    overnightOut,
+    new Date(2026, 8, 18, 7, 0, 0, 0),
+    (ev) => resolveFimbaTransportFromNowEnd(ev, overnightIn),
+  ),
+  "overnight sigue en curso a las 07:00 del día siguiente",
 );
 
 const list = [pastPoint, inTransit, nextStop, futureStop];
