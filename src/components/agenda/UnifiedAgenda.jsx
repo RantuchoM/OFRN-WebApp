@@ -6,6 +6,7 @@ import React, {
   useCallback,
   startTransition,
 } from "react";
+import { createPortal } from "react-dom";
 import { format, parseISO, subDays, subMonths } from "date-fns";
 import { toast } from "sonner";
 import { es } from "date-fns/locale";
@@ -1590,7 +1591,7 @@ export default function UnifiedAgenda({
       fecha: evt.fecha || "",
       hora_inicio: evt.hora_inicio || "",
       hora_fin: evt.hora_fin || "",
-      id_tipo_evento: evt.id_tipo_evento || "",
+      id_tipo_evento: evt.id_tipo_evento ?? evt.tipos_evento?.id ?? "",
       id_locacion: evt.id_locacion || "",
       id_gira: evt.id_gira || null,
       id_gira_transporte: evt.id_gira_transporte ?? null,
@@ -4242,25 +4243,27 @@ export default function UnifiedAgenda({
         cancelText="Cancelar"
         confirmVariant="danger"
       />
-      {isEditOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <EventForm
-            formData={editFormData}
-            setFormData={setEditFormData}
-            onSave={handleEditSave}
-            onClose={() => setIsEditOpen(false)}
-            onDelete={handleDeleteEvent}
-            onDuplicate={handleDuplicateEvent}
-            loading={formSaving}
-            eventTypes={formEventTypes}
-            locations={formLocations}
-            isNew={false}
-            supabase={supabase}
-            onRefreshLocations={fetchFormLocations}
-            giraId={giraId}
-          />
-        </div>
-      )}
+      {isEditOpen &&
+        createPortal(
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+            <EventForm
+              formData={editFormData}
+              setFormData={setEditFormData}
+              onSave={handleEditSave}
+              onClose={() => setIsEditOpen(false)}
+              onDelete={handleDeleteEvent}
+              onDuplicate={handleDuplicateEvent}
+              loading={formSaving}
+              eventTypes={formEventTypes}
+              locations={formLocations}
+              isNew={false}
+              supabase={supabase}
+              onRefreshLocations={fetchFormLocations}
+              giraId={giraId}
+            />
+          </div>,
+          document.body,
+        )}
       {isRehearsalEditOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
           <div className="w-full max-w-2xl relative">
@@ -4291,23 +4294,25 @@ export default function UnifiedAgenda({
           onClose={() => setEventHistoryEvent(null)}
         />
       )}
-      {isCreating && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <EventForm
-            formData={newFormData}
-            setFormData={setNewFormData}
-            onSave={handleCreateSave}
-            onClose={() => setIsCreating(false)}
-            loading={formSaving}
-            eventTypes={formEventTypes}
-            locations={formLocations}
-            isNew={true}
-            supabase={supabase}
-            onRefreshLocations={fetchFormLocations}
-            giraId={giraId}
-          />
-        </div>
-      )}
+      {isCreating &&
+        createPortal(
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+            <EventForm
+              formData={newFormData}
+              setFormData={setNewFormData}
+              onSave={handleCreateSave}
+              onClose={() => setIsCreating(false)}
+              loading={formSaving}
+              eventTypes={formEventTypes}
+              locations={formLocations}
+              isNew={true}
+              supabase={supabase}
+              onRefreshLocations={fetchFormLocations}
+              giraId={giraId}
+            />
+          </div>,
+          document.body,
+        )}
       {commentsState && (
         <div
           className="fixed inset-0 z-50 flex justify-end bg-black/20 backdrop-blur-[1px]"

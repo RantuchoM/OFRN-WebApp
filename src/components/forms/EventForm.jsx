@@ -14,6 +14,7 @@ import {
   IconSettings,
   IconBus,
   IconTag,
+  IconAlertCircle,
 } from "../ui/Icons";
 import DateInput from "../ui/DateInput";
 import TimeInput from "../ui/TimeInput";
@@ -176,7 +177,67 @@ export default function EventForm({
   }, [transportesList]);
 
   const needsTransport = isTransportEventType && !formData.id_gira_transporte;
-  const canSave = !needsTransport && Boolean(formData.id_tipo_evento);
+  const hasTipoValue =
+    formData.id_tipo_evento != null && formData.id_tipo_evento !== "";
+  const tipoInCatalog =
+    !eventTypes.length ||
+    eventTypes.some(
+      (t) => String(t.id) === String(formData.id_tipo_evento),
+    );
+  const missingTipo = !hasTipoValue;
+  const invalidTipo = hasTipoValue && eventTypes.length > 0 && !tipoInCatalog;
+  const missingFecha = !formData.fecha;
+  const missingHora = !formData.hora_inicio;
+
+  const blockingFields = useMemo(() => {
+    const fields = [];
+    if (missingTipo) {
+      fields.push({
+        key: "tipo",
+        label: "Tipo de evento",
+        message: "Elegí un tipo de evento para guardar",
+      });
+    } else if (invalidTipo) {
+      fields.push({
+        key: "tipo",
+        label: "Tipo de evento",
+        message: "Elegí un tipo de evento válido para guardar",
+      });
+    }
+    if (missingFecha) {
+      fields.push({
+        key: "fecha",
+        label: "Fecha",
+        message: "Indicá la fecha para guardar",
+      });
+    }
+    if (missingHora) {
+      fields.push({
+        key: "hora",
+        label: "Hora de inicio",
+        message: "Indicá la hora de inicio para guardar",
+      });
+    }
+    if (needsTransport) {
+      fields.push({
+        key: "transporte",
+        label: "Vehículo",
+        message: "Elegí un vehículo de la gira para guardar",
+      });
+    }
+    return fields;
+  }, [
+    missingTipo,
+    invalidTipo,
+    missingFecha,
+    missingHora,
+    needsTransport,
+  ]);
+
+  const canSave = blockingFields.length === 0;
+  const tipoError = blockingFields.find((f) => f.key === "tipo");
+  const fechaError = blockingFields.find((f) => f.key === "fecha");
+  const horaError = blockingFields.find((f) => f.key === "hora");
 
   // 1. Referencia inicial y detección de cambios
   const initialData = useMemo(() => ({ ...formData }), []);
@@ -264,6 +325,25 @@ export default function EventForm({
 
       {/* BODY */}
       <div className="p-5 space-y-5 overflow-y-auto">
+        {blockingFields.length > 0 && (
+          <div
+            role="alert"
+            className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800"
+          >
+            <IconAlertCircle
+              size={16}
+              className="mt-0.5 shrink-0 text-red-600"
+            />
+            <div>
+              <p className="font-bold">No se puede guardar todavía</p>
+              <ul className="mt-0.5 list-disc space-y-0.5 pl-4">
+                {blockingFields.map((field) => (
+                  <li key={field.key}>{field.message}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        )}
         <div className="col-span-2">
           <div className="flex justify-between items-end mb-1">
             <label className="text-[10px] uppercase font-bold text-slate-500">
@@ -357,14 +437,30 @@ export default function EventForm({
           </p>
         </div>
         <div className="grid grid-cols-2 gap-4">
-          <DateInput
-            label="Fecha*"
-            value={formData.fecha || ""}
-            onChange={(val) => handleChange("fecha", val)}
-          />
+          <div>
+            <DateInput
+              label="Fecha*"
+              value={formData.fecha || ""}
+              onChange={(val) => handleChange("fecha", val)}
+              className={
+                fechaError
+                  ? "border border-red-500 bg-white ring-1 ring-red-400"
+                  : undefined
+              }
+            />
+            {fechaError && (
+              <p className="mt-1 text-[11px] font-medium text-red-600">
+                {fechaError.message}
+              </p>
+            )}
+          </div>
 
           <div>
-            <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">
+            <label
+              className={`block text-[10px] font-bold uppercase mb-1 ${
+                tipoError ? "text-red-600" : "text-slate-500"
+              }`}
+            >
               Tipo de Evento*
             </label>
             <SearchableSelect
@@ -375,16 +471,34 @@ export default function EventForm({
               }
               placeholder="Buscar tipo..."
               dropdownMinWidth={280}
+              invalid={Boolean(tipoError)}
             />
+            {tipoError && (
+              <p className="mt-1 text-[11px] font-medium text-red-600">
+                {tipoError.message}
+              </p>
+            )}
           </div>
         </div>
 
         <div className="grid grid-cols-2 gap-4">
-          <TimeInput
-            label="Hora Inicio*"
-            value={formData.hora_inicio || ""}
-            onChange={(val) => handleChange("hora_inicio", val)}
-          />
+          <div>
+            <TimeInput
+              label="Hora Inicio*"
+              value={formData.hora_inicio || ""}
+              onChange={(val) => handleChange("hora_inicio", val)}
+              className={
+                horaError
+                  ? "border border-red-500 rounded text-sm bg-white ring-1 ring-red-400"
+                  : undefined
+              }
+            />
+            {horaError && (
+              <p className="mt-1 text-[11px] font-medium text-red-600">
+                {horaError.message}
+              </p>
+            )}
+          </div>
           <TimeInput
             label="Hora Fin"
             value={formData.hora_fin || ""}
@@ -689,7 +803,13 @@ export default function EventForm({
           )}
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex flex-col items-end gap-1">
+          {!canSave && blockingFields[0] && (
+            <p className="max-w-[220px] text-right text-[10px] font-medium text-red-600">
+              {blockingFields[0].message}
+            </p>
+          )}
+          <div className="flex gap-2">
           <button
             onClick={handleSafeClose}
             className="px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-200 rounded-lg transition-colors"
@@ -702,6 +822,11 @@ export default function EventForm({
               onSave();
             }}
             disabled={loading || !canSave}
+            title={
+              canSave
+                ? undefined
+                : blockingFields.map((f) => f.message).join(". ")
+            }
             className="px-6 py-2 bg-indigo-600 text-white rounded-lg text-sm font-bold hover:bg-indigo-700 disabled:opacity-50 flex items-center gap-2 shadow-md hover:shadow-lg transition-all active:scale-95"
           >
             {loading ? (
@@ -711,6 +836,7 @@ export default function EventForm({
             )}
             {isNew ? "Crear" : "Guardar"}
           </button>
+          </div>
         </div>
       </div>
 

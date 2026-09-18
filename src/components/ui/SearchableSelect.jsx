@@ -21,6 +21,7 @@ export default function SearchableSelect({
     renderMultiItemActions = null,
     onCreateWhenEmpty = null,
     createWhenEmptyLabel = null,
+    invalid = false,
 }) {
     const [isOpen, setIsOpen] = useState(false);
     const [search, setSearch] = useState("");
@@ -170,8 +171,15 @@ export default function SearchableSelect({
                         ? "min-h-10 py-1.5 px-2"
                         : "h-10 box-border px-3"
                 } flex items-center border rounded-lg text-sm cursor-text bg-white ${
-                    isOpen ? "border-indigo-500 ring-1 ring-indigo-500" : "border-slate-300"
+                    isOpen
+                        ? invalid
+                            ? "border-red-500 ring-1 ring-red-500"
+                            : "border-indigo-500 ring-1 ring-indigo-500"
+                        : invalid
+                            ? "border-red-500 ring-1 ring-red-400"
+                            : "border-slate-300"
                 }`}
+                aria-invalid={invalid || undefined}
             >
                 {isMulti ? (
                     <div className="flex flex-wrap gap-1 py-1">

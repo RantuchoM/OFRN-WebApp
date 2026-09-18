@@ -10,6 +10,7 @@ Garantizar que todos los eventos de tipo "Transporte" (IDs 11 y 12) tengan un ve
 4. **UI/UX:**
    - Mostrar un `SearchableSelect` o `select` de Tailwind solo cuando el tipo de evento coincida.
    - Deshabilitar el botón "Guardar" o mostrar un error de validación si falta el transporte en estos tipos.
+   - **Campos obligatorios (2026-09-17):** si falta o es inválido el **tipo de evento** (prioridad), o faltan fecha / hora de inicio / vehículo, el modal Editar/Crear (`EventForm`) mantiene **Guardar** visible pero deshabilitado y muestra: (1) banner rojo arriba listando el/los campo(s) que bloquean, (2) borde rojo + mensaje inline en el campo (`Elegí un tipo de evento para guardar`), (3) hint junto al botón. No ocultar Guardar: el usuario tiene que ver *por qué* no puede guardar. Overlay de UnifiedAgenda: portal a `document.body`, `z-[100]`.
 
 ## Implementación Técnica
 - **Hook:** Usar `useEffect` para cargar la lista de transportes de la gira al abrir el formulario.
@@ -21,3 +22,4 @@ Garantizar que todos los eventos de tipo "Transporte" (IDs 11 y 12) tengan un ve
 - [x] Servicio: `getTransportesByGira(supabase, giraId)` en `giraService.js`.
 - [x] EventForm: carga de transportes por giraId, selector (SearchableSelect) cuando tipo 11/12, validación y bloqueo de guardado (botón deshabilitado + mensaje de error).
 - [x] Callers: UnifiedAgenda, LogisticsManager, WeeklyCalendar y MusicianCalendar pasan `giraId` e incluyen `id_gira_transporte` en payloads de guardado.
+- [x] EventForm (2026-09-17): validación evidente de tipo/fecha/hora (banner + inline + hint). UnifiedAgenda portal `z-[100]`.
