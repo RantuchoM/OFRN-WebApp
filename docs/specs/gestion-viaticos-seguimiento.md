@@ -9,7 +9,7 @@ Informe en **Gestión → Seguimiento viáticos** (`/management/viaticos_seguimi
 - Fuente: solo `giras_viaticos_detalle` (no manuales, no destaques, no SCRN).
 - **Solo lectura:** persona/rol/tramo, salida, regreso, programa, monto.
 - **Editable y persistido:** `seguimiento_color` (`amarillo` | `verde` | `celeste` | `rojo`).
-- La misma marca se ve y se cambia en la tabla de viáticos de la gira (`ViaticosTable`, columna Color a la **derecha**) con el control compartido; no hay un segundo sistema de color. El panel masivo de la gira también puede aplicarla a las filas tildadas.
+- La misma marca se ve y se cambia en la tabla de viáticos de la gira (`ViaticosTable`, columna Color a la **derecha**) con el control compartido; no hay un segundo sistema de color. El panel masivo de la gira la ofrece como **tercera opción al cargar** (junto a Editar Datos y Exportar y Comunicar), con el desplegable visible sin entrar a Editar Datos; también sigue en el acordeón de edición combinada.
 - Filtro por año de `programas.fecha_desde` (default: año calendario actual) + búsqueda por nombre/programa.
 - Filtros por columna (valores únicos con checkboxes) en persona, salida, regreso, programa, monto y color.
 - Export Excel con las mismas columnas y colores de fila.
@@ -43,7 +43,8 @@ Migración `20260831201720_giras_viaticos_detalle_seguimiento.sql`:
 | Área | Archivo |
 |------|--------|
 | Servicio | `src/services/viaticosSeguimientoService.js` |
-| Control de color | `src/components/viaticos/SeguimientoColorSelect.jsx` (también `ViaticosTable`) |
+| Control de color | `src/components/viaticos/SeguimientoColorSelect.jsx` (también `ViaticosTable` y panel masivo) |
+| Panel masivo gira | `src/views/Giras/Viaticos/ViaticosBulkEditPanel.jsx` + `ViaticosManager.jsx` |
 | Vista | `src/views/Management/ViaticosSeguimientoReport.jsx` |
 | Shell Gestión | `src/views/Management/ManagementView.jsx`, `src/constants/managementPalette.js`, `src/App.jsx` |
 | Migración | `supabase/migrations/20260831201720_giras_viaticos_detalle_seguimiento.sql` |
@@ -61,6 +62,7 @@ Migración `20260831201720_giras_viaticos_detalle_seguimiento.sql`:
 - [x] Columna Tipo retirada de UI y Excel
 - [x] Desplegable de color con swatch visible
 - [x] Misma marca editable en gira → Viáticos (`ViaticosTable` + `SeguimientoColorSelect`)
+- [x] Color masivo como 3.ª opción al cargar el sidebar (Editar Datos / Exportar y Comunicar / Color de seguimiento)
 
 ## Fuera de alcance
 

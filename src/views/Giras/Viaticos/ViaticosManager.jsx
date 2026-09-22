@@ -607,6 +607,17 @@ export default function ViaticosManager({ supabase, giraId }) {
     await addBatch(batchValues, selection, () => setSelection(new Set()));
   };
 
+  const handleApplyBatchColor = async () => {
+    await addBatch(
+      { seguimiento_color: batchValues.seguimiento_color },
+      selection,
+      () => {
+        setBatchValues((prev) => ({ ...prev, seguimiento_color: "" }));
+        setSelection(new Set());
+      },
+    );
+  };
+
   const handleCreateDriveFolder = async (silent = false) => {
     if (!giraId) return null;
     if (!silent) setLoadingConfig(true);
@@ -2327,6 +2338,7 @@ const collectTransportSupportDocs = (personData) => {
                   values={batchValues}
                   setValues={setBatchValues}
                   onApply={handleApplyBatch}
+                  onApplyColor={handleApplyBatchColor}
                   loading={rowsLoading}
                   onExport={handleExportToDrive}
                   isExporting={isExporting}

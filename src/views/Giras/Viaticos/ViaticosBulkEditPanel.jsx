@@ -76,6 +76,7 @@ export default function ViaticosBulkEditPanel({
   values,
   setValues,
   onApply,
+  onApplyColor,
   loading,
   onExport,
   onSendEmails,
@@ -117,6 +118,11 @@ export default function ViaticosBulkEditPanel({
     selectionHasViaticoCero && exportOptions.viatico;
 
   // --- DETECCIÓN DE CAMBIOS ---
+  const hasColorChange = useMemo(() => {
+    const val = values.seguimiento_color;
+    return val === null || (typeof val === "string" && val !== "");
+  }, [values.seguimiento_color]);
+
   const hasChanges = useMemo(() => {
     return Object.entries(values).some(([key, val]) => {
       if (key === "seguimiento_color") {
@@ -127,6 +133,13 @@ export default function ViaticosBulkEditPanel({
       return false;
     });
   }, [values]);
+
+  const colorSelectValue = Object.prototype.hasOwnProperty.call(
+    values,
+    "seguimiento_color",
+  )
+    ? values.seguimiento_color
+    : "";
 
   // --- NAVEGACIÓN SEGURA ---
 
@@ -203,14 +216,15 @@ export default function ViaticosBulkEditPanel({
             VISTA 0: HOME (MENÚ PRINCIPAL)
             ======================================================== */}
         {currentView === "home" && (
-          <div className="p-6 space-y-4 flex flex-col justify-center h-full">
-            <p className="text-xs text-slate-500 text-center mb-2">
+          <div className="p-4 space-y-3 flex flex-col justify-start h-full">
+            <p className="text-xs text-slate-500 text-center mb-1">
               ¿Qué deseas hacer con los {selectionSize} registros seleccionados?
             </p>
 
             <button
+              type="button"
               onClick={() => setCurrentView("edit")}
-              className="group relative p-5 bg-white border border-indigo-100 rounded-xl shadow-sm hover:shadow-md hover:border-indigo-300 transition-all text-left flex items-start gap-4"
+              className="group relative p-4 bg-white border border-indigo-100 rounded-xl shadow-sm hover:shadow-md hover:border-indigo-300 transition-all text-left flex items-start gap-4"
             >
               <div className="p-3 bg-indigo-50 text-indigo-600 rounded-lg group-hover:bg-indigo-600 group-hover:text-white transition-colors">
                 <IconEdit size={24} />
@@ -220,15 +234,16 @@ export default function ViaticosBulkEditPanel({
                   Editar Datos
                 </h4>
                 <p className="text-[10px] text-slate-500 mt-1 leading-snug">
-                  Modificar color de seguimiento, cargos, transporte, montos de
-                  gastos y rendiciones masivamente.
+                  Cargos, transporte, montos de gastos y rendiciones
+                  masivamente.
                 </p>
               </div>
             </button>
 
             <button
+              type="button"
               onClick={() => setCurrentView("export")}
-              className="group relative p-5 bg-white border border-green-100 rounded-xl shadow-sm hover:shadow-md hover:border-green-300 transition-all text-left flex items-start gap-4"
+              className="group relative p-4 bg-white border border-green-100 rounded-xl shadow-sm hover:shadow-md hover:border-green-300 transition-all text-left flex items-start gap-4"
             >
               <div className="p-3 bg-green-50 text-green-600 rounded-lg group-hover:bg-green-600 group-hover:text-white transition-colors">
                 <IconCloudUpload size={24} />
@@ -242,6 +257,42 @@ export default function ViaticosBulkEditPanel({
                 </p>
               </div>
             </button>
+
+            <div className="relative p-4 bg-white border border-amber-200 rounded-xl shadow-sm text-left flex flex-col gap-3">
+              <div className="flex items-start gap-4">
+                <div className="p-3 bg-amber-50 text-amber-700 rounded-lg shrink-0">
+                  <IconPalette size={24} />
+                </div>
+                <div className="min-w-0">
+                  <h4 className="font-bold text-amber-950">
+                    Color de seguimiento
+                  </h4>
+                  <p className="text-[10px] text-slate-500 mt-1 leading-snug">
+                    Misma marca para las filas tildadas. «Sin cambiar» no toca
+                    el color; «Sin marca» lo quita.
+                  </p>
+                </div>
+              </div>
+              <SeguimientoColorSelect
+                allowUnchanged
+                value={colorSelectValue}
+                disabled={loading}
+                onChange={(next) => handleChange("seguimiento_color", next)}
+              />
+              <button
+                type="button"
+                onClick={onApplyColor}
+                disabled={loading || !hasColorChange}
+                className="w-full py-2.5 bg-amber-600 text-white text-xs font-bold rounded-lg shadow hover:bg-amber-700 flex justify-center items-center gap-2 disabled:opacity-50 transition-all"
+              >
+                {loading ? (
+                  <IconLoader className="animate-spin" size={14} />
+                ) : (
+                  <IconPalette size={14} />
+                )}{" "}
+                Aplicar color
+              </button>
+            </div>
           </div>
         )}
 
@@ -280,14 +331,7 @@ export default function ViaticosBulkEditPanel({
                   </p>
                   <SeguimientoColorSelect
                     allowUnchanged
-                    value={
-                      Object.prototype.hasOwnProperty.call(
-                        values,
-                        "seguimiento_color",
-                      )
-                        ? values.seguimiento_color
-                        : ""
-                    }
+                    value={colorSelectValue}
                     disabled={loading}
                     onChange={(next) =>
                       handleChange("seguimiento_color", next)
