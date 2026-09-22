@@ -47,7 +47,9 @@ import {
   sanitizeEventosInternasHtml,
 } from "../../utils/eventosInternas";
 import { supabase } from "../../services/supabase";
+import { useAuth } from "../../context/AuthContext";
 import { useFimbaAccess } from "../../hooks/useFimbaAccess";
+import { EVENT_CREATION_SOURCES } from "../../utils/eventCreationLog";
 import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 import StopRulesManager from "../Giras/StopRulesManager";
 import { isFimbaDetalleEmpty } from "./FimbaEventDetalleField";
@@ -492,6 +494,7 @@ export default function FimbaEventoFormModal({
 }) {
   const isEdit = mode === "edit";
   const { canEditPropuestaMeta, readOnly } = useFimbaAccess();
+  const { user } = useAuth();
   const { confirm, dialog: confirmDialog } = useConfirmDialog();
   const canEditObservacionesInternas = Boolean(canEditPropuestaMeta);
   const lockedPropId =
@@ -1503,6 +1506,8 @@ export default function FimbaEventoFormModal({
       id_grupos: idGrupos,
       id_tipo_evento: Number(tipoId),
       audiencia_ofrn: ao,
+      created_by: user?.id,
+      creation_source: EVENT_CREATION_SOURCES.FIMBA,
       // UI ya validó cupos; evita re-fetch logistics/rutas en el save.
       clientValidated: true,
       logisticsSummary: logisticsSummary ?? undefined,

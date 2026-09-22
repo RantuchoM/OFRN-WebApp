@@ -57,7 +57,7 @@
 - **UI**: Chip sticky arriba (junto a Importar / Buscar), label **con FIMBA**, solo para staff (`filterIsEditor` / `filterIsManagement` / `filterIsTechnician`, incl. «Ver como…» según permisos efectivos). Músicos **no** ven el toggle.
 - **Default OFF**: oculta eventos **solo-FIMBA** (`audiencia_ofrn === 'none'`, sin `eventos_grupos`, sin `id_gira_transporte`). ON: los incluye junto a la agenda OFRN normal.
 - **Músicos**: eventos solo-FIMBA **siempre ocultos**. Si el evento también convoca OFRN (Tutti / grupos / general) o es parada de flota OFRN, aplica las reglas normales de convocatoria/grupo — no es “solo FIMBA”.
-- **Helper**: `isFimbaOnlyAgendaEvent` en `agendaHelpers.js`; select + caché agenda `audiencia_ofrn` (`useAgendaData` v9).
+- **Helper**: `isFimbaOnlyAgendaEvent` en `agendaHelpers.js`; select + caché agenda `audiencia_ofrn` (`useAgendaData` v11).
 - **Sin persistencia** localStorage (estado de componente).
 
 ## 10. Agenda: conciertos de programa en Borrador

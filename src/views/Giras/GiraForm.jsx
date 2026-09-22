@@ -43,6 +43,11 @@ import GiraTramosEditor from "./GiraTramosEditor";
 import { useGiraSegmentos } from "../../hooks/useGiraSegmentos";
 import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 import { matchesMultiTokenSearch } from "../../utils/sanitize";
+import { useAuth } from "../../context/AuthContext";
+import {
+  EVENT_CREATION_SOURCES,
+  withConcertCreationMeta,
+} from "../../utils/eventCreationLog";
 
 const ZONA_PRESETS = ["Andina", "Atlántica", "Valle"];
 
@@ -57,6 +62,7 @@ const ConcertFormModal = ({
   onRefreshLocations,
 }) => {
   const { confirm, dialog } = useConfirmDialog();
+  const { user } = useAuth();
   const [formData, setFormData] = useState({
     fecha: initialData?.fecha || "",
     hora_inicio: initialData?.hora_inicio || "20:00",
@@ -91,7 +97,15 @@ const ConcertFormModal = ({
           .update(payload)
           .eq("id", initialData.id);
       } else {
-        result = await supabase.from("eventos").insert([payload]);
+        result = await supabase
+          .from("eventos")
+          .insert([
+            withConcertCreationMeta(
+              payload,
+              user,
+              EVENT_CREATION_SOURCES.GIRA_FORM,
+            ),
+          ]);
       }
 
       if (result.error) throw result.error;

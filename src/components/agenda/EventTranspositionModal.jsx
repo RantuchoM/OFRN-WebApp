@@ -18,6 +18,12 @@ import {
 import SearchableSelect from "../ui/SearchableSelect";
 import { getEventsByGira } from "../../services/giraService";
 import { notifyEnsayoEventoSoftDeleted } from "../../utils/ensayoCheckinLifecycle";
+import { useAuth } from "../../context/AuthContext";
+import {
+  EVENT_CREATION_SOURCES,
+  isConcertHistoryEvent,
+  concertCreationFields,
+} from "../../utils/eventCreationLog";
 
 function computeSafeDate(iso) {
   try {
@@ -69,6 +75,7 @@ export default function EventTranspositionModal({
   const [selectedTypeIds, setSelectedTypeIds] = useState([]);
   const [selectedEventIds, setSelectedEventIds] = useState(() => new Set());
   const [removeSimilarEvents, setRemoveSimilarEvents] = useState(true);
+  const { user } = useAuth();
 
   // Cargar programas candidatos (otras giras)
   useEffect(() => {
@@ -601,12 +608,19 @@ export default function EventTranspositionModal({
           original: eventValues(matchedExisting, matchedExisting.fecha),
         });
       } else {
-        insertPayload.push({
+        const row = {
           ...eventValues(evt, newIso),
           id_gira: destinationId,
           // Un transporte de la gira origen nunca debe vincularse a la destino.
           id_gira_transporte: null,
-        });
+        };
+        if (isConcertHistoryEvent(evt)) {
+          Object.assign(
+            row,
+            concertCreationFields(user, EVENT_CREATION_SOURCES.TRANSPOSITION),
+          );
+        }
+        insertPayload.push(row);
       }
     });
 

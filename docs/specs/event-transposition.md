@@ -71,6 +71,7 @@ Permitir a los editores importar cronogramas completos de giras pasadas hacia la
     - `id_gira = giraDestino.id`.
     - `fecha = NuevaFecha` calculada con el delta.
     - El resto de campos copiados desde el evento origen (tipo, locación, descripción, horas, etc.) según el subset definido en la implementación.
+  - Si el evento es un **concierto** (categoría / tipo concierto), el insert incluye `created_by` (integrante logueado) y `creation_source = 'transposition'`. El trigger de alta escribe `eventos_logs.campo = 'created'`.
 - Tras un guardado exitoso:
   - Se refresca la agenda de la gira destino.
   - Se cierra el modal o se muestra un mensaje de éxito.

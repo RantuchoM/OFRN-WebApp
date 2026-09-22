@@ -15,6 +15,7 @@ import {
   IconBus,
   IconTag,
   IconAlertCircle,
+  IconHistory,
 } from "../ui/Icons";
 import DateInput from "../ui/DateInput";
 import TimeInput from "../ui/TimeInput";
@@ -22,6 +23,10 @@ import SearchableSelect from "../ui/SearchableSelect";
 import LocationSelectWithCreate from "./LocationSelectWithCreate";
 import ConfirmModal from "../ui/ConfirmModal";
 import { useAuth } from "../../context/AuthContext";
+import {
+  formatConcertCreatedLine,
+  isConcertHistoryEvent,
+} from "../../utils/eventCreationLog";
 import { getTransportesByGira } from "../../services/giraService";
 import {
   VENUE_STATUS_OPTIONS,
@@ -45,6 +50,7 @@ export default function EventForm({
   onClose,
   onDelete,
   onDuplicate,
+  onOpenHistory,
   loading,
   eventTypes = [],
   locations = [],
@@ -312,9 +318,16 @@ export default function EventForm({
     >
       {/* HEADER */}
       <div className="px-4 py-3 border-b border-slate-100 flex justify-between items-center bg-slate-50 shrink-0">
-        <h3 className="font-bold text-slate-800 flex items-center gap-2">
-          <IconEdit size={18} /> {isNew ? "Nuevo Evento" : "Editar Evento"}
-        </h3>
+        <div className="min-w-0 pr-2">
+          <h3 className="font-bold text-slate-800 flex items-center gap-2">
+            <IconEdit size={18} /> {isNew ? "Nuevo Evento" : "Editar Evento"}
+          </h3>
+          {!isNew && isConcertHistoryEvent(formData) && formatConcertCreatedLine(formData) ? (
+            <p className="text-[10px] text-slate-500 mt-0.5 truncate">
+              {formatConcertCreatedLine(formData)}
+            </p>
+          ) : null}
+        </div>
         <button
           onClick={handleSafeClose}
           className="text-slate-400 hover:text-slate-600 p-1 rounded-full hover:bg-slate-200 transition-colors"
@@ -797,6 +810,17 @@ export default function EventForm({
                 >
                   <IconCopy size={16} />{" "}
                   <span className="hidden sm:inline">Duplicar</span>
+                </button>
+              )}
+              {onOpenHistory && (
+                <button
+                  type="button"
+                  onClick={onOpenHistory}
+                  disabled={loading}
+                  className="p-2 text-indigo-600 hover:bg-indigo-50 border border-indigo-200 rounded-lg transition-colors flex items-center gap-1 text-xs font-bold"
+                >
+                  <IconHistory size={16} />{" "}
+                  <span className="hidden sm:inline">Historial</span>
                 </button>
               )}
             </>

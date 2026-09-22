@@ -18,8 +18,10 @@ import { isAssignedVehicleAgendaStop } from "../utils/agendaHelpers";
 /** tipos_evento.id — Ensayo de ensamble (independiente o en programa). */
 const ID_TIPO_ENSAYO_ENSAMBLE = 13;
 
+/** Select de lista. No embeber `eventos_logs` (historial se pide por evento). */
 const EVENT_SELECT = `
-    id, fecha, hora_inicio, hora_fin, tecnica, descripcion, observaciones_internas, observaciones_aforo, convocados, id_tipo_evento, id_locacion, id_gira, id_gira_transporte, id_repertorio, visible_agenda, audiencia_ofrn, updated_at, is_deleted, deleted_at, id_estado_venue, es_didactico,
+    id, fecha, hora_inicio, hora_fin, tecnica, descripcion, observaciones_internas, observaciones_aforo, convocados, id_tipo_evento, id_locacion, id_gira, id_gira_transporte, id_repertorio, visible_agenda, audiencia_ofrn, created_at, created_by, creation_source, updated_at, is_deleted, deleted_at, id_estado_venue, es_didactico,
+    creador:integrantes!eventos_created_by_fkey ( id, nombre, apellido ),
     backline_descripcion, backline_monto, backline_estado, planta_escenario_url, planta_escenario_nombre, backline_incluido,
     giras_transportes ( id, detalle, transportes ( nombre, color, icon ) ),
     tipos_evento ( id, nombre, color, categorias_tipos_eventos (id, nombre) ),
@@ -110,21 +112,154 @@ function matchesGiraFuente(sources, userProfile, ensamblesRows, progFd) {
   });
 }
 
-function saveToCache(key, data) {
+const AGENDA_CACHE_PREFIX = "agenda_cache_";
+/** Bump when the persisted snapshot shape changes (slim v11: no roster/logs/rider). */
+const AGENDA_CACHE_VERSION = "v11";
+
+function isQuotaExceededError(error) {
+  if (!error) return false;
+  return (
+    error.name === "QuotaExceededError" ||
+    error.name === "NS_ERROR_DOM_QUOTA_REACHED" ||
+    error.code === 22 ||
+    error.code === 1014
+  );
+}
+
+function listLocalStorageKeys() {
+  const keys = [];
   try {
-    localStorage.setItem(key, JSON.stringify(data));
-  } catch (error) {
-    if (error.name === "QuotaExceededError" || error.code === 22) {
-      console.warn("⚠️ LocalStorage lleno. Limpiando caché antigua...");
-      Object.keys(localStorage).forEach((k) => {
-        if (k.startsWith("agenda_cache_")) localStorage.removeItem(k);
-      });
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const k = localStorage.key(i);
+      if (k) keys.push(k);
+    }
+  } catch {
+    /* ignore */
+  }
+  return keys;
+}
+
+function pruneAgendaCacheKeys({ keepKey } = {}) {
+  listLocalStorageKeys().forEach((k) => {
+    if (!k.startsWith(AGENDA_CACHE_PREFIX)) return;
+    if (keepKey && k === keepKey) return;
+    try {
+      localStorage.removeItem(k);
+    } catch {
+      /* ignore */
+    }
+  });
+}
+
+function pruneStaleAgendaCaches() {
+  const suffix = `_${AGENDA_CACHE_VERSION}`;
+  listLocalStorageKeys().forEach((k) => {
+    if (!k.startsWith(AGENDA_CACHE_PREFIX)) return;
+    if (k.endsWith(suffix)) return;
+    try {
+      localStorage.removeItem(k);
+    } catch {
+      /* ignore */
+    }
+  });
+}
+
+function slimCreador(creador) {
+  if (!creador || typeof creador !== "object") return creador ?? null;
+  return {
+    id: creador.id,
+    nombre: creador.nombre,
+    apellido: creador.apellido,
+  };
+}
+
+function slimFimbaPropuestas(rows) {
+  if (!Array.isArray(rows)) return rows;
+  return rows.map((row) => {
+    if (!row || typeof row !== "object") return row;
+    const nested = row.fimba_propuestas;
+    if (!nested || typeof nested !== "object") {
+      const { rider: _rider, ...rest } = row;
+      return rest;
+    }
+    const { rider: _nestedRider, ...propRest } = nested;
+    return { ...row, fimba_propuestas: propRest };
+  });
+}
+
+function slimProgramas(programas, effectiveUserId) {
+  if (!programas || typeof programas !== "object") return programas;
+  const members = programas.giras_integrantes;
+  let slimMembers = members;
+  if (Array.isArray(members)) {
+    slimMembers =
+      effectiveUserId != null && effectiveUserId !== "guest-general"
+        ? members.filter(
+            (m) => String(m.id_integrante) === String(effectiveUserId),
+          )
+        : [];
+  }
+  return { ...programas, giras_integrantes: slimMembers };
+}
+
+/**
+ * Snapshot for localStorage: keep list-paint fields, drop bulky nested graphs.
+ * `eventos_logs` never belongs in the general cache (fetched per-event in historial).
+ * Full `giras_integrantes` is duplicated on every event of a tour; keep only self.
+ * FIMBA `rider` HTML can be hundreds of KB per artist.
+ */
+function slimAgendaItemsForCache(items, effectiveUserId) {
+  if (!Array.isArray(items)) return items;
+  return items.map((item) => {
+    if (!item || typeof item !== "object") return item;
+    const {
+      eventos_logs: _logs,
+      programas,
+      eventos_fimba_propuestas,
+      creador,
+      ...rest
+    } = item;
+    return {
+      ...rest,
+      programas: slimProgramas(programas, effectiveUserId),
+      eventos_fimba_propuestas: slimFimbaPropuestas(eventos_fimba_propuestas),
+      creador: slimCreador(creador),
+    };
+  });
+}
+
+/**
+ * Persist agenda snapshot. Never throws: quota or stringify failures skip cache
+ * so the in-memory list (already set from network) still renders.
+ */
+export function saveToCache(key, data, { effectiveUserId } = {}) {
+  try {
+    pruneStaleAgendaCaches();
+    const snapshot = slimAgendaItemsForCache(data, effectiveUserId);
+    const serialized = JSON.stringify(snapshot);
+    try {
+      localStorage.setItem(key, serialized);
+      return;
+    } catch (error) {
+      if (!isQuotaExceededError(error)) {
+        console.warn("No se pudo guardar caché de agenda.", error);
+        return;
+      }
+      console.warn(
+        "LocalStorage lleno. Limpiando caché antigua de agenda...",
+      );
+      pruneAgendaCacheKeys();
       try {
-        localStorage.setItem(key, JSON.stringify(data));
+        localStorage.setItem(key, serialized);
       } catch (retryError) {
-        console.error("❌ Imposible guardar en caché.", retryError);
+        console.warn(
+          "Caché de agenda omitida (cuota). La lista sigue en memoria.",
+          retryError,
+        );
       }
     }
+  } catch (error) {
+    console.warn("No se pudo guardar caché de agenda.", error);
   }
 }
 
@@ -136,7 +271,7 @@ export function getAgendaCacheKey(
   const scope = giraId
     ? `${giraId}${includeAssociatedEnsembleRehearsals ? "_ensReh" : ""}`
     : "general";
-  return `agenda_cache_${effectiveUserId}_${scope}_v10`;
+  return `${AGENDA_CACHE_PREFIX}${effectiveUserId}_${scope}_${AGENDA_CACHE_VERSION}`;
 }
 
 function eventBelongsToProgramAgenda(evt, giraId, includeAssociatedEnsembleRehearsals) {
@@ -260,6 +395,7 @@ export function useAgendaData({
   const [realtimeStatus, setRealtimeStatus] = useState("CONNECTING");
 
   const abortControllerRef = useRef(null);
+  const cacheWriteGenRef = useRef(0);
   const refreshTimeoutRef = useRef(null);
   const mergeSingleEventFromRealtimeRef = useRef(null);
   const locallyMutatedIdsRef = useRef(new Set());
@@ -317,12 +453,21 @@ export function useAgendaData({
       );
 
       try {
+        pruneStaleAgendaCaches();
         if (!isBackground && itemsRef.current.length === 0) {
-          const cachedData = localStorage.getItem(CACHE_KEY);
-          if (cachedData) {
-            const parsedData = JSON.parse(cachedData);
-            setItems(parsedData);
-            processCategories(parsedData.filter((i) => !i.isProgramMarker));
+          try {
+            const cachedData = localStorage.getItem(CACHE_KEY);
+            if (cachedData) {
+              const parsedData = JSON.parse(cachedData);
+              if (Array.isArray(parsedData) && parsedData.length > 0) {
+                setItems(parsedData);
+                processCategories(
+                  parsedData.filter((i) => !i.isProgramMarker),
+                );
+              }
+            }
+          } catch (cacheReadError) {
+            console.warn("No se pudo leer caché de agenda.", cacheReadError);
           }
         }
 
@@ -837,9 +982,13 @@ export function useAgendaData({
         setItems(allItems);
         setFeriados(feriadosData.data || []);
         setRecentlyUpdatedEventIds(new Set());
-        saveToCache(CACHE_KEY, allItems);
         setIsOfflineMode(false);
         setLastUpdate(new Date());
+        const cacheGen = ++cacheWriteGenRef.current;
+        setTimeout(() => {
+          if (cacheWriteGenRef.current !== cacheGen) return;
+          saveToCache(CACHE_KEY, allItems, { effectiveUserId });
+        }, 0);
       } catch (err) {
         if (
           err.name === "AbortError" ||

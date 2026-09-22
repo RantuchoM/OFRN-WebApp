@@ -39,6 +39,11 @@ import {
   FIMBA_CATALOG_TIPO_GENERICO,
 } from "../utils/fimbaCreateTipo";
 import {
+  EVENT_CREATION_SOURCES,
+  isConcertHistoryEvent,
+  resolveLoggedIntegranteId,
+} from "../utils/eventCreationLog";
+import {
   buildAllVehicleBoardingSequences,
   buildArtistaTrasladoAgendaBlocks,
   buildFimbaRidesForVehicle,
@@ -6886,6 +6891,12 @@ export async function saveFimbaEvento(payload) {
   const isEdit = payload.id != null && payload.id !== "";
   if (!isEdit) {
     row.id_gira_transporte = null;
+    if (isConcertHistoryEvent({ id_tipo_evento: tipoId })) {
+      const createdBy = resolveLoggedIntegranteId(payload.created_by);
+      if (createdBy != null) row.created_by = createdBy;
+      row.creation_source =
+        payload.creation_source || EVENT_CREATION_SOURCES.FIMBA;
+    }
   }
 
   let evento;

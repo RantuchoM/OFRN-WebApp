@@ -3,15 +3,23 @@
 ## Propósito
 Registrar en base de datos los cambios de **fecha**, **hora_inicio** y **hora_fin** en eventos de categorías sensibles (Conciertos, Ensayos, Transporte) para auditoría y consulta desde la UI.
 
+Además, en **conciertos** (categoría `tipos_evento.id_categoria = 1`) registrar **quién** creó el evento y **desde qué fuente**, y mostrar ese dato de forma visible en agenda e historial.
+
 ## Alcance
-- **Eventos auditados**: Solo aquellos cuyo `id_tipo_evento` pertenece a una categoría en `tipos_evento` con `id_categoria` IN (1, 2, 6):
+- **Eventos auditados (fecha/hora)**: Solo aquellos cuyo `id_tipo_evento` pertenece a una categoría en `tipos_evento` con `id_categoria` IN (1, 2, 6):
   - **1** – Conciertos  
   - **2** – Ensayos  
   - **6** – Transporte  
-- **Campos auditados**: `fecha`, `hora_inicio`, `hora_fin`.  
-- **Regla**: Se inserta un registro en `eventos_logs` **solo si el valor cambió** (`OLD.valor IS DISTINCT FROM NEW.valor`).
+- **Alta de conciertos** (categoría 1): en INSERT se guarda `eventos.created_by` (FK `integrantes.id`, nullable en filas viejas) y `eventos.creation_source` (`agenda` | `gira_form` | `transposition` | `script` | `fimba`). El trigger `tr_audit_event_insert` inserta `eventos_logs` con `campo = 'created'`.
+- **Campos auditados en UPDATE**: `fecha`, `hora_inicio`, `hora_fin`.  
+- **Regla UPDATE**: Se inserta un registro en `eventos_logs` **solo si el valor cambió** (`OLD.valor IS DISTINCT FROM NEW.valor`).
+- **Fuera de alcance**: comidas, traslados y demás tipos no requieren logging extra de alta. No se auditan descripción, locación, etc.
 
 ## Base de datos
+
+### Tabla `eventos` (columnas de alta)
+- `created_by` bigint NULL → `integrantes.id` ON DELETE SET NULL.
+- `creation_source` text NULL: `agenda` | `gira_form` | `transposition` | `script` | `fimba`.
 
 ### Tabla `eventos_logs`
 ```sql
@@ -21,39 +29,61 @@ CREATE TABLE IF NOT EXISTS public.eventos_logs (
     campo TEXT NOT NULL,
     valor_anterior TEXT,
     valor_nuevo TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    created_by BIGINT REFERENCES public.integrantes(id) ON DELETE SET NULL
 );
 ```
+- `campo = 'created'`: `valor_nuevo` = `creation_source`; `created_by` copia `eventos.created_by`.
 
 ### Función y trigger
-- **Función**: `fn_audit_event_changes()` — obtiene `id_categoria` del `id_tipo_evento` del evento; si está en (1, 2, 6), compara `fecha`, `hora_inicio` y `hora_fin` entre OLD y NEW e inserta filas en `eventos_logs` solo para los campos que cambiaron.
-- **Trigger**: `tr_audit_event_changes` — `AFTER UPDATE ON public.eventos` por fila, ejecutando `fn_audit_event_changes()`.  
+- **UPDATE**: `fn_audit_event_changes()` / `tr_audit_event_changes` — si `id_categoria` IN (1, 2, 6), loguea fecha/horas que cambiaron.
+- **INSERT**: `fn_audit_event_insert()` / `tr_audit_event_insert` — si `id_categoria = 1`, inserta la fila `created`.
 - **Nota**: En PostgreSQL el trigger debe usar `EXECUTE FUNCTION` (no `EXECUTE_FUNCTION`).
+- Migración: `supabase/migrations/20260922120000_eventos_concert_creation_log.sql`.
 
 ## Servicio
 - **Archivo**: `src/services/giraService.js`  
-- **Función**: `getEventLogs(supabase, eventId)`  
-  - Consulta `eventos_logs` con `id_evento = eventId`.  
-  - Orden: `created_at DESC`.  
-  - Retorna la lista de registros o `[]` en error.
+- **Función**: `getEventHistory(supabase, eventId)` — logs + meta de alta (`created_at`, `created_by`, `creation_source`, join a integrante).  
+- **Función**: `getEventLogs(supabase, eventId)` — lista de logs (compat).  
+- Helper de payload: `src/utils/eventCreationLog.js` (`withConcertCreationMeta`, `concertCreationFields`).
+
+### Rutas de INSERT que setean `created_by` / `creation_source`
+- Agenda / EventForm / duplicar: `agenda`.
+- GiraForm (modal concierto): `gira_form`.
+- EventTranspositionModal (solo conciertos nuevos): `transposition`.
+- FIMBA (`saveFimbaEvento`, tipo concierto): `fimba`.
+- Scripts SQL: opcional `script` (si no se setea, el trigger igual crea el log `created` sin autor).
 
 ## UI
 
 ### Modal de historial
 - **Componente**: `src/components/giras/EventHistoryModal.jsx`  
-- **Render**: React Portal (`createPortal(..., document.body)`) para evitar cortes de overflow o z-index.  
-- **Props**: `supabase`, `eventId`, `eventLabel` (ej. tipo + fecha/hora del evento), `onClose`.  
-- **Comportamiento**: Al montar, llama a `getEventLogs(supabase, eventId)` y muestra una lista con Tailwind: cada ítem con campo, valor anterior, valor nuevo y fecha/hora (`created_at`). Botón o overlay para cerrar que llama `onClose`.
+- **Render**: React Portal (`createPortal(..., document.body)`). Overlay `z-[100]` (anidado sobre EventForm: `z-[110]`).  
+- **Props**: `supabase`, `eventId`, `eventLabel`, `event` (meta opcional), `nested`, `onClose`.  
+- **Comportamiento**: Al montar, `getEventHistory`. Tarjeta **Creado** arriba (fecha/hora, persona si hay, etiqueta de fuente en español). Debajo, cambios de fecha/hora. Conciertos viejos: fecha desde `eventos.created_at`; quién/fuente vacíos.
 
-### Botón en tarjetas de evento
-- **Vista**: Las tarjetas de evento se renderizan en `src/components/agenda/UnifiedAgenda.jsx`.  
-- **Cambio**: En el margen derecho de cada evento (junto a Comentarios / Editar), añadir un botón con icono **History** (Lucide / `IconHistory`).  
-- **Acción**: Al hacer clic, abrir el modal de historial pasando el `id` y una etiqueta del evento (ej. descripción o tipo + fecha).  
-- **Visibilidad**: Mostrar el botón cuando el evento no esté eliminado (no en papelera). Opcional: restringir a editores/gestores si se desea que solo ellos vean historial.
+### Control visible en agenda (conciertos)
+- **Vista**: `src/components/agenda/UnifiedAgenda.jsx` (tarjeta móvil compacta + grilla escritorio).  
+- Conciertos: línea «Creado el … por … · fuente» + botón **Historial** visible (no solo en editar).  
+- Ensayos: icono de historial discreto (siguen existiendo logs de fecha/hora).  
+- Comidas y traslados: **sin** control de historial (no ensuciar la tarjeta).  
+- EventForm (editar concierto): línea de creado en el header + botón Historial en el footer.
 
 ## Reglas de negocio
-- El trigger **solo escribe log si hubo cambio real** en fecha o en alguna de las horas (uso de `IS DISTINCT FROM`).  
-- No se auditan otros campos (descripción, locación, etc.) en este módulo.
+- El trigger de UPDATE **solo escribe log si hubo cambio real** en fecha o en alguna de las horas (`IS DISTINCT FROM`).  
+- El trigger de INSERT **solo** escribe `created` para categoría Conciertos.  
+- `created_by` es el integrante logueado (mismo criterio que `eventos_venue_log.id_integrante`).  
+- No se loguea cada comida.
+
+## Caché de agenda (`useAgendaData`)
+- `created_by`, `creation_source` y el join `creador` (id, nombre, apellido) sí van en el SELECT de lista y en el snapshot de `localStorage`.
+- **`eventos_logs` no se embebe** en `EVENT_SELECT` ni en la caché general. El historial se pide por evento (`getEventHistory`) al abrir el modal.
+- Snapshot `agenda_cache_*_v11`: recorta `giras_integrantes` al usuario actual, omite HTML `rider` de FIMBA y no persiste logs. Si `setItem` lanza `QuotaExceededError`, se borran claves `agenda_cache_*` y se reintenta una vez; si sigue fallando se omite la caché y la lista (ya pintada desde red) no se aborta.
 
 ## Estado del módulo
-**Activo.** Tabla, trigger, servicio `getEventLogs`, componente `EventHistoryModal` y botón de historial en la agenda están implementados y en uso.
+**Activo.** Columnas de alta, trigger de INSERT, `getEventHistory`, modal con «Creado», control visible en conciertos de UnifiedAgenda. Caché agenda `v11` (cuota localStorage no bloquea la lista).
+
+## Deuda
+- `merge_integrantes` aún no remapea `eventos.created_by` ni `eventos_logs.created_by`.
+- Scripts SQL de seed no setean `creation_source = 'script'` (el trigger igual deja el log `created` sin autor).
+- Los cambios de fecha/hora del trigger UPDATE no graban autor (solo el alta de concierto).

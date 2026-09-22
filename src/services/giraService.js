@@ -976,27 +976,56 @@ export const getMyRoomingStatus = async (supabase, giraId, userId) => {
   }
 };
 
+const EVENT_LOGS_SELECT = `
+  id, id_evento, campo, valor_anterior, valor_nuevo, created_at, created_by,
+  integrantes:integrantes!eventos_logs_created_by_fkey ( id, nombre, apellido )
+`;
+
+const EVENT_CREATION_META_SELECT = `
+  id, created_at, created_by, creation_source,
+  creador:integrantes!eventos_created_by_fkey ( id, nombre, apellido )
+`;
+
+/**
+ * Historial de un evento: logs (created + fecha/hora) y meta de alta.
+ * @returns {Promise<{ logs: Array, event: object|null }>}
+ */
+export const getEventHistory = async (supabase, eventId) => {
+  if (!supabase || eventId == null) return { logs: [], event: null };
+  try {
+    const [logsRes, eventRes] = await Promise.all([
+      supabase
+        .from("eventos_logs")
+        .select(EVENT_LOGS_SELECT)
+        .eq("id_evento", eventId)
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("eventos")
+        .select(EVENT_CREATION_META_SELECT)
+        .eq("id", eventId)
+        .maybeSingle(),
+    ]);
+    if (logsRes.error) throw logsRes.error;
+    return {
+      logs: logsRes.data || [],
+      event: eventRes.error ? null : eventRes.data || null,
+    };
+  } catch (err) {
+    console.error("[GiraService] getEventHistory:", err);
+    return { logs: [], event: null };
+  }
+};
+
 /**
  * Obtiene el historial de cambios (logs) de un evento.
- * Solo se registran cambios en fecha, hora_inicio y hora_fin para eventos sensibles (Conciertos, Ensayos, Transporte).
+ * Conciertos: también campo=created (quién / fuente). Fecha/hora en categorías 1, 2, 6.
  * @param {object} supabase - Cliente Supabase
  * @param {number|string} eventId - ID del evento
- * @returns {Promise<Array<{ id, id_evento, campo, valor_anterior, valor_nuevo, created_at }>>}
+ * @returns {Promise<Array>}
  */
 export const getEventLogs = async (supabase, eventId) => {
-  if (!supabase || eventId == null) return [];
-  try {
-    const { data, error } = await supabase
-      .from("eventos_logs")
-      .select("id, id_evento, campo, valor_anterior, valor_nuevo, created_at")
-      .eq("id_evento", eventId)
-      .order("created_at", { ascending: false });
-    if (error) throw error;
-    return data || [];
-  } catch (err) {
-    console.error("[GiraService] getEventLogs:", err);
-    return [];
-  }
+  const { logs } = await getEventHistory(supabase, eventId);
+  return logs;
 };
 
 /**

@@ -38,7 +38,6 @@ import {
   IconUtensils,
   IconFilter,
   IconUndo,
-  IconHistory,
   IconRefresh,
   IconTrash,
   IconTag,
@@ -79,7 +78,11 @@ import { exportAgendaToPDF } from "../../utils/agendaPdfExporter";
 import { calculateLogisticsSummary } from "../../hooks/useLogistics";
 import { useClickOutside } from "../../hooks/useClickOutside";
 import { useAgendaFilters } from "../../hooks/useAgendaFilters";
-import { useAgendaData, getAgendaCacheKey } from "../../hooks/useAgendaData";
+import {
+  useAgendaData,
+  getAgendaCacheKey,
+  saveToCache,
+} from "../../hooks/useAgendaData";
 import DateInput from "../ui/DateInput";
 import {
   getTodayDateStringLocal,
@@ -118,6 +121,16 @@ import AgendaMealActionModal from "./AgendaMealActionModal";
 import AgendaEventDescripcionHtml from "./AgendaEventDescripcionHtml";
 import EventTranspositionModal from "./EventTranspositionModal";
 import EventHistoryModal from "../giras/EventHistoryModal";
+import {
+  AgendaEventHistoryButton,
+  ConcertCreatedLine,
+} from "./ConcertHistoryControls";
+import {
+  EVENT_CREATION_SOURCES,
+  isConcertHistoryEvent,
+  shouldShowAgendaEventHistory,
+  withConcertCreationMeta,
+} from "../../utils/eventCreationLog";
 import ConfirmModal from "../ui/ConfirmModal";
 import ConfirmDialog from "../ui/ConfirmDialog";
 import { useConfirmDialog } from "../../hooks/useConfirmDialog";
@@ -1582,13 +1595,14 @@ export default function UnifiedAgenda({
         item.id === eventId ? { ...item, mi_asistencia: newStatus } : item,
       );
       setItems(newItems);
-      localStorage.setItem(
+      saveToCache(
         getAgendaCacheKey(
           effectiveUserId,
           giraId,
           includeAssociatedEnsembleRehearsals,
         ),
-        JSON.stringify(newItems),
+        newItems,
+        { effectiveUserId },
       );
 
       // Cerrar modal si estaba abierto
@@ -1652,6 +1666,10 @@ export default function UnifiedAgenda({
       id_estado_venue: evt.id_estado_venue || null,
       venue_status_note: lastVenueNote,
       selectedGrupos: eventGrupoIdsFromEvent(evt),
+      created_at: evt.created_at || null,
+      created_by: evt.created_by || null,
+      creation_source: evt.creation_source || null,
+      creador: evt.creador || null,
     });
     setIsEditOpen(true);
   };
@@ -1776,28 +1794,37 @@ export default function UnifiedAgenda({
 
     setLoading(true);
     try {
-      const payload = {
-        descripcion: (editFormData.descripcion || "") + " - Copia",
-        observaciones_internas: normalizeEventosInternasHtml(
-          editFormData.observaciones_internas,
-        ),
-        observaciones_aforo:
-          Number(editFormData.id_tipo_evento) === 1
-            ? String(editFormData.observaciones_aforo || "").trim() || null
-            : null,
-        fecha: editFormData.fecha,
-        hora_inicio: editFormData.hora_inicio,
-        hora_fin: editFormData.hora_fin,
-        id_tipo_evento: editFormData.id_tipo_evento || null,
-        id_locacion: editFormData.id_locacion || null,
-        id_gira_transporte: editFormData.id_gira_transporte ?? null,
-        tecnica: editFormData.tecnica || false,
-        es_didactico:
-          Number(editFormData.id_tipo_evento) === 1
-            ? Boolean(editFormData.es_didactico)
-            : false,
-        id_gira: editFormData.id_gira || null,
-      };
+      const payload = withConcertCreationMeta(
+        {
+          descripcion: (editFormData.descripcion || "") + " - Copia",
+          observaciones_internas: normalizeEventosInternasHtml(
+            editFormData.observaciones_internas,
+          ),
+          observaciones_aforo:
+            Number(editFormData.id_tipo_evento) === 1
+              ? String(editFormData.observaciones_aforo || "").trim() || null
+              : null,
+          fecha: editFormData.fecha,
+          hora_inicio: editFormData.hora_inicio,
+          hora_fin: editFormData.hora_fin,
+          id_tipo_evento: editFormData.id_tipo_evento || null,
+          id_locacion: editFormData.id_locacion || null,
+          id_gira_transporte: editFormData.id_gira_transporte ?? null,
+          tecnica: editFormData.tecnica || false,
+          es_didactico:
+            Number(editFormData.id_tipo_evento) === 1
+              ? Boolean(editFormData.es_didactico)
+              : false,
+          id_gira: editFormData.id_gira || null,
+        },
+        user,
+        EVENT_CREATION_SOURCES.AGENDA,
+        {
+          tipos_evento: formEventTypes.find(
+            (t) => String(t.id) === String(editFormData.id_tipo_evento),
+          ),
+        },
+      );
 
       const { data: newEvent, error: insertError } = await supabase
         .from("eventos")
@@ -2100,36 +2127,45 @@ export default function UnifiedAgenda({
     }
 
     setFormSaving(true);
-    const payload = {
-      id_gira: giraId,
-      descripcion: newFormData.descripcion || null,
-      observaciones_internas: normalizeEventosInternasHtml(
-        newFormData.observaciones_internas,
-      ),
-      observaciones_aforo: isConcierto
-        ? String(newFormData.observaciones_aforo || "").trim() || null
-        : null,
-      fecha: newFormData.fecha,
-      hora_inicio: newFormData.hora_inicio,
-      hora_fin: resolveEventHoraFinForSave(
-        newFormData.hora_fin,
-        newFormData.hora_inicio,
-        {
-          id_tipo_evento: newFormData.id_tipo_evento,
-          tipos_evento: formEventTypes.find(
-            (t) => String(t.id) === String(newFormData.id_tipo_evento),
-          ),
-        },
-      ),
-      id_tipo_evento: newFormData.id_tipo_evento || null,
-      id_locacion: newFormData.id_locacion || null,
-      id_gira_transporte: newFormData.id_gira_transporte ?? null,
-      tecnica: newFormData.tecnica,
-      es_didactico: isConcierto ? Boolean(newFormData.es_didactico) : false,
-      id_estado_venue: isConcierto
-        ? newFormData.id_estado_venue || null
-        : null,
-    };
+    const payload = withConcertCreationMeta(
+      {
+        id_gira: giraId,
+        descripcion: newFormData.descripcion || null,
+        observaciones_internas: normalizeEventosInternasHtml(
+          newFormData.observaciones_internas,
+        ),
+        observaciones_aforo: isConcierto
+          ? String(newFormData.observaciones_aforo || "").trim() || null
+          : null,
+        fecha: newFormData.fecha,
+        hora_inicio: newFormData.hora_inicio,
+        hora_fin: resolveEventHoraFinForSave(
+          newFormData.hora_fin,
+          newFormData.hora_inicio,
+          {
+            id_tipo_evento: newFormData.id_tipo_evento,
+            tipos_evento: formEventTypes.find(
+              (t) => String(t.id) === String(newFormData.id_tipo_evento),
+            ),
+          },
+        ),
+        id_tipo_evento: newFormData.id_tipo_evento || null,
+        id_locacion: newFormData.id_locacion || null,
+        id_gira_transporte: newFormData.id_gira_transporte ?? null,
+        tecnica: newFormData.tecnica,
+        es_didactico: isConcierto ? Boolean(newFormData.es_didactico) : false,
+        id_estado_venue: isConcierto
+          ? newFormData.id_estado_venue || null
+          : null,
+      },
+      user,
+      EVENT_CREATION_SOURCES.AGENDA,
+      {
+        tipos_evento: formEventTypes.find(
+          (t) => String(t.id) === String(newFormData.id_tipo_evento),
+        ),
+      },
+    );
     const { data, error } = await supabase
       .from("eventos")
       .insert([payload])
@@ -2222,6 +2258,14 @@ export default function UnifiedAgenda({
         };
       }),
       is_convoked: true,
+      created_at: data.created_at || new Date().toISOString(),
+      creador: userProfile
+        ? {
+            id: userProfile.id,
+            nombre: userProfile.nombre,
+            apellido: userProfile.apellido,
+          }
+        : null,
     };
 
     markLocalEventMutation(data.id);
@@ -3022,10 +3066,16 @@ export default function UnifiedAgenda({
                       idLocacion: evt.id_locacion,
                       locacion: evt.locaciones,
                     });
-                    const isConcertEvent = Number(evt.id_tipo_evento) === 1;
+                    const isConcertEvent =
+                      Number(evt.id_tipo_evento) === 1 ||
+                      isConcertHistoryEvent(evt);
                     const isDraftProgramConcert =
                       isConcertEvent &&
                       (evt.programas?.estado || "Borrador") === "Borrador";
+                    const showHistoryControl = shouldShowAgendaEventHistory(
+                      evt,
+                      { isMeal, isTransport: isTransportEvent },
+                    );
 
                     const cardStyle = { backgroundColor: `${eventColor}10` };
 
@@ -3365,6 +3415,8 @@ export default function UnifiedAgenda({
                                     </div>
                                   )}
 
+                                  <ConcertCreatedLine event={evt} className="mt-0.5" />
+
                                   <div className="flex flex-wrap gap-1">
                                     {isTransportEvent && transportName && (
                                       <span
@@ -3626,19 +3678,14 @@ export default function UnifiedAgenda({
                                           }
                                           className="text-slate-300 p-1"
                                         />
-                                        <button
-                                          type="button"
-                                          onClick={() =>
-                                            setEventHistoryEvent({
-                                              id: evt.id,
-                                              label: `${evt.tipos_evento?.nombre || "Evento"} ${evt.fecha || ""} ${evt.hora_inicio?.slice(0, 5) || ""}`,
-                                            })
-                                          }
-                                          className="p-1 text-slate-300 hover:text-indigo-500 rounded-full border border-transparent hover:border-indigo-100"
-                                          title="Ver historial de cambios"
-                                        >
-                                          <IconHistory size={14} />
-                                        </button>
+                                        {showHistoryControl && (
+                                          <AgendaEventHistoryButton
+                                            event={evt}
+                                            compact
+                                            prominent={isConcertEvent}
+                                            onOpen={setEventHistoryEvent}
+                                          />
+                                        )}
                                         {!isOfflineMode &&
                                           (isGlobalEditor ||
                                             canUserEditEvent(evt)) && (
@@ -3917,6 +3964,7 @@ export default function UnifiedAgenda({
                                           })}
                                       </div>
                                     )}
+                                  <ConcertCreatedLine event={evt} className="mt-1" />
                                 </div>
 
                                 {/* COLUMNA 4: LOCACIÓN */}
@@ -4161,19 +4209,13 @@ export default function UnifiedAgenda({
                                             }
                                             className="p-1.5 text-slate-300 hover:text-indigo-500"
                                           />
-                                          <button
-                                            type="button"
-                                            onClick={() =>
-                                              setEventHistoryEvent({
-                                                id: evt.id,
-                                                label: `${evt.tipos_evento?.nombre || "Evento"} ${evt.fecha || ""} ${evt.hora_inicio?.slice(0, 5) || ""}`,
-                                              })
-                                            }
-                                            className="p-1.5 text-slate-300 hover:text-indigo-600 hover:bg-slate-100 rounded-full"
-                                            title="Ver historial de cambios"
-                                          >
-                                            <IconHistory size={14} />
-                                          </button>
+                                          {showHistoryControl && (
+                                            <AgendaEventHistoryButton
+                                              event={evt}
+                                              prominent={isConcertEvent}
+                                              onOpen={setEventHistoryEvent}
+                                            />
+                                          )}
                                           {!isOfflineMode &&
                                             (isGlobalEditor ||
                                               canUserEditEvent(evt)) && (
@@ -4309,6 +4351,23 @@ export default function UnifiedAgenda({
               onClose={() => setIsEditOpen(false)}
               onDelete={handleDeleteEvent}
               onDuplicate={handleDuplicateEvent}
+              onOpenHistory={
+                isConcertHistoryEvent(editFormData) ||
+                isConcertHistoryEvent(editingEventObj)
+                  ? () =>
+                      setEventHistoryEvent({
+                        id: editFormData.id,
+                        label: `${
+                          formEventTypes.find(
+                            (t) =>
+                              String(t.id) ===
+                              String(editFormData.id_tipo_evento),
+                          )?.nombre || "Concierto"
+                        } ${editFormData.fecha || ""}`,
+                        event: editingEventObj || editFormData,
+                      })
+                  : undefined
+              }
               loading={formSaving}
               eventTypes={formEventTypes}
               locations={formLocations}
@@ -4347,6 +4406,8 @@ export default function UnifiedAgenda({
           supabase={supabase}
           eventId={eventHistoryEvent.id}
           eventLabel={eventHistoryEvent.label}
+          event={eventHistoryEvent.event || null}
+          nested={isEditOpen || isCreating}
           onClose={() => setEventHistoryEvent(null)}
         />
       )}
