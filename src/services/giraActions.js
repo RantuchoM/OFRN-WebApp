@@ -27,7 +27,7 @@ export const moveGira = async (giraId, newStartDate, notify = false) => {
  */
 export const duplicateGira = async (giraId, newStartDate, newName) => {
     try {
-        console.log("Invocando Edge Function para duplicar gira...");
+        // console.log("Invocando Edge Function para duplicar gira...");
         const { data, error } = await supabase.functions.invoke('manage-gira', {
             body: { 
                 action: 'duplicate',
@@ -56,7 +56,7 @@ export const duplicateGira = async (giraId, newStartDate, newName) => {
 
 export const deleteGira = async (giraId) => {
     try {
-        console.log("Invocando Edge Function para ELIMINAR gira...", giraId);
+        // console.log("Invocando Edge Function para ELIMINAR gira...", giraId);
         
         const { data, error } = await supabase.functions.invoke('manage-gira', {
             body: { 

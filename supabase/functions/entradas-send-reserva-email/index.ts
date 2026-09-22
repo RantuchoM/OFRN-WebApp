@@ -625,9 +625,9 @@ serve(async (req) => {
       });
 
       messageIds.push(info.messageId);
-      console.log(
-        `[entradas-send-reserva-email] OK action=${action} messageId=${info.messageId} to=${recipient.email} rol=${recipient.rol} reservaId=${reservaId}`,
-      );
+      // console.log(
+      //   `[entradas-send-reserva-email] OK action=${action} messageId=${info.messageId} to=${recipient.email} rol=${recipient.rol} reservaId=${reservaId}`,
+      // );
     }
 
     return new Response(JSON.stringify({ success: true, ids: messageIds }), {

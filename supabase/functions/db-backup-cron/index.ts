@@ -126,7 +126,7 @@ async function runBackup(
     files: uploaded,
   });
   await uploadJson(supabaseUrl, serviceKey, `${prefix}/manifest.json`, manifestText);
-  console.log("[db-backup-cron] OK", { stamp, mode, tables: uploaded.length, rows: totalRows });
+  // console.log("[db-backup-cron] OK", { stamp, mode, tables: uploaded.length, rows: totalRows });
 }
 
 Deno.serve(async (req) => {

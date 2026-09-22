@@ -162,7 +162,7 @@ export default function SectionStatusControl({
       updated_by: currentUserId
     };
 
-    console.log("[StatusControl] Guardando payload limpio:", payload);
+    // console.log("[StatusControl] Guardando payload limpio:", payload);
 
     try {
         const { data, error } = await supabase

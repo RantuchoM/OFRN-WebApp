@@ -315,7 +315,7 @@ export default function DriveMatcherModal({
   const fetchFiles = async ({ silent = false } = {}) => {
     if (!folderUrl) return [];
     if (!silent) setLoading(true);
-    console.log("DEBUG [Modal]: Llamando a Edge Function con URL:", folderUrl);
+    // console.log("DEBUG [Modal]: Llamando a Edge Function con URL:", folderUrl);
 
     try {
       const { data, error } = await supabase.functions.invoke("manage-drive", {
@@ -327,7 +327,7 @@ export default function DriveMatcherModal({
         throw error;
       }
 
-      console.log("DEBUG [Modal]: Datos recibidos de la Edge Function:", data);
+      // console.log("DEBUG [Modal]: Datos recibidos de la Edge Function:", data);
 
       if (data?.files) {
         setDriveFiles(data.files);

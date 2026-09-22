@@ -837,7 +837,7 @@ export function useMusicianForm(musician, supabase, onSave) {
           motivo: (formValues.motivo || "").trim() || null,
         };
         if (process.env.NODE_ENV === "development") {
-          console.log("Creando Músico - Payload:", payload);
+          // console.log("Creando Músico - Payload:", payload);
         }
         const { data, error } = await supabase
           .from("integrantes")

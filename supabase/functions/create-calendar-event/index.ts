@@ -45,7 +45,7 @@ serve(async (req) => {
         // Si es reintento, quitamos los invitados para que no falle
         if (retryWithoutAttendees) {
           delete eventBody.attendees;
-          console.log("Reintentando SIN invitados...");
+          // console.log("Reintentando SIN invitados...");
         }
 
         if (action === "create") {
@@ -73,7 +73,7 @@ serve(async (req) => {
         }
         // ERROR 404: El evento no existe (para Updates) -> Lo recreamos
         else if (action === "update" && e.code === 404) {
-          console.log("Evento no encontrado (404). Recreando...");
+          // console.log("Evento no encontrado (404). Recreando...");
           // Si falló por 404, intentamos insertar de cero (intentando mantener invitados primero)
           try {
              const resp = await calendar.events.insert({ calendarId, requestBody: eventBody });

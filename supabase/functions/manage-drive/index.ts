@@ -1880,12 +1880,12 @@ serve(async (req) => {
       // Solo procesar INSERT o UPDATE, ignorarL DELETE
       const webhookType = body.type || body.eventType;
       if (webhookType === 'DELETE') {
-        console.log(`[WEBHOOK] Ignorando DELETE para integrante ID: ${body.record.id}`);
+        // console.log(`[WEBHOOK] Ignorando DELETE para integrante ID: ${body.record.id}`);
         return new Response(JSON.stringify({ message: "DELETE event ignored" }), { headers: corsHeaders });
       }
       action = 'assemble_full_pack';
       musicianId = body.record.id;
-      console.log(`[WEBHOOK] Detectado webhook ${webhookType || 'INSERT/UPDATE'} para integrante ID: ${musicianId}`);
+      // console.log(`[WEBHOOK] Detectado webhook ${webhookType || 'INSERT/UPDATE'} para integrante ID: ${musicianId}`);
     }
     
     const {
@@ -2863,7 +2863,7 @@ serve(async (req) => {
       const fileId = extractFileId(sourceUrl);
       if (!fileId) throw new Error("ID de archivo inválido");
 
-      console.log("[get_file_name] sourceUrl:", sourceUrl, "fileId:", fileId);
+      // console.log("[get_file_name] sourceUrl:", sourceUrl, "fileId:", fileId);
 
       const meta = await drive.files.get(
         {
@@ -2873,7 +2873,7 @@ serve(async (req) => {
         },
       );
 
-      console.log("[get_file_name] drive.files.get ->", meta.data?.name);
+      // console.log("[get_file_name] drive.files.get ->", meta.data?.name);
 
       return new Response(
         JSON.stringify({
@@ -3220,11 +3220,11 @@ serve(async (req) => {
 
     // --- ACCIÓN: LISTAR ARCHIVOS DE UNA CARPETA (SOLO NIVEL SUPERIOR) ---
     if (action === "list_folder_files") {
-      console.log("DEBUG [Edge]: Iniciando list_folder_files.");
-      console.log("DEBUG [Edge]: URL recibida:", folderUrl);
+      // console.log("DEBUG [Edge]: Iniciando list_folder_files.");
+      // console.log("DEBUG [Edge]: URL recibida:", folderUrl);
 
       const folderId = extractFileId(folderUrl);
-      console.log("DEBUG [Edge]: ID de carpeta extraído:", folderId);
+      // console.log("DEBUG [Edge]: ID de carpeta extraído:", folderId);
 
       if (!folderId) {
         console.error("DEBUG [Edge]: No se pudo extraer el ID de la URL provista.");
@@ -3240,11 +3240,11 @@ serve(async (req) => {
           includeItemsFromAllDrives: true,
         });
 
-        console.log(
-          `DEBUG [Edge]: Google API respondió. Archivos encontrados (nivel 1): ${
-            res.data.files?.length || 0
-          }`,
-        );
+        // console.log(
+        //   `DEBUG [Edge]: Google API respondió. Archivos encontrados (nivel 1): ${
+        //     res.data.files?.length || 0
+        //   }`,
+        // );
 
         return new Response(
           JSON.stringify({ success: true, files: res.data.files || [] }),
@@ -3266,14 +3266,14 @@ serve(async (req) => {
 
     // --- ACCIÓN: LISTAR ARCHIVOS DE UNA CARPETA Y TODAS SUS SUBCARPETAS ---
     if (action === "list_folder_files_subfolders") {
-      console.log("DEBUG [Edge]: Iniciando list_folder_files_subfolders.");
-      console.log("DEBUG [Edge]: URL recibida:", folderUrl);
+      // console.log("DEBUG [Edge]: Iniciando list_folder_files_subfolders.");
+      // console.log("DEBUG [Edge]: URL recibida:", folderUrl);
 
       const rootFolderId = extractFileId(folderUrl);
-      console.log(
-        "DEBUG [Edge]: ID de carpeta raíz extraído:",
-        rootFolderId,
-      );
+      // console.log(
+      //   "DEBUG [Edge]: ID de carpeta raíz extraído:",
+      //   rootFolderId,
+      // );
 
       if (!rootFolderId) {
         console.error(
@@ -3300,10 +3300,10 @@ serve(async (req) => {
       try {
         while (queue.length > 0) {
           const currentFolderId = queue.shift()!;
-          console.log(
-            "DEBUG [Edge]: Listando contenido de carpeta:",
-            currentFolderId,
-          );
+          // console.log(
+          //   "DEBUG [Edge]: Listando contenido de carpeta:",
+          //   currentFolderId,
+          // );
 
           let pageToken: string | undefined;
           do {
@@ -3319,9 +3319,9 @@ serve(async (req) => {
             });
 
             const files = res.data.files || [];
-            console.log(
-              `DEBUG [Edge]: Carpeta ${currentFolderId} -> elementos encontrados: ${files.length}`,
-            );
+            // console.log(
+            //   `DEBUG [Edge]: Carpeta ${currentFolderId} -> elementos encontrados: ${files.length}`,
+            // );
 
             for (const f of files) {
               if (f.mimeType === "application/vnd.google-apps.folder") {
@@ -3337,9 +3337,9 @@ serve(async (req) => {
           } while (pageToken);
         }
 
-        console.log(
-          `DEBUG [Edge]: list_folder_files_subfolders completado. Archivos totales: ${allFiles.length}`,
-        );
+        // console.log(
+        //   `DEBUG [Edge]: list_folder_files_subfolders completado. Archivos totales: ${allFiles.length}`,
+        // );
 
         return new Response(
           JSON.stringify({ success: true, files: allFiles }),
@@ -3568,7 +3568,7 @@ serve(async (req) => {
           if (candidates.data.files && candidates.data.files.length > 0) {
             for (const file of candidates.data.files) {
               if (file.name?.toLowerCase().includes(workMasterLabel.toLowerCase())) {
-                console.log(`[Clean] Reemplazando: ${file.name}`);
+                // console.log(`[Clean] Reemplazando: ${file.name}`);
                 await drive.files.delete({ fileId: file.id });
               }
             }
@@ -3807,7 +3807,7 @@ serve(async (req) => {
 
     // --- ACCIÓN: BACKFILL carpetas ensambles + accesos directos ---
     if (action === "sync_ensemble_drive_backfill") {
-      console.log("[BACKFILL] Iniciando sync_ensemble_drive_backfill");
+      // console.log("[BACKFILL] Iniciando sync_ensemble_drive_backfill");
       const result = await runEnsembleDriveBackfill(supabase, drive);
       return new Response(
         JSON.stringify({ success: true, ...result }),
@@ -3818,7 +3818,7 @@ serve(async (req) => {
     // --- ACCIÓN: SYNC / DELETE PROGRAM ---
     if (action === "sync_program" || action === "delete_program") {
       const targetProgramId = programId || body.id || body.id_gira;
-      console.log(`[SYNC] Acción: ${action}, ID: ${targetProgramId ?? "TODOS (vigentes)"}`);
+      // console.log(`[SYNC] Acción: ${action}, ID: ${targetProgramId ?? "TODOS (vigentes)"}`);
 
       // delete_program siempre requiere ID
       if (action === "delete_program") {
@@ -3860,7 +3860,7 @@ serve(async (req) => {
           throw new Error("No se pudieron listar los programas del lote.");
         }
         programsToAudit = (programas || []) as ProgramRow[];
-        console.log(`[SYNC] Lote de continuación: ${programsToAudit.length} programa(s).`);
+        // console.log(`[SYNC] Lote de continuación: ${programsToAudit.length} programa(s).`);
       } else if (!targetProgramId) {
         const today = new Date().toISOString().slice(0, 10);
         const { data: programas, error: listError } = await supabase
@@ -3873,7 +3873,7 @@ serve(async (req) => {
           throw new Error("No se pudieron listar las giras vigentes.");
         }
         programsToAudit = (programas || []) as ProgramRow[];
-        console.log(`[SYNC] Auditoría de nomencladores para ${programsToAudit.length} programa(s) vigente(s).`);
+        // console.log(`[SYNC] Auditoría de nomencladores para ${programsToAudit.length} programa(s) vigente(s).`);
       } else {
         const { data: prog, error: progError } = await supabase
           .from("programas")
@@ -3894,7 +3894,7 @@ serve(async (req) => {
       const { updated: nomencladorUpdated, updatedIds, list: listAfterAudit } =
         await auditAndApplyNomencladores(supabase, programsToAudit, scopeIds);
       if (nomencladorUpdated > 0) {
-        console.log(`[SYNC] Nomencladores actualizados en DB: ${nomencladorUpdated}`);
+        // console.log(`[SYNC] Nomencladores actualizados en DB: ${nomencladorUpdated}`);
       }
 
       const { updated: mesLetraUpdated } = await auditAndApplyMesLetra(
@@ -3903,7 +3903,7 @@ serve(async (req) => {
         scopeIds,
       );
       if (mesLetraUpdated > 0) {
-        console.log(`[SYNC] mes_letra actualizados en DB: ${mesLetraUpdated}`);
+        // console.log(`[SYNC] mes_letra actualizados en DB: ${mesLetraUpdated}`);
       }
 
       const idsToSync = [...new Set([...listAfterAudit.map((p) => p.id), ...updatedIds])];
@@ -3940,9 +3940,9 @@ serve(async (req) => {
           console.error(`[SYNC] Error en programa ${prog.id}:`, (e as Error).message);
         }
       }
-      console.log(
-        `[SYNC] Sincronización Drive finalizada. OK: ${synced}, fallidos: ${failedIds.length}, pendientes: ${pendingIds.length}.`,
-      );
+      // console.log(
+      //   `[SYNC] Sincronización Drive finalizada. OK: ${synced}, fallidos: ${failedIds.length}, pendientes: ${pendingIds.length}.`,
+      // );
       return new Response(
         JSON.stringify({
           success: true,

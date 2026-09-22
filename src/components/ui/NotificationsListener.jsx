@@ -28,7 +28,7 @@ export default function NotificationListener({ supabase }) {
           // 2. Soy Admin/Editor y es un comentario general?
           else if (isAdmin || isEditor) {
              // Mostrar Toast discreto
-             console.log("Nuevo comentario en el sistema:", newComment.id);
+             // console.log("Nuevo comentario en el sistema:", newComment.id);
           }
         }
       )

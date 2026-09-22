@@ -748,7 +748,7 @@
         const nombre = payload.nombre;
         const gira = payload.gira;
         const detalle = payload.detalle;
-        console.log("[mails_produccion] Request received:", req.method, "action:", action, "templateId:", templateId);
+        // console.log("[mails_produccion] Request received:", req.method, "action:", action, "templateId:", templateId);
 
         if (!GMAIL_USER || !GMAIL_PASS) {
           throw new Error("Falta configurar credenciales de Gmail en Secrets.");
@@ -836,7 +836,7 @@
             }
           }
 
-          console.log(`[LOG] Enviando mail (${tid}). TO: ${email || 'Self'}, BCC: ${bcc?.length || 0}`);
+          // console.log(`[LOG] Enviando mail (${tid}). TO: ${email || 'Self'}, BCC: ${bcc?.length || 0}`);
           const info = await transporter.sendMail(mailOptions);
 
           return new Response(JSON.stringify({ success: true, id: info.messageId }), {

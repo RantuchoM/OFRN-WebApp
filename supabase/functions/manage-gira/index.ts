@@ -22,7 +22,7 @@ serve(async (req) => {
 
     // 1. DELETE (No requiere fecha)
     if (action === "delete") {
-        console.log(`[INIT] Acción: DELETE | Gira ID: ${giraId}`);
+        // console.log(`[INIT] Acción: DELETE | Gira ID: ${giraId}`);
         await deleteGira(supabaseClient, giraId);
         return new Response(JSON.stringify({ success: true, message: "Gira eliminada completamente" }), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -41,7 +41,7 @@ serve(async (req) => {
     if (errGira || !originalGira) throw new Error(`Error leyendo gira original: ${errGira?.message || "No encontrada"}`);
 
     const daysDiff = differenceInCalendarDays(parseISO(newStartDate), parseISO(originalGira.fecha_desde));
-    console.log(`[INIT] Acción: ${action} | Gira ID: ${giraId} | Delta: ${daysDiff} días`);
+    // console.log(`[INIT] Acción: ${action} | Gira ID: ${giraId} | Delta: ${daysDiff} días`);
 
     if (action === "move") {
       await moveGira(supabaseClient, giraId, daysDiff);
@@ -101,7 +101,7 @@ async function duplicateGira(
 ) {
   const logs: string[] = [];
   const log = (msg: string) => {
-    console.log(msg);
+    // console.log(msg);
     logs.push(msg);
   };
 
@@ -546,7 +546,7 @@ async function duplicateGira(
 // ────────────────────────────────────────────────
 async function moveGira(supabase: any, giraId: number, days: number) {
   const logs: string[] = [];
-  const log = (msg: string) => { console.log(msg); logs.push(msg); };
+  const log = (msg: string) => { /* console.log(msg); */ logs.push(msg); };
 
   const { data: gira, error: errGira } = await supabase.from("programas").select("*").eq("id", giraId).single();
   if (errGira || !gira) throw new Error(errGira?.message || "Gira no encontrada");
@@ -690,7 +690,7 @@ async function moveGira(supabase: any, giraId: number, days: number) {
 // ELIMINACIÓN EN CASCADA MANUAL
 // ────────────────────────────────────────────────
 async function deleteGira(supabase: any, giraId: number) {
-    const log = (msg: string) => console.log(msg);
+    const log = (msg: string) => { /* console.log(msg); */ };
     log(`Iniciando borrado en cascada para Gira ${giraId}...`);
 
     // 1. REGLAS DE TRANSPORTE

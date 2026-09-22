@@ -67,13 +67,13 @@ const handler = async (req: Request): Promise<Response> => {
     const is_resolution = payload?.is_resolution === true || payload?.is_resolution === "true"
     const admin_comments = (payload?.admin_comments ?? record?.admin_comments ?? "") as string
 
-    console.log("[send-feedback-email] payload:", {
-      hasRecord: !!record,
-      recordId: record?.id,
-      is_update: payload?.is_update,
-      is_resolution: payload?.is_resolution,
-      resolved: { is_update, is_resolution },
-    })
+    // console.log("[send-feedback-email] payload:", {
+    //   hasRecord: !!record,
+    //   recordId: record?.id,
+    //   is_update: payload?.is_update,
+    //   is_resolution: payload?.is_resolution,
+    //   resolved: { is_update, is_resolution },
+    // })
 
     if (!record || !record.id) {
       console.warn("[send-feedback-email] No record or record.id")
@@ -85,7 +85,7 @@ const handler = async (req: Request): Promise<Response> => {
 
     // --- Invocación desde app: modificación de pedido (mail a admins) ---
     if (is_update) {
-      console.log(`[send-feedback-email] MODIFICACIÓN DE PEDIDO ID: ${record.id} -> enviando a admins`)
+      // console.log(`[send-feedback-email] MODIFICACIÓN DE PEDIDO ID: ${record.id} -> enviando a admins`)
       await sendGmailMail(
         ADMIN_EMAIL,
         `📝 MODIFICACIÓN DE PEDIDO: ${record.titulo || "Sin título"}`,
@@ -116,7 +116,7 @@ const handler = async (req: Request): Promise<Response> => {
     // --- Invocación desde app: resolución (mail al usuario) ---
     if (is_resolution) {
       const userEmail = extractEmail(record.user_email)
-      console.log(`[send-feedback-email] RESOLUCIÓN ID: ${record.id}, user_email raw: "${record.user_email}", extraído: "${userEmail || ""}"`)
+      // console.log(`[send-feedback-email] RESOLUCIÓN ID: ${record.id}, user_email raw: "${record.user_email}", extraído: "${userEmail || ""}"`)
       if (!userEmail) {
         console.warn("[send-feedback-email] No se pudo extraer email de user_email:", record.user_email)
         return new Response(JSON.stringify({ ok: false, error: "No user email" }), {
@@ -134,7 +134,7 @@ const handler = async (req: Request): Promise<Response> => {
             : "background-color: #f0fdf4; color: #15803d; border-left: 4px solid #22c55e;"
       const tituloEsc = esc(record.titulo || "Feedback")
       const mensajeEsc = esc(record.mensaje || "").replace(/\n/g, "<br/>")
-      console.log(`[send-feedback-email] Enviando mail de resolución a ${userEmail}`)
+      // console.log(`[send-feedback-email] Enviando mail de resolución a ${userEmail}`)
       await sendGmailMail(
         userEmail,
         `✅ Tu pedido de feedback fue resuelto: ${record.titulo || "Feedback"}`,
@@ -166,7 +166,7 @@ const handler = async (req: Request): Promise<Response> => {
     }
 
     // --- Trigger de BD: nuevo feedback (mail a admins) ---
-    console.log(`[send-feedback-email] NUEVO FEEDBACK ID: ${record.id} -> enviando a admins`)
+    // console.log(`[send-feedback-email] NUEVO FEEDBACK ID: ${record.id} -> enviando a admins`)
     const screenshotUrl = resolveScreenshotUrl(record.screenshot_path)
     await sendGmailMail(
       ADMIN_EMAIL,

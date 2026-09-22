@@ -2790,7 +2790,9 @@ export default function RepertoireManager({
         targetId,
         repertoireBlockId ?? item.id_repertorio ?? null,
       )
-        .then(() => console.log("Arcos vinculados correctamente."))
+        .then(() => {
+          // console.log("Arcos vinculados correctamente.")
+        })
         .catch((err) => console.error("Error vinculando arcos:", err));
     }
   };

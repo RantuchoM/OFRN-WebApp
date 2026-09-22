@@ -15,7 +15,7 @@ export default function PublicLinkHandler() {
       if (!token) return;
 
       try {
-        console.log("🔍 Validando token:", token);
+        // console.log("🔍 Validando token:", token);
 
         // ---------------------------------------------------------
         // 1. INTENTO A: Buscar si es un TOKEN PERSONAL (Músico)
@@ -27,7 +27,7 @@ export default function PublicLinkHandler() {
           .maybeSingle();
 
         if (personalLink) {
-          console.log("✅ Acceso Personal concedido:", personalLink.integrantes.apellido);
+          // console.log("✅ Acceso Personal concedido:", personalLink.integrantes.apellido);
           const mockUser = {
             ...personalLink.integrantes,
             rol_sistema: "invitado",
@@ -54,7 +54,7 @@ export default function PublicLinkHandler() {
         }
 
         if (generalLink) {
-          console.log("✅ Acceso General concedido a:", generalLink.nombre_gira);
+          // console.log("✅ Acceso General concedido a:", generalLink.nombre_gira);
           
           // Creamos un usuario "ficticio" para la sesión general
           const mockUser = {

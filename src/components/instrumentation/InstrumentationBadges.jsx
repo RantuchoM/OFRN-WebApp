@@ -66,15 +66,15 @@ export function computeRequired(works) {
     // Debug detallado de percusión requerida por obra
     if (import.meta && import.meta.env && import.meta.env.DEV) {
       // eslint-disable-next-line no-console
-      console.log("[InstrumentationBadges][computeRequired] Percusión obra", {
-        obraId: obra.obra_id ?? obra.id,
-        title: obra.title,
-        instrumentacion_effective: obra.instrumentacion_effective,
-        instrumentacion_raw: obra.instrumentacion,
-        timVal,
-        percVal,
-        percTotalForWork,
-      });
+      // console.log("[InstrumentationBadges][computeRequired] Percusión obra", {
+      //   obraId: obra.obra_id ?? obra.id,
+      //   title: obra.title,
+      //   instrumentacion_effective: obra.instrumentacion_effective,
+      //   instrumentacion_raw: obra.instrumentacion,
+      //   timVal,
+      //   percVal,
+      //   percTotalForWork,
+      // });
     }
     const values = {
       Fl: getInstrumentValue(instString, "fl") || 0,

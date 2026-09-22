@@ -48,7 +48,7 @@ serve(async (req) => {
       await jwtClient.authorize();
       const calendar = google.calendar({ version: "v3", auth: jwtClient });
 
-      console.log(`Actualizando ${events.length} eventos en Calendar...`);
+      // console.log(`Actualizando ${events.length} eventos en Calendar...`);
 
       for (const evt of events) {
         try {

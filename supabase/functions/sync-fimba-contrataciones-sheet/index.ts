@@ -467,9 +467,9 @@ async function prepareTablesForCheckboxValidation(
   const errors: string[] = [];
 
   if (candidates.length === 0) {
-    console.log(
-      "[sync-fimba-contrataciones-sheet] no Sheets Table overlapping G–J; checkbox via dataValidation only",
-    );
+    // console.log(
+    //   "[sync-fimba-contrataciones-sheet] no Sheets Table overlapping G–J; checkbox via dataValidation only",
+    // );
     return {
       expanded: false,
       typesRelaxed: false,
@@ -539,10 +539,10 @@ async function prepareTablesForCheckboxValidation(
       },
     });
     typesRelaxed = true;
-    console.log(
-      "[sync-fimba-contrataciones-sheet] updateTable columnProperties BOOLEAN ok",
-      JSON.stringify({ tableCount: candidates.length }),
-    );
+    // console.log(
+    //   "[sync-fimba-contrataciones-sheet] updateTable columnProperties BOOLEAN ok",
+    //   JSON.stringify({ tableCount: candidates.length }),
+    // );
   } catch (e) {
     const msg = (e as Error)?.message || String(e);
     errors.push(`updateTable columnProperties: ${msg}`);
@@ -575,12 +575,12 @@ async function prepareTablesForCheckboxValidation(
           })),
         },
       });
-      console.log(
-        "[sync-fimba-contrataciones-sheet] deleteBanding pre-expand",
-        JSON.stringify({
-          deleted: bandingToDelete.map((b) => b.bandedRangeId),
-        }),
-      );
+      // console.log(
+      //   "[sync-fimba-contrataciones-sheet] deleteBanding pre-expand",
+      //   JSON.stringify({
+      //     deleted: bandingToDelete.map((b) => b.bandedRangeId),
+      //   }),
+      // );
     } catch (e) {
       const msg = (e as Error)?.message || String(e);
       errors.push(`deleteBanding: ${msg}`);
@@ -655,14 +655,14 @@ async function prepareTablesForCheckboxValidation(
         }),
       },
     });
-    console.log(
-      "[sync-fimba-contrataciones-sheet] updateTable range expand ok",
-      JSON.stringify({
-        tableCount: candidates.length,
-        dataEndRow,
-        tableEndRowExclusive: maxTableEnd,
-      }),
-    );
+    // console.log(
+    //   "[sync-fimba-contrataciones-sheet] updateTable range expand ok",
+    //   JSON.stringify({
+    //     tableCount: candidates.length,
+    //     dataEndRow,
+    //     tableEndRowExclusive: maxTableEnd,
+    //   }),
+    // );
     return {
       expanded: true,
       typesRelaxed,
@@ -757,10 +757,10 @@ async function applyFlagCheckboxValidation(
       spreadsheetId,
       requestBody: { requests: clearAndSet(1, dataEndRow) },
     });
-    console.log(
-      "[sync-fimba-contrataciones-sheet] setDataValidation checkbox G–J full",
-      JSON.stringify({ startRow: 1, endRow: dataEndRow }),
-    );
+    // console.log(
+    //   "[sync-fimba-contrataciones-sheet] setDataValidation checkbox G–J full",
+    //   JSON.stringify({ startRow: 1, endRow: dataEndRow }),
+    // );
     return { applied: true, mode: "full" };
   } catch (e) {
     const msg = (e as Error)?.message || String(e);
@@ -777,10 +777,10 @@ async function applyFlagCheckboxValidation(
         spreadsheetId,
         requestBody: { requests: clearAndSet(beyondStart, dataEndRow) },
       });
-      console.log(
-        "[sync-fimba-contrataciones-sheet] setDataValidation checkbox G–J beyond table",
-        JSON.stringify({ startRow: beyondStart, endRow: dataEndRow }),
-      );
+      // console.log(
+      //   "[sync-fimba-contrataciones-sheet] setDataValidation checkbox G–J beyond table",
+      //   JSON.stringify({ startRow: beyondStart, endRow: dataEndRow }),
+      // );
       return { applied: true, mode: "beyond_table", error: msg };
     } catch (e2) {
       const msg2 = (e2 as Error)?.message || String(e2);
@@ -1017,32 +1017,32 @@ async function rewriteSheet(
     sheetBanding = (
       tabFresh as { bandedRanges?: typeof sheetBanding } | undefined
     )?.bandedRanges;
-    console.log(
-      "[sync-fimba-contrataciones-sheet] tables metadata",
-      JSON.stringify({
-        spreadsheetId,
-        sheetId,
-        tableCount: freshTables?.length ?? sheetTables?.length ?? 0,
-        bandingCount: sheetBanding?.length ?? 0,
-        tables: (freshTables || sheetTables || []).map((t) => ({
-          tableId: t.tableId,
-          name: t.name,
-          range: t.range,
-          flagColTypes: (t.columnProperties || [])
-            .filter((cp) => {
-              const abs =
-                (t.range?.startColumnIndex ?? 0) + Number(cp.columnIndex ?? -1);
-              return (
-                abs >= sheetCol(BOOL_COL_START) && abs < sheetCol(BOOL_COL_END)
-              );
-            })
-            .map((cp) => ({
-              columnIndex: cp.columnIndex,
-              columnType: cp.columnType,
-            })),
-        })),
-      }),
-    );
+    // console.log(
+    //   "[sync-fimba-contrataciones-sheet] tables metadata",
+    //   JSON.stringify({
+    //     spreadsheetId,
+    //     sheetId,
+    //     tableCount: freshTables?.length ?? sheetTables?.length ?? 0,
+    //     bandingCount: sheetBanding?.length ?? 0,
+    //     tables: (freshTables || sheetTables || []).map((t) => ({
+    //       tableId: t.tableId,
+    //       name: t.name,
+    //       range: t.range,
+    //       flagColTypes: (t.columnProperties || [])
+    //         .filter((cp) => {
+    //           const abs =
+    //             (t.range?.startColumnIndex ?? 0) + Number(cp.columnIndex ?? -1);
+    //           return (
+    //             abs >= sheetCol(BOOL_COL_START) && abs < sheetCol(BOOL_COL_END)
+    //           );
+    //         })
+    //         .map((cp) => ({
+    //           columnIndex: cp.columnIndex,
+    //           columnType: cp.columnType,
+    //         })),
+    //     })),
+    //   }),
+    // );
     if (freshTables && freshTables.length > 0) {
       sheetTables = freshTables;
     }
@@ -1104,14 +1104,14 @@ async function rewriteSheet(
       }),
     );
   } else if (!validation.applied && tableResult.expanded) {
-    console.log(
-      "[sync-fimba-contrataciones-sheet] checkbox UI via Table BOOLEAN expand",
-      JSON.stringify({
-        tableEndRowExclusive: tableResult.tableEndRowExclusive,
-        dataEndRow,
-        typesRelaxed: tableResult.typesRelaxed,
-      }),
-    );
+    // console.log(
+    //   "[sync-fimba-contrataciones-sheet] checkbox UI via Table BOOLEAN expand",
+    //   JSON.stringify({
+    //     tableEndRowExclusive: tableResult.tableEndRowExclusive,
+    //     dataEndRow,
+    //     typesRelaxed: tableResult.typesRelaxed,
+    //   }),
+    // );
   }
 
   return {

@@ -1536,10 +1536,10 @@ export default function GirasView({ supabase, trigger = 0 }) {
                   entityType="GIRA"
                   entityId={String(selectedGira.id)}
                   onClick={() => {
-                    console.log(
-                      "Abriendo comentarios para Gira ID:",
-                      selectedGira.id,
-                    );
+                    // console.log(
+                    //   "Abriendo comentarios para Gira ID:",
+                    //   selectedGira.id,
+                    // );
                     setCommentsState({
                       type: "GIRA",
                       id: String(selectedGira.id),
