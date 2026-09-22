@@ -696,10 +696,7 @@ export default function ViaticosTable({
                     className="rounded text-indigo-600"
                   />
                 </th>
-                <th className="px-1 py-3 w-12 text-center sticky top-0 left-[40px] z-40 bg-slate-50 border-b border-r border-slate-200">
-                  Color
-                </th>
-                <th className="px-3 py-3 min-w-[13rem] w-52 max-w-[13rem] sticky top-0 left-[88px] z-40 bg-slate-50 border-b border-r border-slate-200 shadow-[4px_0_8px_-2px_rgba(0,0,0,0.1)]">
+                <th className="px-3 py-3 min-w-[13rem] w-52 max-w-[13rem] sticky top-0 left-[40px] z-40 bg-slate-50 border-b border-r border-slate-200 shadow-[4px_0_8px_-2px_rgba(0,0,0,0.1)]">
                   Integrante
                 </th>
 
@@ -810,6 +807,9 @@ export default function ViaticosTable({
                   </th>
                 )}
 
+                <th className="px-1 py-3 w-12 text-center sticky top-0 z-30 bg-slate-50 border-b border-l border-slate-200">
+                  Color
+                </th>
                 <th className="px-2 py-3 w-10 sticky top-0 z-30 bg-slate-50 border-b border-slate-200"></th>
               </tr>
             </thead>
@@ -903,22 +903,9 @@ export default function ViaticosTable({
                       />
                     </td>
 
-                    <td
-                      className={`px-1 py-1.5 border-b border-r border-slate-100 sticky left-[40px] z-20 ${stickyBgClass}`}
-                    >
-                      <SeguimientoColorSelect
-                        compact
-                        value={row.seguimiento_color}
-                        disabled={isDeleting}
-                        onChange={(next) =>
-                          onUpdateRow(row.id, "seguimiento_color", next)
-                        }
-                      />
-                    </td>
-
                     {/* NOMBRE */}
                     <td
-                      className={`px-3 py-2 font-medium text-slate-700 border-b border-r border-slate-200 sticky left-[88px] z-20 shadow-sm min-w-[13rem] w-52 max-w-[13rem] ${stickyBgClass} ${
+                      className={`px-3 py-2 font-medium text-slate-700 border-b border-r border-slate-200 sticky left-[40px] z-20 shadow-sm min-w-[13rem] w-52 max-w-[13rem] ${stickyBgClass} ${
                         esTramo ? "border-l-[3px] border-l-violet-400" : ""
                       }`}
                     >
@@ -1398,6 +1385,19 @@ export default function ViaticosTable({
                         <TotalFinalCell row={row} />
                       </td>
                     )}
+
+                    <td
+                      className={`px-1 py-1.5 border-b border-l border-slate-100 ${stickyBgClass}`}
+                    >
+                      <SeguimientoColorSelect
+                        compact
+                        value={row.seguimiento_color}
+                        disabled={isDeleting}
+                        onChange={(next) =>
+                          onUpdateRow(row.id, "seguimiento_color", next)
+                        }
+                      />
+                    </td>
 
                     <td className="px-2 py-2 text-center border-b border-slate-100">
                       <button

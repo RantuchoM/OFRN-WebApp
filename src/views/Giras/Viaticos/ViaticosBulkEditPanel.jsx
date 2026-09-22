@@ -16,8 +16,10 @@ import {
   IconMail,
   IconAlertTriangle,
   IconEdit,
+  IconPalette,
 } from "../../../components/ui/Icons";
 import RenunciaViaticosExportOption from "./RenunciaViaticosExportOption";
+import SeguimientoColorSelect from "../../../components/viaticos/SeguimientoColorSelect";
 import { useConfirmDialog } from "../../../hooks/useConfirmDialog";
 import {
   blockNumberInputWheel,
@@ -87,6 +89,7 @@ export default function ViaticosBulkEditPanel({
 
   // Estado de los acordeones
   const [openSections, setOpenSections] = useState({
+    seguimiento: true,
     datos: true,
     transporte: false,
     gastos: false,
@@ -115,7 +118,10 @@ export default function ViaticosBulkEditPanel({
 
   // --- DETECCIÓN DE CAMBIOS ---
   const hasChanges = useMemo(() => {
-    return Object.values(values).some((val) => {
+    return Object.entries(values).some(([key, val]) => {
+      if (key === "seguimiento_color") {
+        return val === null || (typeof val === "string" && val !== "");
+      }
       if (typeof val === "boolean") return val === true;
       if (typeof val === "string") return val.trim() !== "";
       return false;
@@ -214,8 +220,8 @@ export default function ViaticosBulkEditPanel({
                   Editar Datos
                 </h4>
                 <p className="text-[10px] text-slate-500 mt-1 leading-snug">
-                  Modificar cargos, transporte, montos de gastos y rendiciones
-                  masivamente.
+                  Modificar color de seguimiento, cargos, transporte, montos de
+                  gastos y rendiciones masivamente.
                 </p>
               </div>
             </button>
@@ -261,6 +267,35 @@ export default function ViaticosBulkEditPanel({
 
             {/* Accordions */}
             <div className="flex-1 overflow-y-auto">
+              <AccordionSection
+                title="Color de seguimiento"
+                icon={IconPalette}
+                isOpen={openSections.seguimiento}
+                onToggle={() => toggleSection("seguimiento")}
+              >
+                <div className="space-y-2">
+                  <p className="text-[10px] text-slate-500 leading-snug">
+                    Aplica la misma marca a las filas seleccionadas. «Sin
+                    cambiar» no toca el color; «Sin marca» lo quita.
+                  </p>
+                  <SeguimientoColorSelect
+                    allowUnchanged
+                    value={
+                      Object.prototype.hasOwnProperty.call(
+                        values,
+                        "seguimiento_color",
+                      )
+                        ? values.seguimiento_color
+                        : ""
+                    }
+                    disabled={loading}
+                    onChange={(next) =>
+                      handleChange("seguimiento_color", next)
+                    }
+                  />
+                </div>
+              </AccordionSection>
+
               <AccordionSection
                 title="Datos Laborales"
                 icon={IconBriefcase}

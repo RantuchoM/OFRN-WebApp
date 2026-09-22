@@ -9,7 +9,7 @@ Informe en **Gestión → Seguimiento viáticos** (`/management/viaticos_seguimi
 - Fuente: solo `giras_viaticos_detalle` (no manuales, no destaques, no SCRN).
 - **Solo lectura:** persona/rol/tramo, salida, regreso, programa, monto.
 - **Editable y persistido:** `seguimiento_color` (`amarillo` | `verde` | `celeste` | `rojo`).
-- La misma marca se ve y se cambia en la tabla de viáticos de la gira (`ViaticosTable`) con el control compartido; no hay un segundo sistema de color.
+- La misma marca se ve y se cambia en la tabla de viáticos de la gira (`ViaticosTable`, columna Color a la **derecha**) con el control compartido; no hay un segundo sistema de color. El panel masivo de la gira también puede aplicarla a las filas tildadas.
 - Filtro por año de `programas.fecha_desde` (default: año calendario actual) + búsqueda por nombre/programa.
 - Filtros por columna (valores únicos con checkboxes) en persona, salida, regreso, programa, monto y color.
 - Export Excel con las mismas columnas y colores de fila.

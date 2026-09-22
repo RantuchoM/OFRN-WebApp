@@ -74,7 +74,7 @@ COMMENT ON COLUMN public.giras_viaticos_config.rendicion_fecha IS 'Fecha límite
   - `estado_gira === 'ausente'`: fuerza de match 0 → sin fechas de transporte (regla de proyecto).
   - Ejemplo gira 12 (Carla Fernández, id `8525695`): reglas Persona en unidad 226 — ↑13/09 07:00↓13/09 16:00 y ↑21/09 15:00↓21/09 23:00 → ventana viático **13/09 07:00 → 21/09 23:00**.
 - [x] **Doc. vehículo y chofer (export opcional)**: la documentación del vehículo y el carnet/DNI del chofer (`collectTransportSupportDocs` en `ViaticosManager`) **ya no** se adjuntan automáticamente al marcar Doc. Común o Doc. Reducida. Checkbox explícito **«Doc. del vehículo y chofer»** (`docVehiculoChofer`) en `ViaticosBulkEditPanel` y `LocationBulkPanel`; solo se incluyen PDFs de logística si el usuario lo tilda.
-- [x] **Marca de color de seguimiento (2026-09-22):** `ViaticosTable` muestra y edita el mismo `giras_viaticos_detalle.seguimiento_color` que Gestión → Seguimiento viáticos (`amarillo` | `verde` | `celeste` | `rojo` | `null`). Es **por fila de detalle** (tramo/desdoble incluido), no un color global del integrante. Control compartido `SeguimientoColorSelect` (portal `z-[100]`, mismos swatches). Columna sticky junto al nombre; el fondo de las celdas fijas replica el tinte de la planilla de Gestión (salvo selección / baja de roster).
+- [x] **Marca de color de seguimiento (2026-09-22):** `ViaticosTable` muestra y edita el mismo `giras_viaticos_detalle.seguimiento_color` que Gestión → Seguimiento viáticos (`amarillo` | `verde` | `celeste` | `rojo` | `null`). Es **por fila de detalle** (tramo/desdoble incluido), no un color global del integrante. Control compartido `SeguimientoColorSelect` (portal `z-[100]`, mismos swatches). La columna **Color** va a la **derecha** de la tabla (después de TOTAL FINAL, antes del borrar); no es sticky junto al nombre. El fondo de las celdas fijas (checkbox + integrante) replica el tinte de la planilla de Gestión (salvo selección / baja de roster). El panel masivo (`ViaticosBulkEditPanel`, filas tildadas) aplica el mismo campo a la selección: «Sin cambiar» no toca el color; «Sin marca» persiste `null`.
 
 ## 4. Archivos tocados
 
@@ -93,3 +93,4 @@ COMMENT ON COLUMN public.giras_viaticos_config.rendicion_fecha IS 'Fecha límite
 | Esquema | `supabase/schema.sql` |
 | Wheel montos | `src/utils/blockNumberInputWheel.js` |
 | Color seguimiento | `src/components/viaticos/SeguimientoColorSelect.jsx` |
+| Edición masiva color | `src/views/Giras/Viaticos/ViaticosBulkEditPanel.jsx` (`seguimiento_color`) |

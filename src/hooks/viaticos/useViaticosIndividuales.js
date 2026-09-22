@@ -432,6 +432,11 @@ export function useViaticosIndividuales(
       const updates = {};
       Object.keys(batchValues).forEach((key) => {
         const val = batchValues[key];
+        if (key === "seguimiento_color") {
+          if (val === "" || val === undefined) return;
+          updates[key] = val || null;
+          return;
+        }
         if (val !== "" && val !== null && val !== false) {
           if (key === "porcentaje") {
             updates[key] = parseFloat(String(val).replace("%", "")) || 100;

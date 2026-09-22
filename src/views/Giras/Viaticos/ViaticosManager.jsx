@@ -430,6 +430,7 @@ export default function ViaticosManager({ supabase, giraId }) {
     rendicion_gastos_movil_otros: "",
     rendicion_gastos_capacit: "",
     rendicion_transporte_otros: "",
+    seguimiento_color: "",
   });
 
   useEffect(() => {
