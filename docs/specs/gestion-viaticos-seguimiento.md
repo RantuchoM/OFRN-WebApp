@@ -9,6 +9,7 @@ Informe en **Gestión → Seguimiento viáticos** (`/management/viaticos_seguimi
 - Fuente: solo `giras_viaticos_detalle` (no manuales, no destaques, no SCRN).
 - **Solo lectura:** persona/rol/tramo, salida, regreso, programa, monto.
 - **Editable y persistido:** `seguimiento_color` (`amarillo` | `verde` | `celeste` | `rojo`).
+- La misma marca se ve y se cambia en la tabla de viáticos de la gira (`ViaticosTable`) con el control compartido; no hay un segundo sistema de color.
 - Filtro por año de `programas.fecha_desde` (default: año calendario actual) + búsqueda por nombre/programa.
 - Filtros por columna (valores únicos con checkboxes) en persona, salida, regreso, programa, monto y color.
 - Export Excel con las mismas columnas y colores de fila.
@@ -26,6 +27,8 @@ Informe en **Gestión → Seguimiento viáticos** (`/management/viaticos_seguimi
 | Rendición | Suma de `rendicion_viaticos` + gastos rendidos. Ojo 👁 muestra los mismos conceptos en modo rendición (apilado naranja/verde/diff si ambos ojos activos) |
 | Color | desplegable persistido (`seguimiento_color`) con muestra de color; pinta la fila |
 
+La marca es **por fila** de `giras_viaticos_detalle` (si hay tramos, cada tramo puede tener color distinto). No es un color del integrante en catálogo.
+
 La columna **Tipo** (`seguimiento_tipo`: Viatico / Reintegro) se retiró de la planilla. El campo sigue en DB por compatibilidad pero ya no se edita ni exporta desde Gestión.
 
 ## Base de datos
@@ -40,6 +43,7 @@ Migración `20260831201720_giras_viaticos_detalle_seguimiento.sql`:
 | Área | Archivo |
 |------|--------|
 | Servicio | `src/services/viaticosSeguimientoService.js` |
+| Control de color | `src/components/viaticos/SeguimientoColorSelect.jsx` (también `ViaticosTable`) |
 | Vista | `src/views/Management/ViaticosSeguimientoReport.jsx` |
 | Shell Gestión | `src/views/Management/ManagementView.jsx`, `src/constants/managementPalette.js`, `src/App.jsx` |
 | Migración | `supabase/migrations/20260831201720_giras_viaticos_detalle_seguimiento.sql` |
@@ -56,6 +60,7 @@ Migración `20260831201720_giras_viaticos_detalle_seguimiento.sql`:
 - [x] Colores Dev/Reint invertidos (Dev = celeste, Reint = rojo)
 - [x] Columna Tipo retirada de UI y Excel
 - [x] Desplegable de color con swatch visible
+- [x] Misma marca editable en gira → Viáticos (`ViaticosTable` + `SeguimientoColorSelect`)
 
 ## Fuera de alcance
 

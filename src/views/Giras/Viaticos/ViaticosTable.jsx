@@ -9,6 +9,9 @@ import {
   IconScissors,
   IconLayers,
 } from "../../../components/ui/Icons";
+import SeguimientoColorSelect, {
+  seguimientoColorRowBgClass,
+} from "../../../components/viaticos/SeguimientoColorSelect";
 import "./ViaticosSheet.css";
 import RenunciaViaticosExportOption from "./RenunciaViaticosExportOption";
 import {
@@ -693,7 +696,10 @@ export default function ViaticosTable({
                     className="rounded text-indigo-600"
                   />
                 </th>
-                <th className="px-3 py-3 min-w-[13rem] w-52 max-w-[13rem] sticky top-0 left-[40px] z-40 bg-slate-50 border-b border-r border-slate-200 shadow-[4px_0_8px_-2px_rgba(0,0,0,0.1)]">
+                <th className="px-1 py-3 w-12 text-center sticky top-0 left-[40px] z-40 bg-slate-50 border-b border-r border-slate-200">
+                  Color
+                </th>
+                <th className="px-3 py-3 min-w-[13rem] w-52 max-w-[13rem] sticky top-0 left-[88px] z-40 bg-slate-50 border-b border-r border-slate-200 shadow-[4px_0_8px_-2px_rgba(0,0,0,0.1)]">
                   Integrante
                 </th>
 
@@ -861,6 +867,11 @@ export default function ViaticosTable({
                   tramoGroup.length > 0 &&
                   String(row.id) === String(tramoGroup[0].id);
 
+                const hasColorMark = Boolean(row.seguimiento_color);
+                const colorBg = hasColorMark
+                  ? seguimientoColorRowBgClass(row.seguimiento_color)
+                  : "";
+
                 let rowBgClass = "bg-white group-hover:bg-slate-50";
                 if (row.noEstaEnRoster)
                   rowBgClass = "bg-orange-100 hover:bg-orange-200";
@@ -873,9 +884,7 @@ export default function ViaticosTable({
                   ? "bg-orange-100"
                   : isSelected
                     ? "bg-indigo-50"
-                    : esTramo
-                      ? "bg-violet-50/40"
-                      : "bg-white";
+                    : colorBg || (esTramo ? "bg-violet-50/40" : "bg-white");
 
                 return (
                   <tr
@@ -894,9 +903,22 @@ export default function ViaticosTable({
                       />
                     </td>
 
+                    <td
+                      className={`px-1 py-1.5 border-b border-r border-slate-100 sticky left-[40px] z-20 ${stickyBgClass}`}
+                    >
+                      <SeguimientoColorSelect
+                        compact
+                        value={row.seguimiento_color}
+                        disabled={isDeleting}
+                        onChange={(next) =>
+                          onUpdateRow(row.id, "seguimiento_color", next)
+                        }
+                      />
+                    </td>
+
                     {/* NOMBRE */}
                     <td
-                      className={`px-3 py-2 font-medium text-slate-700 border-b border-r border-slate-200 sticky left-[40px] z-20 shadow-sm min-w-[13rem] w-52 max-w-[13rem] ${stickyBgClass} ${
+                      className={`px-3 py-2 font-medium text-slate-700 border-b border-r border-slate-200 sticky left-[88px] z-20 shadow-sm min-w-[13rem] w-52 max-w-[13rem] ${stickyBgClass} ${
                         esTramo ? "border-l-[3px] border-l-violet-400" : ""
                       }`}
                     >

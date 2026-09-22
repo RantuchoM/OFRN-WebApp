@@ -319,6 +319,9 @@ export function useViaticosIndividuales(
         valueToSave = Number.isFinite(n) ? round2(n) : null;
       }
     }
+    if (field === "seguimiento_color") {
+      valueToSave = value || null;
+    }
 
     const updatedRow = { ...currentRow, [field]: valueToSave };
     setRows((prev) => prev.map((r) => (r.id === id ? updatedRow : r)));
