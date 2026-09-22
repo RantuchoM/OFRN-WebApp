@@ -61,12 +61,12 @@
 - **Sin persistencia** localStorage (estado de componente).
 
 ## 10. Agenda: conciertos de programa en Borrador
-- **Estado**: Completado (2026-08-30). Actualizado (2026-09-08): resumen anual de Giras.
-- **Comportamiento**: Con el filtro de giras activas (sin «Mostrar borradores»), los **conciertos** (`id_tipo_evento = 1`) de un programa en estado `Borrador` se muestran por defecto a músicos y al resto de roles, con tag **Borrador** en la tarjeta (móvil y desktop). Ensayos, comidas, logística y demás tipos del mismo programa borrador siguen ocultos.
-- **Giras listado (Resumen año)**: el conteo de programas/ensayos vigentes no cambia; si hay programas `estado === 'Borrador'` (columna `programas.estado`) se agrega el sufijo compacto **`+ n [Borrador]`** (mismo badge slate). No oculta las cards borrador del listado. Editor/admin ven todos los programas del año; el músico sigue viendo solo su convocatoria. Ensayos de ensamble siguen siendo personales.
-- **Excepciones previas**: paradas del vehículo asignado siguen visibles con **Transporte tildado** aunque el programa no esté vigente, y aunque la parada esté tagueada con un `eventos_grupos` distinto al del músico (boarding logístico ≠ convocatoria editorial). Si Filtros → Categorías destilda **Transporte**, esas paradas **no** se muestran (compacta y resto de vistas de `UnifiedAgenda`).
-- **Staff**: el toggle «Mostrar borradores» sigue revelando el resto de eventos no vigentes.
-- **Implementación**: `UnifiedAgenda.jsx` (`filteredItems` + badge en tarjeta).
+- **Estado**: Completado (2026-08-30). Actualizado (2026-09-22): músicos ven borradores de cámara/jazz y nunca Sinfónico, Comisión ni Camerata.
+- **Músicos de fila** (no editor, no gestión, no técnico, no coordinador de ensamble; también «Ver como» un músico): en Filtros aparece **Mostrar borradores**, **activo por defecto**. Con eso se ven los eventos de programas `Borrador` de Ensamble y Jazz Band. Programas `Borrador` de tipo **Sinfónico**, **Comisión** y **Camerata Filarmónica** no se muestran, aunque el toggle esté activo. Pausada sigue oculta. La elección del toggle se recuerda (`musicianDraftsChoice`).
+- **Editores y gestión**: sin cambio. Con el filtro de giras activas (sin «Mostrar borradores»), los **conciertos** (`id_tipo_evento = 1`) de un programa en estado `Borrador` se muestran por defecto, con tag **Borrador**. Ensayos, comidas, logística y demás tipos del mismo programa borrador siguen ocultos hasta activar el toggle.
+- **Giras listado**: el músico entra con estado **Vigente + Borrador**. Esos borradores excluyen los tres tipos de arriba. Editor/admin ven todos los programas del año; el resumen anual del músico no cuenta borradores de esos tipos.
+- **Excepciones previas**: paradas del vehículo asignado siguen visibles con **Transporte tildado** aunque el programa no esté vigente, salvo que el programa sea un borrador excluido para el músico. Si Filtros → Categorías destilda **Transporte**, esas paradas **no** se muestran.
+- **Implementación**: `giraUtils.js` (`isMusicianExcludedDraftProgram`), `GirasView.jsx`, `useAgendaFilters.js`, `UnifiedAgenda.jsx`.
 
 ## 11. Agenda móvil: sin overflow horizontal
 - **Estado**: Completado (2026-09-08).

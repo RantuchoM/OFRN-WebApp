@@ -10,17 +10,36 @@ const STORAGE_KEY_PREFIX = "unified_agenda_filters_v4_";
  * @param {*} defaultVal
  * @returns {*}
  */
-function getInitialFilterState(storageKey, key, defaultVal) {
+function readStoredFilters(storageKey) {
   try {
     const saved = localStorage.getItem(storageKey);
-    if (saved) {
-      const p = JSON.parse(saved);
-      if (p[key] !== undefined) return p[key];
-    }
+    if (!saved) return null;
+    return JSON.parse(saved);
   } catch (e) {
     console.error("Error reading filters", e);
+    return null;
   }
+}
+
+function getInitialFilterState(storageKey, key, defaultVal) {
+  const p = readStoredFilters(storageKey);
+  if (p && p[key] !== undefined) return p[key];
   return defaultVal;
+}
+
+/**
+ * Músicos: «Mostrar borradores» arranca activo.
+ * Si ya eligieron (musicianDraftsChoice), se respeta ese valor.
+ */
+function resolveShowNonActive(storageKey, preferDrafts, isViewAsMode) {
+  if (isViewAsMode) return !!preferDrafts;
+  const p = readStoredFilters(storageKey);
+  if (preferDrafts) {
+    if (p?.musicianDraftsChoice === true) return !!p.showNonActive;
+    return true;
+  }
+  if (p && p.showNonActive !== undefined) return !!p.showNonActive;
+  return false;
 }
 
 function applyRoleDefaultFilters({
@@ -31,6 +50,7 @@ function applyRoleDefaultFilters({
   isTechnician,
   canSeeTechEvents = false,
   defaultPersonalFilter,
+  preferDrafts = false,
   isViewAsMode = false,
   isPersonalGuest = false,
   setSelectedCategoryIds,
@@ -48,7 +68,7 @@ function applyRoleDefaultFilters({
     setShowOnlyMyTransport(usePersonalAgendaView);
     setShowOnlyMyMeals(usePersonalAgendaView);
     setShowNoGray(false);
-    setShowNonActive(false);
+    setShowNonActive(!!preferDrafts);
     setTechFilter(canSeeTechEvents ? "all" : "no_tech");
     if (availableCategories.length > 0) {
       setSelectedCategoryIds(
@@ -61,7 +81,7 @@ function applyRoleDefaultFilters({
   }
 
   setSelectedCategoryIds([]);
-  setShowNonActive(false);
+  setShowNonActive(!!preferDrafts);
   setShowOnlyMyTransport(defaultPersonalFilter);
   setShowOnlyMyMeals(defaultPersonalFilter);
   setShowNoGray(false);
@@ -74,6 +94,7 @@ function loadFiltersFromStorage({
   isManagement,
   isTechnician,
   defaultPersonalFilter,
+  preferDrafts = false,
   setSelectedCategoryIds,
   setShowNonActive,
   setShowOnlyMyTransport,
@@ -90,7 +111,7 @@ function loadFiltersFromStorage({
         loadedCats = loadedCats.filter((id) => id !== 3);
       }
       setSelectedCategoryIds(loadedCats);
-      setShowNonActive(p.showNonActive || false);
+      setShowNonActive(resolveShowNonActive(storageKey, preferDrafts, false));
       setShowOnlyMyTransport(p.showOnlyMyTransport ?? defaultPersonalFilter);
       setShowOnlyMyMeals(p.showOnlyMyMeals ?? defaultPersonalFilter);
       setShowNoGray(p.showAllTransport || false);
@@ -101,7 +122,7 @@ function loadFiltersFromStorage({
   }
 
   setSelectedCategoryIds([]);
-  setShowNonActive(false);
+  setShowNonActive(!!preferDrafts);
   setShowOnlyMyTransport(defaultPersonalFilter);
   setShowOnlyMyMeals(defaultPersonalFilter);
   setShowNoGray(false);
@@ -132,6 +153,7 @@ export function useAgendaFilters({
   isTechnician = false,
   canSeeTechEvents = false,
   isViewAsMode = false,
+  preferDrafts = false,
 }) {
   const baseKey = `${STORAGE_KEY_PREFIX}${effectiveUserId}`;
   const storageKey = isPersonalGuest ? `${baseKey}_personal_link` : baseKey;
@@ -145,10 +167,11 @@ export function useAgendaFilters({
     }
     return saved;
   });
+  const musicianDraftsChoiceRef = useRef(
+    readStoredFilters(storageKey)?.musicianDraftsChoice === true,
+  );
   const [showNonActive, setShowNonActive] = useState(() =>
-    isViewAsMode
-      ? false
-      : getInitialFilterState(storageKey, "showNonActive", false),
+    resolveShowNonActive(storageKey, preferDrafts, isViewAsMode),
   );
   const [showOnlyMyTransport, setShowOnlyMyTransport] = useState(() =>
     isViewAsMode
@@ -190,6 +213,7 @@ export function useAgendaFilters({
       isTechnician,
       canSeeTechEvents,
       defaultPersonalFilter,
+      preferDrafts,
       isViewAsMode,
       isPersonalGuest,
       setSelectedCategoryIds,
@@ -207,6 +231,7 @@ export function useAgendaFilters({
       isTechnician,
       canSeeTechEvents,
       defaultPersonalFilter,
+      preferDrafts,
       isViewAsMode,
       isPersonalGuest,
     ],
@@ -230,6 +255,9 @@ export function useAgendaFilters({
       showOnlyMyTransport,
       showOnlyMyMeals,
       showAllTransport: showNoGray,
+      ...(musicianDraftsChoiceRef.current
+        ? { musicianDraftsChoice: true }
+        : {}),
     };
     localStorage.setItem(storageKey, JSON.stringify(data));
   }, [
@@ -271,6 +299,7 @@ export function useAgendaFilters({
         isManagement,
         isTechnician,
         defaultPersonalFilter,
+        preferDrafts,
         setSelectedCategoryIds,
         setShowNonActive,
         setShowOnlyMyTransport,
@@ -360,6 +389,24 @@ export function useAgendaFilters({
     roleDefaultsArgs,
   ]);
 
+  const prevPreferDraftsRef = useRef(preferDrafts);
+  useEffect(() => {
+    const turnedOn = preferDrafts && !prevPreferDraftsRef.current;
+    prevPreferDraftsRef.current = preferDrafts;
+    if (!turnedOn || musicianDraftsChoiceRef.current) return;
+    setShowNonActive(true);
+  }, [preferDrafts]);
+
+  const commitShowNonActive = useCallback(
+    (value) => {
+      if (preferDrafts && !isViewAsMode) {
+        musicianDraftsChoiceRef.current = true;
+      }
+      setShowNonActive(value);
+    },
+    [preferDrafts, isViewAsMode],
+  );
+
   const handleCategoryToggle = (catId) => {
     setSelectedCategoryIds((prev) =>
       prev.includes(catId)
@@ -375,6 +422,7 @@ export function useAgendaFilters({
     setSelectedCategoryIds,
     showNonActive,
     setShowNonActive,
+    commitShowNonActive,
     showOnlyMyTransport,
     setShowOnlyMyTransport,
     showOnlyMyMeals,

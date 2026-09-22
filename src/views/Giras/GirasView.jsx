@@ -40,6 +40,7 @@ import {
   programOverlapsDateRange,
   toLocalDateString,
 } from "../../utils/giraDateRange";
+import { isMusicianExcludedDraftProgram, MUSICIAN_EXCLUDED_DRAFT_PROGRAM_TYPES } from "../../utils/giraUtils";
 import { useLogistics } from "../../hooks/useLogistics";
 import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 import ManualTrigger from "../../components/manual/ManualTrigger";
@@ -92,6 +93,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
   } = useAuth();
   const canSyncNomencladores = isAdmin || roles.includes("editor");
   const canSeeDraftOrchestral = isAdmin || roles.includes("editor");
+  const [coordinatedEnsembles, setCoordinatedEnsembles] = useState(new Set());
   const ORCHESTRAL_PROGRAM_TYPES = useMemo(
     () => new Set(["Sinfónico", "Camerata Filarmónica"]),
     [],
@@ -99,13 +101,21 @@ export default function GirasView({ supabase, trigger = 0 }) {
   const isOrchestralDraftHidden = useCallback(
     (gira) => {
       const estado = gira?.estado || "Borrador";
-      return (
-        estado === "Borrador" &&
-        ORCHESTRAL_PROGRAM_TYPES.has(gira?.tipo) &&
-        !canSeeDraftOrchestral
-      );
+      if (estado !== "Borrador" || canSeeDraftOrchestral) return false;
+      if (ORCHESTRAL_PROGRAM_TYPES.has(gira?.tipo)) return true;
+      const isPureMusician =
+        !isEditor &&
+        !isManagement &&
+        coordinatedEnsembles.size === 0;
+      return isPureMusician && isMusicianExcludedDraftProgram(gira);
     },
-    [ORCHESTRAL_PROGRAM_TYPES, canSeeDraftOrchestral],
+    [
+      ORCHESTRAL_PROGRAM_TYPES,
+      canSeeDraftOrchestral,
+      isEditor,
+      isManagement,
+      coordinatedEnsembles.size,
+    ],
   );
   const userRole = role ?? "";
   const [statsRefreshTrigger, setStatsRefreshTrigger] = useState(0);
@@ -115,7 +125,6 @@ export default function GirasView({ supabase, trigger = 0 }) {
     setStatsRefreshTrigger((prev) => prev + 1);
   };
 
-  const [coordinatedEnsembles, setCoordinatedEnsembles] = useState(new Set());
   const [searchParams, setSearchParams] = useSearchParams();
 
   const mode = searchParams.get("view") || "LIST";
@@ -173,6 +182,24 @@ export default function GirasView({ supabase, trigger = 0 }) {
     allPrograms: Boolean(isEditor || isAdmin),
     enabled: Boolean(user) && mode === "LIST" && showYearSummary,
   });
+
+  const visibleDraftProgramCounts = useMemo(() => {
+    if (canSeeDraftOrchestral) return yearDraftProgramCounts;
+    const next = { ...yearDraftProgramCounts };
+    const isPureMusician =
+      !isEditor && !isManagement && coordinatedEnsembles.size === 0;
+    for (const tipo of MUSICIAN_EXCLUDED_DRAFT_PROGRAM_TYPES) {
+      if (tipo === "Comisión" && !isPureMusician) continue;
+      delete next[tipo];
+    }
+    return next;
+  }, [
+    yearDraftProgramCounts,
+    canSeeDraftOrchestral,
+    isEditor,
+    isManagement,
+    coordinatedEnsembles.size,
+  ]);
 
   const fetchGiras = useCallback(async () => {
     await refetchGiras();
@@ -487,13 +514,13 @@ export default function GirasView({ supabase, trigger = 0 }) {
     // Prioridad de permisos:
     // 1) Admin / Management / Consulta General -> ve todo
     // 2) Coordinador de ensambles -> Vigente + Borrador
-    // 3) Personal (músico de fila / consulta_personal) -> solo Vigente
+    // 3) Músico de fila -> Vigente + Borrador (sin Sinfónico / Comisión / Camerata en borrador)
     if (isEditor || isManagement) {
       setFilterStatus(new Set(["Vigente", "Borrador", "Pausada"]));
     } else if (isCoord) {
       setFilterStatus(new Set(["Vigente", "Borrador"]));
     } else if (isPersonal) {
-      setFilterStatus(new Set(["Vigente"]));
+      setFilterStatus(new Set(["Vigente", "Borrador"]));
     }
   }, [user, isEditor, isManagement, isPersonal, coordinatedEnsembles.size]);
 
@@ -1866,7 +1893,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
               <GirasYearSummaryBar
                 year={summaryYear}
                 programCounts={yearProgramCounts}
-                draftProgramCounts={yearDraftProgramCounts}
+                draftProgramCounts={visibleDraftProgramCounts}
                 ensayosConvocados={yearEnsayosConvocados}
                 ensayosBorrador={yearEnsayosBorrador}
                 isLoading={yearSummaryLoading}

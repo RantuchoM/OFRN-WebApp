@@ -100,7 +100,11 @@ import {
   isFimbaOnlyAgendaEvent,
   ID_TIPO_TRASLADO_INTERNO,
 } from "../../utils/agendaHelpers";
-import { getProgramBadgeClasses, isUserConvoked } from "../../utils/giraUtils";
+import {
+  getProgramBadgeClasses,
+  isMusicianExcludedDraftProgram,
+  isUserConvoked,
+} from "../../utils/giraUtils";
 import VenueStatusPin from "../ui/VenueStatusPin";
 import LocacionNombreSpan, {
   resolveLocacionNombre,
@@ -614,13 +618,18 @@ export default function UnifiedAgenda({
 
   // --- ESTADOS ---
   const [coordinatedEnsembles, setCoordinatedEnsembles] = useState(new Set());
+  const [coordinationReady, setCoordinationReady] = useState(false);
   const [myEnsembleObjects, setMyEnsembleObjects] = useState([]);
   // SEPARACIÓN DE ESTADOS DE CARGA (loading, isRefreshing, lastUpdate, realtimeStatus vienen de useAgendaData) (CLAVE PARA MÓVIL)
   // IDs de eventos actualizados en esta sesión (indicador titilante; se limpia al refrescar)
   // --- FETCH COORDINACIÓN ---
   useEffect(() => {
+    let cancelled = false;
     const fetchCoordination = async () => {
-      if (!user) return;
+      if (!user) {
+        if (!cancelled) setCoordinationReady(true);
+        return;
+      }
       // Si el usuario es Coordinador General, tiene alcance sobre todos los ensambles.
       const userRoles = (() => {
         const r = user.rol_sistema;
@@ -631,30 +640,40 @@ export default function UnifiedAgenda({
       })();
       const isCoordGeneralUser = userRoles.includes("coord_general");
 
-      if (isCoordGeneralUser) {
-        const { data } = await supabase
-          .from("ensambles")
-          .select("id, ensamble");
-        if (data) {
-          const ids = new Set(data.map((d) => d.id));
-          setCoordinatedEnsembles(ids);
-          setMyEnsembleObjects(data);
+      try {
+        if (isCoordGeneralUser) {
+          const { data } = await supabase
+            .from("ensambles")
+            .select("id, ensamble");
+          if (cancelled) return;
+          if (data) {
+            const ids = new Set(data.map((d) => d.id));
+            setCoordinatedEnsembles(ids);
+            setMyEnsembleObjects(data);
+          }
+          return;
         }
-        return;
-      }
 
-      const { data } = await supabase
-        .from("ensambles_coordinadores")
-        .select("id_ensamble, ensambles(id, ensamble)")
-        .eq("id_integrante", user.id);
-      if (data) {
-        const ids = new Set(data.map((d) => d.id_ensamble));
-        const objects = data.map((d) => d.ensambles).filter(Boolean);
-        setCoordinatedEnsembles(ids);
-        setMyEnsembleObjects(objects);
+        const { data } = await supabase
+          .from("ensambles_coordinadores")
+          .select("id_ensamble, ensambles(id, ensamble)")
+          .eq("id_integrante", user.id);
+        if (cancelled) return;
+        if (data) {
+          const ids = new Set(data.map((d) => d.id_ensamble));
+          const objects = data.map((d) => d.ensambles).filter(Boolean);
+          setCoordinatedEnsembles(ids);
+          setMyEnsembleObjects(objects);
+        }
+      } finally {
+        if (!cancelled) setCoordinationReady(true);
       }
     };
+    setCoordinationReady(false);
     fetchCoordination();
+    return () => {
+      cancelled = true;
+    };
   }, [user, supabase]);
 
   const editorRoles = ["admin", "editor", "coord_general", "director"];
@@ -668,6 +687,17 @@ export default function UnifiedAgenda({
   const isAdmin = isAdminFlag || userRoles.includes("admin");
   const isGlobalEditor = userRoles.some((role) => editorRoles.includes(role));
   const canEdit = isGlobalEditor || coordinatedEnsembles.size > 0;
+  /**
+   * Músico de fila (no editor, no gestión, no técnico, no coordinador de ensamble).
+   * En «Ver como» se trata al simulado como músico si sus roles lo son.
+   */
+  const isMusicianDraftAudience =
+    !isGuest &&
+    !filterIsEditor &&
+    !filterIsManagement &&
+    !filterIsTechnician &&
+    (isViewAsMode ||
+      (coordinationReady && coordinatedEnsembles.size === 0));
   /**
    * Backline / Rider consulta RO en agenda OFRN.
    * Staff de gestión (incl. `consulta_general`); no músicos / técnicos solos.
@@ -779,6 +809,7 @@ export default function UnifiedAgenda({
     setSelectedCategoryIds,
     showNonActive,
     setShowNonActive,
+    commitShowNonActive,
     showOnlyMyTransport,
     setShowOnlyMyTransport,
     showOnlyMyMeals,
@@ -804,6 +835,7 @@ export default function UnifiedAgenda({
     isTechnician: filterIsTechnician,
     canSeeTechEvents: filterCanSeeTechEvents,
     isViewAsMode,
+    preferDrafts: isMusicianDraftAudience,
   });
 
   const [userProfile, setUserProfile] = useState(null);
@@ -1301,9 +1333,29 @@ export default function UnifiedAgenda({
       if (blockedByVisibility && !filterCanSeeHiddenAgendaEvents) return false;
 
       // Filtro de giras activas: permitir paradas de mi transporte aunque el programa no esté vigente.
-      // Conciertos de programa en Borrador: visibles por defecto (músicos y staff) con tag «Borrador».
-      // Otros tipos de evento del programa borrador siguen ocultos salvo «Mostrar borradores».
-      if (!showNonActiveForFilter) {
+      // Músicos: «Mostrar borradores» (activo por defecto) revela eventos de programas Borrador,
+      // salvo Sinfónico, Comisión y Camerata Filarmónica, que nunca entran.
+      // Staff: conciertos de programa en Borrador visibles sin el toggle; el resto, con «Mostrar borradores».
+      if (
+        isMusicianDraftAudience &&
+        isMusicianExcludedDraftProgram(item.programas)
+      ) {
+        return false;
+      }
+
+      if (isMusicianDraftAudience && item.programas) {
+        const estadoGira = item.programas.estado || "Borrador";
+        if (estadoGira === "Borrador" && !showNonActiveForFilter) {
+          return false;
+        }
+        if (
+          estadoGira !== "Vigente" &&
+          estadoGira !== "Borrador" &&
+          !isMyAssignedTransportParada
+        ) {
+          return false;
+        }
+      } else if (!showNonActiveForFilter) {
         const estadoGira = item.programas?.estado || "Borrador";
         const isDraftConcert =
           !item.isProgramMarker &&
@@ -1399,6 +1451,7 @@ export default function UnifiedAgenda({
     agendaSearchQuery,
     canToggleConFimba,
     showWithFimba,
+    isMusicianDraftAudience,
   ]);
 
   const minFilterDateFrom = giraId && giraFirstDate ? giraFirstDate : null;
@@ -2511,6 +2564,8 @@ export default function UnifiedAgenda({
                             }
                             setFilterDateTo(null);
                             if (isGiraFinishedTour) setShowNonActive(true);
+                            else if (isMusicianDraftAudience)
+                              commitShowNonActive(true);
                             setTechFilter(
                               filterCanSeeTechEvents ? "all" : "no_tech",
                             );
@@ -2677,7 +2732,7 @@ export default function UnifiedAgenda({
                             })}
                           </div>
                         </div>
-                        {canEdit && (
+                        {(canEdit || isMusicianDraftAudience) && (
                           <div className="p-2 border-t border-slate-100 bg-amber-50/50">
                             <label
                               className={`flex items-center gap-2 p-2 ${isGiraFinishedTour ? "cursor-default opacity-90" : "cursor-pointer"}`}
@@ -2689,7 +2744,9 @@ export default function UnifiedAgenda({
                                 disabled={isGiraFinishedTour}
                                 onChange={(e) =>
                                   !isGiraFinishedTour &&
-                                  setShowNonActive(e.target.checked)
+                                  (isMusicianDraftAudience
+                                    ? commitShowNonActive(e.target.checked)
+                                    : setShowNonActive(e.target.checked))
                                 }
                               />
                               <span className="text-xs font-bold text-amber-800">

@@ -1115,6 +1115,23 @@ export const getProgramStyle = (type) => {
   return PROGRAM_TYPES[type] || PROGRAM_TYPES["default"];
 };
 
+/**
+ * Programas en estado Borrador que un músico (no editor) no ve
+ * en Agenda general ni en el listado de Giras.
+ */
+export const MUSICIAN_EXCLUDED_DRAFT_PROGRAM_TYPES = new Set([
+  "Sinfónico",
+  "Comisión",
+  "Camerata Filarmónica",
+]);
+
+export function isMusicianExcludedDraftProgram(program) {
+  if (!program) return false;
+  const estado = String(program.estado || "Borrador").trim();
+  if (estado !== "Borrador") return false;
+  return MUSICIAN_EXCLUDED_DRAFT_PROGRAM_TYPES.has(program.tipo);
+}
+
 /** mes_letra, nomenclador y zona no vacíos, unidos con " | ". */
 export const formatProgramNomenMes = (program) => {
   const mes =
