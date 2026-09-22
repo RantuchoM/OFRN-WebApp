@@ -53,6 +53,36 @@ export function resolveLugarViaticosIndividual(row, config = {}, options = {}) {
   return trimOrEmpty(config.lugar_comision);
 }
 
+/**
+ * Lugar que entra al PDF (viático / destaque / rendición): el valor ya
+ * resuelto en la fila (override, paradas o destaques) o el fallback de config.
+ */
+export function resolveLugarComisionPdfField(
+  data,
+  configData = {},
+  mode = "viatico",
+) {
+  const fromRow = trimOrEmpty(data?.lugar_comision);
+  if (fromRow) return fromRow;
+  if (mode === "destaque") {
+    const fromDestaques = resolveLugarDestaqueExport(data, configData);
+    if (fromDestaques) return fromDestaques;
+  }
+  return trimOrEmpty(configData?.lugar_comision);
+}
+
+/** Misma cadena que la grilla / PDF, según lote de destaques o filas individuales. */
+export function resolveLugarForExportRow(row, config = {}, options = {}) {
+  if (options.isDestaquesBatch) {
+    return resolveLugarDestaqueExport(
+      row,
+      config,
+      options.localityNameById || {},
+    );
+  }
+  return resolveLugarViaticosIndividual(row, config, options);
+}
+
 export function resolveMotivoDestaqueExport(person, config = {}) {
   const personal = trimOrEmpty(person?.motivo);
   if (personal) return personal;
@@ -92,7 +122,9 @@ export function formatExportPersonLabel(row) {
 }
 
 /**
- * Valida motivo/lugar con la misma cadena de fallback que el PDF.
+ * Valida motivo/lugar con la misma cadena de fallback que el PDF y la grilla.
+ * Rendición no se trata aparte: si el lugar calculado (override → paradas →
+ * gira) iría al PDF, no se avisa.
  * @param {object[]} rows - filas crudas (tabla o roster destaques), sin normalizar
  * @param {object} config - giras_viaticos_config
  * @param {object} options - flags viatico/destaque/rendicion + isDestaquesBatch + localityNameById
@@ -100,39 +132,28 @@ export function formatExportPersonLabel(row) {
 export function collectMotivoLugarWarningsForExport(rows, config, options = {}) {
   if (!exportIncludesMotivoLugarPdf(options)) return [];
 
-  const localityNameById = options.localityNameById || {};
   const isDestaquesBatch = !!options.isDestaquesBatch;
   const issues = [];
   const seen = new Set();
+  const lugarOptions = {
+    isDestaquesBatch,
+    localityNameById: options.localityNameById || {},
+    logisticsTransportsByPerson: options.logisticsTransportsByPerson,
+    allEvents: options.allEvents,
+  };
 
   for (const row of rows || []) {
     const label = formatExportPersonLabel(row);
     let missingMotivo = false;
     let missingLugar = false;
 
-    if (options.viatico || options.destaque) {
-      const motivo = isDestaquesBatch
-        ? resolveMotivoDestaqueExport(row, config)
-        : resolveMotivoViaticosIndividual(row, config);
-      const lugar = isDestaquesBatch
-        ? resolveLugarDestaqueExport(row, config, localityNameById)
-        : resolveLugarViaticosIndividual(row, config, {
-            logisticsTransportsByPerson: options.logisticsTransportsByPerson,
-            allEvents: options.allEvents,
-          });
-      if (!hasText(motivo)) missingMotivo = true;
-      if (!hasText(lugar)) missingLugar = true;
-    }
+    const motivo = isDestaquesBatch
+      ? resolveMotivoDestaqueExport(row, config)
+      : resolveMotivoViaticosIndividual(row, config);
+    const lugar = resolveLugarForExportRow(row, config, lugarOptions);
 
-    if (options.rendicion) {
-      if (!hasText(resolveMotivoViaticosIndividual(row, config))) {
-        missingMotivo = true;
-      }
-      // Rendición PDF usa config.lugar_comision (no el lugar por fila).
-      if (!hasText(config?.lugar_comision)) {
-        missingLugar = true;
-      }
-    }
+    if (!hasText(motivo)) missingMotivo = true;
+    if (!hasText(lugar)) missingLugar = true;
 
     if (!missingMotivo && !missingLugar) continue;
 
@@ -220,7 +241,7 @@ export function formatMotivoLugarWarningMessage(issues) {
   );
   lines.push(
     "",
-    "Si hay un valor general en la gira (o en destaques), solo se listan quienes no lo heredan.",
+    "Si hay un valor general en la gira (o en destaques), o un lugar calculado por paradas, solo se listan quienes no lo heredan.",
     "",
     "¿Deseas exportar igual?",
   );

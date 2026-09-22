@@ -8,7 +8,7 @@ import {
   RENUNCIA_VIATICOS_TEXTO,
   sumGastosViaticoRow,
 } from "./viaticosAnticipo";
-import { isRecorridosConfig } from "./destaquesLugarComisionRecorridos";
+import { resolveLugarComisionPdfField } from "./viaticosExportMotivoLugar";
 
 /**
  * Lectura de plantillas (suelen salir de Acrobat): limita números raros que a veces rompen parsers.
@@ -271,7 +271,10 @@ export const exportViaticosToPDFForm = async (
         f("cargo", data.cargo);
         f("jornada", data.jornada_laboral);
         f("ciudad_origen", data.ciudad_origen || "");
-        f("lugar_comision", configData.lugar_comision);
+        f(
+          "lugar_comision",
+          resolveLugarComisionPdfField(data, configData, "rendicion"),
+        );
         f("motivo", data.motivo || configData.motivo);
         f(
           "asiento_habitual",
@@ -398,16 +401,10 @@ export const exportViaticosToPDFForm = async (
         f("cargo", data.cargo);
         f("jornada", data.jornada_laboral);
         f("ciudad_origen", data.ciudad_origen || "");
-        const lugarDestaquesRaw = configData.lugar_comision_destaques_exportacion;
-        const lugarParaDoc =
-          data.lugar_comision != null && String(data.lugar_comision).trim() !== ""
-            ? data.lugar_comision
-            : mode === "destaque" &&
-                lugarDestaquesRaw &&
-                !isRecorridosConfig(lugarDestaquesRaw)
-              ? lugarDestaquesRaw
-              : configData.lugar_comision;
-        f("lugar_comision", lugarParaDoc || "");
+        f(
+          "lugar_comision",
+          resolveLugarComisionPdfField(data, configData, mode),
+        );
         const motivoParaDoc =
           data.motivo ||
           (mode === "destaque" && configData.motivo_destaques_exportacion

@@ -58,8 +58,8 @@ export function MotivoLugarExportWarningBody({ issues }) {
         </div>
       ))}
       <p className="text-xs text-slate-500 leading-relaxed">
-        Si hay un valor general en la gira (o en destaques), solo se listan
-        quienes no lo heredan.
+        Si hay un valor general en la gira (o en destaques), o un lugar
+        calculado por paradas, solo se listan quienes no lo heredan.
       </p>
       <p>¿Deseas exportar igual?</p>
     </div>
