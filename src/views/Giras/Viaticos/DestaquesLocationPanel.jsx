@@ -27,6 +27,10 @@ import TransporteOficialBadge from "../../../components/giras/transport/Transpor
 import { calculateDaysDiff } from "../../../utils/viaticosDiasComputables";
 import DiasComputablesHelp from "./DiasComputablesHelp";
 import {
+    blockNumberInputWheel,
+    numberInputWheelRef,
+} from "../../../utils/blockNumberInputWheel";
+import {
     CUADRO_FIRMAS_ENCARGADO_INTEGRANTE_ID,
     exportDestaquesCuadroFirmasDocx,
     exportDestaquesCuadroFirmasPdf,
@@ -235,6 +239,8 @@ const CurrencyInput = ({
             onFocus={handleFocus}
             onBlur={handleBlur}
             onKeyDown={handleKeyDown}
+            onWheel={blockNumberInputWheel}
+            ref={numberInputWheelRef}
             placeholder={placeholder || "$ 0"}
         />
     );

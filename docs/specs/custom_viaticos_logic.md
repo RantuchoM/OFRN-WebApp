@@ -65,6 +65,7 @@ COMMENT ON COLUMN public.giras_viaticos_config.rendicion_fecha IS 'Fecha límite
 - [x] **Aclaración bajo la firma** (`aclaracion_firma` en plantillas AcroForm): viático, destaque y rendición rellenan `Apellido, Nombre` con `setText` en el campo `aclaracion_firma`; la imagen de firma sigue en `firma_link` / `firma_imagen`. Preview alineado en `ViaticosForm.jsx` y `RendicionForm.jsx`.
 - [x] **Logística en tramos desdoblados** (`resolveViaticoRowLogData` en `viaticosLogisticsSchedule.js`): filas con `id_evento_parada_inicio` / `id_evento_parada_fin` conservan fechas del tramo y resuelven **patente oficial** (y etiquetas de parada salida/llegada) desde el transporte de la parada de inicio, con fallback al `logisticsMap` del integrante. Usado en `ViaticosTable` y en `buildSelectedExportData` de `ViaticosManager`.
 - [x] **Vehículo oficial** (`transportes.es_oficial`): si el bus de catálogo es oficial, exportación de viáticos/destaques tilda `check_patente_oficial` (`resolveCheckPatenteOficial`). Spec: `docs/specs/transportes-es-oficial.md`.
+- [x] **Wheel no cambia montos** (`src/utils/blockNumberInputWheel.js`): en inputs numéricos de Viáticos (`CurrencyInput` de tabla/destaques, panel masivo, modal valor diario) `preventDefault` en `wheel` (listener no pasivo) para que Chrome no incremente centavos al hacer hover+rueda.
 - [x] **Horario por localidad con varios charters** (`findBestRouteRule`): mantiene Localidad > Región > General; a igual alcance, la subida usa el evento **más temprano** y la bajada el **más tardío** (p. ej. Villa Regina: charter 05/08 + bajada 08/08). Consumido por destaques masivos y schedules de localidad.
 - [x] **Ventana individual = primera ↑ / última ↓ (2026-09-10):** para **todos** los integrantes OFRN, `fecha_salida` / `fecha_llegada` del viático salen de la logística de transporte (`giras_logistica_rutas`, IDs numéricos):
   - **Inicio:** primera subida (↑) del integrante en **cualquier** `giras_transportes` de la gira.
@@ -89,3 +90,4 @@ COMMENT ON COLUMN public.giras_viaticos_config.rendicion_fecha IS 'Fecha límite
 | Logística tramos | `src/utils/viaticosLogisticsSchedule.js` (`resolveViaticoRowLogData`) |
 | Primera ↑ / última ↓ | `src/hooks/useLogistics.js` (`calculateLogisticsSummary`) + `buildPersonalLogisticsFromSummary` |
 | Esquema | `supabase/schema.sql` |
+| Wheel montos | `src/utils/blockNumberInputWheel.js` |

@@ -19,6 +19,10 @@ import {
 } from "../../../components/ui/Icons";
 import RenunciaViaticosExportOption from "./RenunciaViaticosExportOption";
 import { useConfirmDialog } from "../../../hooks/useConfirmDialog";
+import {
+  blockNumberInputWheel,
+  numberInputWheelRef,
+} from "../../../utils/blockNumberInputWheel";
 
 // --- COMPONENTE AUXILIAR ACCORDION ---
 const AccordionSection = ({
@@ -404,6 +408,8 @@ export default function ViaticosBulkEditPanel({
                         className="w-full p-1.5 border rounded text-xs text-right"
                         value={values[item.key] || ""}
                         onChange={(e) => handleChange(item.key, e.target.value)}
+                        onWheel={blockNumberInputWheel}
+                        ref={numberInputWheelRef}
                       />
                     </div>
                   ))}
@@ -418,6 +424,8 @@ export default function ViaticosBulkEditPanel({
                       onChange={(e) =>
                         handleChange("gasto_otros", e.target.value)
                       }
+                      onWheel={blockNumberInputWheel}
+                      ref={numberInputWheelRef}
                     />
                   </div>
                 </div>
@@ -455,6 +463,8 @@ export default function ViaticosBulkEditPanel({
                         className="w-24 p-1.5 border border-green-200 rounded text-xs text-right bg-white"
                         value={values[field.id] || ""}
                         onChange={(e) => handleChange(field.id, e.target.value)}
+                        onWheel={blockNumberInputWheel}
+                        ref={numberInputWheelRef}
                       />
                     </div>
                   ))}

@@ -21,6 +21,10 @@ import {
 import { resolveViaticoRowLogData } from "../../../utils/viaticosLogisticsSchedule";
 import { resolveCheckPatenteOficial } from "../../../utils/transporteOficial";
 import TransporteOficialBadge from "../../../components/giras/transport/TransporteOficialBadge";
+import {
+  blockNumberInputWheel,
+  numberInputWheelRef,
+} from "../../../utils/blockNumberInputWheel";
 import DiasComputablesHelp from "./DiasComputablesHelp";
 
 // --- HELPERS DE FORMATO ---
@@ -375,6 +379,8 @@ const CurrencyInput = ({
       onFocus={handleFocus}
       onBlur={handleBlur}
       onKeyDown={handleKeyDown}
+      onWheel={blockNumberInputWheel}
+      ref={numberInputWheelRef}
       placeholder={placeholder || "0"}
     />
   );
