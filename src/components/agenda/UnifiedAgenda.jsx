@@ -95,6 +95,7 @@ import {
   getAgendaTransportFlags,
   buildAgendaPdfExportItems,
   eventMatchesAgendaSearch,
+  eventPassesAgendaCategoryFilter,
   getAccentInsensitiveHighlightRanges,
   isFimbaOnlyAgendaEvent,
   ID_TIPO_TRASLADO_INTERNO,
@@ -1299,8 +1300,6 @@ export default function UnifiedAgenda({
       // Staff de gestión (sin consulta_general): siempre ve paradas ocultas.
       if (blockedByVisibility && !filterCanSeeHiddenAgendaEvents) return false;
 
-      const catId = item.tipos_evento?.categorias_tipos_eventos?.id;
-
       // Filtro de giras activas: permitir paradas de mi transporte aunque el programa no esté vigente.
       // Conciertos de programa en Borrador: visibles por defecto (músicos y staff) con tag «Borrador».
       // Otros tipos de evento del programa borrador siguen ocultos salvo «Mostrar borradores».
@@ -1346,12 +1345,12 @@ export default function UnifiedAgenda({
           return false;
       }
 
-      // Paradas del vehículo asignado saltan el filtro de categoría (p. ej. Traslado
-      // cat. 6 / Logística cat. 3), aunque "Solo mi transporte" no esté activo.
-      if (selectedCategoryIds.length > 0) {
-        if (catId && !selectedCategoryIds.includes(catId)) {
-          if (!isMyAssignedTransportParada) return false;
-        }
+      // Categoría = interruptor de visibilidad. Transporte destildado oculta
+      // todas las paradas/traslados (incl. vehículo asignado / INTERNO).
+      // Con Transporte tildado, la excepción de convocatoria sigue en
+      // useAgendaData (`isAssignedVehicleAgendaStop`).
+      if (!eventPassesAgendaCategoryFilter(item, selectedCategoryIds)) {
+        return false;
       }
 
       // Filtro "Solo mi transporte": ocultar resto de logística, pero nunca mis subidas/bajadas

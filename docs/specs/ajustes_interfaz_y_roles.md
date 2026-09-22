@@ -64,7 +64,7 @@
 - **Estado**: Completado (2026-08-30). Actualizado (2026-09-08): resumen anual de Giras.
 - **Comportamiento**: Con el filtro de giras activas (sin «Mostrar borradores»), los **conciertos** (`id_tipo_evento = 1`) de un programa en estado `Borrador` se muestran por defecto a músicos y al resto de roles, con tag **Borrador** en la tarjeta (móvil y desktop). Ensayos, comidas, logística y demás tipos del mismo programa borrador siguen ocultos.
 - **Giras listado (Resumen año)**: el conteo de programas/ensayos vigentes no cambia; si hay programas `estado === 'Borrador'` (columna `programas.estado`) se agrega el sufijo compacto **`+ n [Borrador]`** (mismo badge slate). No oculta las cards borrador del listado. Editor/admin ven todos los programas del año; el músico sigue viendo solo su convocatoria. Ensayos de ensamble siguen siendo personales.
-- **Excepciones previas**: paradas del vehículo asignado siguen visibles aunque el programa no esté vigente, y aunque la parada esté tagueada con un `eventos_grupos` distinto al del músico (boarding logístico ≠ convocatoria editorial).
+- **Excepciones previas**: paradas del vehículo asignado siguen visibles con **Transporte tildado** aunque el programa no esté vigente, y aunque la parada esté tagueada con un `eventos_grupos` distinto al del músico (boarding logístico ≠ convocatoria editorial). Si Filtros → Categorías destilda **Transporte**, esas paradas **no** se muestran (compacta y resto de vistas de `UnifiedAgenda`).
 - **Staff**: el toggle «Mostrar borradores» sigue revelando el resto de eventos no vigentes.
 - **Implementación**: `UnifiedAgenda.jsx` (`filteredItems` + badge en tarjeta).
 
@@ -80,3 +80,10 @@
   - Header de gira / filtro Grupos / chrome de `App.jsx`: `min-w-0` y `overflow-x-hidden` de red de seguridad.
 - **Rutas afectadas:** Agenda de gira (`view=AGENDA`) y Agenda general (`FULL_AGENDA`); ambas usan `UnifiedAgenda`.
 - **Implementación:** `UnifiedAgenda.jsx`, `GirasView.jsx`, `GiraGruposFilterControl.jsx`, `ConnectionBadge.jsx`, `App.jsx`.
+
+## 12. Agenda: categoría Transporte = visibilidad de paradas
+- **Estado:** Completado (2026-09-22).
+- **Problema:** En Filtros → Categorías, destildar **Transporte** dejaba filas de parada/traslado (charter, camioneta, chips TRASLADO) en vista compacta y las demás, porque `isAssignedVehicleAgendaStop` salteaba el filtro de categoría.
+- **Comportamiento:** el checkbox de categoría es el interruptor. Sin Transporte, no se listan eventos de transporte. Con Transporte tildado, la excepción de vehículo asignado sigue aplicando a **convocatoria** (tag Crimson/Vergara no oculta la subida).
+- **Helper:** `eventPassesAgendaCategoryFilter` / `isAgendaTransportCategoryEvent` en `agendaHelpers.js`. Compacta y vista expandida de `UnifiedAgenda` (Agenda de gira y Agenda general) usan el mismo `filteredItems`.
+- **Implementación:** `agendaHelpers.js`, `UnifiedAgenda.jsx`. Specs: `refactor-transporte-enum.md`, `giras-grupos-convocatoria.md`.

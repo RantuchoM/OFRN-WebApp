@@ -20,6 +20,34 @@ import {
 export const ID_TIPO_TRASLADO_INTERNO = 35;
 const TIPO_TRANSPORTE_SALIDA = 11;
 const TIPO_TRANSPORTE_LLEGADA = 12;
+/** Catálogo `categorias_tipos_eventos` — checkbox Filtros → Transporte. */
+export const ID_CATEGORIA_TRANSPORTE = 6;
+/** Tipos de parada/traslado (EventForm 11/12, INTERNO 35, catálogo 28/31). */
+const AGENDA_TRANSPORT_TIPO_IDS = new Set([11, 12, 28, 31, 35]);
+
+function agendaEventCategoriaId(item) {
+  const raw =
+    item?.tipos_evento?.categorias_tipos_eventos?.id ??
+    item?.tipos_evento?.id_categoria ??
+    item?.tipo_id_categoria ??
+    item?.id_categoria;
+  const id = Number(raw);
+  return Number.isFinite(id) ? id : null;
+}
+
+function agendaEventCategoriaNombre(item) {
+  return String(
+    item?.tipos_evento?.categorias_tipos_eventos?.nombre ||
+      item?.categoria_nombre ||
+      "",
+  )
+    .trim()
+    .toLowerCase();
+}
+
+function hasLinkedAgendaVehicle(item) {
+  return item?.id_gira_transporte != null && item.id_gira_transporte !== "";
+}
 
 /** Parada / traslado interno con vehículo vinculado (`id_gira_transporte`). */
 export function isLogisticsTransportEvent(item) {
@@ -31,6 +59,43 @@ export function isLogisticsTransportEvent(item) {
     tipo === ID_TIPO_TRASLADO_INTERNO;
   if (!isTipoTransporte) return false;
   return !!item.id_gira_transporte;
+}
+
+/**
+ * Evento de transporte para el filtro de categoría de Agenda (paradas,
+ * charter, camioneta, chips TRASLADO). Incluye tipos 11/12/28/31/35,
+ * categoría Transporte (id 6) y paradas con vehículo aunque el tipo esté
+ * tagueado como Otros / Logística.
+ */
+export function isAgendaTransportCategoryEvent(item) {
+  if (!item || item.isProgramMarker) return false;
+  if (isLogisticsTransportEvent(item)) return true;
+  const tipo = Number(item.id_tipo_evento ?? item.tipos_evento?.id);
+  if (AGENDA_TRANSPORT_TIPO_IDS.has(tipo)) return true;
+  if (agendaEventCategoriaId(item) === ID_CATEGORIA_TRANSPORTE) return true;
+  if (agendaEventCategoriaNombre(item) === "transporte") return true;
+  if (hasLinkedAgendaVehicle(item)) return true;
+  return false;
+}
+
+/**
+ * Filtro de categorías de Agenda. `selectedCategoryIds` vacío = sin filtro.
+ * El checkbox Transporte es el interruptor de visibilidad: las paradas del
+ * vehículo asignado (`isAssignedVehicleAgendaStop`) no saltean este filtro.
+ * Con Transporte tildado, una parada tagueada como Otros/Logística sigue
+ * visible (la excepción de convocatoria/Crimson vive en `useAgendaData`).
+ */
+export function eventPassesAgendaCategoryFilter(item, selectedCategoryIds) {
+  if (!selectedCategoryIds?.length) return true;
+  const selected = new Set(
+    selectedCategoryIds.map(Number).filter(Number.isFinite),
+  );
+  if (isAgendaTransportCategoryEvent(item)) {
+    return selected.has(ID_CATEGORIA_TRANSPORTE);
+  }
+  const catId = agendaEventCategoriaId(item);
+  if (catId == null) return true;
+  return selected.has(catId);
 }
 
 /**
@@ -118,6 +183,7 @@ export function getAgendaTransportFlags(item, myTransportLogistics = {}) {
  * Parada del bus asignado al músico (o traslado INTERNO).
  * Debe quedar en la agenda aunque `eventos_grupos` liste otro grupo de
  * convocatoria: el tag editorial del evento no anula la asignación logística.
+ * No saltea el filtro de categoría Transporte (`eventPassesAgendaCategoryFilter`).
  */
 export function isAssignedVehicleAgendaStop(item, myTransportLogistics = {}) {
   return getAgendaTransportFlags(item, myTransportLogistics).isMyTransport;
