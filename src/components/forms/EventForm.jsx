@@ -817,10 +817,11 @@ export default function EventForm({
                   type="button"
                   onClick={onOpenHistory}
                   disabled={loading}
-                  className="p-2 text-indigo-600 hover:bg-indigo-50 border border-indigo-200 rounded-lg transition-colors flex items-center gap-1 text-xs font-bold"
+                  className="p-2 text-indigo-600 hover:bg-indigo-50 border border-indigo-200 rounded-lg transition-colors"
+                  title="Ver historial"
+                  aria-label="Ver historial"
                 >
-                  <IconHistory size={16} />{" "}
-                  <span className="hidden sm:inline">Historial</span>
+                  <IconHistory size={16} />
                 </button>
               )}
             </>

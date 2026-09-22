@@ -467,6 +467,169 @@ function AgendaEventGruposBlock({
   );
 }
 
+function AgendaEventSelectCheck({ checked, onToggle, compact = false }) {
+  return (
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={checked}
+      aria-label={checked ? "Quitar de la selección" : "Seleccionar evento"}
+      title={checked ? "Quitar de la selección" : "Seleccionar evento"}
+      onClick={(e) => {
+        e.stopPropagation();
+        onToggle?.();
+      }}
+      className={`mt-1 shrink-0 flex items-center justify-center rounded border transition-colors ${
+        compact ? "h-3.5 w-3.5" : "h-4 w-4"
+      } ${
+        checked
+          ? "bg-indigo-600 border-indigo-600 text-white"
+          : "bg-white border-slate-300 text-slate-300 hover:border-indigo-400"
+      }`}
+    >
+      <IconCheck
+        size={compact ? 9 : 11}
+        className={checked ? "text-white" : "opacity-40"}
+      />
+    </button>
+  );
+}
+
+/** Hora + check: el tilde queda centrado bajo el texto de la hora (p. ej. 20:00). */
+function AgendaEventTimeCluster({
+  horaInicio,
+  horaFin,
+  timeClassName,
+  endClassName,
+  showSelect,
+  selected,
+  onToggle,
+  compact = false,
+  checkIn = null,
+}) {
+  const select = showSelect ? (
+    <AgendaEventSelectCheck
+      checked={selected}
+      onToggle={onToggle}
+      compact={compact}
+    />
+  ) : null;
+
+  if (checkIn) {
+    return (
+      <div className="inline-flex flex-col items-start font-mono">
+        {checkIn}
+        {select ? (
+          <div className="w-[5ch] flex justify-center">{select}</div>
+        ) : null}
+      </div>
+    );
+  }
+
+  return (
+    <div className="inline-flex flex-col items-center font-mono">
+      <span className={`text-sm font-bold leading-none tabular-nums ${timeClassName}`}>
+        {horaInicio}
+      </span>
+      {horaFin ? (
+        <span
+          className={`mt-0.5 text-sm font-normal leading-none tabular-nums ${endClassName}`}
+        >
+          {horaFin}
+        </span>
+      ) : null}
+      {select}
+    </div>
+  );
+}
+
+function AgendaEventRowTrashButton({ onClick, compact = false }) {
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick?.(e);
+      }}
+      className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-full transition-colors"
+      title="Mover a la papelera"
+      aria-label="Mover a la papelera"
+    >
+      <IconTrash size={compact ? 14 : 16} />
+    </button>
+  );
+}
+
+function AgendaBulkActionsBar({
+  count,
+  onDelete,
+  onHide,
+  onTagGrupos,
+  gruposDisabled = false,
+  gruposReason = "",
+  hideDisabled = false,
+  hideReason = "",
+  onClear,
+  busy = false,
+}) {
+  if (count < 1) return null;
+  return createPortal(
+    <div
+      className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[90] flex flex-wrap items-center justify-center gap-2 px-3 py-2 bg-slate-900 text-white rounded-xl shadow-2xl border border-slate-700 max-w-[calc(100vw-1.5rem)]"
+      role="status"
+      aria-live="polite"
+    >
+      <span className="text-xs font-bold px-1">
+        {count} seleccionado{count === 1 ? "" : "s"}
+      </span>
+      <button
+        type="button"
+        onClick={onDelete}
+        disabled={busy}
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-xs font-bold disabled:opacity-50"
+      >
+        <IconTrash size={14} />
+        Eliminar
+      </button>
+      <button
+        type="button"
+        onClick={onHide}
+        disabled={busy || hideDisabled}
+        title={hideDisabled ? hideReason : "Ocultar en agenda"}
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-xs font-bold disabled:opacity-50"
+      >
+        <IconEyeOff size={14} />
+        Ocultar
+      </button>
+      <button
+        type="button"
+        onClick={onTagGrupos}
+        disabled={busy || gruposDisabled}
+        title={
+          gruposDisabled
+            ? gruposReason
+            : "Etiqueta de grupo de convocatoria"
+        }
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-xs font-bold disabled:opacity-50"
+      >
+        <IconTag size={14} />
+        Etiqueta de grupo
+      </button>
+      <button
+        type="button"
+        onClick={onClear}
+        disabled={busy}
+        className="p-1.5 rounded-lg hover:bg-slate-700 text-slate-300"
+        title="Limpiar selección"
+        aria-label="Limpiar selección"
+      >
+        <IconX size={16} />
+      </button>
+    </div>,
+    document.body,
+  );
+}
+
 export default function UnifiedAgenda({
   supabase,
   giraId = null,
@@ -554,6 +717,9 @@ export default function UnifiedAgenda({
   const [includeGeneralEventsLocal, setIncludeGeneralEventsLocal] =
     useState(false);
   const [gruposAssignTarget, setGruposAssignTarget] = useState(null);
+  const [gruposAssignBulk, setGruposAssignBulk] = useState(null);
+  const [selectedEventIds, setSelectedEventIds] = useState(() => new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
   const [stagePlotViewerEvent, setStagePlotViewerEvent] = useState(null);
   const [backlineConsultaEvento, setBacklineConsultaEvento] = useState(null);
   const [riderConsultaEvento, setRiderConsultaEvento] = useState(null);
@@ -791,6 +957,25 @@ export default function UnifiedAgenda({
     }
     return false;
   };
+
+  const canEditorMutateEvent = (evt) =>
+    !!evt &&
+    evt.is_deleted !== true &&
+    (isGlobalEditor || canUserEditEvent(evt));
+
+  const toggleEventSelected = useCallback((eventId) => {
+    const id = String(eventId);
+    setSelectedEventIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const clearEventSelection = useCallback(() => {
+    setSelectedEventIds(new Set());
+  }, []);
 
   const canImportEvents = !!giraId && isEditor && !user?.isGeneral;
 
@@ -1130,6 +1315,7 @@ export default function UnifiedAgenda({
     message: "",
     messageIsHtml: false,
     hasLogisticsLinks: false,
+    eventIds: [],
   });
   const [permanentDeleteTarget, setPermanentDeleteTarget] = useState(null);
   const [editingEventObj, setEditingEventObj] = useState(null);
@@ -1467,6 +1653,80 @@ export default function UnifiedAgenda({
     isMusicianDraftAudience,
   ]);
 
+  const visibleSelectedEvents = useMemo(() => {
+    if (selectedEventIds.size === 0) return [];
+    return filteredItems.filter(
+      (evt) =>
+        selectedEventIds.has(String(evt.id)) && canEditorMutateEvent(evt),
+    );
+  }, [filteredItems, selectedEventIds]);
+
+  const bulkSharedGiraId = useMemo(() => {
+    if (visibleSelectedEvents.length === 0) return null;
+    const ids = [
+      ...new Set(
+        visibleSelectedEvents
+          .map((e) => e.id_gira)
+          .filter((id) => id != null && id !== ""),
+      ),
+    ];
+    return ids.length === 1 ? ids[0] : null;
+  }, [visibleSelectedEvents]);
+
+  const [bulkGiraGruposCount, setBulkGiraGruposCount] = useState(null);
+  useEffect(() => {
+    if (!bulkSharedGiraId || visibleSelectedEvents.length === 0) {
+      setBulkGiraGruposCount(null);
+      return;
+    }
+    if (giraId && String(giraId) === String(bulkSharedGiraId)) {
+      setBulkGiraGruposCount(giraGrupos.length);
+      return;
+    }
+    let cancelled = false;
+    fetchGiraGrupos(supabase, bulkSharedGiraId).then(({ grupos }) => {
+      if (cancelled) return;
+      setBulkGiraGruposCount((grupos || []).length);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    bulkSharedGiraId,
+    giraId,
+    giraGrupos.length,
+    supabase,
+    visibleSelectedEvents.length,
+  ]);
+
+  const canBulkTagGrupos =
+    (isEditor || isAdmin) &&
+    bulkSharedGiraId != null &&
+    Number(bulkGiraGruposCount) > 0;
+  const bulkGruposReason = (() => {
+    if (!(isEditor || isAdmin)) return "Solo editores pueden etiquetar grupos";
+    if (visibleSelectedEvents.length === 0) return "";
+    const giraCount = new Set(
+      visibleSelectedEvents
+        .map((e) => e.id_gira)
+        .filter((id) => id != null && id !== ""),
+    ).size;
+    const missingGira = visibleSelectedEvents.some(
+      (e) => e.id_gira == null || e.id_gira === "",
+    );
+    if (giraCount > 1 || (giraCount === 1 && missingGira)) {
+      return "Hay giras distintas";
+    }
+    if (giraCount === 0) return "Sin gira asociada";
+    if (bulkGiraGruposCount === 0) return "Esta gira no tiene grupos";
+    if (bulkGiraGruposCount == null) return "Cargando grupos…";
+    return "";
+  })();
+  const canBulkHide = canEditAgendaTechVisibility;
+  const bulkHideReason = canBulkHide
+    ? ""
+    : "Sin permiso para ocultar (ojo / TÉC)";
+
   const minFilterDateFrom = giraId && giraFirstDate ? giraFirstDate : null;
   const currentFilterDateFrom =
     filterDateFrom || getTodayDateStringLocal();
@@ -1674,70 +1934,105 @@ export default function UnifiedAgenda({
     setIsEditOpen(true);
   };
 
-  const handleDeleteEvent = async () => {
-    if (!editFormData.id) return;
-    const id = editFormData.id;
-    const isTransport = [11, 12].includes(Number(editFormData.id_tipo_evento));
+  const emptyDeleteConfirm = {
+    isOpen: false,
+    message: "",
+    messageIsHtml: false,
+    hasLogisticsLinks: false,
+    eventIds: [],
+  };
+
+  const requestMoveEventsToTrash = async (events) => {
+    const list = (Array.isArray(events) ? events : [events]).filter(
+      (e) => e?.id && canEditorMutateEvent(e),
+    );
+    if (list.length === 0) return;
+    const ids = list.map((e) => e.id);
     let hasLogisticsLinks = false;
     let detail = "";
     let detailHtml = null;
-    if (isTransport) {
-      const summary = await getTransportEventAffectedSummary(supabase, id);
-      hasLogisticsLinks = summary.hasLinks;
-      detail = summary.detail;
-      detailHtml = summary.detailHtml ?? null;
+    for (const row of list) {
+      if (![11, 12].includes(Number(row.id_tipo_evento))) continue;
+      const summary = await getTransportEventAffectedSummary(supabase, row.id);
+      if (!summary.hasLinks) continue;
+      hasLogisticsLinks = true;
+      if (summary.detail) {
+        detail = detail ? `${detail}; ${summary.detail}` : summary.detail;
+      }
+      if (summary.detailHtml) {
+        detailHtml = detailHtml
+          ? `${detailHtml}; ${summary.detailHtml}`
+          : summary.detailHtml;
+      }
     }
+    const n = ids.length;
     const baseMsg =
-      "¿Mover este evento a la papelera? Se ocultará en 24 horas. Puedes restaurarlo hasta entonces.";
+      n === 1
+        ? "¿Mover este evento a la papelera? Se ocultará en 24 horas. Puedes restaurarlo hasta entonces."
+        : `¿Mover ${n} eventos a la papelera? Se ocultarán en 24 horas. Puedes restaurarlos hasta entonces.`;
     const transportMsgPlain =
       hasLogisticsLinks && detail
-        ? `\n\nEste evento está vinculado como subida/bajada en logística. Afecta a: ${detail}. Si lo movés a la papelera, se afectará el cálculo de Viáticos; deberás crear un evento nuevo para tal fin si corresponde.`
+        ? `\n\nHay eventos vinculados como subida/bajada en logística. Afecta a: ${detail}. Si los movés a la papelera, se afectará el cálculo de Viáticos; deberás crear un evento nuevo para tal fin si corresponde.`
         : hasLogisticsLinks
-          ? "\n\nEste evento está vinculado como subida/bajada. Si lo movés a la papelera, se afectará el cálculo de Viáticos; deberás crear un evento nuevo para tal fin si corresponde."
+          ? "\n\nHay eventos vinculados como subida/bajada. Si los movés a la papelera, se afectará el cálculo de Viáticos; deberás crear un evento nuevo para tal fin si corresponde."
           : "";
     const transportMsgHtml =
       hasLogisticsLinks && detailHtml
-        ? `\n\nEste evento está vinculado como subida/bajada en logística. Afecta a: ${detailHtml}. Si lo movés a la papelera, se afectará el cálculo de Viáticos; deberás crear un evento nuevo para tal fin si corresponde.`
+        ? `\n\nHay eventos vinculados como subida/bajada en logística. Afecta a: ${detailHtml}. Si los movés a la papelera, se afectará el cálculo de Viáticos; deberás crear un evento nuevo para tal fin si corresponde.`
         : transportMsgPlain;
     setDeleteConfirm({
       isOpen: true,
       message: baseMsg + (detailHtml ? transportMsgHtml : transportMsgPlain),
       messageIsHtml: !!detailHtml,
       hasLogisticsLinks,
+      eventIds: ids,
     });
   };
 
+  const handleDeleteEvent = async () => {
+    const evt = editingEventObj || {
+      id: editFormData.id,
+      id_tipo_evento: editFormData.id_tipo_evento,
+      is_deleted: false,
+    };
+    await requestMoveEventsToTrash([evt]);
+  };
+
   const handleConfirmDeleteEvent = async () => {
-    if (!editFormData.id) return;
-    const id = editFormData.id;
+    const ids = (deleteConfirm.eventIds || []).filter(Boolean);
+    if (ids.length === 0 && editFormData.id) ids.push(editFormData.id);
+    if (ids.length === 0) return;
     const hadLinks = deleteConfirm.hasLogisticsLinks;
-    setDeleteConfirm({
-      isOpen: false,
-      message: "",
-      messageIsHtml: false,
-      hasLogisticsLinks: false,
-    });
+    setDeleteConfirm(emptyDeleteConfirm);
     setLoading(true);
     try {
+      const deletedAt = new Date().toISOString();
       const { error } = await supabase
         .from("eventos")
         .update({
           is_deleted: true,
-          deleted_at: new Date().toISOString(),
+          deleted_at: deletedAt,
         })
-        .eq("id", id);
+        .in("id", ids);
       if (error) throw error;
-      notifyEnsayoEventoSoftDeleted(id);
+      ids.forEach((id) => {
+        notifyEnsayoEventoSoftDeleted(id);
+        markLocalEventMutation(id);
+      });
       setIsEditOpen(false);
-      markLocalEventMutation(id);
-      await refreshEventById(id);
+      clearEventSelection();
+      await Promise.all(ids.map((id) => refreshEventById(id)));
       if (hadLinks) {
         toast.warning(
-          "Evento movido a la papelera. Revisá la logística de integrantes/regiones y creá un evento nuevo para viáticos si corresponde.",
+          ids.length > 1
+            ? "Eventos movidos a la papelera. Revisá la logística de integrantes/regiones y creá un evento nuevo para viáticos si corresponde."
+            : "Evento movido a la papelera. Revisá la logística de integrantes/regiones y creá un evento nuevo para viáticos si corresponde.",
         );
       } else {
         toast.success(
-          "Evento movido a la papelera. Podés restaurarlo en 24 horas.",
+          ids.length > 1
+            ? `${ids.length} eventos movidos a la papelera. Podés restaurarlos en 24 horas.`
+            : "Evento movido a la papelera. Podés restaurarlo en 24 horas.",
         );
       }
     } catch (err) {
@@ -1746,6 +2041,120 @@ export default function UnifiedAgenda({
       setLoading(false);
     }
   };
+
+  const handleBulkHideSelected = async () => {
+    if (!canBulkHide || visibleSelectedEvents.length === 0) return;
+    const transportIds = [];
+    const otherIds = [];
+    visibleSelectedEvents.forEach((evt) => {
+      const { isTransportEvent } = getAgendaTransportFlags(
+        evt,
+        myTransportLogistics,
+      );
+      if (isTransportEvent) transportIds.push(evt.id);
+      else otherIds.push(evt.id);
+    });
+    setBulkBusy(true);
+    try {
+      if (transportIds.length > 0) {
+        const { error } = await supabase
+          .from("eventos")
+          .update({ visible_agenda: false })
+          .in("id", transportIds);
+        if (error) throw error;
+      }
+      if (otherIds.length > 0) {
+        const { error } = await supabase
+          .from("eventos")
+          .update({ tecnica: true })
+          .in("id", otherIds);
+        if (error) throw error;
+      }
+      const allIds = [...transportIds, ...otherIds];
+      allIds.forEach((id) => markLocalEventMutation(id));
+      setItems((prev) =>
+        prev.map((item) => {
+          if (transportIds.some((id) => String(id) === String(item.id))) {
+            return { ...item, visible_agenda: false };
+          }
+          if (otherIds.some((id) => String(id) === String(item.id))) {
+            return { ...item, tecnica: true };
+          }
+          return item;
+        }),
+      );
+      toast.success(
+        allIds.length > 1
+          ? `${allIds.length} eventos ocultos`
+          : "Evento oculto",
+      );
+      clearEventSelection();
+    } catch (err) {
+      toast.error("No se pudo ocultar: " + (err?.message || err));
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
+  const handleBulkTagGrupos = async () => {
+    if (!canBulkTagGrupos || !bulkSharedGiraId) return;
+    let options = grupoFilterOptions;
+    if (
+      !(giraId && String(giraId) === String(bulkSharedGiraId)) ||
+      options.length === 0
+    ) {
+      const { grupos, error } = await fetchGiraGrupos(
+        supabase,
+        bulkSharedGiraId,
+      );
+      if (error) {
+        toast.error("No se pudieron cargar los grupos");
+        return;
+      }
+      options = (grupos || []).map((g) => ({
+        value: Number(g.id),
+        label: g.nombre,
+        color: g.color || GIRA_GRUPO_DEFAULT_COLORS[0],
+      }));
+    }
+    if (options.length === 0) {
+      toast.error("Esta gira no tiene grupos");
+      return;
+    }
+    setGruposAssignBulk({
+      events: visibleSelectedEvents,
+      grupoOptions: options,
+    });
+  };
+
+  useEffect(() => {
+    if (selectedEventIds.size === 0) return;
+    const onKey = (e) => {
+      if (e.key !== "Escape") return;
+      if (
+        deleteConfirm.isOpen ||
+        gruposAssignTarget ||
+        gruposAssignBulk ||
+        isEditOpen ||
+        isCreating ||
+        isRehearsalEditOpen
+      ) {
+        return;
+      }
+      clearEventSelection();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [
+    selectedEventIds.size,
+    deleteConfirm.isOpen,
+    gruposAssignTarget,
+    gruposAssignBulk,
+    isEditOpen,
+    isCreating,
+    isRehearsalEditOpen,
+    clearEventSelection,
+  ]);
 
   const handleRestoreEvent = async (eventId) => {
     try {
@@ -2914,7 +3323,7 @@ export default function UnifiedAgenda({
         </div>
       </div>
 
-      <div className="flex-1 min-w-0 overflow-x-hidden overflow-y-auto bg-slate-50/50 relative">
+      <div className={`flex-1 min-w-0 overflow-x-hidden overflow-y-auto bg-slate-50/50 relative ${visibleSelectedEvents.length > 0 ? "pb-24" : ""}`}>
         {/* SPINNER INICIAL (SOLO SI NO HAY DATOS) */}
         {loading && items.length === 0 && (
           <div className="text-center py-10">
@@ -3085,6 +3494,10 @@ export default function UnifiedAgenda({
                     const isDeleted = evt.is_deleted === true;
                     const canAdminEditDeleted = isAdmin && showDeletedEvents;
                     const isReadOnlyDeleted = isDeleted && !canAdminEditDeleted;
+                    const showEventSelect =
+                      !isOfflineMode && canEditorMutateEvent(evt);
+                    const isEventSelected =
+                      showEventSelect && selectedEventIds.has(String(evt.id));
                     const isAgendaHiddenTransport =
                       isTransportEvent &&
                       evt.visible_agenda === false &&
@@ -3191,7 +3604,8 @@ export default function UnifiedAgenda({
                             ${isReadOnlyDeleted ? " pointer-events-none" : ""}
                             ${!isDeleted && evt.is_guest ? "bg-emerald-50/30 hover:bg-slate-50" : ""}
                             ${!isDeleted && isMyTransport ? "bg-indigo-50/30 border-l-4 border-l-indigo-400 hover:bg-slate-50" : ""}
-                            ${isRecentlyModified && !isDeleted ? "ring-2 ring-blue-500 animate-pulse" : ""}
+                            ${isEventSelected && !isDeleted ? "ring-2 ring-inset ring-indigo-400 bg-indigo-50/50" : ""}
+                            ${isRecentlyModified && !isDeleted && !isEventSelected ? "ring-2 ring-blue-500 animate-pulse" : ""}
                           `}
                                 style={
                                   isDeleted
@@ -3215,35 +3629,49 @@ export default function UnifiedAgenda({
                                 ></div>
 
                                 <div
-                                  className={`font-mono shrink-0 flex flex-col items-stretch pt-1 ${showEnsayoCheckInBlock(evt) ? "min-w-[6.5rem]" : "w-10 items-center"} ${isDeleted ? "text-orange-700" : "text-slate-600"}`}
+                                  className={`shrink-0 pt-1 ${showEnsayoCheckInBlock(evt) ? "min-w-[6.5rem]" : ""} ${isDeleted ? "text-orange-700" : "text-slate-600"}`}
                                 >
-                                  {showEnsayoCheckInBlock(evt) ? (
-                                    <RehearsalCheckInBlock
-                                      evt={evt}
-                                      integranteId={effectiveUserId}
-                                      isToday={evt.fecha === todayStr}
-                                      estado={getEnsayoCheckinEstado(evt.id)}
-                                      onSuccess={refreshEnsayoCheckin}
-                                      onEstadoPatch={patchEnsayoCheckinEstado}
-                                      pairWithSchedule
-                                      scheduleTimeClassName={`text-sm font-bold ${isDeleted ? "text-orange-700" : "text-slate-600"}`}
-                                      scheduleEndClassName={`text-sm font-normal ${isDeleted ? "text-orange-600" : "text-slate-600"}`}
-                                    />
-                                  ) : (
-                                    <>
-                                      <span className="text-sm font-bold text-center">
-                                        {evt.hora_inicio?.slice(0, 5)}
-                                      </span>
-                                      {evt.hora_fin &&
-                                        evt.hora_fin !== evt.hora_inicio && (
-                                          <span
-                                            className={`text-sm font-normal block text-center ${isDeleted ? "text-orange-600" : "text-slate-600"}`}
-                                          >
-                                            {evt.hora_fin.slice(0, 5)}
-                                          </span>
-                                        )}
-                                    </>
-                                  )}
+                                  <AgendaEventTimeCluster
+                                    horaInicio={evt.hora_inicio?.slice(0, 5)}
+                                    horaFin={
+                                      evt.hora_fin &&
+                                      evt.hora_fin !== evt.hora_inicio
+                                        ? evt.hora_fin.slice(0, 5)
+                                        : null
+                                    }
+                                    timeClassName={
+                                      isDeleted
+                                        ? "text-orange-700"
+                                        : "text-slate-600"
+                                    }
+                                    endClassName={
+                                      isDeleted
+                                        ? "text-orange-600"
+                                        : "text-slate-600"
+                                    }
+                                    showSelect={showEventSelect}
+                                    selected={isEventSelected}
+                                    onToggle={() => toggleEventSelected(evt.id)}
+                                    checkIn={
+                                      showEnsayoCheckInBlock(evt) ? (
+                                        <RehearsalCheckInBlock
+                                          evt={evt}
+                                          integranteId={effectiveUserId}
+                                          isToday={evt.fecha === todayStr}
+                                          estado={getEnsayoCheckinEstado(
+                                            evt.id,
+                                          )}
+                                          onSuccess={refreshEnsayoCheckin}
+                                          onEstadoPatch={
+                                            patchEnsayoCheckinEstado
+                                          }
+                                          pairWithSchedule
+                                          scheduleTimeClassName={`text-sm font-bold ${isDeleted ? "text-orange-700" : "text-slate-600"}`}
+                                          scheduleEndClassName={`text-sm font-normal ${isDeleted ? "text-orange-600" : "text-slate-600"}`}
+                                        />
+                                      ) : null
+                                    }
+                                  />
                                 </div>
 
                                 <div className="flex-1 min-w-0 flex flex-col gap-1 py-1">
@@ -3696,6 +4124,14 @@ export default function UnifiedAgenda({
                                               <IconEdit size={14} />
                                             </button>
                                           )}
+                                        {showEventSelect && (
+                                          <AgendaEventRowTrashButton
+                                            compact
+                                            onClick={() =>
+                                              requestMoveEventsToTrash([evt])
+                                            }
+                                          />
+                                        )}
                                       </div>
                                     </>
                                   )}
@@ -3713,7 +4149,8 @@ export default function UnifiedAgenda({
                             ${isReadOnlyDeleted ? " pointer-events-none" : ""}
                             ${!isDeleted && evt.is_guest ? "bg-emerald-50/30 hover:bg-slate-50" : ""}
                             ${!isDeleted && isMyTransport ? "bg-indigo-50/30 hover:bg-slate-50" : ""}
-                            ${isRecentlyModified && !isDeleted ? "ring-2 ring-blue-500 animate-pulse" : ""}
+                            ${isEventSelected && !isDeleted ? "ring-2 ring-inset ring-indigo-400 bg-indigo-50/50" : ""}
+                            ${isRecentlyModified && !isDeleted && !isEventSelected ? "ring-2 ring-blue-500 animate-pulse" : ""}
                           `}
                                 style={
                                   isDeleted
@@ -3738,35 +4175,48 @@ export default function UnifiedAgenda({
 
                                 {/* COLUMNA 1: HORA */}
                                 <div className="col-span-1 min-w-0">
-                                  {showEnsayoCheckInBlock(evt) ? (
-                                    <RehearsalCheckInBlock
-                                      evt={evt}
-                                      integranteId={effectiveUserId}
-                                      isToday={evt.fecha === todayStr}
-                                      estado={getEnsayoCheckinEstado(evt.id)}
-                                      onSuccess={refreshEnsayoCheckin}
-                                      onEstadoPatch={patchEnsayoCheckinEstado}
-                                      pairWithSchedule
-                                      scheduleTimeClassName={`text-sm font-bold ${isDeleted ? "text-orange-700" : "text-slate-700"}`}
-                                      scheduleEndClassName={`text-sm font-normal ${isDeleted ? "text-orange-600" : "text-slate-600"}`}
-                                    />
-                                  ) : (
-                                    <>
-                                      <div
-                                        className={`font-mono text-sm font-bold ${isDeleted ? "text-orange-700" : "text-slate-700"}`}
-                                      >
-                                        {evt.hora_inicio?.slice(0, 5)}
-                                      </div>
-                                      {evt.hora_fin &&
-                                        evt.hora_fin !== evt.hora_inicio && (
-                                          <div
-                                            className={`font-mono text-sm font-normal ${isDeleted ? "text-orange-600" : "text-slate-600"}`}
-                                          >
-                                            {evt.hora_fin.slice(0, 5)}
-                                          </div>
-                                        )}
-                                    </>
-                                  )}
+                                  <AgendaEventTimeCluster
+                                    horaInicio={evt.hora_inicio?.slice(0, 5)}
+                                    horaFin={
+                                      evt.hora_fin &&
+                                      evt.hora_fin !== evt.hora_inicio
+                                        ? evt.hora_fin.slice(0, 5)
+                                        : null
+                                    }
+                                    timeClassName={
+                                      isDeleted
+                                        ? "text-orange-700"
+                                        : "text-slate-700"
+                                    }
+                                    endClassName={
+                                      isDeleted
+                                        ? "text-orange-600"
+                                        : "text-slate-600"
+                                    }
+                                    showSelect={showEventSelect}
+                                    selected={isEventSelected}
+                                    onToggle={() => toggleEventSelected(evt.id)}
+                                    compact
+                                    checkIn={
+                                      showEnsayoCheckInBlock(evt) ? (
+                                        <RehearsalCheckInBlock
+                                          evt={evt}
+                                          integranteId={effectiveUserId}
+                                          isToday={evt.fecha === todayStr}
+                                          estado={getEnsayoCheckinEstado(
+                                            evt.id,
+                                          )}
+                                          onSuccess={refreshEnsayoCheckin}
+                                          onEstadoPatch={
+                                            patchEnsayoCheckinEstado
+                                          }
+                                          pairWithSchedule
+                                          scheduleTimeClassName={`text-sm font-bold ${isDeleted ? "text-orange-700" : "text-slate-700"}`}
+                                          scheduleEndClassName={`text-sm font-normal ${isDeleted ? "text-orange-600" : "text-slate-600"}`}
+                                        />
+                                      ) : null
+                                    }
+                                  />
                                 </div>
 
                                 {/* COLUMNA 2: TIPO */}
@@ -4228,6 +4678,13 @@ export default function UnifiedAgenda({
                                                 <IconEdit size={14} />
                                               </button>
                                             )}
+                                          {showEventSelect && (
+                                            <AgendaEventRowTrashButton
+                                              onClick={() =>
+                                                requestMoveEventsToTrash([evt])
+                                              }
+                                            />
+                                          )}
                                         </div>
                                       </div>
                                     </>
@@ -4271,16 +4728,41 @@ export default function UnifiedAgenda({
       </div>
 
       {/* MODALES */}
+      <AgendaBulkActionsBar
+        count={visibleSelectedEvents.length}
+        onDelete={() => requestMoveEventsToTrash(visibleSelectedEvents)}
+        onHide={handleBulkHideSelected}
+        onTagGrupos={handleBulkTagGrupos}
+        gruposDisabled={!canBulkTagGrupos}
+        gruposReason={bulkGruposReason}
+        hideDisabled={!canBulkHide}
+        hideReason={bulkHideReason}
+        onClear={clearEventSelection}
+        busy={bulkBusy || loading}
+      />
       <EventGruposAssignModal
-        isOpen={!!gruposAssignTarget}
-        evt={gruposAssignTarget}
-        grupoOptions={grupoFilterOptions}
+        isOpen={!!gruposAssignTarget || !!gruposAssignBulk}
+        evt={gruposAssignBulk?.events?.[0] || gruposAssignTarget}
+        events={
+          gruposAssignBulk?.events ||
+          (gruposAssignTarget ? [gruposAssignTarget] : [])
+        }
+        grupoOptions={
+          gruposAssignBulk?.grupoOptions || grupoFilterOptions
+        }
         supabase={supabase}
-        onClose={() => setGruposAssignTarget(null)}
-        onSaved={async (eventId) => {
-          if (!eventId) return;
-          markLocalEventMutation(eventId);
-          await refreshEventById(eventId);
+        onClose={() => {
+          setGruposAssignTarget(null);
+          setGruposAssignBulk(null);
+        }}
+        onSaved={async (eventIds) => {
+          const ids = (
+            Array.isArray(eventIds) ? eventIds : eventIds ? [eventIds] : []
+          ).filter(Boolean);
+          if (ids.length === 0) return;
+          ids.forEach((id) => markLocalEventMutation(id));
+          await Promise.all(ids.map((id) => refreshEventById(id)));
+          if (ids.length > 1) clearEventSelection();
         }}
       />
       <StagePlotViewerModal
@@ -4312,20 +4794,14 @@ export default function UnifiedAgenda({
       />
       <ConfirmModal
         isOpen={deleteConfirm.isOpen}
-        onClose={() =>
-          setDeleteConfirm({
-            isOpen: false,
-            message: "",
-            messageIsHtml: false,
-            hasLogisticsLinks: false,
-          })
-        }
+        onClose={() => setDeleteConfirm(emptyDeleteConfirm)}
         onConfirm={handleConfirmDeleteEvent}
         title="Mover a la papelera"
         message={deleteConfirm.message}
         messageIsHtml={deleteConfirm.messageIsHtml}
         confirmText="Mover a la papelera"
         cancelText="Cancelar"
+        overlayClassName="z-[110]"
       />
       <ConfirmModal
         isOpen={!!permanentDeleteTarget}

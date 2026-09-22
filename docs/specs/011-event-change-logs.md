@@ -64,10 +64,10 @@ CREATE TABLE IF NOT EXISTS public.eventos_logs (
 
 ### Control visible en agenda (conciertos)
 - **Vista**: `src/components/agenda/UnifiedAgenda.jsx` (tarjeta móvil compacta + grilla escritorio).  
-- Conciertos: línea «Creado el … por … · fuente» + botón **Historial** visible (no solo en editar).  
+- Conciertos: línea «Creado el … por … · fuente» + botón de historial **solo ícono** (`IconHistory`; `title`/`aria-label` «Ver historial», sin la palabra «Historial»).
 - Ensayos: icono de historial discreto (siguen existiendo logs de fecha/hora).  
 - Comidas y traslados: **sin** control de historial (no ensuciar la tarjeta).  
-- EventForm (editar concierto): línea de creado en el header + botón Historial en el footer.
+- EventForm (editar concierto): línea de creado en el header + botón historial **solo ícono** en el footer.
 
 ## Reglas de negocio
 - El trigger de UPDATE **solo escribe log si hubo cambio real** en fecha o en alguna de las horas (`IS DISTINCT FROM`).  

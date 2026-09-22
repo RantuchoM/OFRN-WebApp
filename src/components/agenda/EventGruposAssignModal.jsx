@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import { IconCheck, IconLoader, IconTag, IconX } from "../ui/Icons";
@@ -7,12 +7,41 @@ import {
   setEventoGrupos,
 } from "../../services/giraGruposService";
 
+function grupoIdsKey(ids) {
+  return [...new Set((ids || []).map(Number).filter(Number.isFinite))]
+    .sort((a, b) => a - b)
+    .join(",");
+}
+
+function eventListFingerprint(eventList) {
+  return eventList.map((e) => String(e?.id ?? "")).join("|");
+}
+
+function initialGrupoIdsForEvents(eventList) {
+  if (!eventList.length) return [];
+  const first = eventGrupoIdsFromEvent(eventList[0]);
+  const key = grupoIdsKey(first);
+  const allSame = eventList.every(
+    (e) => grupoIdsKey(eventGrupoIdsFromEvent(e)) === key,
+  );
+  return allSame ? first : [];
+}
+
+function eventPlainLabel(evt) {
+  return (
+    evt?.descripcion?.replace(/<[^>]+>/g, "").trim() ||
+    evt?.tipos_evento?.nombre ||
+    "Evento"
+  );
+}
+
 /**
- * Modal portal: checklist de grupos de convocatoria para un evento.
+ * Modal portal: checklist de grupos de convocatoria para uno o varios eventos.
  */
 export default function EventGruposAssignModal({
   isOpen,
   evt,
+  events = null,
   grupoOptions = [],
   supabase,
   onClose,
@@ -20,15 +49,37 @@ export default function EventGruposAssignModal({
 }) {
   const [selected, setSelected] = useState([]);
   const [saving, setSaving] = useState(false);
+  const eventList = useMemo(
+    () =>
+      (Array.isArray(events) && events.length > 0
+        ? events
+        : evt
+          ? [evt]
+          : []
+      ).filter(Boolean),
+    [events, evt],
+  );
+  const fingerprint = eventListFingerprint(eventList);
 
   useEffect(() => {
-    if (!isOpen || !evt) return;
-    setSelected(eventGrupoIdsFromEvent(evt));
-  }, [isOpen, evt]);
+    if (!isOpen || eventList.length === 0) return;
+    setSelected(initialGrupoIdsForEvents(eventList));
+    // fingerprint cubre identidad; eventList cambia de referencia cada render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, fingerprint]);
 
-  if (!isOpen || !evt) return null;
+  if (!isOpen || eventList.length === 0) return null;
 
+  const isBulk = eventList.length > 1;
+  const mixedTags =
+    isBulk &&
+    !eventList.every(
+      (e) =>
+        grupoIdsKey(eventGrupoIdsFromEvent(e)) ===
+        grupoIdsKey(eventGrupoIdsFromEvent(eventList[0])),
+    );
   const selectedSet = new Set(selected.map(Number));
+  const primary = eventList[0];
 
   const toggleGrupo = (id) => {
     const n = Number(id);
@@ -41,13 +92,22 @@ export default function EventGruposAssignModal({
   };
 
   const handleSave = async () => {
-    if (!supabase || !evt?.id) return;
+    if (!supabase || eventList.length === 0) return;
     setSaving(true);
     try {
-      const { error } = await setEventoGrupos(supabase, evt.id, selected);
-      if (error) throw error;
-      toast.success("Grupos actualizados");
-      onSaved?.(evt.id, selected);
+      const ids = [];
+      for (const row of eventList) {
+        if (!row?.id) continue;
+        const { error } = await setEventoGrupos(supabase, row.id, selected);
+        if (error) throw error;
+        ids.push(row.id);
+      }
+      toast.success(
+        ids.length > 1
+          ? `Grupos actualizados en ${ids.length} eventos`
+          : "Grupos actualizados",
+      );
+      onSaved?.(ids, selected);
       onClose?.();
     } catch (err) {
       toast.error("No se pudieron guardar los grupos: " + (err?.message || err));
@@ -56,10 +116,9 @@ export default function EventGruposAssignModal({
     }
   };
 
-  const label =
-    evt.descripcion?.replace(/<[^>]+>/g, "").trim() ||
-    evt.tipos_evento?.nombre ||
-    "Evento";
+  const label = isBulk
+    ? `${eventList.length} eventos`
+    : eventPlainLabel(primary);
 
   return createPortal(
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-3 sm:p-4 animate-in fade-in duration-200">
@@ -172,8 +231,9 @@ export default function EventGruposAssignModal({
         </div>
 
         <p className="px-4 py-2 text-[10px] text-slate-400 border-t border-slate-100 shrink-0">
-          Vacío = visible para todo el roster. Con grupos = solo esos miembros
-          (editores ven todos).
+          {mixedTags
+            ? "Los eventos tienen tags distintos. Guardar reemplaza la etiqueta en todos."
+            : "Vacío = visible para todo el roster. Con grupos = solo esos miembros (editores ven todos)."}
         </p>
 
         <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-2 shrink-0">

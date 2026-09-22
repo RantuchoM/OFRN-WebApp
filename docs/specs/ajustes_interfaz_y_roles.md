@@ -87,3 +87,12 @@
 - **Comportamiento:** el checkbox de categoría es el interruptor. Sin Transporte, no se listan eventos de transporte. Con Transporte tildado, la excepción de vehículo asignado sigue aplicando a **convocatoria** (tag Crimson/Vergara no oculta la subida).
 - **Helper:** `eventPassesAgendaCategoryFilter` / `isAgendaTransportCategoryEvent` en `agendaHelpers.js`. Compacta y vista expandida de `UnifiedAgenda` (Agenda de gira y Agenda general) usan el mismo `filteredItems`.
 - **Implementación:** `agendaHelpers.js`, `UnifiedAgenda.jsx`. Specs: `refactor-transporte-enum.md`, `giras-grupos-convocatoria.md`.
+
+## 13. Agenda: multi-select editor + trash + historial icon-only
+- **Estado:** Completado (2026-09-22).
+- **Quién:** mismo criterio de mutación que el lápiz (`isGlobalEditor` / `canUserEditEvent`). Músicos y viewers: sin check ni trash de fila.
+- **Check:** tilde pequeña **debajo de la hora** (vista compacta y grilla), **centrada horizontalmente bajo el texto** de la hora (`inline-flex` del ancho de `20:00`, no de toda la columna).
+- **Trash de fila:** `IconTrash` rojo a la derecha (como vacante de roster); abre el confirm de papelera existente.
+- **Barra (≥1):** Eliminar (papelera + confirm), Ocultar (ojo/TÉC existente: `visible_agenda` en transporte, `tecnica` en el resto), Etiqueta de grupo (misma gira + `giras_grupos`). Esc limpia. No rompe Filtros → Categorías.
+- **Historial:** botón solo ícono (`IconHistory`); `title` / `aria-label` «Ver historial». Sin la palabra «Historial» en `ConcertHistoryControls`, UnifiedAgenda ni EventForm.
+- **Implementación:** `UnifiedAgenda.jsx`, `EventGruposAssignModal.jsx`, `ConcertHistoryControls.jsx`, `EventForm.jsx`. Specs: `giras-grupos-convocatoria.md`, `011-event-change-logs.md`.
