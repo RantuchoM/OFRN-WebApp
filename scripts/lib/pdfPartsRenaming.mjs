@@ -1,31 +1,15 @@
 /** Renombrado canónico de particellas PDF (reglas pdf-parts-renaming). */
 import { existsSync, readdirSync, renameSync } from "fs";
 import { join } from "path";
+import {
+  canonicalAudioFilename,
+  canonicalMp3Filename,
+  safeFileName,
+} from "../../src/utils/canonicalAudioFilename.js";
 
-export function safeFileName(name) {
-  return String(name ?? "")
-    .replace(/[<>:"/\\|?*]/g, "-")
-    .replace(/\s+/g, " ")
-    .trim()
-    .replace(/\.$/, "");
-}
+export { canonicalAudioFilename, canonicalMp3Filename, safeFileName };
 
 const AUDIO_EXT_RE = /\.(mp3|wav|m4a|flac)$/i;
-
-/**
- * Audio en Para acomodar: `AUDIO - {resto del nombre}.mp3|wav`.
- * Idempotente si ya tiene prefijo AUDIO; quita un "Audio" suelto al final.
- */
-export function canonicalAudioFilename(existingName) {
-  const m = String(existingName || "").match(/^(.*?)(\.(mp3|wav|m4a|flac))$/i);
-  if (!m) return null;
-  let base = m[1].trim();
-  const ext = m[2];
-  base = base.replace(/^AUDIO\s*[-–—:]?\s*/i, "").trim();
-  base = base.replace(/\s+Audio$/i, "").trim();
-  if (!base) return null;
-  return `${safeFileName(`AUDIO - ${base}`)}${ext}`;
-}
 
 export function renameAudioFilesInFolder(folderPath, { dryRun = false } = {}) {
   if (!folderPath || !existsSync(folderPath)) return [];
@@ -143,8 +127,45 @@ export function normalizeInstrumentLabel(rawName) {
 
   const n = name.toLowerCase();
 
+  if (/\bflautim\b/i.test(name)) return "Fl Piccolo";
   if (/\bflutes?\b.*\bpiccolo\b|\bpiccolo\b|\bflauta\s*piccolo\b/i.test(name))
     return "Fl Piccolo";
+  if (/\brequinta\b/i.test(name)) return "Clarinete Requinto";
+  if (/\bclarone\b/i.test(name)) return "Clarinete Bajo";
+  if (/\bclarient[ae]\s*2\b|\bclarinet[ae]\s*2\b/i.test(name))
+    return "Clarinete Bb 2";
+  if (/\bclarient[ae]\s*1\b|\bclarinet[ae]\s*1\b/i.test(name))
+    return "Clarinete Bb 1";
+  if (/\bclarient[ae]\b|\bclarinet[ae]\b/i.test(name) && !/clarinete/i.test(name))
+    return "Clarinete Bb";
+  if (/\bcontrafagote\b/i.test(name)) return "Contrafagot";
+  if (/\bfagote\s*2\b/i.test(name)) return "Fagot 2";
+  if (/\bfagote\s*1\b/i.test(name)) return "Fagot 1";
+  if (/\bfagote\b/i.test(name)) return "Fagot";
+  if (/\bcorne[- ]?ingl[eêé]s\b|\bcorno[- ]?ingl[eêé]s\b/i.test(name))
+    return "Ob EH";
+  if (/\bcornett?o\b|\bcorneta\b/i.test(name)) return "Trompeta Corneta";
+  if (/\btrompete\s*(?:ii|2)\b/i.test(name)) return "Trompeta 2";
+  if (/\btrompete\s*(?:i|1)\b/i.test(name)) return "Trompeta 1";
+  if (/\btrompete\b/i.test(name)) return "Trompeta";
+  if (/\btrompa\s*(?:iv|4)\b/i.test(name)) return "Corno F 4";
+  if (/\btrompa\s*(?:iii|3)\b/i.test(name)) return "Corno F 3";
+  if (/\btrompa\s*(?:ii|2)\b/i.test(name)) return "Corno F 2";
+  if (/\btrompa\s*(?:i|1)\b/i.test(name)) return "Corno F 1";
+  if (/\btrompa\b/i.test(name) && !/trompet/i.test(name)) return "Corno F";
+  if (/\bharpa\b/i.test(name)) return "Arpa";
+  if (/\bviolino\s*(?:ii|2)\b/i.test(name)) return "Violín 2";
+  if (/\bviolino\s*(?:i|1)\b/i.test(name)) return "Violín 1";
+  if (/\bviolino\b/i.test(name)) return "Violín 1";
+  if (/\bvioloncelo\b/i.test(name)) return "Violoncello";
+  if (/\bcontrabaixo\b/i.test(name)) return "Contrabajo";
+  if (/\bpercuss[aã]o\b/i.test(name)) return "Perc Percusión";
+  if (/\bbombo\b|\bgran\s+cassa\b/i.test(name)) return "Perc Bombo";
+  if (/\bpratos\b|\bpiatti\b/i.test(name)) return "Perc Platillo";
+  if (/\btamburo\b|\btamburino\b/i.test(name)) return "Perc Tambor";
+  if (/\bxilofone\b|\bxilofono\b/i.test(name)) return "Perc Xilófono";
+  if (/\bsaxofone\s*tenor\b/i.test(name)) return "Saxo Tenor";
+  if (/\bpartitura\b|\bfull score\b/i.test(name)) return "SCORE";
   if (/\boboe\s*1[\s-]?y?\s*2\b|\boboe\s*1-2\b|\boboes?\s*1,\s*2\b/i.test(name))
     return "Oboe 1y2";
   if (/\bclarinete\s+a\s*1[\s-]?y?\s*2\b|\bclarinete\s+a\s*1-2\b|\bcl\s+a\s*1-2\b/i.test(name))

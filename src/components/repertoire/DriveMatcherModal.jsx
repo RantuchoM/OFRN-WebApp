@@ -14,6 +14,7 @@ import {
   IconSearch,
   IconBulb,
   IconMusic,
+  IconExchange,
 } from "../ui/Icons";
 import SearchableSelect from "../ui/SearchableSelect";
 import { calculateInstrumentation } from "../../utils/instrumentation";
@@ -38,6 +39,19 @@ import {
   mergeObraAudios,
   normalizeObraAudios,
 } from "../../utils/repertoireAudioTracks";
+import { canonicalMp3Filename } from "../../utils/canonicalAudioFilename";
+import {
+  WAV_CONVERT_REFUSE_BYTES,
+  WAV_CONVERT_WARN_BYTES,
+  convertDriveWavToMp3,
+  findExistingMp3,
+  formatBytesForUi,
+  getArchivoDriveAccessToken,
+  getDriveFileMetadata,
+  isUncompressedDriveAudioFile,
+  switchObraAudiosToMp3,
+} from "../../utils/driveAudioConvert";
+import WavToMp3ProgressOverlay from "./WavToMp3ProgressOverlay";
 
 const capitalize = (s) => s && s[0].toUpperCase() + s.slice(1);
 
@@ -58,9 +72,14 @@ const sortPartsByInstrumentAndName = (list) =>
     return byInstrument || sortByNameEs(a, b);
   });
 
-const ModalPortal = ({ children }) => {
+const ModalPortal = ({ children, onBackdropClick }) => {
   return createPortal(
-    <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm p-0 sm:p-4 animate-in fade-in duration-200">
+    <div
+      className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm p-0 sm:p-4 animate-in fade-in duration-200"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onBackdropClick?.();
+      }}
+    >
       {children}
     </div>,
     document.body,
@@ -78,7 +97,7 @@ export default function DriveMatcherModal({
   audios = [],
   onAudiosChange,
 }) {
-  const { confirm, dialog } = useConfirmDialog();
+  const { confirm, alert, dialog } = useConfirmDialog();
   const [closing, setClosing] = useState(false);
   const [loading, setLoading] = useState(false);
   const [driveFiles, setDriveFiles] = useState([]);
@@ -95,6 +114,13 @@ export default function DriveMatcherModal({
   const [selectedInstrId, setSelectedInstrId] = useState("");
   const [showInstrumentOptions, setShowInstrumentOptions] = useState(false);
 
+  /** WAV → MP3 en el navegador (bloquea cierre mientras `active`). */
+  const [convertJob, setConvertJob] = useState(null);
+  const convertBusy =
+    !!convertJob?.active &&
+    convertJob.stage !== "error" &&
+    convertJob.stage !== "done" &&
+    convertJob.stage !== "summary";
   const [editingPartId, setEditingPartId] = useState(null);
   const [editingName, setEditingName] = useState("");
   /** En móvil: pestaña activa del cuerpo (dos columnas en md+). */
@@ -103,9 +129,12 @@ export default function DriveMatcherModal({
   const instrumentInputRef = useRef(null);
   const editInputRef = useRef(null);
   const particellaSelectAllRef = useRef(null);
+  const wavSelectAllRef = useRef(null);
 
   /** Multiselección de particellas en el modal (tempId) */
   const [selectedPartTempIds, setSelectedPartTempIds] = useState(() => new Set());
+  /** WAV/FLAC/AIFF marcados para conversión a MP3 (ids de Drive). */
+  const [selectedWavIds, setSelectedWavIds] = useState(() => new Set());
 
   const currentInstrumentation = calculateInstrumentation(parts);
   const suggestedParts = useMemo(
@@ -149,6 +178,16 @@ export default function DriveMatcherModal({
   const audioFilesInFolder = useMemo(
     () => sortedDriveFiles.filter(isDriveAudioFile),
     [sortedDriveFiles],
+  );
+
+  const uncompressedWavFiles = useMemo(
+    () => sortedDriveFiles.filter(isUncompressedDriveAudioFile),
+    [sortedDriveFiles],
+  );
+
+  const selectedWavFiles = useMemo(
+    () => uncompressedWavFiles.filter((f) => selectedWavIds.has(f.id)),
+    [uncompressedWavFiles, selectedWavIds],
   );
 
   const selectedAudioFiles = useMemo(
@@ -210,10 +249,15 @@ export default function DriveMatcherModal({
   }, [isOpen]);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      setConvertJob(null);
+      setSelectedWavIds(new Set());
+      return;
+    }
     if (folderUrl) fetchFiles();
     else setDriveFiles([]);
     setSelectedFiles([]);
+    setSelectedWavIds(new Set());
     setMobilePane("parts");
   }, [isOpen, folderUrl]);
 
@@ -237,9 +281,40 @@ export default function DriveMatcherModal({
     el.indeterminate = total > 0 && n > 0 && n < total;
   }, [selectedPartTempIds, parts]);
 
-  const fetchFiles = async () => {
-    if (!folderUrl) return;
-    setLoading(true);
+  useEffect(() => {
+    const valid = new Set(uncompressedWavFiles.map((f) => f.id));
+    setSelectedWavIds((prev) => {
+      const next = new Set([...prev].filter((id) => valid.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [uncompressedWavFiles]);
+
+  useEffect(() => {
+    const el = wavSelectAllRef.current;
+    if (!el) return;
+    const n = selectedWavIds.size;
+    const total = uncompressedWavFiles.length;
+    el.indeterminate = total > 0 && n > 0 && n < total;
+  }, [selectedWavIds, uncompressedWavFiles]);
+
+  useEffect(() => {
+    if (!isOpen || !convertBusy) return undefined;
+    const onBeforeUnload = (event) => {
+      event.preventDefault();
+      const total = Number(convertJob?.batchTotal) || 0;
+      const index = Number(convertJob?.batchIndex) || 0;
+      event.returnValue =
+        total > 1 && index > 0
+          ? `Hay una conversión a MP3 en curso (${index} de ${total}). Si cerrás la pestaña se cancela.`
+          : "Hay una conversión a MP3 en curso. Si cerrás la pestaña se cancela.";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [isOpen, convertBusy, convertJob?.batchTotal, convertJob?.batchIndex]);
+
+  const fetchFiles = async ({ silent = false } = {}) => {
+    if (!folderUrl) return [];
+    if (!silent) setLoading(true);
     console.log("DEBUG [Modal]: Llamando a Edge Function con URL:", folderUrl);
 
     try {
@@ -256,15 +331,17 @@ export default function DriveMatcherModal({
 
       if (data?.files) {
         setDriveFiles(data.files);
-      } else {
-        console.warn(
-          "DEBUG [Modal]: La respuesta no contiene el array 'files'",
-        );
+        return data.files;
       }
+      console.warn(
+        "DEBUG [Modal]: La respuesta no contiene el array 'files'",
+      );
+      return [];
     } catch (err) {
       console.error("DEBUG [Modal]: Error capturado en fetchFiles:", err);
+      return [];
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -736,8 +813,20 @@ export default function DriveMatcherModal({
     onPartsChange(updatedParts);
   };
 
+  const convertBusyMessage = () => {
+    const total = Number(convertJob?.batchTotal) || 0;
+    const index = Number(convertJob?.batchIndex) || 0;
+    const extra =
+      total > 1 && index > 0 ? ` (${index} de ${total})` : "";
+    return `Esperá a que termine la conversión a MP3${extra}.`;
+  };
+
   const requestClose = async () => {
     if (closing) return;
+    if (convertBusy) {
+      toast.message(convertBusyMessage());
+      return;
+    }
     setClosing(true);
     try {
       await onClose?.();
@@ -746,19 +835,396 @@ export default function DriveMatcherModal({
     }
   };
 
+  const resolveDriveFileSize = async (file, tokenHolder) => {
+    let size = Number(file?.size);
+    if (Number.isFinite(size) && size > 0) return size;
+    try {
+      if (!tokenHolder.token) {
+        tokenHolder.token = await getArchivoDriveAccessToken(supabase);
+      }
+      const meta = await getDriveFileMetadata(file.id, tokenHolder.token);
+      size = Number(meta.size);
+      return Number.isFinite(size) ? size : NaN;
+    } catch (err) {
+      console.warn("[DriveMatcher] No se pudo leer tamaño de Drive", err);
+      return NaN;
+    }
+  };
+
+  const applyConvertedMp3ToAudios = (currentAudios, sourceFile, result) => {
+    if (!onAudiosChange || !result?.file) return currentAudios;
+    const next = switchObraAudiosToMp3(currentAudios, sourceFile.id, {
+      id: result.file.id,
+      name: result.file.name || result.mp3Name,
+      webViewLink: result.file.webViewLink,
+      mimeType: result.file.mimeType || "audio/mpeg",
+    });
+    onAudiosChange(next);
+    return next;
+  };
+
+  const mergeUploadedMp3IntoList = (files, result) => {
+    if (!result?.file?.id) return files;
+    const mp3Name = String(result.mp3Name || result.file.name || "").toLowerCase();
+    return [
+      ...(files || []).filter(
+        (f) =>
+          f.id !== result.file.id &&
+          String(f?.name || "").toLowerCase() !== mp3Name,
+      ),
+      result.file,
+    ];
+  };
+
+  const runConvertOneFile = async ({
+    file,
+    nameMode,
+    existingMp3File,
+    driveFilesNow,
+    batchIndex,
+    batchTotal,
+  }) => {
+    const result = await convertDriveWavToMp3({
+      supabase,
+      sourceFile: file,
+      folderUrl,
+      driveFiles: driveFilesNow,
+      nameMode,
+      existingMp3File,
+      onProgress: ({ stage, label, ratio, indeterminate, received, total, bytesLabel }) => {
+        const hasRatio = Number.isFinite(Number(ratio));
+        setConvertJob((prev) =>
+          prev?.active
+            ? {
+                ...prev,
+                stage,
+                label,
+                fileName: file.name,
+                batchIndex,
+                batchTotal,
+                indeterminate: Boolean(indeterminate) || !hasRatio,
+                received,
+                total,
+                bytesLabel: bytesLabel || "",
+                percent:
+                  hasRatio && !indeterminate
+                    ? Math.round(Math.min(1, Math.max(0, Number(ratio))) * 100)
+                    : null,
+              }
+            : prev,
+        );
+      },
+    });
+    const refreshed = await fetchFiles({ silent: true });
+    const nextFiles = refreshed?.length
+      ? refreshed
+      : mergeUploadedMp3IntoList(driveFilesNow, result);
+    return { result, nextFiles };
+  };
+
+  const toggleWavSelected = (fileId, checked) => {
+    setSelectedWavIds((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(fileId);
+      else next.delete(fileId);
+      return next;
+    });
+  };
+
+  const handleSelectAllWavs = (checked) => {
+    if (checked) {
+      setSelectedWavIds(new Set(uncompressedWavFiles.map((f) => f.id)));
+    } else {
+      setSelectedWavIds(new Set());
+    }
+  };
+
+  const handleConvertWavToMp3 = async (e, file) => {
+    e.stopPropagation();
+    if (convertBusy || !file?.id) return;
+
+    const size = await resolveDriveFileSize(file, {});
+
+    if (Number.isFinite(size) && size > WAV_CONVERT_REFUSE_BYTES) {
+      await alert({
+        title: "Archivo demasiado grande",
+        message: `Pesa ${formatBytesForUi(size)} y supera el límite del navegador (${formatBytesForUi(WAV_CONVERT_REFUSE_BYTES)}). Convertí el WAV en el PC y subí el MP3 a la misma carpeta.`,
+        overlayClassName: "z-[10050]",
+      });
+      return;
+    }
+
+    if (Number.isFinite(size) && size > WAV_CONVERT_WARN_BYTES) {
+      const ok = await confirm({
+        title: "Archivo pesado",
+        message: `Pesa ${formatBytesForUi(size)}. La conversión usa mucha RAM y puede fallar o colgar el navegador. ¿Intentar igual? El WAV original se conserva en Drive.`,
+        confirmText: "Convertir igual",
+        overlayClassName: "z-[10050]",
+      });
+      if (!ok) return;
+    }
+
+    const mp3Name = canonicalMp3Filename(file.name);
+    const existing = mp3Name
+      ? findExistingMp3(driveFiles, mp3Name)
+      : null;
+    let nameMode = "canonical";
+    let existingMp3File = null;
+    if (existing) {
+      const choice = await confirm({
+        title: "Ya existe un MP3",
+        message: `«${existing.name}» ya está en esta carpeta. Podés reemplazar su contenido (el WAV se conserva) o subir el nuevo con otro nombre.`,
+        confirmText: "Reemplazar",
+        secondaryAction: {
+          label: "Subir con otro nombre",
+          value: "unique",
+        },
+        overlayClassName: "z-[10050]",
+      });
+      if (choice === false || choice === "cancel") return;
+      if (choice === "unique") nameMode = "unique";
+      else existingMp3File = existing;
+    }
+
+    setConvertJob({
+      active: true,
+      stage: "download",
+      percent: 0,
+      label: "Preparando",
+      fileName: file.name,
+      error: null,
+    });
+
+    try {
+      const { result } = await runConvertOneFile({
+        file,
+        nameMode,
+        existingMp3File,
+        driveFilesNow: driveFiles,
+      });
+      applyConvertedMp3ToAudios(audios, file, result);
+      toast.success(
+        result?.replacedFileId
+          ? `MP3 actualizado: ${result.mp3Name}`
+          : `MP3 subido: ${result.mp3Name}`,
+      );
+      setConvertJob(null);
+    } catch (err) {
+      console.error("[DriveMatcher] Convertir a MP3", err);
+      const message =
+        err?.message || "Error al convertir el audio. El WAV no se modificó.";
+      setConvertJob({
+        active: false,
+        stage: "error",
+        percent: 0,
+        fileName: file.name,
+        error: message,
+      });
+      toast.error(message);
+    }
+  };
+
+  const handleBatchConvertWavToMp3 = async () => {
+    if (convertBusy) return;
+    const queue = uncompressedWavFiles.filter((f) => selectedWavIds.has(f.id));
+    if (!queue.length) {
+      toast.message("Seleccioná uno o más WAV para convertir.");
+      return;
+    }
+
+    setConvertJob({
+      active: true,
+      stage: "download",
+      percent: 0,
+      label: "Preparando lote",
+      fileName: `${queue.length} archivo${queue.length === 1 ? "" : "s"}`,
+      error: null,
+      batchIndex: 0,
+      batchTotal: queue.length,
+    });
+
+    const tokenHolder = {};
+    const sized = [];
+    try {
+      for (const file of queue) {
+        const size = await resolveDriveFileSize(file, tokenHolder);
+        sized.push({ file, size });
+      }
+    } catch (err) {
+      setConvertJob({
+        active: false,
+        stage: "error",
+        percent: 0,
+        fileName: "Lote",
+        error: err?.message || "No se pudo preparar el lote.",
+      });
+      return;
+    }
+
+    const tooBig = sized.filter(
+      (item) =>
+        Number.isFinite(item.size) && item.size > WAV_CONVERT_REFUSE_BYTES,
+    );
+    const heavy = sized.filter(
+      (item) =>
+        Number.isFinite(item.size) &&
+        item.size > WAV_CONVERT_WARN_BYTES &&
+        item.size <= WAV_CONVERT_REFUSE_BYTES,
+    );
+    const runnable = sized.filter(
+      (item) =>
+        !Number.isFinite(item.size) || item.size <= WAV_CONVERT_REFUSE_BYTES,
+    );
+
+    if (!runnable.length) {
+      setConvertJob(null);
+      await alert({
+        title: "Archivos demasiado grandes",
+        message: `${tooBig.length} archivo${tooBig.length === 1 ? "" : "s"} supera${tooBig.length === 1 ? "" : "n"} el límite del navegador (${formatBytesForUi(WAV_CONVERT_REFUSE_BYTES)}). Convertí los WAV en el PC y subí los MP3 a la misma carpeta.`,
+        overlayClassName: "z-[10050]",
+      });
+      return;
+    }
+
+    if (heavy.length) {
+      const ok = await confirm({
+        title: "Archivos pesados",
+        message: `${heavy.length} archivo${heavy.length === 1 ? "" : "s"} supera${heavy.length === 1 ? "" : "n"} ${formatBytesForUi(WAV_CONVERT_WARN_BYTES)}. La conversión usa mucha RAM y puede fallar o colgar el navegador. ¿Convertir el lote igual? Los WAV originales se conservan.`,
+        confirmText: "Convertir lote",
+        overlayClassName: "z-[10050]",
+      });
+      if (!ok) {
+        setConvertJob(null);
+        return;
+      }
+    }
+
+    const failures = tooBig.map(({ file, size }) => ({
+      id: file.id,
+      name: file.name,
+      message: `Pesa ${formatBytesForUi(size)} y supera el límite del navegador (${formatBytesForUi(WAV_CONVERT_REFUSE_BYTES)}).`,
+    }));
+    let okCount = 0;
+    let currentAudios = audios;
+    let currentDriveFiles = driveFiles;
+    const batchTotal = sized.length;
+
+    for (let i = 0; i < sized.length; i += 1) {
+      const { file, size } = sized[i];
+      if (Number.isFinite(size) && size > WAV_CONVERT_REFUSE_BYTES) {
+        continue;
+      }
+      const mp3Name = canonicalMp3Filename(file.name);
+      const existing = mp3Name
+        ? findExistingMp3(currentDriveFiles, mp3Name)
+        : null;
+      setConvertJob({
+        active: true,
+        stage: "download",
+        percent: 0,
+        label: "Preparando",
+        fileName: file.name,
+        error: null,
+        batchIndex: i + 1,
+        batchTotal,
+        okCount,
+        failCount: failures.length,
+      });
+      try {
+        const { result, nextFiles } = await runConvertOneFile({
+          file,
+          nameMode: "canonical",
+          existingMp3File: existing,
+          driveFilesNow: currentDriveFiles,
+          batchIndex: i + 1,
+          batchTotal,
+        });
+        currentDriveFiles = nextFiles;
+        currentAudios = applyConvertedMp3ToAudios(
+          currentAudios,
+          file,
+          result,
+        );
+        okCount += 1;
+      } catch (err) {
+        console.error("[DriveMatcher] Convertir lote a MP3", err);
+        failures.push({
+          id: file.id,
+          name: file.name,
+          message:
+            err?.message || "Error al convertir el audio. El WAV no se modificó.",
+        });
+      }
+    }
+
+    setSelectedWavIds(new Set(failures.map((item) => item.id).filter(Boolean)));
+
+    if (failures.length === 0) {
+      toast.success(
+        okCount === 1
+          ? "1 MP3 convertido"
+          : `${okCount} MP3 convertidos`,
+      );
+      setConvertJob(null);
+      return;
+    }
+
+    setConvertJob({
+      active: false,
+      stage: "summary",
+      percent: 100,
+      fileName: "",
+      okCount,
+      failCount: failures.length,
+      batchIndex: batchTotal,
+      batchTotal,
+      failures,
+    });
+    toast.message(
+      `${okCount} convertido${okCount === 1 ? "" : "s"} · ${failures.length} con error`,
+    );
+  };
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const onKey = (e) => {
+      if (e.key !== "Escape") return;
+      if (convertBusy) {
+        e.preventDefault();
+        e.stopPropagation();
+        toast.message(convertBusyMessage());
+        return;
+      }
+      void requestClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isOpen, convertBusy, closing]);
+
   if (!isOpen) return null;
 
   const sortedParts = [...parts].sort(sortByNameEs);
 
   return (
-    <ModalPortal>
+    <ModalPortal
+      onBackdropClick={() => {
+        void requestClose();
+      }}
+    >
       {dialog}
       <div
         role="dialog"
         aria-modal="true"
         aria-label="Asistente de Enlaces Drive"
-        className="bg-white w-full max-w-6xl h-[100dvh] sm:h-[90vh] rounded-none sm:rounded-xl shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom sm:zoom-in-95 duration-200"
+        className="relative bg-white w-full max-w-6xl h-[100dvh] sm:h-[90vh] rounded-none sm:rounded-xl shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom sm:zoom-in-95 duration-200"
+        onClick={(e) => e.stopPropagation()}
       >
+        {convertJob ? (
+          <WavToMp3ProgressOverlay
+            job={convertJob}
+            onDismiss={() => setConvertJob(null)}
+          />
+        ) : null}
         {/* HEADER */}
         <div className="bg-slate-50 px-3 py-3 sm:p-4 border-b border-slate-200 flex justify-between items-start gap-2 shrink-0">
           <div className="flex flex-col gap-1 min-w-0 flex-1">
@@ -859,7 +1325,8 @@ export default function DriveMatcherModal({
             <button
               type="button"
               onClick={fetchFiles}
-              className="p-2 hover:bg-slate-200 rounded-full text-slate-500 transition-colors"
+              disabled={convertBusy}
+              className="p-2 hover:bg-slate-200 rounded-full text-slate-500 transition-colors disabled:opacity-40"
               title="Actualizar archivos de Drive"
               aria-label="Actualizar archivos de Drive"
             >
@@ -870,10 +1337,16 @@ export default function DriveMatcherModal({
             </button>
             <button
               type="button"
-              disabled={closing}
+              disabled={closing || convertBusy}
               onClick={() => void requestClose()}
               className="p-2 text-slate-400 hover:text-slate-600 disabled:opacity-50 rounded-full hover:bg-slate-200"
-              title={closing ? "Guardando cambios…" : "Cerrar"}
+              title={
+                convertBusy
+                  ? "Conversión en curso"
+                  : closing
+                    ? "Guardando cambios…"
+                    : "Cerrar"
+              }
               aria-label="Cerrar"
             >
               <IconX size={22} />
@@ -1339,6 +1812,45 @@ export default function DriveMatcherModal({
                 </button>
               </div>
             )}
+            {uncompressedWavFiles.length > 0 && (
+              <div className="px-2 py-1.5 bg-indigo-50 border-b border-indigo-100 flex flex-wrap items-center gap-1.5">
+                <label
+                  className={`inline-flex items-center gap-1.5 text-[10px] font-bold uppercase text-indigo-800 ${
+                    convertBusy ? "opacity-40" : "cursor-pointer"
+                  }`}
+                >
+                  <input
+                    ref={wavSelectAllRef}
+                    type="checkbox"
+                    disabled={convertBusy}
+                    checked={
+                      uncompressedWavFiles.length > 0 &&
+                      selectedWavIds.size === uncompressedWavFiles.length
+                    }
+                    onChange={(e) => handleSelectAllWavs(e.target.checked)}
+                    className="rounded border-indigo-300 text-indigo-600 focus:ring-indigo-500"
+                    aria-label="Seleccionar todos los WAV"
+                  />
+                  todos los WAV
+                </label>
+                <span className="text-[10px] font-medium text-indigo-900">
+                  {uncompressedWavFiles.length} WAV
+                  {selectedWavIds.size > 0
+                    ? ` · ${selectedWavIds.size} marcado${selectedWavIds.size === 1 ? "" : "s"}`
+                    : ""}
+                </span>
+                <button
+                  type="button"
+                  disabled={convertBusy || selectedWavFiles.length === 0}
+                  onClick={() => void handleBatchConvertWavToMp3()}
+                  className="ml-auto inline-flex items-center gap-1 rounded bg-indigo-600 px-2 py-0.5 text-[10px] font-bold uppercase text-white hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                  title="Convierte los WAV marcados uno a uno. El WAV se conserva; si ya hay MP3 se reemplaza."
+                >
+                  <IconExchange size={12} />
+                  Convertir {selectedWavFiles.length} a MP3
+                </button>
+              </div>
+            )}
             {driveFiles.length === 0 && !loading && (
               <div className="flex-1 flex flex-col items-center justify-center text-slate-400 p-8 text-center">
                 <IconDrive size={48} className="mb-2 opacity-20" />
@@ -1359,6 +1871,8 @@ export default function DriveMatcherModal({
 
                 const isAudio = isDriveAudioFile(file);
                 const isAssignedAudio = assignedAudioIds.has(file.id);
+                const canConvertToMp3 = isUncompressedDriveAudioFile(file);
+                const isWavMarked = canConvertToMp3 && selectedWavIds.has(file.id);
 
                 return (
                   <div
@@ -1367,7 +1881,9 @@ export default function DriveMatcherModal({
                     className={`p-2.5 rounded text-sm cursor-pointer border flex justify-between items-center transition-all duration-150 ${
                       isSelected
                         ? "bg-blue-600 text-white border-blue-600 shadow-md"
-                        : isAssignedAudio
+                        : isWavMarked
+                          ? "bg-indigo-50 text-slate-700 border-indigo-300"
+                          : isAssignedAudio
                           ? "bg-emerald-50 text-slate-600 border-emerald-300"
                           : isUsed
                           ? "bg-emerald-50 text-slate-600 border-emerald-200"
@@ -1377,6 +1893,28 @@ export default function DriveMatcherModal({
                     }`}
                   >
                     <div className="flex items-center gap-2 overflow-hidden w-full">
+                      {canConvertToMp3 ? (
+                        <label
+                          className="shrink-0 flex items-center cursor-pointer"
+                          onClick={(e) => e.stopPropagation()}
+                          title="Marcar para convertir a MP3"
+                        >
+                          <input
+                            type="checkbox"
+                            disabled={convertBusy}
+                            checked={selectedWavIds.has(file.id)}
+                            onChange={(e) =>
+                              toggleWavSelected(file.id, e.target.checked)
+                            }
+                            className={`rounded focus:ring-indigo-500 ${
+                              isSelected
+                                ? "border-white text-indigo-600"
+                                : "border-slate-300 text-indigo-600"
+                            }`}
+                            aria-label={`Marcar ${file.name} para convertir a MP3`}
+                          />
+                        </label>
+                      ) : null}
                       {isAudio ? (
                         <IconMusic
                           size={16}
@@ -1399,6 +1937,23 @@ export default function DriveMatcherModal({
                       <span className="truncate font-medium">{file.name}</span>
                     </div>
                     <div className="flex items-center gap-2 shrink-0 ml-2">
+                      {canConvertToMp3 && (
+                        <button
+                          type="button"
+                          disabled={convertBusy}
+                          onClick={(e) => handleConvertWavToMp3(e, file)}
+                          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide disabled:opacity-40 ${
+                            isSelected
+                              ? "bg-white/20 text-white hover:bg-white/30"
+                              : "bg-indigo-100 text-indigo-800 hover:bg-indigo-200"
+                          }`}
+                          title="Convertir a MP3: descarga el WAV, lo convierte aquí y sube el MP3 a la misma carpeta (el WAV se conserva)"
+                        >
+                          <IconExchange size={12} />
+                          <span className="hidden sm:inline">Convertir a </span>
+                          MP3
+                        </button>
+                      )}
                       {canAutoCreatePart && (
                         <button
                           type="button"
@@ -1439,11 +1994,19 @@ export default function DriveMatcherModal({
         <div className="p-3 sm:p-4 border-t border-slate-200 bg-white flex justify-end shrink-0 z-30 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-4">
           <button
             type="button"
-            disabled={closing}
+            disabled={closing || convertBusy}
             onClick={() => void requestClose()}
             className="flex items-center justify-center gap-2 w-full sm:w-auto px-6 py-2.5 sm:py-2 rounded-lg bg-indigo-600 text-white font-bold hover:bg-indigo-700 shadow text-sm disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            {closing ? (
+            {convertBusy ? (
+              <>
+                <IconLoader size={16} className="animate-spin shrink-0" />
+                {Number(convertJob?.batchTotal) > 1 &&
+                Number(convertJob?.batchIndex) > 0
+                  ? `Convirtiendo ${convertJob.batchIndex} de ${convertJob.batchTotal}…`
+                  : "Convirtiendo…"}
+              </>
+            ) : closing ? (
               <>
                 <IconLoader size={16} className="animate-spin shrink-0" />
                 Guardando…

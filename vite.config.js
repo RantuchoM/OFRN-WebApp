@@ -1,6 +1,7 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
+import fs from "fs";
 import path from "path";
 
 // Solución para __dirname en módulos ES
@@ -17,6 +18,89 @@ export default defineConfig(({ command }) => {
     (command === "serve"
       ? "local-dev"
       : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
+
+  /**
+   * Sirve @ffmpeg/core ST (dist/esm) + worker estático en /ffmpeg.
+   * Evita jsDelivr (~32 MB) y no usa COOP/COEP (romperían Google login / Drive).
+   * El worker se sirve crudo: Vite inyecta env.mjs (`window`) en `?worker_file`
+   * y Chrome queda colgado en ffmpeg.load().
+   */
+  function ffmpegCorePlugin() {
+    const coreDir = path.resolve(
+      __dirname,
+      "node_modules/@ffmpeg/core/dist/esm",
+    );
+    const ffmpegEsmDir = path.resolve(
+      __dirname,
+      "node_modules/@ffmpeg/ffmpeg/dist/esm",
+    );
+    const assets = [
+      {
+        url: "/ffmpeg/ffmpeg-core.js",
+        abs: path.join(coreDir, "ffmpeg-core.js"),
+        dest: "ffmpeg-core.js",
+        mime: "text/javascript",
+      },
+      {
+        url: "/ffmpeg/ffmpeg-core.wasm",
+        abs: path.join(coreDir, "ffmpeg-core.wasm"),
+        dest: "ffmpeg-core.wasm",
+        mime: "application/wasm",
+      },
+      {
+        url: "/ffmpeg/worker.js",
+        abs: path.join(ffmpegEsmDir, "worker.js"),
+        dest: "worker.js",
+        mime: "text/javascript",
+      },
+      {
+        url: "/ffmpeg/const.js",
+        abs: path.join(ffmpegEsmDir, "const.js"),
+        dest: "const.js",
+        mime: "text/javascript",
+      },
+      {
+        url: "/ffmpeg/errors.js",
+        abs: path.join(ffmpegEsmDir, "errors.js"),
+        dest: "errors.js",
+        mime: "text/javascript",
+      },
+    ];
+    const serveAsset = (req, res, next) => {
+      const url = req.url?.split("?")[0];
+      const hit = assets.find((a) => a.url === url);
+      if (!hit) return next();
+      if (!fs.existsSync(hit.abs)) {
+        res.statusCode = 404;
+        res.end("ffmpeg asset missing — npm install @ffmpeg/core @ffmpeg/ffmpeg");
+        return;
+      }
+      const stat = fs.statSync(hit.abs);
+      res.setHeader("Content-Type", hit.mime);
+      res.setHeader("Content-Length", String(stat.size));
+      res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+      fs.createReadStream(hit.abs).pipe(res);
+    };
+    const copyToOutDir = (outDir) => {
+      const destDir = path.join(outDir, "ffmpeg");
+      fs.mkdirSync(destDir, { recursive: true });
+      for (const a of assets) {
+        fs.copyFileSync(a.abs, path.join(destDir, a.dest));
+      }
+    };
+    return {
+      name: "ffmpeg-core-assets",
+      configureServer(server) {
+        server.middlewares.use(serveAsset);
+      },
+      configurePreviewServer(server) {
+        server.middlewares.use(serveAsset);
+      },
+      writeBundle(options) {
+        copyToOutDir(options.dir || path.resolve(__dirname, "dist"));
+      },
+    };
+  }
 
   function appVersionPlugin(buildId) {
     const versionPayload = JSON.stringify({ buildId });
@@ -51,18 +135,20 @@ export default defineConfig(({ command }) => {
   plugins: [
     react(),
     appVersionPlugin(APP_BUILD_ID),
+    ffmpegCorePlugin(),
     VitePWA({
       registerType: "prompt",
       includeAssets: ["favicon.svg", "apple-touch-icon.png", "pwa-192x192.png", "pwa-512x512.png", "pwa-512x512-maskable.png"],
       workbox: {
         maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,
-        
+        globIgnores: ["**/ffmpeg/**"],
         cleanupOutdatedCaches: true,
         clientsClaim: true,
         skipWaiting: false,
         navigateFallbackDenylist: [
           /^\/manifest\.webmanifest$/,
           /^\/version\.json$/,
+          /^\/ffmpeg\//,
           /^\/assets\//,
           /^\/sw\.js$/,
           /^\/workbox-/,
@@ -110,6 +196,7 @@ export default defineConfig(({ command }) => {
       "konva",
       "styled-components",
     ],
+    exclude: ["@ffmpeg/ffmpeg", "@ffmpeg/util", "@ffmpeg/core"],
     esbuildOptions: {
       inject: [path.resolve(__dirname, "./src/react-shim.js")],
     },
@@ -117,6 +204,9 @@ export default defineConfig(({ command }) => {
   define: {
     global: "window",
     "import.meta.env.VITE_APP_BUILD_ID": JSON.stringify(APP_BUILD_ID),
+  },
+  worker: {
+    format: "es",
   },
   build: {
     // Reduce ruido en consola durante builds grandes

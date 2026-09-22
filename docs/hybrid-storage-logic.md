@@ -79,6 +79,13 @@ Se utilizan cuando necesitamos **manipular bytes** (unir PDFs, rellenar formular
   - Si la fuente es un archivo en Drive: se usa `copy_file` en el backend (server-side `files.copy`).
   - Si la fuente es una URL de Supabase Storage (`supabase.co`): se sigue usando `upload_from_url` en la Edge Function para subir a Drive.
 
+#### 3.3. `DriveMatcherModal.jsx` — Convertir WAV a MP3
+
+- **Process (cliente):** el WAV (o FLAC/AIFF) se descarga con `get_temp_token` + `files/{id}?alt=media`, se encodea en el navegador con **ffmpeg.wasm** (~192 kbps CBR, `libmp3lame`) y el MP3 se sube con `uploadType=multipart` (POST alta / PATCH si ya existe el mismo nombre). El core ST se sirve en `/ffmpeg` (Vite, `node_modules/@ffmpeg/core/dist/esm`); no CDN jsDelivr. Sin COOP/COEP para no romper OAuth de Google.
+- **Egress Supabase:** cero bytes de audio. Edge solo emite el token y lista la carpeta (`list_folder_files`). Prohibido `upload_file` / `get_file_content` para este flujo (límite ~4 MB).
+- **Archivo original:** el WAV permanece en Drive (archivo). El nuevo archivo sigue la convención Para acomodar: `AUDIO - {resto}.mp3`.
+- **Playback:** `obras.audios` apunta al MP3 (`drive_file_id` nuevo o actualizado); no se borra el WAV de la carpeta.
+
 ### 4. Esquema y Campos Clave
 
 - En tablas de obras:
@@ -95,7 +102,7 @@ Se utilizan cuando necesitamos **manipular bytes** (unir PDFs, rellenar formular
 
 - **Copy en servidor, Process en cliente**:
   - Operaciones de copia/organización → `copy_file` en Edge Function (Google hace el trabajo).
-  - Operaciones que requieren leer/escribir bytes → navegador con token temporal y `pdf-lib`.
+  - Operaciones que requieren leer/escribir bytes → navegador con token temporal (`pdf-lib`, ffmpeg.wasm, etc.).
 
 - **Minimizar egress de Supabase**:
   - Supabase actúa como **orquestador** (credenciales, IDs de carpeta, metadatos).

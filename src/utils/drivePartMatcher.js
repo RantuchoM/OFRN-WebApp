@@ -268,6 +268,16 @@ const resolveExplicitInstrument = (prefix, normalizedCatalog, fullCatalog) => {
   if (/clarinete\s+a|cl\s+a/i.test(rawL) || /clarinete a/i.test(rawL)) {
     return pickCatalog(normalizedCatalog, (i) => /clarinete/i.test(i.instrumento || ""));
   }
+  if (/requinto|requinta|cl\s+piccolo|piccolo\s*eb/i.test(rawL)) {
+    return (
+      catalog.find(
+        (i) =>
+          /clarinete/i.test(i.instrumento || "") &&
+          /bajo|requinto/i.test(i.instrumento || ""),
+      ) ||
+      pickCatalog(normalizedCatalog, (i) => String(i.id) === "07b")
+    );
+  }
   if (/clarinete\s+bajo|bass\s+clar|cl\s*\.?\s*b(ajo)?\b/i.test(rawL)) {
     return (
       catalog.find(

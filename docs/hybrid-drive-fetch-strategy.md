@@ -13,7 +13,10 @@ Optimizar el consumo de ancho de banda (Egress) de Supabase delegando la descarg
    - Ejecutar `fetch` directo a `https://www.googleapis.com/drive/v3/files/{fileId}?alt=media` con el header `Authorization: Bearer <TOKEN>`.
    - Pasar los `ArrayBuffer` resultantes a `mergeSequential` para unificar los PDFs por obra.
 
-3. **Fallback**
+3. **Cliente (`DriveMatcherModal.jsx` — Convertir a MP3)**
+   - Mismo token + `alt=media` para bajar el WAV; encode en el navegador (ffmpeg.wasm **single-thread** servido en `/ffmpeg`, no jsDelivr); **multipart upload** directo a Drive. No usar `get_file_content` ni `upload_file` (límite ~4 MB de Edge). No COOP/COEP (rompería login Google / Drive).
+
+4. **Fallback**
    - Si la obtención del token o la descarga directa fallan, notificar al usuario en los resultados de la exportación sin reintentar vía proxy de Supabase para proteger el egress.
 
 ## Beneficios
