@@ -727,6 +727,8 @@ Reproducir el programa como playlist en **Repertorio** y **Mis Partes**, con vel
 ### Identificación
 - **WorkForm:** lista Audios Drive (reordenar, label, quitar) + «Elegir» abre el matcher.
 - **DriveMatcherModal:** archivos mp3/wav/m4a destacados; «Asignar como audio» (merge por `drive_file_id`). `list_folder_files` solo al abrir el matcher.
+- **Convertir a MP3 (WAV/FLAC/AIFF):** botón **MP3** en archivos sin comprimir (no en PDFs ni mp3/m4a). El navegador pide `get_temp_token`, descarga `alt=media`, encodea con **ffmpeg.wasm** (~192 kbps) y sube el MP3 por **multipart** a la misma carpeta (mismo patrón híbrido que particellas/viáticos). **No** usa Edge `upload_file` / `get_file_content`. El WAV queda en Drive. Nombre canónico `AUDIO - {resto}.mp3` (`canonicalMp3Filename` / `canonicalAudioFilename` en `src/utils/canonicalAudioFilename.js`, reexportado por `scripts/lib/pdfPartsRenaming.mjs`). Si ya existe ese MP3: en conversión **individual** se pregunta reemplazo in-place (PATCH) o nombre único; en **lote** se reemplaza sin confirmar por archivo. Tras cada éxito: refresca la lista y **cambia `obras.audios`** al `drive_file_id` del MP3 (`switchObraAudiosToMp3` → `onAudiosChange` / `persistAudios`). Overlay de progreso (Descargando / Convirtiendo / Subiendo) `z-[110]` dentro del matcher (`z-[9999]`); en lote muestra `N de M`. `beforeunload` y bloqueo de X / overlay / Escape mientras corre el archivo o el lote entero. Un fallo en lote continúa con el siguiente; al terminar, resumen. Aviso > ~150 MB (uno por lote si hay pesados); rechazo > ~400 MB (en lote se omite y figura en el resumen).
+  - **ffmpeg.wasm (Chrome):** `@ffmpeg/core@0.12.10` **single-thread** (`dist/esm`) + worker estático en `/ffmpeg` (plugin Vite, `node_modules`). **No** jsDelivr. Vite no debe empaquetar el worker (`?worker_file` inyecta `env.mjs` → `window is not defined` y `ffmpeg.load()` queda colgado en «Cargando conversor…»). Se pasa `classWorkerURL=/ffmpeg/worker.js`. **No** COOP/COEP (el core ST no necesita SharedArrayBuffer; esos headers rompen Google login / Drive). Timeout 60 s con error visible. Carga: bytes reales o barra indeterminada (nunca un 50% ficticio).
 
 ### Player
 - `RepertoirePlaylistPlayer` al pie de `ProgramRepertoire` (oculto en Seating). **No se monta** hasta el primer Play de una fila o **Abrir Playlist** del bloque.
@@ -995,5 +997,49 @@ ZIP `generalypartesnocturnoparaorquesta.zip` (Universal Edition UES 100 845, Rev
 - [x] 25 PDFs canónicos en Para acomodar
 - [x] 22 placeholders vinculados a Drive
 - [ ] Decisión: agregar Perc 1/2 (± SCORE) y/o quitar Trombón 3
+
+---
+
+### Completado (2026-09-21) — Downloads *Para acomodar* (Bernstein / Rossini-Bergler / Prokofiev)
+
+Fuente: `C:\Users\marti\Downloads\Para acomodar` (4 zips extraídos). PDFs ya por instrumento (pt/en), música en p.1, sin split/crop IMSLP. `link_drive` = carpeta en [Para acomodar](https://drive.google.com/drive/folders/10ap1aEjq3X9bFRB3z4DQ-F0fB7y3JutI) (**no** `copiar_carpeta_a_archivo`).
+
+| id | Título | Comp. | Partes | Orgánico | Drive |
+|----|--------|-------|--------|----------|-------|
+| **3634** | Obertura Candide | Bernstein, Leonard | **31** | `3.2.4.3 - 4.2.3.1 - Perc.x2 - Hp - Str` | [1OzJiBhVGdhiFU6-AkBpYeLSsLb69jaj3](https://drive.google.com/open?id=1OzJiBhVGdhiFU6-AkBpYeLSsLb69jaj3) |
+| **3258** | El Barbero de Sevilla. | Rossini / arr. Bergler | **5** (in-place) | `0.0.0.0 - 1.2.1.1` (sin cambio) | [1bEAh_wFysB1DExeWP38CF2CimZiagNxk](https://drive.google.com/open?id=1bEAh_wFysB1DExeWP38CF2CimZiagNxk) |
+| **3635** | Romeo y Julieta Suite n°1 | Prokofiev, Sergei | **38** | `3.3.3.3 - 4.3.3.1 - Perc.x6 - Hp - Key - Str + Saxofón` | [1Jnq3qC2d88V_A4xirKwBc5o74biC-UwL](https://drive.google.com/open?id=1Jnq3qC2d88V_A4xirKwBc5o74biC-UwL) |
+| **3636** | Romeo y Julieta Suite n°2 | Prokofiev, Sergei | **37** | `3.3.3.3 - 4.3.3.1 - Perc.x4 - Hp - Key - Str + Saxofón` | [1RkiXvhzCtAEwDYFCXSL8r_HkLrNCiGQ_](https://drive.google.com/open?id=1RkiXvhzCtAEwDYFCXSL8r_HkLrNCiGQ_) |
+
+**3258:** 5 placeholders (ids 11097–11101) coinciden con el ZIP de bronces. Seed solo `UPDATE url_archivo` + `link_drive`. Cero `seating_asignaciones`. No se tocó seating.
+
+**Prokofiev:** cuerdas SEM ARCADAS quedan en Drive como `… (sin arcos).pdf` y como URL extra en la misma particella (no se crean slots ni `obras_arcos`). Suite 2: PDF `Piano e Celesta` → Piano + Celesta (misma URL). Corneta = `Trompeta Corneta` (no hay Cornet en catálogo).
+
+| Artefacto | Rol |
+|-----------|-----|
+| `scripts/lib/bernsteinCandideCatalog.mjs` | Manifiesto Candide |
+| `scripts/lib/rossiniBarberoCatalog.mjs` | Manifiesto Barbero 3258 |
+| `scripts/lib/prokofievRomeoCatalog.mjs` | Suites op.64a / op.64b |
+| `scripts/lib/processParaAcomodarWork.mjs` | Copia + rename canónico |
+| `scripts/process-downloads-para-acomodar-local.mjs` | Downloads → File Stream |
+| `scripts/generate-downloads-para-acomodar-sync.mjs` | Seeds desde Drive |
+| `supabase/seed_bernstein_candide_sync.sql` | INSERT — **aplicado linked** |
+| `supabase/seed_rossini_barbero_sync.sql` | UPDATE in-place — **aplicado linked** |
+| `supabase/seed_prokofiev_romeo_sync.sql` | INSERT 3635+3636 — **aplicado linked** |
+
+- [x] 31 + 5 + 43 + 41 PDFs canónicos en Para acomodar
+- [x] Seeds aplicados (URLs Drive completas)
+- [ ] Duración de las suites Prokofiev (YouTube devolvió excerpts; quedó `NULL`)
+- [ ] Decisión Farías Perc 1/2 vs Trombón 3 (obra 3344, sin cambios)
+
+---
+
+### Completado (2026-09-21) — Convertir WAV → MP3 en DriveMatcherModal
+
+- [x] Botón **MP3** en WAV/FLAC/AIFF del matcher (no PDFs). Nombre `AUDIO - {resto}.mp3`.
+- [x] Híbrido: `get_temp_token` + download `alt=media` + ffmpeg.wasm + multipart upload. WAV se archiva (no se borra).
+- [x] Core ffmpeg **local** `/ffmpeg` (`@ffmpeg/core` ST, ESM). Sin jsDelivr. Timeout 60 s + overlay indeterminado/bytes. Sin COOP/COEP (rompe Google login).
+- [x] `obras.audios` pasa al `drive_file_id` del MP3; overlay + `beforeunload` + cierre bloqueado mientras corre.
+- [x] **Lote (2026-09-21):** checkbox por fila WAV + **todos los WAV** + **Convertir N a MP3**. Cola secuencial (un archivo a la vez). Overlay `N de M` + etapas Descargando / Convirtiendo / Subiendo. Si ya existe el MP3 canónico, el lote lo **reemplaza** sin confirmar por archivo. Tras cada éxito se actualiza `obras.audios`. Un fallo no aborta el resto; al final resumen (éxitos + errores). `beforeunload` cubre todo el lote. El WAV se conserva; subida con token de cliente (no Edge `upload_file`).
 
 
