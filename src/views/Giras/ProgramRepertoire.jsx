@@ -40,6 +40,7 @@ import {
 import { useGiraRoster } from "../../hooks/useGiraRoster";
 import { toast } from "sonner";
 import { matchesMultiTokenSearch } from "../../utils/sanitize";
+import { effectiveRepertorioObraTitle } from "../../utils/repertorioRowDisplay";
 
 function sortArcos(arcos) {
   return [...(arcos || [])].sort((a, b) => Number(a.id) - Number(b.id));
@@ -245,7 +246,7 @@ const AdvancedImportModal = ({
           `
           id, nombre, orden,
           repertorio_obras (
-            id, orden, notas_especificas,
+            id, orden, notas_especificas, titulo_concierto,
             obras ( id, titulo, compositores ( apellido ) )
           )
         `,
@@ -473,9 +474,12 @@ const AdvancedImportModal = ({
                             {idx + 1}
                           </div>
                           <div>
-                            <div className="font-bold text-slate-700 text-sm">
-                              {item.obras?.titulo}
-                            </div>
+                            <div
+                              className="font-bold text-slate-700 text-sm [&_ul]:list-disc [&_ul]:pl-4"
+                              dangerouslySetInnerHTML={{
+                                __html: effectiveRepertorioObraTitle(item),
+                              }}
+                            />
                             <div className="text-xs text-slate-500">
                               {item.obras?.compositores?.apellido}
                             </div>
@@ -671,7 +675,7 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
           repertorio_obras (
             id, id_obra, orden, notas_especificas, seating_provisorio, usar_seating_provisorio, id_arco_seleccionado,
             en_definicion, estado_curaduria, observacion_curaduria,
-            duracion_segundos_concierto, titulo_placeholder, instrumentacion_placeholder,
+            duracion_segundos_concierto, titulo_concierto, titulo_placeholder, instrumentacion_placeholder,
             obras (
               id, titulo, duracion_segundos, instrumentacion, link_drive, link_youtube, audios,
               obras_arcos (id, nombre, link, descripcion, id_drive_folder),
@@ -920,6 +924,7 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
         id_obra: w.obras?.id || w.id_obra, // Asegurar ID correcto
         orden: currentMaxOrder + i + 1,
         notas_especificas: w.notas_especificas,
+        titulo_concierto: w.titulo_concierto || null,
         seating_provisorio: w.seating_provisorio,
         usar_seating_provisorio: w.usar_seating_provisorio,
       }));
