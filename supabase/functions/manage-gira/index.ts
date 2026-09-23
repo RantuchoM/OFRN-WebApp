@@ -379,6 +379,7 @@ async function duplicateGira(
               seating_provisorio: o.seating_provisorio,
               excluir: o.excluir,
               duracion_segundos_concierto: o.duracion_segundos_concierto,
+              titulo_concierto: o.titulo_concierto ?? null,
               en_definicion: o.en_definicion,
               estado_curaduria: o.estado_curaduria,
               observacion_curaduria: o.observacion_curaduria,

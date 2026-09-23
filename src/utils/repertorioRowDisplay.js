@@ -8,6 +8,40 @@ export const isRepertorioPlaceholder = (row) => {
   return row.id_obra == null || row.id_obra === undefined;
 };
 
+export const stripRepertorioTitleHtml = (value) =>
+  String(value || "")
+    .replace(/<[^>]*>?/gm, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+/** Título cargado solo para esta fila de programa. No aplica a reservas (usan titulo_placeholder). */
+export const hasRepertorioObraTitleOverride = (row) => {
+  if (!row || isRepertorioPlaceholder(row)) return false;
+  const t = row.titulo_concierto;
+  return typeof t === "string" && t.trim().length > 0;
+};
+
+/**
+ * Título visible en el programa: override de la fila, o catálogo (`obras.titulo`, puede ser HTML).
+ * No lee ni escribe el catálogo.
+ */
+export const effectiveRepertorioObraTitle = (row) => {
+  if (isRepertorioPlaceholder(row)) {
+    return row.titulo_placeholder || "Reserva sin título";
+  }
+  if (hasRepertorioObraTitleOverride(row)) return row.titulo_concierto.trim();
+  return row?.obras?.titulo || "Obra";
+};
+
+/**
+ * Texto de difusión de esa fila: título del programa, o catálogo sin anotaciones entre corchetes.
+ */
+export const repertorioObraTitleForDifusion = (row) => {
+  if (hasRepertorioObraTitleOverride(row)) return row.titulo_concierto.trim();
+  const raw = row?.obras?.titulo || "";
+  return String(raw).replace(/\[.*?\]/g, "").trim();
+};
+
 export const getRepertorioRowDisplay = (row) => {
   if (isRepertorioPlaceholder(row)) {
     return {
@@ -28,7 +62,7 @@ export const getRepertorioRowDisplay = (row) => {
   const obra = row.obras || {};
   return {
     isPlaceholder: false,
-    titulo: obra.titulo || "Obra",
+    titulo: effectiveRepertorioObraTitle(row),
     instrumentacion: obra.instrumentacion || "",
     compositorLabel: null,
     arrangerLabel: null,
