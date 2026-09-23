@@ -1127,6 +1127,7 @@ CREATE TABLE public.repertorio_obras (
   observacion_curaduria text,
   en_definicion boolean DEFAULT false,
   duracion_segundos_concierto integer,
+  titulo_concierto text,
   titulo_placeholder text,
   instrumentacion_placeholder text,
   CONSTRAINT repertorio_obras_pkey PRIMARY KEY (id),
@@ -1140,6 +1141,10 @@ CREATE TABLE public.repertorio_obras (
       AND titulo_placeholder IS NOT NULL
       AND length(TRIM(BOTH FROM titulo_placeholder)) > 0
     )
+  ),
+  CONSTRAINT repertorio_obras_titulo_concierto_chk CHECK (
+    titulo_concierto IS NULL
+    OR length(TRIM(BOTH FROM titulo_concierto)) > 0
   )
 );
 CREATE TABLE public.roles (

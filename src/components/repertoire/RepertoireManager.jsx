@@ -79,7 +79,13 @@ import WorkForm from "../../views/Repertoire/WorkForm";
 import RepertoireWorkPickerModal from "./RepertoireWorkPickerModal";
 import { dedupeSeatingStringItems } from "../../utils/seatingStringItemsDedupe";
 import { fetchCuerdasDispositionGroups } from "../../utils/seatingCuerdasConfig";
-import { isRepertorioPlaceholder, filterRepertorioObraRowsForDisplay } from "../../utils/repertorioRowDisplay";
+import {
+  isRepertorioPlaceholder,
+  filterRepertorioObraRowsForDisplay,
+  effectiveRepertorioObraTitle,
+  hasRepertorioObraTitleOverride,
+  stripRepertorioTitleHtml,
+} from "../../utils/repertorioRowDisplay";
 import { workHasPlayableAudio } from "../../utils/repertoireAudioTracks";
 import OrganicoVientosAddField from "./OrganicoVientosAddField";
 import InstrumentationBadges from "../instrumentation/InstrumentationBadges";
@@ -327,6 +333,137 @@ function RepertorioProgramDurationCell({ item, isEditor, updateWorkDetail, compa
         }}
       >
         <IconEdit size={14} />
+      </button>
+    </div>
+  );
+}
+
+/** Título por programa: cursiva si hay override; no escribe obras.titulo. */
+function RepertorioProgramTitleControl({
+  item,
+  isEditor,
+  updateWorkDetail,
+  variant = "inline",
+  compact = false,
+}) {
+  const hasOv = hasRepertorioObraTitleOverride(item);
+  const catalogHtml = item.obras?.titulo || "";
+  const catalogPlain = stripRepertorioTitleHtml(catalogHtml);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const skipBlurPersist = useRef(false);
+
+  useEffect(() => {
+    if (!editing) {
+      setDraft(hasOv ? String(item.titulo_concierto || "").trim() : "");
+    }
+  }, [item.id, item.titulo_concierto, editing, hasOv]);
+
+  const revertCatalog = () => {
+    updateWorkDetail(item.id, "titulo_concierto", null);
+    setDraft("");
+    setEditing(false);
+  };
+
+  const persistDraftAndClose = (raw) => {
+    if (skipBlurPersist.current) {
+      skipBlurPersist.current = false;
+      setEditing(false);
+      return;
+    }
+    const t = String(raw ?? "").trim();
+    const sameAsCatalog =
+      !t || t === catalogPlain || t === String(catalogHtml || "").trim();
+    if (sameAsCatalog) {
+      if (hasRepertorioObraTitleOverride(item)) {
+        updateWorkDetail(item.id, "titulo_concierto", null);
+      }
+    } else {
+      updateWorkDetail(item.id, "titulo_concierto", t);
+    }
+    setEditing(false);
+  };
+
+  const catalogTitle = hasOv
+    ? `Título en catálogo: ${catalogPlain || "—"}`
+    : undefined;
+
+  const display = hasOv ? (
+    variant === "multiline" ? (
+      <div
+        className="text-[15px] font-bold leading-tight italic text-indigo-900"
+        title={catalogTitle}
+      >
+        {effectiveRepertorioObraTitle(item)}
+      </div>
+    ) : (
+      <span className="italic font-semibold text-indigo-900" title={catalogTitle}>
+        {effectiveRepertorioObraTitle(item)}
+      </span>
+    )
+  ) : variant === "multiline" ? (
+    <MultiLineTitle content={catalogHtml} />
+  ) : (
+    <RichTextPreview content={catalogHtml} />
+  );
+
+  if (!isEditor) return display;
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-1 min-w-0 w-full max-w-md">
+        <input
+          type="text"
+          className="flex-1 min-w-[8rem] text-xs px-1.5 py-0.5 rounded border border-slate-200"
+          placeholder={catalogPlain || "Título en este programa"}
+          title="Solo este programa y su difusión. Vacío = título del catálogo. No modifica la obra."
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={() => persistDraftAndClose(draft)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              e.currentTarget.blur();
+            }
+            if (e.key === "Escape") {
+              e.preventDefault();
+              skipBlurPersist.current = true;
+              setDraft(hasOv ? String(item.titulo_concierto || "").trim() : "");
+              setEditing(false);
+            }
+          }}
+          autoFocus
+        />
+        <button
+          type="button"
+          className="p-0.5 rounded text-slate-500 hover:text-emerald-600 shrink-0"
+          title="Volver al título del catálogo"
+          aria-label="Restaurar título original"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={revertCatalog}
+        >
+          <IconRefresh size={compact ? 12 : 14} />
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="group/title inline-flex items-start gap-1 min-w-0 max-w-full">
+      <div className="min-w-0">{display}</div>
+      <button
+        type="button"
+        className={`p-0.5 rounded text-slate-400 hover:text-fixed-indigo-600 shrink-0 ${
+          compact ? "" : "opacity-0 group-hover/title:opacity-100 transition-opacity"
+        }`}
+        title="Editar título solo para este programa"
+        aria-label="Editar título del programa"
+        onClick={() => {
+          setDraft(hasOv ? String(item.titulo_concierto || "").trim() : "");
+          setEditing(true);
+        }}
+      >
+        <IconEdit size={compact ? 11 : 14} />
       </button>
     </div>
   );
@@ -1919,6 +2056,7 @@ export default function RepertoireManager({
           excluir, 
           id_arco_seleccionado,
           duracion_segundos_concierto,
+          titulo_concierto,
           en_definicion,
           estado_curaduria,
           observacion_curaduria,
@@ -3431,7 +3569,13 @@ export default function RepertoireManager({
                         {/* Fila 2: Título Multi-línea */}
                         <div className="mb-1">
                           <div className="flex items-center gap-1 flex-wrap">
-                            <MultiLineTitle content={item.obras.titulo} />
+                            <RepertorioProgramTitleControl
+                              item={item}
+                              isEditor={isEditor}
+                              updateWorkDetail={updateWorkDetail}
+                              variant="multiline"
+                              compact
+                            />
                             {(() => {
                               const tag = getObraEstadoTitleTag(item.obras.estado);
                               return tag ? (
@@ -3862,7 +4006,7 @@ export default function RepertoireManager({
                       </td>
                       <td
                         className="min-w-0 p-1 align-middle text-slate-800"
-                        title={item.obras.titulo?.replace(/<[^>]*>?/gm, "")}
+                        title={stripRepertorioTitleHtml(effectiveRepertorioObraTitle(item))}
                       >
                         <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:gap-2">
                           <div className="flex max-w-[42%] shrink-0 min-w-[7rem] flex-col items-center justify-center text-center text-slate-600">
@@ -3892,7 +4036,11 @@ export default function RepertoireManager({
                           </div>
                           <div className="flex min-w-0 flex-1 flex-col gap-1">
                             <div className="flex min-w-0 flex-wrap items-center gap-1">
-                              <RichTextPreview content={item.obras.titulo} />
+                              <RepertorioProgramTitleControl
+                                item={item}
+                                isEditor={isEditor}
+                                updateWorkDetail={updateWorkDetail}
+                              />
                               {(() => {
                                 const tag = getObraEstadoTitleTag(item.obras.estado);
                                 return tag ? (
@@ -4345,8 +4493,12 @@ export default function RepertoireManager({
                   <span className="text-[11px] text-slate-600 truncate max-w-[120px]">
                     {getComposers(activeDragItemData.item.obras)}
                   </span>
-                  <span className="text-[11px] font-medium text-slate-800 truncate max-w-[180px]" title={activeDragItemData.item.obras?.titulo?.replace(/<[^>]*>?/gm, "")}>
-                    <RichTextPreview content={activeDragItemData.item.obras?.titulo} />
+                  <span className={`text-[11px] font-medium truncate max-w-[180px] ${hasRepertorioObraTitleOverride(activeDragItemData.item) ? "italic text-indigo-900" : "text-slate-800"}`} title={stripRepertorioTitleHtml(effectiveRepertorioObraTitle(activeDragItemData.item))}>
+                    {hasRepertorioObraTitleOverride(activeDragItemData.item) ? (
+                      effectiveRepertorioObraTitle(activeDragItemData.item)
+                    ) : (
+                      <RichTextPreview content={activeDragItemData.item.obras?.titulo} />
+                    )}
                   </span>
                 </>
               )}

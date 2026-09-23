@@ -21,6 +21,10 @@ import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 import { generateSeatingPdf } from "../../utils/seatingPdfExporter"; // <--- IMPORTAR AQUÍ
 import ConciertosDifusionPanel from "../../components/difusion/ConciertosDifusionPanel";
 import MusiciansListModal from "../../components/difusion/MusiciansListModal";
+import {
+  hasRepertorioObraTitleOverride,
+  repertorioObraTitleForDifusion,
+} from "../../utils/repertorioRowDisplay";
 
 // --- UTILIDAD: RENDERER DE TEXTO RICO ---
 const RichTextPreview = ({ content, className = "" }) => {
@@ -531,7 +535,7 @@ export default function GiraDifusion({ supabase, gira, onBack }) {
         const { data: repData } = await supabase
           .from("programas_repertorios")
           .select(
-            `id, nombre, orden, repertorio_obras (id, orden, excluir, obras (id, titulo, obras_compositores (rol, compositores (nombre, apellido))))`,
+            `id, nombre, orden, repertorio_obras (id, orden, excluir, titulo_concierto, obras (id, titulo, obras_compositores (rol, compositores (nombre, apellido))))`,
           )
           .eq("id_programa", gira.id)
           .order("orden");
@@ -825,11 +829,15 @@ export default function GiraDifusion({ supabase, gira, onBack }) {
                           |
                         </span>
                         <div className="text-slate-600 italic inline-block flex-1 min-w-[200px]">
-                          <RichTextPreview
-                            content={obraItem.obras.titulo
-                              .replace(/\[.*?\]/g, "")
-                              .trim()}
-                          />
+                          {hasRepertorioObraTitleOverride(obraItem) ? (
+                            <span className="whitespace-pre-wrap">
+                              {repertorioObraTitleForDifusion(obraItem)}
+                            </span>
+                          ) : (
+                            <RichTextPreview
+                              content={repertorioObraTitleForDifusion(obraItem)}
+                            />
+                          )}
                         </div>
                       </li>
                     ))}
