@@ -9,7 +9,7 @@ Informe en **Gestión → Seguimiento viáticos** (`/management/viaticos_seguimi
 - Fuente: solo `giras_viaticos_detalle` (no manuales, no destaques, no SCRN).
 - **Solo lectura:** persona/rol/tramo, salida, regreso, programa, monto.
 - **Editable y persistido:** `seguimiento_color` (`amarillo` | `verde` | `celeste` | `rojo`).
-- La misma marca se ve y se cambia en la tabla de viáticos de la gira (`ViaticosTable`, columna Color a la **derecha**) con el control compartido; no hay un segundo sistema de color. El panel masivo de la gira la ofrece como **tercera opción al cargar** (junto a Editar Datos y Exportar y Comunicar), con el desplegable visible sin entrar a Editar Datos; también sigue en el acordeón de edición combinada.
+- La misma marca se ve y se cambia en la tabla de viáticos de la gira (`ViaticosTable`, columna Color a la **derecha**) con el control compartido; no hay un segundo sistema de color. En `ViaticosTable` el tinte pinta **toda la fila** salvo **Salida**, **Llegada** y **Días** (quedan blancas). El panel masivo de la gira la ofrece como **tercera opción al cargar** (junto a Editar Datos y Exportar y Comunicar), con el desplegable visible sin entrar a Editar Datos; también sigue en el acordeón de edición combinada.
 - Filtro por año de `programas.fecha_desde` (default: año calendario actual) + búsqueda por nombre/programa.
 - Filtros por columna (valores únicos con checkboxes) en persona, salida, regreso, programa, monto y color.
 - Export Excel con las mismas columnas y colores de fila.
@@ -63,6 +63,7 @@ Migración `20260831201720_giras_viaticos_detalle_seguimiento.sql`:
 - [x] Desplegable de color con swatch visible
 - [x] Misma marca editable en gira → Viáticos (`ViaticosTable` + `SeguimientoColorSelect`)
 - [x] Color masivo como 3.ª opción al cargar el sidebar (Editar Datos / Exportar y Comunicar / Color de seguimiento)
+- [x] Tinte de fila en `ViaticosTable` (toda la fila salvo Salida / Llegada / Días)
 
 ## Fuera de alcance
 

@@ -1,8 +1,14 @@
 import {
   explainViaticosDiasCalculation,
+  formatFechaViaticos,
 } from "./viaticosDiasComputables";
 
 const round2 = (num) => Math.round((num + Number.EPSILON) * 100) / 100;
+
+function toIsoDay(value) {
+  if (value == null || value === "") return "";
+  return String(value).slice(0, 10);
+}
 
 function addDaysIso(isoDate, delta) {
   const [y, m, d] = String(isoDate).split("-").map(Number);
@@ -11,6 +17,49 @@ function addDaysIso(isoDate, delta) {
   const mm = String(dt.getMonth() + 1).padStart(2, "0");
   const dd = String(dt.getDate()).padStart(2, "0");
   return `${ym}-${mm}-${dd}`;
+}
+
+export function formatIsoDateDDMMYYYY(iso) {
+  return formatFechaViaticos(iso);
+}
+
+export function minIsoDate(dates) {
+  const clean = (dates || []).map(toIsoDay).filter(Boolean).sort();
+  return clean[0] || "";
+}
+
+export function maxIsoDate(dates) {
+  const clean = (dates || []).map(toIsoDay).filter(Boolean).sort();
+  return clean[clean.length - 1] || "";
+}
+
+function sortedVigencias(vigencias) {
+  return [...(Array.isArray(vigencias) ? vigencias : [])].sort((a, b) =>
+    toIsoDay(b.vigencia_desde).localeCompare(toIsoDay(a.vigencia_desde)),
+  );
+}
+
+/**
+ * Franja que cubre `fecha`. Si hay hueco (hasta cortado antes del siguiente desde),
+ * arrastra la última vigencia con desde ≤ fecha.
+ */
+export function findVigenciaParaFecha(fecha, vigencias) {
+  const day = toIsoDay(fecha);
+  if (!day) return null;
+  const list = sortedVigencias(vigencias);
+
+  for (const v of list) {
+    const desde = toIsoDay(v.vigencia_desde);
+    const hasta = v.vigencia_hasta ? toIsoDay(v.vigencia_hasta) : null;
+    if (desde && day >= desde && (!hasta || day <= hasta)) return v;
+  }
+
+  for (const v of list) {
+    const desde = toIsoDay(v.vigencia_desde);
+    if (desde && desde <= day) return v;
+  }
+
+  return null;
 }
 
 /** Reparte los días computables por fecha calendario (salida, intermedios, llegada). */
@@ -31,19 +80,10 @@ export function buildDiasPorFecha(dSal, hSal, dLleg, hLleg) {
 }
 
 export function getMontoVigenteParaFecha(fecha, vigencias, fallbackBase = 0) {
-  if (!fecha) {
-    const fb = Number(fallbackBase);
-    return Number.isFinite(fb) && fb > 0 ? fb : 0;
-  }
-
-  const list = Array.isArray(vigencias) ? vigencias : [];
-  for (const v of list) {
-    const desde = v.vigencia_desde;
-    const hasta = v.vigencia_hasta;
-    if (fecha >= desde && (!hasta || fecha <= hasta)) {
-      const monto = Number(v.monto);
-      if (Number.isFinite(monto) && monto > 0) return monto;
-    }
+  const found = findVigenciaParaFecha(fecha, vigencias);
+  if (found) {
+    const monto = Number(found.monto);
+    if (Number.isFinite(monto) && monto > 0) return monto;
   }
 
   const fb = Number(fallbackBase);
@@ -57,8 +97,16 @@ const fmtDiasLabel = (dias) => {
   return n === 1 ? "1 día" : `${label} días`;
 };
 
+export function fmtMoneyArs(val) {
+  const n = Number(val);
+  const safe = Number.isFinite(n) ? n : 0;
+  return `$${safe.toLocaleString("es-AR")}`;
+}
+
 /**
  * Calcula subtotal y valor diario efectivo prorrateando por vigencias cuando el viaje cruza un corte.
+ * Cada día calendario del conteo DÍAS toma el valor_diario vigente esa fecha
+ * (nueva franja desde su `vigencia_desde` inclusive; la anterior cierra el día previo).
  */
 export function calcValorDiarioProporcional({
   fechaSalida,
@@ -106,44 +154,78 @@ export function calcValorDiarioProporcional({
     horaLlegada,
   );
 
-  const diasPorMonto = new Map();
+  const grupos = new Map();
   for (const { fecha, dias } of pieces) {
+    const row = findVigenciaParaFecha(fecha, vigencias);
     const montoBase = getMontoVigenteParaFecha(fecha, vigencias, fallbackBase);
-    diasPorMonto.set(montoBase, (diasPorMonto.get(montoBase) || 0) + dias);
+    const key = String(montoBase);
+    const g = grupos.get(key) || {
+      montoBase,
+      dias: 0,
+      fechas: [],
+      vigenciaDesde: row ? toIsoDay(row.vigencia_desde) : "",
+    };
+    g.dias += dias;
+    g.fechas.push(toIsoDay(fecha));
+    grupos.set(key, g);
   }
 
   const segmentos = [];
   let subtotal = 0;
 
-  for (const [montoBase, dias] of diasPorMonto) {
-    const valorDiarioTramo = round2(montoBase * pct * (1 + factor));
-    const subtotalTramo = round2(dias * valorDiarioTramo);
+  for (const g of grupos.values()) {
+    const valorDiarioTramo = round2(g.montoBase * pct * (1 + factor));
+    const subtotalTramo = round2(g.dias * valorDiarioTramo);
     subtotal += subtotalTramo;
+    const fechas = [...g.fechas].sort();
     segmentos.push({
-      montoBase,
-      dias: round2(dias),
+      montoBase: g.montoBase,
+      dias: round2(g.dias),
       valorDiarioCalc: valorDiarioTramo,
       subtotalTramo,
+      fechas,
+      fechaDesde: fechas[0] || "",
+      fechaHasta: fechas[fechas.length - 1] || "",
+      vigenciaDesde: g.vigenciaDesde,
     });
   }
 
   subtotal = round2(subtotal);
-  segmentos.sort((a, b) => b.montoBase - a.montoBase);
+  segmentos.sort((a, b) =>
+    String(a.fechaDesde).localeCompare(String(b.fechaDesde)),
+  );
+
+  const segmentosConMonto = segmentos.filter((s) => s.montoBase > 0);
 
   const valorDiarioCalc =
     dias_computables > 0
       ? round2(subtotal / dias_computables)
-      : round2(segmentos[0]?.valorDiarioCalc || 0);
+      : round2(segmentosConMonto[0]?.valorDiarioCalc || 0);
 
-  const usaProporcional = segmentos.length > 1;
+  const usaProporcional = segmentosConMonto.length > 1;
 
   return {
     dias_computables,
     subtotal,
     valorDiarioCalc,
-    segmentos,
+    segmentos: segmentosConMonto,
     usaProporcional,
   };
+}
+
+/** Primera franja (vieja) vs última (nueva) para el PDF de dos líneas. */
+export function splitSegmentosPdfFranjas(segmentos) {
+  const ordered = [...(Array.isArray(segmentos) ? segmentos : [])]
+    .filter((s) => Number(s.montoBase) > 0 && Number(s.dias) > 0)
+    .sort((a, b) => String(a.fechaDesde).localeCompare(String(b.fechaDesde)));
+  if (ordered.length < 2) return null;
+  return { vieja: ordered[0], nueva: ordered[ordered.length - 1] };
+}
+
+export function fmtDiasPdf(dias) {
+  const n = Number(dias);
+  if (!Number.isFinite(n)) return "0";
+  return Number.isInteger(n) ? String(n) : String(n).replace(".", ",");
 }
 
 export function formatSegmentosValorDiario(segmentos, fmtMoney) {
@@ -162,6 +244,50 @@ export function formatSegmentosMontoBase(segmentos, fmtMoney) {
     .filter((s) => s.montoBase > 0)
     .map((s) => `${fmtDiasLabel(s.dias)} × ${fmtMoney(s.montoBase)}`)
     .join(" + ");
+}
+
+export function formatSegmentosProrrateoHelp(segmentos, fmtMoney = fmtMoneyArs) {
+  if (!Array.isArray(segmentos) || segmentos.length === 0) return "";
+  return segmentos
+    .filter((s) => s.montoBase > 0 && s.dias > 0)
+    .map((s) => {
+      const rango =
+        s.fechaDesde && s.fechaHasta && s.fechaDesde !== s.fechaHasta
+          ? `${formatFechaViaticos(s.fechaDesde)}–${formatFechaViaticos(s.fechaHasta)}`
+          : formatFechaViaticos(s.fechaDesde || s.fechaHasta);
+      const rangoTxt = rango && rango !== "—" ? ` (${rango})` : "";
+      return `${fmtDiasLabel(s.dias)} × ${fmtMoney(s.montoBase)}${rangoTxt}`;
+    })
+    .join(" + ");
+}
+
+/**
+ * Franjas que aplican (con arrastre de huecos) entre fechaInicio y fechaFin.
+ * La primera fecha visible es max(desde, inicio de ventana) para el chip de la gira.
+ */
+export function getVigenciasEnVentana(fechaInicio, fechaFin, vigencias = []) {
+  const start = toIsoDay(fechaInicio);
+  const end = toIsoDay(fechaFin || fechaInicio);
+  if (!start) return [];
+
+  const seen = [];
+  let cursor = start;
+  let lastId = null;
+  let guard = 0;
+  while (cursor && cursor <= end && guard < 400) {
+    const row = findVigenciaParaFecha(cursor, vigencias);
+    if (row && row.id !== lastId) {
+      const desde = toIsoDay(row.vigencia_desde);
+      seen.push({
+        ...row,
+        fechaVisible: !desde || desde < start ? start : desde,
+      });
+      lastId = row.id;
+    }
+    cursor = addDaysIso(cursor, 1);
+    guard += 1;
+  }
+  return seen;
 }
 
 export const MSG_VALOR_DIARIO_REQUIERE_FECHAS =

@@ -41,7 +41,14 @@ import {
   calculateDaysDiff,
   useViaticosIndividuales,
 } from "../../../hooks/viaticos/useViaticosIndividuales";
-import { calcValorDiarioProporcional } from "../../../utils/viaticosValorDiarioProporcional";
+import {
+  calcValorDiarioProporcional,
+  fmtMoneyArs,
+  formatIsoDateDDMMYYYY,
+  getVigenciasEnVentana,
+  maxIsoDate,
+  minIsoDate,
+} from "../../../utils/viaticosValorDiarioProporcional";
 import {
   resolveAsientoHabitualViaticos,
   resolveCiudadOrigenViaticos,
@@ -390,6 +397,39 @@ export default function ViaticosManager({ supabase, giraId }) {
       ),
     [viaticosRows, selection],
   );
+
+  const baseVigenciasChip = useMemo(() => {
+    const starts = [
+      giraData?.fecha_desde,
+      ...(viaticosRows || []).map((r) => r.fecha_salida),
+    ];
+    const ends = [
+      giraData?.fecha_hasta,
+      ...(viaticosRows || []).map((r) => r.fecha_llegada),
+    ];
+    const windowStart = minIsoDate(starts);
+    const windowEnd = maxIsoDate(ends);
+    const rows = getVigenciasEnVentana(windowStart, windowEnd, vigencias);
+    if (rows.length === 0) {
+      return { amountText: "—", help: "Según historial vigente al inicio de la gira. Cada viático prorratea según sus fechas de viaje." };
+    }
+    if (rows.length === 1) {
+      return {
+        amountText: fmtMoneyArs(rows[0].monto),
+        help: `Vigente desde ${formatIsoDateDDMMYYYY(rows[0].fechaVisible)}. Cada viático prorratea según sus fechas de viaje.`,
+      };
+    }
+    const amountText = rows
+      .map(
+        (v) =>
+          `${fmtMoneyArs(v.monto)} (${formatIsoDateDDMMYYYY(v.fechaVisible)})`,
+      )
+      .join(" · ");
+    return {
+      amountText,
+      help: "La gira cruza más de una vigencia. Cada músico prorratea n días × tarifa vieja + m días × tarifa nueva según sus fechas de viaje.",
+    };
+  }, [giraData?.fecha_desde, giraData?.fecha_hasta, viaticosRows, vigencias]);
 
 
   const refreshViaticosData = async () => {
@@ -1579,6 +1619,8 @@ const collectTransportSupportDocs = (personData) => {
           });
           rich.valorDiarioCalc = fin.valorDiarioCalc;
           rich.subtotal = fin.subtotal;
+          rich.segmentosValorDiario = fin.segmentos;
+          rich.usaProporcional = fin.usaProporcional;
         } else if (dias > 0 && vigencias.length > 0) {
           const fin = calcValorDiarioProporcional({
             fechaSalida: rich.fecha_salida || p.travelData?.fecha_salida,
@@ -1592,6 +1634,8 @@ const collectTransportSupportDocs = (personData) => {
           });
           rich.valorDiarioCalc = fin.valorDiarioCalc;
           rich.subtotal = fin.subtotal;
+          rich.segmentosValorDiario = fin.segmentos;
+          rich.usaProporcional = fin.usaProporcional;
         } else {
           const base = parseFloat(vigenteValorDiario || 0);
           const factor = 1 + parseFloat(config.factor_temporada || 0);
@@ -2197,28 +2241,25 @@ const collectTransportSupportDocs = (personData) => {
                 <div className="flex items-center gap-2 border-r border-slate-200 pr-4">
                   <div className="bg-white px-2 py-1 rounded border border-indigo-100 flex flex-col gap-0.5 shadow-sm">
                     <div className="flex items-center gap-1">
-                      <span className="text-xs font-bold text-indigo-700">
+                      <span className="text-xs font-bold text-indigo-700 shrink-0">
                         BASE:
                       </span>
-                      <span className="text-xs font-black text-indigo-800">
-                        {vigenteValorDiario > 0
-                          ? `$${Number(vigenteValorDiario).toLocaleString("es-AR")}`
-                          : "—"}
+                      <span className="text-xs font-black text-indigo-800 leading-tight">
+                        {baseVigenciasChip.amountText}
                       </span>
                       {canAdminVd ? (
                         <button
                           type="button"
                           title="Histórico y vigencias del valor diario"
                           onClick={() => setVigenciaAdminOpen(true)}
-                          className="ml-1 text-indigo-600 hover:text-indigo-800"
+                          className="ml-1 text-indigo-600 hover:text-indigo-800 shrink-0"
                         >
                           <IconHistory size={14} />
                         </button>
                       ) : null}
                     </div>
-                    <p className="text-[10px] text-slate-500 leading-tight max-w-[220px]">
-                      Según historial vigente al inicio de la gira. Cada viático
-                      prorratea según sus fechas de viaje.
+                    <p className="text-[10px] text-slate-500 leading-tight max-w-[320px]">
+                      {baseVigenciasChip.help}
                     </p>
                   </div>
                   <div

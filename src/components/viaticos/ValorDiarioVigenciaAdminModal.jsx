@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import DateInput from "../ui/DateInput";
 import ConfirmDialog from "../ui/ConfirmDialog";
 import { IconEdit, IconLoader, IconTrash, IconX } from "../ui/Icons";
@@ -147,9 +148,9 @@ export default function ValorDiarioVigenciaAdminModal({
     }
   };
 
-  return (
+  return createPortal(
     <>
-      <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+      <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
         <div className="w-full max-w-3xl max-h-[90vh] overflow-hidden bg-white border border-slate-200 rounded-2xl shadow-2xl flex flex-col">
           <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-slate-100">
             <div>
@@ -409,7 +410,8 @@ export default function ValorDiarioVigenciaAdminModal({
         loadingText="Eliminando…"
         overlayClassName="z-[110]"
       />
-    </>
+    </>,
+    document.body,
   );
 }
 

@@ -9,6 +9,10 @@ import {
   sumGastosViaticoRow,
 } from "./viaticosAnticipo";
 import { resolveLugarComisionPdfField } from "./viaticosExportMotivoLugar";
+import {
+  fmtDiasPdf,
+  splitSegmentosPdfFranjas,
+} from "./viaticosValorDiarioProporcional";
 
 /**
  * Lectura de plantillas (suelen salir de Acrobat): limita números raros que a veces rompen parsers.
@@ -187,17 +191,23 @@ export const exportViaticosToPDFForm = async (
   mode = "viatico"
 ) => {
   const keepEditable = !!configData?.keep_editable;
-  // Destaque usa la misma plantilla que Viatico
-  const templateName =
+  const defaultTemplateName =
     mode === "rendicion" ? "plantilla_rendicion.pdf" : "plantilla_viaticos.pdf";
-  const templateBuffer = await fetchFileBuffer(`/plantillas/${templateName}`);
+  const templateBuffer = await fetchFileBuffer(
+    `/plantillas/${defaultTemplateName}`,
+  );
 
   if (!templateBuffer) {
     alert(
-      `Error: No se encontró la plantilla en /public/plantillas/${templateName}`
+      `Error: No se encontró la plantilla en /public/plantillas/${defaultTemplateName}`
     );
     throw new Error("Plantilla no encontrada");
   }
+
+  const multiplesBuffer =
+    mode === "viatico"
+      ? await fetchFileBuffer("/plantillas/plantilla_viaticos_multiples.pdf")
+      : null;
 
   const finalPdf = await PDFDocument.create();
 
@@ -227,8 +237,16 @@ export const exportViaticosToPDFForm = async (
               Math.round((subNum + gastos + Number.EPSILON) * 100) / 100;
             return { ...rawData, subtotal: sub, totalFinal };
           })();
+    const franjasPdf =
+      mode === "viatico"
+        ? splitSegmentosPdfFranjas(
+            data.segmentosValorDiario || data.segmentos,
+          )
+        : null;
+    const pageTemplate =
+      franjasPdf && multiplesBuffer ? multiplesBuffer : templateBuffer;
     const srcDoc = await PDFDocument.load(
-      templateBuffer,
+      pageTemplate,
       PDF_LOAD_TEMPLATE_OPTIONS,
     );
     const form = srcDoc.getForm();
@@ -420,13 +438,22 @@ export const exportViaticosToPDFForm = async (
         f("hora_salida", fmtTime(data.hora_salida));
         f("dia_llegada", formatDdMmYy(data.fecha_llegada));
         f("hora_llegada", fmtTime(data.hora_llegada));
-        f("dias_computados", String(data.dias_computables || 0));
 
-        // Nuevos campos de acroform: porcentaje y valor_diario
-        f("valor_diario", money(data.valorDiarioCalc));
-        f("porcentaje", String(data.porcentaje || 0));
-        // Compatibilidad hacia atrás si existe el campo antiguo
-        f("porcentaje_viatico", String(data.porcentaje || 0));
+        const pctTxt = String(data.porcentaje || 0);
+        if (franjasPdf) {
+          f("dias_computados", fmtDiasPdf(franjasPdf.vieja.dias));
+          f("valor_diario", money(franjasPdf.vieja.montoBase));
+          f("porcentaje", pctTxt);
+          f("porcentaje_viatico", pctTxt);
+          f("dias_computados1", fmtDiasPdf(franjasPdf.nueva.dias));
+          f("valor_diario1", money(franjasPdf.nueva.montoBase));
+          f("porcentaje1", pctTxt);
+        } else {
+          f("dias_computados", String(data.dias_computables || 0));
+          f("valor_diario", money(data.valorDiarioCalc));
+          f("porcentaje", pctTxt);
+          f("porcentaje_viatico", pctTxt);
+        }
 // ANTES: chk("check_temporada", data.es_temporada_alta);
 chk("check_temporada", configData.factor_temporada > 0);
             f("gasto_alojamiento", money(data.gasto_alojamiento));
@@ -438,6 +465,16 @@ chk("check_temporada", configData.factor_temporada > 0);
           descAnticipo = `( ${
             data.dias_computables || 0
           } días de comisión de servicio )`;
+        } else if (franjasPdf) {
+          const vdVieja = keepEditable
+            ? String(Number(franjasPdf.vieja.montoBase || 0))
+            : fmtMoney(franjasPdf.vieja.montoBase);
+          const vdNueva = keepEditable
+            ? String(Number(franjasPdf.nueva.montoBase || 0))
+            : fmtMoney(franjasPdf.nueva.montoBase);
+          descAnticipo = `( ${fmtDiasPdf(franjasPdf.vieja.dias)} días a ${vdVieja} + ${fmtDiasPdf(franjasPdf.nueva.dias)} días a ${vdNueva} -equivalentes al ${
+            data.porcentaje || 0
+          }% del viático diario)`;
         } else {
           descAnticipo = `( ${
             data.dias_computables || 0

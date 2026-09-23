@@ -271,6 +271,8 @@ export function useViaticosIndividuales(
           noEstaEnRoster: esBajaLogica,
           valorDiarioCalc,
           subtotal,
+          segmentosValorDiario: fin.segmentos,
+          usaProporcional: fin.usaProporcional,
           anticipoParaTotal,
           totalFinal,
         };

@@ -64,6 +64,11 @@ const isDiff = (valA, valB) => {
 
 const round2 = (num) => Math.round((Number(num) + Number.EPSILON) * 100) / 100;
 
+/** Inputs de monto: si la fila ya tiene tinte de seguimiento, el fondo del input no lo tapa. */
+function moneyFillClass(rowTinted, filledClass) {
+  return rowTinted ? "bg-transparent" : filledClass;
+}
+
 /** Nombre del tramo (columna etiqueta_tramo en BD). */
 function TramoEtiquetaEditor({ row, onUpdateRow, getInputClass }) {
   const [editing, setEditing] = useState(false);
@@ -229,6 +234,7 @@ function AnticipoEditableBlock({
   getInputClass,
   onUpdateRow,
   CurrencyInput,
+  rowTinted = false,
 }) {
   const hasCustom =
     row.anticipo_custom != null && row.anticipo_custom !== "";
@@ -251,7 +257,7 @@ function AnticipoEditableBlock({
         className={`w-full min-w-0 text-right text-xs font-bold outline-none border-b rounded-sm px-1 py-0.5 ${getInputClass(
           row.id,
           "anticipo_custom",
-          hasCustom ? "bg-blue-100" : "bg-orange-100",
+          moneyFillClass(rowTinted, hasCustom ? "bg-blue-100" : "bg-orange-100"),
           hasCustom ? "text-blue-800" : "text-orange-900",
         )}`}
         placeholder="0"
@@ -281,6 +287,7 @@ function AnticipoViaticoRendicionCell({
   onUpdateRow,
   showExpenses,
   CurrencyInput,
+  rowTinted = false,
 }) {
   const anticipoVal = getAnticipoDisplay(row);
   const numRen = parseFloat(row.rendicion_viaticos || 0);
@@ -295,12 +302,13 @@ function AnticipoViaticoRendicionCell({
         getInputClass={getInputClass}
         onUpdateRow={onUpdateRow}
         CurrencyInput={CurrencyInput}
+        rowTinted={rowTinted}
       />
       <div className="relative">
         <CurrencyInput
           value={row.rendicion_viaticos}
           onCommit={(val) => onUpdateRow(row.id, "rendicion_viaticos", val)}
-          className={`w-full text-right text-xs font-bold outline-none border-b rounded-sm px-1 py-0.5 ${getInputClass(row.id, "rendicion_viaticos", "bg-emerald-50", "text-emerald-900")}`}
+          className={`w-full text-right text-xs font-bold outline-none border-b rounded-sm px-1 py-0.5 ${getInputClass(row.id, "rendicion_viaticos", moneyFillClass(rowTinted, "bg-emerald-50"), "text-emerald-900")}`}
           placeholder="0"
         />
       </div>
@@ -544,6 +552,7 @@ export default function ViaticosTable({
     row,
     colDef,
     isReadOnly = false,
+    rowTinted = false,
   }) => {
     const fieldExp = colDef.exp;
     const fieldRen = colDef.ren;
@@ -566,7 +575,7 @@ export default function ViaticosTable({
               onCommit={(val) =>
                 !isReadOnly && onUpdateRow(row.id, fieldExp, val)
               }
-              className={`w-full text-right text-xs font-bold outline-none border-b rounded-sm px-1 py-0.5 ${getInputClass(row.id, fieldExp, "bg-orange-50", "text-orange-900")}`}
+              className={`w-full text-right text-xs font-bold outline-none border-b rounded-sm px-1 py-0.5 ${getInputClass(row.id, fieldExp, moneyFillClass(rowTinted, "bg-orange-50"), "text-orange-900")}`}
               placeholder="0"
             />
           </div>
@@ -578,7 +587,7 @@ export default function ViaticosTable({
             <CurrencyInput
               value={renVal}
               onCommit={(val) => onUpdateRow(row.id, fieldRen, val)}
-              className={`w-full text-right text-xs font-bold outline-none border-b rounded-sm px-1 py-0.5 ${getInputClass(row.id, fieldRen, "bg-emerald-50", "text-emerald-900")}`}
+              className={`w-full text-right text-xs font-bold outline-none border-b rounded-sm px-1 py-0.5 ${getInputClass(row.id, fieldRen, moneyFillClass(rowTinted, "bg-emerald-50"), "text-emerald-900")}`}
               placeholder="0"
             />
           </div>
@@ -597,7 +606,7 @@ export default function ViaticosTable({
   };
 
   // --- CELDA DE TOTAL FINAL (3 FILAS) ---
-  const TotalFinalCell = ({ row }) => {
+  const TotalFinalCell = ({ row, rowTinted = false }) => {
     let totalEst = getAnticipoDisplay(row);
     let totalRen = parseFloat(row.rendicion_viaticos || 0);
 
@@ -612,13 +621,13 @@ export default function ViaticosTable({
       <div className="flex flex-col gap-1 justify-center h-full py-1 px-1">
         {/* Total Estimado */}
         {showExpenses && (
-          <div className="text-right text-xs font-bold px-1 py-0.5 bg-orange-100 text-orange-900 rounded-sm">
+          <div className={`text-right text-xs font-bold px-1 py-0.5 text-orange-900 rounded-sm ${moneyFillClass(rowTinted, "bg-orange-100")}`}>
             ${totalEst.toLocaleString("es-AR")}
           </div>
         )}
         {/* Total Rendido */}
         {showRendiciones && (
-          <div className="text-right text-xs font-bold px-1 py-0.5 bg-emerald-100 text-emerald-900 rounded-sm">
+          <div className={`text-right text-xs font-bold px-1 py-0.5 text-emerald-900 rounded-sm ${moneyFillClass(rowTinted, "bg-emerald-100")}`}>
             ${totalRen.toLocaleString("es-AR")}
           </div>
         )}
@@ -871,11 +880,22 @@ export default function ViaticosTable({
                 const colorBg = hasColorMark
                   ? seguimientoColorRowBgClass(row.seguimiento_color)
                   : "";
+                // Tinte de fila: no tapa selección ni baja de roster; sin marca = sin tinte.
+                const applyRowTint =
+                  Boolean(colorBg) && !row.noEstaEnRoster && !isSelected;
+                const tintClass = applyRowTint ? colorBg : "";
+                const defaultMoneyTdBg =
+                  showExpenses && showRendiciones
+                    ? "bg-slate-50/30"
+                    : showExpenses
+                      ? "bg-orange-50/10"
+                      : "bg-emerald-50/10";
 
                 let rowBgClass = "bg-white group-hover:bg-slate-50";
                 if (row.noEstaEnRoster)
                   rowBgClass = "bg-orange-100 hover:bg-orange-200";
                 else if (isSelected) rowBgClass = "bg-indigo-50";
+                else if (applyRowTint) rowBgClass = tintClass;
                 else if (esTramo)
                   rowBgClass = "bg-violet-50/30 group-hover:bg-violet-50/50";
                 if (isDeleting)
@@ -884,7 +904,7 @@ export default function ViaticosTable({
                   ? "bg-orange-100"
                   : isSelected
                     ? "bg-indigo-50"
-                    : colorBg || (esTramo ? "bg-violet-50/40" : "bg-white");
+                    : tintClass || (esTramo ? "bg-violet-50/40" : "bg-white");
 
                 return (
                   <tr
@@ -966,7 +986,7 @@ export default function ViaticosTable({
                     {/* DATOS (Usando BlurInput interno simple si fuera necesario, pero aquí el principal es CurrencyInput. Para texto simple mantenemos el input normal con onBlur si lo prefieres, o un TextBlurInput) */}
                     {showDatos && (
                       <>
-                        <td className={`${cellClass} min-w-[120px]`}>
+                        <td className={`${cellClass} min-w-[120px] ${tintClass}`}>
                           {(() => {
                             const defaultCargo = row.cargo || "Agente Externo";
                             return (
@@ -982,7 +1002,7 @@ export default function ViaticosTable({
                             );
                           })()}
                         </td>
-                        <td className={cellClass}>
+                        <td className={`${cellClass} ${tintClass}`}>
                           <input
                             type="text"
                             defaultValue={row.jornada_laboral || ""}
@@ -1000,7 +1020,7 @@ export default function ViaticosTable({
                             className={`w-full bg-transparent outline-none text-slate-600 border-b border-transparent focus:border-indigo-500 ${getInputClass(row.id, "jornada_laboral")}`}
                           />
                         </td>
-                        <td className="p-2 border-r border-slate-100">
+                        <td className={`p-2 border-r border-slate-100 ${tintClass}`}>
                           <div className="flex flex-col">
                             <div className="relative min-h-[28px]">
                               <textarea
@@ -1028,7 +1048,7 @@ export default function ViaticosTable({
                             </div>
                           </div>
                         </td>
-                        <td className="p-2 border-r border-slate-100">
+                        <td className={`p-2 border-r border-slate-100 ${tintClass}`}>
                           <LugarComisionCell
                             row={row}
                             config={config}
@@ -1043,17 +1063,17 @@ export default function ViaticosTable({
                             getInputClass={getInputClass}
                           />
                         </td>
-                        <td className={`${cellClass} text-xs text-slate-600`}>
+                        <td className={`${cellClass} text-xs text-slate-600 ${tintClass}`}>
                           <span className="truncate block" title={row.asiento_habitual || ""}>
                             {row.asiento_habitual || "-"}
                           </span>
                         </td>
-                        <td className={`${cellClass} text-xs text-slate-600`}>
+                        <td className={`${cellClass} text-xs text-slate-600 ${tintClass}`}>
                           <span className="truncate block" title={row.ciudad_origen || ""}>
                             {row.ciudad_origen || "-"}
                           </span>
                         </td>
-                        <td className="px-2 py-2 border-b border-slate-100 text-center">
+                        <td className={`px-2 py-2 border-b border-slate-100 text-center ${tintClass}`}>
                           <button
                             type="button"
                             title="Editar datos del músico"
@@ -1066,9 +1086,9 @@ export default function ViaticosTable({
                       </>
                     )}
 
-                    {/* LOGÍSTICA (ESTÉTICA VIOLETA TENUE) */}
+                    {/* LOGÍSTICA: Salida / Llegada / Días quedan sin tinte de seguimiento */}
                     <td
-                      className={`px-2 py-2 text-center border-b border-r border-slate-200 relative ${highlightSalida ? "bg-amber-100 text-amber-900" : "text-slate-600 bg-indigo-50/5"}`}
+                      className={`px-2 py-2 text-center border-b border-r border-slate-200 relative ${highlightSalida ? "bg-amber-100 text-amber-900" : "text-slate-600 bg-white"}`}
                     >
                       <div className="flex flex-col items-center">
                         <span className="font-bold text-[10px] flex items-center gap-1">
@@ -1096,7 +1116,7 @@ export default function ViaticosTable({
                       </div>
                     </td>
                     <td
-                      className={`px-2 py-2 text-center border-b border-r border-slate-200 relative ${highlightLlegada ? "bg-amber-100 text-amber-900" : "text-slate-600 bg-indigo-50/5"}`}
+                      className={`px-2 py-2 text-center border-b border-r border-slate-200 relative ${highlightLlegada ? "bg-amber-100 text-amber-900" : "text-slate-600 bg-white"}`}
                     >
                       <div className="flex flex-col items-center">
                         <span className="font-bold text-[10px] flex items-center gap-1">
@@ -1124,7 +1144,7 @@ export default function ViaticosTable({
                       </div>
                     </td>
                     <td
-                      className={`px-1 py-2 text-center font-bold border-b border-r border-slate-200 ${highlightDias ? "text-amber-700 bg-amber-100" : "text-slate-700 bg-indigo-50/5"}`}
+                      className={`px-1 py-2 text-center font-bold border-b border-r border-slate-200 ${highlightDias ? "text-amber-700 bg-amber-100" : "text-slate-700 bg-white"}`}
                     >
                       <DiasComputablesHelp
                         dias={currentDias}
@@ -1132,23 +1152,26 @@ export default function ViaticosTable({
                         horaSalida={currentHoraSalida}
                         fechaLlegada={currentFechaLlegada}
                         horaLlegada={currentHoraLlegada}
+                        segmentos={row.segmentosValorDiario}
+                        porcentaje={row.porcentaje ?? 100}
+                        subtotal={row.subtotal}
                       />
                     </td>
 
                     {/* BACKUP */}
                     {showBackup && (
                       <>
-                        <td className="px-2 py-2 text-center border-b bg-amber-50 text-slate-500 text-[10px] select-none">
+                        <td className={`px-2 py-2 text-center border-b ${tintClass || "bg-amber-50"} text-slate-500 text-[10px] select-none`}>
                           {row.backup_fecha_salida
                             ? `${formatDateShort(row.backup_fecha_salida)} ${formatTimeShort(row.backup_hora_salida)}`
                             : "-"}
                         </td>
-                        <td className="px-2 py-2 text-center border-b bg-amber-50 text-slate-500 text-[10px] select-none">
+                        <td className={`px-2 py-2 text-center border-b ${tintClass || "bg-amber-50"} text-slate-500 text-[10px] select-none`}>
                           {row.backup_fecha_llegada
                             ? `${formatDateShort(row.backup_fecha_llegada)} ${formatTimeShort(row.backup_hora_llegada)}`
                             : "-"}
                         </td>
-                        <td className="px-2 py-2 text-center border-b border-r bg-amber-50 text-slate-500 font-bold">
+                        <td className={`px-2 py-2 text-center border-b border-r ${tintClass || "bg-amber-50"} text-slate-500 font-bold`}>
                           {row.backup_dias_computables ?? "-"}
                         </td>
                       </>
@@ -1157,7 +1180,7 @@ export default function ViaticosTable({
                     {/* ANTICIPO Y VIÁTICOS */}
                     {showAnticipo && (
                       <>
-                        <td className="px-1 py-2 text-center border-b border-slate-100">
+                        <td className={`px-1 py-2 text-center border-b border-slate-100 ${tintClass}`}>
                           <select
                             className="bg-transparent text-xs outline-none font-bold"
                             value={row.porcentaje ?? 100}
@@ -1173,7 +1196,13 @@ export default function ViaticosTable({
 
                         {/* CELDA VIÁTICO (histórico o calculado) + subida/bajada vs último backup */}
                         <td
-                          className={`min-w-[100px] px-2 py-1 border-r border-b ${isHistorical ? "bg-amber-50/80 border-amber-100 text-amber-900" : "border-indigo-100"} ${!isHistorical && (showExpenses && showRendiciones ? "bg-slate-50/30" : showExpenses ? "bg-orange-50/10" : "bg-emerald-50/10")}`}
+                          className={`min-w-[100px] px-2 py-1 border-r border-b ${
+                            tintClass
+                              ? `${tintClass} border-slate-100`
+                              : isHistorical
+                                ? "bg-amber-50/80 border-amber-100 text-amber-900"
+                                : `border-indigo-100 ${defaultMoneyTdBg}`
+                          }`}
                         >
                           <div className="flex flex-col gap-0.5">
                             {showRendiciones ? (
@@ -1185,6 +1214,7 @@ export default function ViaticosTable({
                                 onUpdateRow={onUpdateRow}
                                 showExpenses={showExpenses}
                                 CurrencyInput={CurrencyInput}
+                                rowTinted={applyRowTint}
                               />
                             ) : (
                               <AnticipoEditableBlock
@@ -1194,6 +1224,7 @@ export default function ViaticosTable({
                                 getInputClass={getInputClass}
                                 onUpdateRow={onUpdateRow}
                                 CurrencyInput={CurrencyInput}
+                                rowTinted={applyRowTint}
                               />
                             )}
                             {!showRendiciones &&
@@ -1229,7 +1260,7 @@ export default function ViaticosTable({
                     {/* TRANSPORTE */}
                     {showTransport && (
                       <>
-                        <td className="px-2 py-2 border-b border-slate-100 text-center">
+                        <td className={`px-2 py-2 border-b border-slate-100 text-center ${tintClass}`}>
                           <div className="flex flex-col gap-1 text-[9px]">
                             <label>
                               <input
@@ -1261,7 +1292,7 @@ export default function ViaticosTable({
                             </label>
                           </div>
                         </td>
-                        <td className="px-2 py-2 border-b border-slate-100">
+                        <td className={`px-2 py-2 border-b border-slate-100 ${tintClass}`}>
                           <div className="flex flex-col gap-1 text-[9px]">
                             <label
                               className="font-bold text-slate-500 inline-flex items-center gap-1"
@@ -1298,7 +1329,7 @@ export default function ViaticosTable({
                             </div>
                           </div>
                         </td>
-                        <td className="px-2 py-2 border-b border-slate-100">
+                        <td className={`px-2 py-2 border-b border-slate-100 ${tintClass}`}>
                           <div className="flex flex-col gap-1 text-[9px]">
                             <label className="text-slate-500">
                               <input
@@ -1334,7 +1365,7 @@ export default function ViaticosTable({
                           </div>
                         </td>
                         {/* Otros (detalle de texto) */}
-                        <td className="px-2 py-2 border-b border-r border-slate-200">
+                        <td className={`px-2 py-2 border-b border-r border-slate-200 ${tintClass}`}>
                           <div className="flex flex-col gap-1 text-[9px] items-stretch">
                             <span className="text-slate-500 font-semibold">
                               Otros (detalle)
@@ -1368,21 +1399,21 @@ export default function ViaticosTable({
                         <td
                           key={idx}
                           className={`px-1 py-1 border-b border-slate-100 ${
-                            showExpenses && showRendiciones
-                              ? "bg-slate-50/30"
-                              : showExpenses
-                                ? "bg-orange-50/10"
-                                : "bg-emerald-50/10"
+                            tintClass || defaultMoneyTdBg
                           }`}
                         >
-                          <StackedFinancialCell row={row} colDef={col} />
+                          <StackedFinancialCell
+                            row={row}
+                            colDef={col}
+                            rowTinted={applyRowTint}
+                          />
                         </td>
                       ))}
 
                     {/* TOTAL FINAL */}
                     {(showExpenses || showRendiciones) && (
-                      <td className="px-1 py-1 border-b border-slate-200 bg-slate-50 border-l">
-                        <TotalFinalCell row={row} />
+                      <td className={`px-1 py-1 border-b border-slate-200 border-l ${tintClass || "bg-slate-50"}`}>
+                        <TotalFinalCell row={row} rowTinted={applyRowTint} />
                       </td>
                     )}
 
@@ -1399,7 +1430,7 @@ export default function ViaticosTable({
                       />
                     </td>
 
-                    <td className="px-2 py-2 text-center border-b border-slate-100">
+                    <td className={`px-2 py-2 text-center border-b border-slate-100 ${tintClass}`}>
                       <button
                         onClick={() => onDeleteRow(row.id)}
                         disabled={isDeleting}

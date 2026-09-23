@@ -675,6 +675,8 @@ export default function ViaticosManual() {
       porcentaje: toNumber(form.porcentaje),
       valorDiarioCalc,
       subtotal,
+      segmentosValorDiario: calcFinanciero.segmentos,
+      usaProporcional: calcFinanciero.usaProporcional,
 
       check_aereo: !!form.check_aereo,
       check_terrestre: !!form.check_terrestre,

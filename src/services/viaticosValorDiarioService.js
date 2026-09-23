@@ -43,12 +43,24 @@ export async function updateValorDiarioVigencia(
   client,
 ) {
   const sb = pickClient(client);
-  const { data, error } = await sb.rpc("viaticos_valor_diario_update_vigencia", {
-    p_id: id,
-    p_vigencia_desde: vigencia_desde,
+  const payload = {
+    p_vigencia_id: id,
     p_monto: Number(monto),
     p_nota: nota || null,
-  });
+    p_vigencia_desde: vigencia_desde,
+  };
+  let { data, error } = await sb.rpc("viaticos_valor_diario_update", payload);
+  if (
+    error &&
+    /Could not find the function|schema cache/i.test(error.message || "")
+  ) {
+    ({ data, error } = await sb.rpc("viaticos_valor_diario_update_vigencia", {
+      p_id: id,
+      p_vigencia_desde: vigencia_desde,
+      p_monto: Number(monto),
+      p_nota: nota || null,
+    }));
+  }
   if (error) throw error;
   return data;
 }

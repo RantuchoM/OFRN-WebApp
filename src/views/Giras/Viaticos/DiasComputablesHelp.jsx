@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { IconHelpCircle, IconX } from "../../../components/ui/Icons";
 import {
   explainViaticosDiasCalculation,
@@ -9,6 +10,10 @@ import {
   REFERENCIA_DIAS_MISMO_DIA,
   REFERENCIA_DIAS_SALIDA,
 } from "../../../utils/viaticosDiasComputables";
+import {
+  formatSegmentosProrrateoHelp,
+  fmtMoneyArs,
+} from "../../../utils/viaticosValorDiarioProporcional";
 
 function ReferenciaHorariosTable({ titulo, filas, diasActivo }) {
   const fmtDias = (n) =>
@@ -97,10 +102,21 @@ function ReferenciaMismoDiaTable({ filas, diasActivo }) {
   );
 }
 
-function DiasComputablesExplainModal({ breakdown, onClose }) {
+function DiasComputablesExplainModal({
+  breakdown,
+  onClose,
+  segmentos = [],
+  porcentaje,
+  subtotal,
+}) {
   if (!breakdown) return null;
 
-  return (
+  const prorrateoTxt = formatSegmentosProrrateoHelp(segmentos, fmtMoneyArs);
+  const pctNum = parseFloat(String(porcentaje ?? "").replace("%", ""));
+  const showPct = Number.isFinite(pctNum) && pctNum !== 100;
+  const usaProrrateo = Array.isArray(segmentos) && segmentos.length > 1;
+
+  return createPortal(
     <div
       className="fixed inset-0 z-[130] flex items-center justify-center bg-black/50 p-4"
       onClick={onClose}
@@ -228,6 +244,25 @@ function DiasComputablesExplainModal({ breakdown, onClose }) {
                   </span>
                 </div>
               )}
+              {usaProrrateo && prorrateoTxt ? (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 space-y-1">
+                  <span className="text-[10px] font-bold uppercase text-amber-800 block">
+                    Valor diario por vigencia
+                  </span>
+                  <p className="text-xs text-amber-950 leading-snug font-semibold">
+                    {prorrateoTxt}
+                  </p>
+                  {showPct ? (
+                    <p className="text-[11px] text-amber-900">
+                      Luego se aplica el {pctNum} %
+                      {subtotal != null && Number.isFinite(Number(subtotal))
+                        ? ` → ${fmtMoneyArs(subtotal)}`
+                        : ""}
+                      .
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
             </>
           )}
         </div>
@@ -242,7 +277,8 @@ function DiasComputablesExplainModal({ breakdown, onClose }) {
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -255,6 +291,9 @@ export default function DiasComputablesHelp({
   horaSalida,
   fechaLlegada,
   horaLlegada,
+  segmentos = [],
+  porcentaje,
+  subtotal,
   className = "",
   valueClassName = "",
   iconSize = 13,
@@ -288,7 +327,12 @@ export default function DiasComputablesHelp({
             setOpen(true);
           }}
           className="inline-flex shrink-0 items-center justify-center rounded-full text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 focus:outline-none focus:ring-1 focus:ring-indigo-400"
-          title="¿Cómo se calculan los días?"
+          title={
+            Array.isArray(segmentos) && segmentos.length > 1
+              ? formatSegmentosProrrateoHelp(segmentos, fmtMoneyArs) ||
+                "¿Cómo se calculan los días?"
+              : "¿Cómo se calculan los días?"
+          }
           aria-label="Explicación del cálculo de días"
         >
           <IconHelpCircle size={iconSize} />
@@ -298,6 +342,9 @@ export default function DiasComputablesHelp({
         <DiasComputablesExplainModal
           breakdown={breakdown}
           onClose={() => setOpen(false)}
+          segmentos={segmentos}
+          porcentaje={porcentaje}
+          subtotal={subtotal}
         />
       )}
     </>
