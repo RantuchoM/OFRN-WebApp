@@ -5,6 +5,7 @@
  * Atribución: public/stage-plot/ATTRIBUTION.md
  */
 
+import { bumpStagePlotCatalogEpoch } from "./stagePlotCatalog";
 import { STAGE_PLOT_SILHOUETTE_VIEWBOX } from "./stagePlotSilhouettes";
 
 /** Keep in sync with STAGE_PLOT_CM_TO_PX (avoid circular import with stagePlotConstants). */
@@ -102,6 +103,7 @@ export function setStagePlotDbSizeOverrides(map) {
   } else {
     dbSizeByType = new Map();
   }
+  bumpStagePlotCatalogEpoch();
 }
 
 /**
@@ -115,9 +117,14 @@ export function mergeStagePlotDbSizeOverrides(map) {
       : map && typeof map === "object"
         ? Object.entries(map)
         : [];
+  let changed = false;
   for (const [k, v] of entries) {
-    if (k && v) dbSizeByType.set(k, v);
+    if (k && v) {
+      dbSizeByType.set(k, v);
+      changed = true;
+    }
   }
+  if (changed) bumpStagePlotCatalogEpoch();
 }
 
 /** Solo limpia cache de imágenes rasterizadas (no invalida ensure promise). */

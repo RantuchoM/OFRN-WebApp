@@ -312,7 +312,7 @@ function InstrumentRowList({
                         </label>
                       </div>
                       <p className="text-[9px] text-slate-400">
-                        Vacío = 50 cm al insertar. Enter/blur guarda.
+                        Vacío = 50 cm. El tamaño del catálogo aplica a todos los planos. Enter/blur guarda.
                       </p>
 
                       {canEdit ? (
@@ -762,13 +762,15 @@ function CreateInstrumentoModal({
 }
 
 /**
- * Editor de íconos / tamaño insert de instrumentos (panel izquierdo Escenario → Editor).
+ * Editor de íconos / tamaño de huella de instrumentos (panel izquierdo Escenario → Editor).
  * Clasificación de usuario: `familia`. Clave interna: `stage_plot_type`.
+ * El tamaño (`stage_plot_width_cm` / `height_cm`) es canónico: todos los planos lo usan.
  */
 export default function StagePlotInstrumentsPanel({
   supabase,
   canEdit = false,
   onInstrumentsChange,
+  onCatalogReload,
 }) {
   const [rows, setRows] = useState([]);
   const [familias, setFamilias] = useState([]);
@@ -922,7 +924,8 @@ export default function StagePlotInstrumentsPanel({
       stage_plot_height_cm: h,
     });
     await reloadStagePlotInstrumentIcons().catch(() => {});
-    toast.success("Tamaño de insert actualizado");
+    onCatalogReload?.();
+    toast.success("Tamaño actualizado (aplica a todos los planos)");
   };
 
   const saveFamilia = async (nextFamilia) => {
@@ -970,6 +973,7 @@ export default function StagePlotInstrumentsPanel({
     }
     patchRowLocal(selected.id, { stage_plot_type: normalized });
     await reloadStagePlotInstrumentIcons().catch(() => {});
+    onCatalogReload?.();
     toast.success(
       normalized
         ? "Clave de ícono actualizada"
@@ -1021,6 +1025,7 @@ export default function StagePlotInstrumentsPanel({
     patchRowLocal(selected.id, { svg_icon: pendingSvg.nextSvg });
     setPendingSvg(null);
     await reloadStagePlotInstrumentIcons().catch(() => {});
+    onCatalogReload?.();
     toast.success(
       pendingSvg.nextSvg ? "Ícono SVG actualizado" : "SVG personalizado quitado",
     );
@@ -1054,7 +1059,7 @@ export default function StagePlotInstrumentsPanel({
   return (
     <div className="flex flex-col gap-2">
       <p className="px-1 text-[10px] leading-snug text-slate-400">
-        Editor de instrumentos: familia, tamaño al insertar y SVG. Agrupados por
+        Editor de instrumentos: familia, tamaño de huella (catálogo) y SVG. Agrupados por
         familia. Material sin instrumento → Inventario (elementos_escenario).
       </p>
 
@@ -1125,6 +1130,7 @@ export default function StagePlotInstrumentsPanel({
             return next;
           });
           setSelectedId(created.id);
+          onCatalogReload?.();
         }}
       />
 

@@ -345,13 +345,13 @@ export default function DataView({ supabase }) {
         },
         {
           key: "stage_plot_width_cm",
-          label: "Ancho insert (cm)",
+          label: "Ancho huella (cm)",
           type: "number",
           placeholder: "50",
         },
         {
           key: "stage_plot_height_cm",
-          label: "Profundo insert (cm)",
+          label: "Profundo huella (cm)",
           type: "number",
           placeholder: "50",
         },
@@ -362,7 +362,7 @@ export default function DataView({ supabase }) {
         },
       ],
       warning:
-        "🎭 Rol gira defecto: convocatoria. Escenario: familia = clasificación; clave de ícono (plano) = slug interno; tamaño insert (cm, vacío=50) + SVG. Material sin instrumento → Inventario.",
+        "🎭 Rol gira defecto: convocatoria. Escenario: familia = clasificación; clave de ícono (plano) = slug interno; tamaño de huella (cm, vacío=50) aplica a todos los planos + SVG. Material sin instrumento → Inventario.",
     },
     paises: {
       label: "Países",

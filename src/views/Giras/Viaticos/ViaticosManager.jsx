@@ -69,6 +69,7 @@ import MusicianForm from "../../Musicians/MusicianForm";
 import { firstMondayAfter } from "../../../utils/dates";
 import {
   getAnticipoSubtotalForExport,
+  isViaticoPorcentajeCero,
   sumGastosViaticoRow,
 } from "../../../utils/viaticosAnticipo";
 import { parseSupabasePublicStorageUrl } from "../../../utils/supabaseStorage";
@@ -1577,10 +1578,13 @@ const collectTransportSupportDocs = (personData) => {
         const hasLocalityDaysOverride = Number.isFinite(
           Number(p._diasComputablesLocalidad),
         );
-        const pctGlobal =
+        const pctParsed =
           config.porcentaje_destaques !== undefined
             ? parseFloat(config.porcentaje_destaques)
             : 100;
+        const pctGlobal = Number.isFinite(pctParsed) ? pctParsed : 100;
+        const aplicaViaticoProporcional =
+          pctGlobal > 0 && !isViaticoPorcentajeCero({ porcentaje: pctGlobal });
 
         if (p.travelData) {
           rich.fecha_salida = p.travelData.fecha_salida;
@@ -1602,16 +1606,17 @@ const collectTransportSupportDocs = (personData) => {
         }
         rich.dias_computables = dias;
 
-        if (
-          p.travelData &&
-          !hasLocalityDaysOverride &&
-          dias > 0
-        ) {
+        const fechaSalida = rich.fecha_salida || p.travelData?.fecha_salida;
+        const horaSalida = rich.hora_salida || p.travelData?.hora_salida;
+        const fechaLlegada = rich.fecha_llegada || p.travelData?.fecha_llegada;
+        const horaLlegada = rich.hora_llegada || p.travelData?.hora_llegada;
+
+        if (aplicaViaticoProporcional && dias > 0 && vigencias.length > 0) {
           const fin = calcValorDiarioProporcional({
-            fechaSalida: p.travelData.fecha_salida,
-            horaSalida: p.travelData.hora_salida,
-            fechaLlegada: p.travelData.fecha_llegada,
-            horaLlegada: p.travelData.hora_llegada,
+            fechaSalida,
+            horaSalida,
+            fechaLlegada,
+            horaLlegada,
             vigencias,
             fallbackBase: 0,
             porcentaje: pctGlobal,
@@ -1621,28 +1626,19 @@ const collectTransportSupportDocs = (personData) => {
           rich.subtotal = fin.subtotal;
           rich.segmentosValorDiario = fin.segmentos;
           rich.usaProporcional = fin.usaProporcional;
-        } else if (dias > 0 && vigencias.length > 0) {
-          const fin = calcValorDiarioProporcional({
-            fechaSalida: rich.fecha_salida || p.travelData?.fecha_salida,
-            horaSalida: rich.hora_salida || p.travelData?.hora_salida,
-            fechaLlegada: rich.fecha_llegada || p.travelData?.fecha_llegada,
-            horaLlegada: rich.hora_llegada || p.travelData?.hora_llegada,
-            vigencias,
-            fallbackBase: 0,
-            porcentaje: pctGlobal,
-            factorTemporada: config.factor_temporada || 0,
-          });
-          rich.valorDiarioCalc = fin.valorDiarioCalc;
-          rich.subtotal = fin.subtotal;
-          rich.segmentosValorDiario = fin.segmentos;
-          rich.usaProporcional = fin.usaProporcional;
-        } else {
+        } else if (aplicaViaticoProporcional && dias > 0) {
           const base = parseFloat(vigenteValorDiario || 0);
           const factor = 1 + parseFloat(config.factor_temporada || 0);
           const valDiario = Math.round(base * factor * (pctGlobal / 100));
-          const computedSub = Math.round(dias * valDiario * 100) / 100;
           rich.valorDiarioCalc = valDiario;
-          rich.subtotal = computedSub;
+          rich.subtotal = Math.round(dias * valDiario * 100) / 100;
+          rich.segmentosValorDiario = [];
+          rich.usaProporcional = false;
+        } else {
+          rich.valorDiarioCalc = 0;
+          rich.subtotal = 0;
+          rich.segmentosValorDiario = [];
+          rich.usaProporcional = false;
         }
         rich.porcentaje = pctGlobal;
         rich.subtotal = getAnticipoSubtotalForExport(rich, useHistoricalCalc);
@@ -1679,10 +1675,6 @@ const collectTransportSupportDocs = (personData) => {
 
         rich.logistics_transports =
           logisticsTransportsByPerson[String(p.id)] || [];
-
-        if (options?.destaque) {
-          return zeroDestaqueMonetaryFields(rich);
-        }
 
         return rich;
       });

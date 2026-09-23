@@ -19,7 +19,7 @@ import {
   stagePlotGridMajorPx,
   stagePlotGridMinorPx,
   stagePlotInstrumentFootprintLayout,
-  stagePlotItemAxisScales,
+  stagePlotInstrumentCatalogScales,
 } from "./stagePlotConstants";
 import { stagePlotTarimaDimensionsCm } from "./stagePlotOrganico";
 import {
@@ -711,7 +711,9 @@ async function drawStageItemsOnPdf(doc, payload, ox, oy, scale) {
 
     if (stagePlotItemHasInstrumentFootprint(item.type)) {
       const fp = stagePlotInstrumentFootprintLayout();
-      const { scaleX: sx, scaleY: sy } = stagePlotItemAxisScales(item);
+      const { scaleX: sx, scaleY: sy } = stagePlotInstrumentCatalogScales(
+        item.type,
+      );
       const iconBoxW = fp.iconBoxPx * scale * sx;
       const iconBoxH = fp.iconBoxPx * scale * sy;
       const iconOffY = fp.iconOffsetY * scale * sy;
@@ -899,7 +901,9 @@ async function drawStageItemsOnCanvas(ctx, payload, ox, oy, scale) {
 
     if (stagePlotItemHasInstrumentFootprint(item.type)) {
       const fp = stagePlotInstrumentFootprintLayout();
-      const { scaleX: sx, scaleY: sy } = stagePlotItemAxisScales(item);
+      const { scaleX: sx, scaleY: sy } = stagePlotInstrumentCatalogScales(
+        item.type,
+      );
       const iconBoxW = fp.iconBoxPx * scale * sx;
       const iconBoxH = fp.iconBoxPx * scale * sy;
       const iconOffY = fp.iconOffsetY * scale * sy;

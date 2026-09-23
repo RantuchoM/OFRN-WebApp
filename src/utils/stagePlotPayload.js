@@ -9,7 +9,6 @@ import {
   STAGE_PLOT_DEFAULT_HEIGHT_CM,
   STAGE_PLOT_DEFAULT_WIDTH_CM,
   STAGE_PLOT_CM_TO_PX,
-  STAGE_PLOT_INSTRUMENT_FOOTPRINT_WIDTH_CM,
   STAGE_PLOT_ITEM_DEFAULT_SIZE_CM,
   STAGE_PLOT_ITEM_SCALE_MAX,
   STAGE_PLOT_ITEM_SCALE_MIN,
@@ -19,10 +18,10 @@ import {
   inferStagePlotStoredCmToPx,
   stagePlotCmToPx,
   stagePlotConductorPosition,
+  stagePlotInstrumentCatalogScales,
   stagePlotLegacyScaleFactor,
 } from "./stagePlotConstants";
 import {
-  getStagePlotDbDefaultSizeCm,
   getStagePlotItemVisualBounds,
 } from "./stagePlotIconAssets";
 import { getStagePlotSilhouettePath } from "./stagePlotSilhouettes";
@@ -495,14 +494,9 @@ export function normalizeStagePlotPayload(raw) {
     Array.isArray(obj.formations) ? obj.formations : [],
     scaleFactor,
   );
-  // One-shot: scales pre-huella (~40 cm visual, a menudo ≫ 1) inflaban la
-  // huella (antes 50×80, ahora 50×50). Al primer normalize sin flag → scale=1;
-  // luego se conservan escalas deliberadas del Transformer.
-  const forceFootprintScaleOne = stageIn.instrumentFootprintMigrated !== true;
+  // Instrumentos: tamaño desde catálogo al render; flag legacy se conserva.
   const items = itemsRaw
-    .map((it, idx) =>
-      normalizeStagePlotItem(it, idx, { forceFootprintScaleOne }),
-    )
+    .map((it, idx) => normalizeStagePlotItem(it, idx))
     .filter(Boolean);
   // v1 compatible: sin `formations` → []
   const formations = formationsRaw
@@ -555,36 +549,10 @@ export function countStagePlotMusicians(payload) {
 }
 
 /**
- * Escalas «~40 cm visual» históricas (catálogo / silueta @ 4 y 10 px/cm).
- * @param {string} type
- * @param {number} scale
- */
-function isLegacyInstrumentVisualScale(type, scale) {
-  if (!(scale > 1.01)) return false;
-  const cat = getStagePlotCatalogItem(type);
-  const w = cat?.w || 40;
-  const h = cat?.h || 40;
-  const pathD = getStagePlotSilhouettePath(type);
-  const bounds = pathD
-    ? getStagePlotItemVisualBounds(w, h, "silhouette")
-    : getStagePlotItemVisualBounds(w, h, "catalog");
-  const baseMax = Math.max(bounds.drawW, bounds.drawH, w, h, 1);
-  const candidates = [
-    (STAGE_PLOT_ITEM_DEFAULT_SIZE_CM * STAGE_PLOT_CM_TO_PX) / baseMax,
-    (STAGE_PLOT_ITEM_DEFAULT_SIZE_CM * STAGE_PLOT_LEGACY_CM_TO_PX) / baseMax,
-    (STAGE_PLOT_ITEM_DEFAULT_SIZE_CM * STAGE_PLOT_CM_TO_PX) / Math.max(w, h, 1),
-    (STAGE_PLOT_ITEM_DEFAULT_SIZE_CM * STAGE_PLOT_LEGACY_CM_TO_PX) /
-      Math.max(w, h, 1),
-  ];
-  return candidates.some((c) => Math.abs(scale - c) < 0.12);
-}
-
-/**
  * @param {unknown} it
  * @param {number} idx
- * @param {{ forceFootprintScaleOne?: boolean }} [opts]
  */
-function normalizeStagePlotItem(it, idx, opts = {}) {
+function normalizeStagePlotItem(it, idx) {
   if (!it || typeof it !== "object") return null;
   const o = /** @type {Record<string, unknown>} */ (it);
   const type = String(o.type || "").trim();
@@ -599,12 +567,10 @@ function normalizeStagePlotItem(it, idx, opts = {}) {
           Math.max(STAGE_PLOT_ITEM_SCALE_MIN, scaleRaw),
         )
       : 1;
-  // Huella 50×50 es tamaño físico en cm a scale=1. Migración one-shot (flag en
-  // stage) + safety net si queda un default «~40 cm visual» colgado.
-  if (stagePlotItemHasInstrumentFootprint(type) && scale !== 1) {
-    if (opts.forceFootprintScaleOne || isLegacyInstrumentVisualScale(type, scale)) {
-      scale = 1;
-    }
+  // Huella: tamaño canónico vive en `instrumentos.stage_plot_*_cm`.
+  // Se ignora / descarta scaleX/Y del ítem; `scale` queda en catálogo.
+  if (stagePlotItemHasInstrumentFootprint(type)) {
+    scale = stagePlotInstrumentCatalogScales(type).scale;
   }
   const slotId =
     o.slotId == null || o.slotId === "" ? null : String(o.slotId);
@@ -645,29 +611,9 @@ function normalizeStagePlotItem(it, idx, opts = {}) {
           : 1,
     };
   }
-  // Instrumentos con huella: conservar scaleX/Y si existen (aspecto no uniforme).
+  // Instrumentos con huella: sin scaleX/Y en payload (tamaño = catálogo al render).
   if (stagePlotItemHasInstrumentFootprint(type)) {
-    const sx = Number(o.scaleX);
-    const sy = Number(o.scaleY);
-    const hasSx = Number.isFinite(sx) && sx > 0;
-    const hasSy = Number.isFinite(sy) && sy > 0;
-    if (hasSx || hasSy) {
-      return {
-        ...base,
-        scaleX: hasSx
-          ? Math.min(
-              STAGE_PLOT_ITEM_SCALE_MAX,
-              Math.max(STAGE_PLOT_ITEM_SCALE_MIN, sx),
-            )
-          : scale,
-        scaleY: hasSy
-          ? Math.min(
-              STAGE_PLOT_ITEM_SCALE_MAX,
-              Math.max(STAGE_PLOT_ITEM_SCALE_MIN, sy),
-            )
-          : scale,
-      };
-    }
+    return base;
   }
   return base;
 }
@@ -693,7 +639,7 @@ export function deriveStagePlotChannels(payload) {
 
 /**
  * Escala inicial: max(drawW, drawH) × scale ≈ STAGE_PLOT_ITEM_DEFAULT_SIZE_CM en px.
- * Instrumentos con huella: scale desde `instrumentos.stage_plot_width_cm` (default 50 → scale 1).
+ * Instrumentos con huella: scale desde catálogo DB (width/height cm ÷ 50).
  * Tarimas: scale = 1 (catálogo ya es 200×100 cm en px).
  * @param {string} type
  */
@@ -702,16 +648,7 @@ export function defaultStagePlotItemScale(type) {
   // Elementos: catálogo ya en cm×px; scale 1 = tamaño real.
   if (stagePlotItemIsElemento(type)) return 1;
   if (stagePlotItemHasInstrumentFootprint(type)) {
-    const db = getStagePlotDbDefaultSizeCm(type);
-    const widthCm =
-      db?.widthCm != null && Number.isFinite(db.widthCm)
-        ? db.widthCm
-        : STAGE_PLOT_INSTRUMENT_FOOTPRINT_WIDTH_CM;
-    const raw = widthCm / STAGE_PLOT_INSTRUMENT_FOOTPRINT_WIDTH_CM;
-    return Math.min(
-      STAGE_PLOT_ITEM_SCALE_MAX,
-      Math.max(STAGE_PLOT_ITEM_SCALE_MIN, raw),
-    );
+    return stagePlotInstrumentCatalogScales(type).scale;
   }
   const cat = getStagePlotCatalogItem(type);
   const w = cat?.w || 40;

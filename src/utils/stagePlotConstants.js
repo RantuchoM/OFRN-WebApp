@@ -1,5 +1,8 @@
 import { getStagePlotCatalogItem } from "./stagePlotCatalog";
-import { getStagePlotItemVisualBounds } from "./stagePlotIconAssets";
+import {
+  getStagePlotDbDefaultSizeCm,
+  getStagePlotItemVisualBounds,
+} from "./stagePlotIconAssets";
 
 /**
  * Escala del lienzo: 1 cm real = STAGE_PLOT_CM_TO_PX unidades lógicas del canvas.
@@ -174,21 +177,54 @@ export function stagePlotItemAxisScales(item) {
 }
 
 /**
+ * Escalas canónicas de un instrumento con huella desde el catálogo DB
+ * (`instrumentos.stage_plot_width_cm` / `stage_plot_height_cm`).
+ * Ignora `scale`/`scaleX`/`scaleY` persistidos en el ítem del plot.
+ * Fallback 50×50 cm → scale 1.
+ * @param {string|null|undefined} type
+ * @returns {{ scaleX: number, scaleY: number, scale: number }}
+ */
+export function stagePlotInstrumentCatalogScales(type) {
+  const db = getStagePlotDbDefaultSizeCm(type);
+  const widthCm =
+    db?.widthCm != null && Number.isFinite(Number(db.widthCm)) && Number(db.widthCm) > 0
+      ? Number(db.widthCm)
+      : STAGE_PLOT_INSTRUMENT_FOOTPRINT_WIDTH_CM;
+  const depthCm =
+    db?.heightCm != null &&
+    Number.isFinite(Number(db.heightCm)) &&
+    Number(db.heightCm) > 0
+      ? Number(db.heightCm)
+      : STAGE_PLOT_INSTRUMENT_FOOTPRINT_DEPTH_CM;
+  return stagePlotInstrumentScalesFromCm(widthCm, depthCm);
+}
+
+/**
  * Dimensiones de huella de instrumento en cm (Ancho × Profundo).
- * Base 50×50 @ scale 1; admite `scaleX`/`scaleY` independientes.
- * @param {{ scale?: number, scaleX?: number, scaleY?: number }|null|undefined} item
+ * Siempre desde catálogo DB del `type` (no desde scale del ítem en el plot).
+ * @param {{ type?: string, scale?: number, scaleX?: number, scaleY?: number }|string|null|undefined} itemOrType
  * @returns {{ widthCm: number, depthCm: number }}
  */
-export function stagePlotInstrumentDimensionsCm(item) {
-  const { scaleX, scaleY } = stagePlotItemAxisScales(item);
-  return {
-    widthCm: Math.round(STAGE_PLOT_INSTRUMENT_FOOTPRINT_WIDTH_CM * scaleX),
-    depthCm: Math.round(STAGE_PLOT_INSTRUMENT_FOOTPRINT_DEPTH_CM * scaleY),
-  };
+export function stagePlotInstrumentDimensionsCm(itemOrType) {
+  const type =
+    typeof itemOrType === "string" ? itemOrType : itemOrType?.type;
+  const db = getStagePlotDbDefaultSizeCm(type);
+  const widthCm =
+    db?.widthCm != null && Number.isFinite(Number(db.widthCm)) && Number(db.widthCm) > 0
+      ? Math.round(Number(db.widthCm))
+      : STAGE_PLOT_INSTRUMENT_FOOTPRINT_WIDTH_CM;
+  const depthCm =
+    db?.heightCm != null &&
+    Number.isFinite(Number(db.heightCm)) &&
+    Number(db.heightCm) > 0
+      ? Math.round(Number(db.heightCm))
+      : STAGE_PLOT_INSTRUMENT_FOOTPRINT_DEPTH_CM;
+  return { widthCm, depthCm };
 }
 
 /**
  * Escalas de ítem desde Ancho/Profundo cm (huella 50×50).
+ * Usado para mapear tamaños de catálogo → scaleX/Y de render.
  * @param {number} widthCm
  * @param {number} depthCm
  * @returns {{ scaleX: number, scaleY: number, scale: number }}

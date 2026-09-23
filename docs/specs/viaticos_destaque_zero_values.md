@@ -14,7 +14,8 @@ Garantizar que todos los campos de importes monetarios en los PDFs de tipo **Des
 
 - **Helper**: Se añadió `zeroDestaqueMonetaryFields(data)` para clonar un objeto de datos y poner en `0` los campos monetarios relevantes.
 - **Masivos (`handleExportLocationBatch`)**:
-  - En el mapeo de `richData`, cuando `options.destaque` está activo, se devuelve una versión del objeto enriquecido con todos los campos monetarios en `0` usando `zeroDestaqueMonetaryFields`.
+  - El mapeo de `richData` **conserva** montos de viático (prorrateo / dual). No se pone en $0 el payload compartido al tildar destaque: eso pisaba el PDF de viático del mismo lote.
+  - El destaque se sigue a cero **solo** al generar ese documento (`appendPersonToDoc` / modo individual).
 - **Motor común (`processExportList`)**:
   - En el modo `master` y `location`, `appendPersonToDoc` ahora, si `options.destaque` es verdadero, llama a `exportViaticosToPDFForm` pasando una copia de `personData` con montos en `0`.
   - En el modo `individual`, antes de generar el PDF de tipo `"destaque"`, se crea una copia `destaqueData = zeroDestaqueMonetaryFields(personData)` y se pasa esa copia a `exportViaticosToPDFForm`.

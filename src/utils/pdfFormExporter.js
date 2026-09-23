@@ -4,6 +4,7 @@ import { firstMondayAfter, formatDdMmYy, formatDdMmYyyy } from "./dates";
 import { calcDevolucionReintegroForExport } from "./rendicionDiff";
 import {
   getAnticipoSubtotalForExport,
+  isViaticoPorcentajeCero,
   resolveAnticipoParaPdfViatico,
   RENUNCIA_VIATICOS_TEXTO,
   sumGastosViaticoRow,
@@ -239,7 +240,7 @@ export const exportViaticosToPDFForm = async (
             return { ...rawData, subtotal: sub, totalFinal };
           })();
     const franjasPdf =
-      mode === "viatico"
+      mode === "viatico" && !isViaticoPorcentajeCero(data)
         ? splitSegmentosPdfFranjas(
             data.segmentosValorDiario || data.segmentos,
           )

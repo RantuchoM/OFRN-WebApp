@@ -266,13 +266,11 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
 - [x] Tamaño default 40 cm al colocar ítems nuevos
 - [x] Asas Transformer / formación: tamaño constante en pantalla (~7 px); Transformer en px pantalla (sin /zoom); formaciones compensan `viewport.scale`
 - [x] Asas de formación seleccionada por encima de instrumentos (z-order + hit: Layer al final + `moveToTop`)
-- [x] Tooltip de ítems: nombre + tamaño real en cm (`bounds × scale / STAGE_PLOT_CM_TO_PX`); siempre ambas dims `W × H cm` (también cuadrados 50×50); tarimas `Ancho W × Profundo D cm` (`scaleX`/`scaleY`).
+- [x] Tooltip de ítems: nombre + tamaño real en cm (instrumentos = catálogo DB; tarimas `Ancho W × Profundo D cm` vía `scaleX`/`scaleY`).
 - [x] Formaciones reescaladas al lienzo cm + ítems ~40 cm (defaults ~3–3.6 m; marcador 15 cm, snap 20 cm)
 - [x] Copiar formación / copiar formación con instrumentos (barra + menú contextual; +40 cm; undo)
-- [x] Huella instrumento 50×50 cm + icono contain; atril **opcional** (menú / paleta), no auto
-- [x] Barra inferior: Ancho/Profundo cm editables + candado de proporción (sesión) para instrumento seleccionado; `scaleX`/`scaleY` en payload; Transformer keepRatio según candado
-- [x] Inputs Ancho/Profundo: draft local al foco (`StageInstrumentDimInput`); clamp solo blur/Enter
-- [x] HUD live `W × D cm` al arrastrar asas de resize (HTML overlay junto al AABB; 1 instrumento; hide idle/giro/multi)
+- [x] Huella instrumento base 50×50 cm + icono contain; tamaño canónico desde DB; atril **opcional** (menú / paleta), no auto
+- [x] Instrumentos **no redimensionables** en el lienzo (Transformer solo rotación; barra = dims catálogo read-only; sin candado/HUD/± escala)
 - [x] Orientación default **rotation=0** (sin auto hacia director)
 - [x] Mobiliario orgánico: sillas / banquetas / atriles (`music_stand`) / tarimas por forma (rect|oval) + dims
 - [x] Catálogo `banqueta` + `tarima_rect`/`tarima_oval` (gris oscuro) + atril paleta
@@ -343,27 +341,23 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
 - Tipo catálogo `chair` (silla suelta) sigue disponible en paleta Escenario.
 
 
-## Huella de instrumento (50×50) — sin atril automático
+## Huella de instrumento — tamaño fijo desde catálogo DB
 
 - Constantes (`stagePlotConstants.js`):
-  - `STAGE_PLOT_INSTRUMENT_FOOTPRINT_WIDTH_CM=50`, `DEPTH_CM=50` (cuadrado @ scale 1)
+  - `STAGE_PLOT_INSTRUMENT_FOOTPRINT_WIDTH_CM=50`, `DEPTH_CM=50` (cuadrado base @ scale 1)
   - `STAGE_PLOT_INSTRUMENT_ICON_BOX_CM=50`
-  - Helpers: `stagePlotInstrumentDimensionsCm` / `stagePlotInstrumentScalesFromCm` / `stagePlotItemAxisScales` (Ancho×Profundo cm ↔ `scaleX`/`scaleY`).
+  - Helpers: `stagePlotInstrumentCatalogScales(type)` / `stagePlotInstrumentDimensionsCm` / `stagePlotInstrumentScalesFromCm` (Ancho×Profundo cm ↔ `scaleX`/`scaleY` de **render**).
   - Helpers de atril (`stagePlotAtril.js` / `stagePlotSatelliteAtrilGeometry`) se conservan para **colocar** atriles manuales (orientación hacia director).
-- **Tamaño en escena**: base 50×50 cm × `scale` (uniforme) o `scaleX`/`scaleY` (independientes). Persistidos en el ítem; normalizer conserva `scaleX`/`scaleY` si existen.
-- **Barra inferior (selección simple de instrumento con huella)**: cluster unificado (mismo chrome que chips de toolbar: `rounded border border-slate-200 bg-slate-50`) con `[IconDimensionWidth] [input] [candado] [IconDimensionHeight] [input] [cm]` (íconos con `title`/`aria-label` Ancho/Profundo; candado `IconLock` / `IconLockOpen`) de proporción. Inputs `w-9` / centrados / `tabular-nums` (3 dígitos; máx. clamp = huella×`SCALE_MAX` = 600 cm).
-  - Inputs (`StageInstrumentDimInput`): draft local string mientras hay foco (`type="text"` + `inputMode="numeric"`); vacío/parcial OK mid-edit; clamp a huella×`SCALE_MIN`..`SCALE_MAX` solo en **blur** / **Enter** (mismo patrón que Lienzo Ancho/Alto; sin live-apply). `stopPropagation` en keydown; atajos globales ya ignoran `INPUT` vía `isEditableKeyboardTarget`.
-  - Candado = estado de sesión UI (`instrumentAspectLocked`, default **bloqueado**); no se guarda en el payload.
-  - Bloqueado: editar Ancho recalcula Profundo (y viceversa) preservando ratio; Transformer `keepRatio` + solo asas de esquina.
-  - Libre: Ancho/Profundo independientes; Transformer sin `keepRatio` + asas de borde (como tarimas).
-  - Multi-selección: sin inputs de dims (igual que etiqueta/canal — solo rotar/escala/%).
-  - Undo/autosave vía `updateSelected` → `patchItems` / `commitPayload` (mismo path que etiqueta).
-  - **HUD live al resize con asas** (`instrumentResizeHud`): overlay HTML sobre el wrap del Stage (`pointer-events-none`, `z-[35]`), solo mientras se arrastra un asa de **resize** del Transformer (no giro `rotater`, no idle).
-    - Condición: **1** ítem seleccionado con huella de instrumento; multi-select / tarimas / otros → sin HUD (tarimas ya tienen labels Konva fuera).
-    - Texto: `{Ancho} × {Profundo} cm` (redondeado; `FOOTPRINT × |node.scaleX/Y|` en vivo, mismo clamp SCALE_MIN/MAX que `transformend`).
-    - Posición: coords de contenedor vía `node.getClientRect()`; preferir **arriba-derecha** del AABB live (`left = box.x + box.width + 8`, `top = box.y`); si no cabe → izquierda; fallback abajo-derecha. Clamp a bordes del canvas (±8 px).
-    - Respeta `keepRatio` del Transformer (candado). Floating toolbar (Copiar/Eliminar) se oculta mientras el HUD está activo para no solaparse.
-    - Al `transformend` / cambio de selección que deja de ser instrumento simple → HUD a null. Barra inferior sigue mostrando dims del payload (commit al soltar).
+- **Fuente de verdad del tamaño**: columnas `instrumentos.stage_plot_width_cm` / `stage_plot_height_cm` (migración `20260828185148` + DEFAULT/backfill `20260828190819`; vacío/NULL → **50×50**). Cargadas en runtime vía `setStagePlotDbSizeOverrides` (`stagePlotInstrumentIconsService` / `reloadStagePlotInstrumentIcons`). **No** se edita en el lienzo.
+- **Render (lienzo + PDF/JPG + preview)**: siempre `stagePlotInstrumentCatalogScales(type)` — **ignora** `scale` / `scaleX` / `scaleY` guardados en el ítem del plot. Cambiar el tamaño en DB (o en panel **Editor** / Datos → Instrumentos) actualiza **todos** los planos que usan ese tipo, incluidos ítems ya insertados (`catalogEpoch` invalida `ItemShape` memo).
+- **Persistencia**: `normalizeStagePlotItem` **descarta** `scaleX`/`scaleY` de instrumentos con huella y escribe `scale` desde el catálogo (limpieza de payloads viejos con escalas del Transformer). Tarimas y otros ítems siguen con scale propio.
+- **Sin resize en el lienzo** (solo instrumentos con huella):
+  - Transformer: `resizeEnabled=false` / `enabledAnchors=[]` si la selección incluye algún instrumento con huella; **rotación y movimiento** sí.
+  - Barra inferior: chip **solo lectura** `W × D cm` (catálogo); sin inputs Ancho/Profundo, sin candado de proporción, sin HUD live de resize.
+  - Botones ± escala ocultos cuando la selección es solo instrumentos; `scaleSelected` no toca huellas.
+  - Menú contextual: sin «Unificar tamaños» para tipos con huella.
+- **Dónde editar tamaño**: Escenario → panel izquierdo → **Editor** (Ancho/Profundo cm del instrumento) o Datos → Instrumentos (`stage_plot_*_cm`). Toast: «aplica a todos los planos».
+- Tarimas / décor / atriles / texto: resize y escalas del ítem **sin cambio**.
 - **Atriles automáticos / satélite derivados: eliminados.** Ya no se dibujan atriles al colocar instrumentos ni pares; `collectStagePlotSatelliteAtrils` → `[]`.
 - **Atril opcional (menú contextual clic derecho)** sobre selección:
   - 1 instrumento con huella → **Agregar atril** (ítem `music_stand` a 40 cm hacia el director).
@@ -456,21 +450,23 @@ Seed: silla / banqueta / atril qty 0; tarima rect 200×100 qty 0. Unique parcial
 
   Fallback estático: `public/stage-plot/icons/{timpani,marimba,vibraphone,bass-drum,snare,cymbals,xylophone-ofrn,tubular-bells,perc}.svg`. Orgánico: filas por tipo + `idInstr` 13/13a–h; banquetas para toda la familia.
 - **Editor accesible desde Escenario (primario) y Datos**:
-  - **Escenario → panel izquierdo → pestaña Editor** (`StagePlotInstrumentsPanel.jsx`): lista agrupada por **Familia**; sección **Instrumentos sin ícono**; thumbnail; edición Familia + tamaño + SVG; **Clave de ícono en el plano** en `<details>` (no «Tipo escenario»). Abajo: **Crear instrumento** (portal `z-[100]`: id, nombre, familia requerida, dims default 50, clave opcional/auto desde nombre si libre, SVG). Confirm SVG `z-[100]`. `createInstrumento` + `reloadStagePlotInstrumentIcons`.
+  - **Escenario → panel izquierdo → pestaña Editor** (`StagePlotInstrumentsPanel.jsx`): lista agrupada por **Familia**; sección **Instrumentos sin ícono**; thumbnail; edición Familia + **tamaño de huella** (DB) + SVG; **Clave de ícono en el plano** en `<details>` (no «Tipo escenario»). Abajo: **Crear instrumento** (portal `z-[100]`: id, nombre, familia requerida, dims default 50, clave opcional/auto desde nombre si libre, SVG). Confirm SVG `z-[100]`. `createInstrumento` + `reloadStagePlotInstrumentIcons` + `onCatalogReload` (invalida lienzo).
   - **Paleta**: categorías musicales desde DB (filas con ícono); resto Escenario/Audio/Marcas/Elementos; abajo **Instrumentos sin ícono** (no arrastrables).
   - **Sin ícono** = sin `stage_plot_type` **o** clave sin visual. Helpers: `instrumentHasStagePlotIcon` / `partitionInstrumentosByStagePlotIcon` / `groupInstrumentosByFamilia`.
-  - **Datos → Instrumentos**: familia + **Clave de ícono (plano)** + tamaño + SVG.
-- Escenario: al crear ítem con huella, `scale = width_cm / 50` → **50 cm ⇒ scale 1**.
+  - **Datos → Instrumentos**: familia + **Clave de ícono (plano)** + Ancho/Profundo huella cm + SVG.
+- Escenario: al renderizar / PDF, tamaño = `stage_plot_width_cm` × `stage_plot_height_cm` del catálogo (**50×50 → scale 1**); el `scale` del ítem en el plot se ignora para huellas.
 - [x] Panel Editor + listado completo + sección sin ícono (Paleta y Editor)
 - [x] Familia como clasificación UI; `stage_plot_type` demoted a clave de ícono
 - [x] Crear instrumento desde Editor (insert linked `instrumentos`)
+- [x] Tamaño de huella fijo desde DB en todos los planos (sin resize en canvas)
 
 
 ## Completado (añadidos)
 
 - [x] Atriles opcionales vía menú contextual (sin auto-satélite); par+atril solo desde menú (no sidebars)
 - [x] Sin auto-rotación de instrumentos (rotation=0 salvo Transformer)
-- [x] `stage_plot_width_cm` / `stage_plot_height_cm` + editor Datos + apply on insert
+- [x] `stage_plot_width_cm` / `stage_plot_height_cm` + editor Datos/Editor; tamaño canónico en **todos** los planos (no solo al insertar)
+- [x] Instrumentos no resizables en lienzo; escalas viejas del ítem ignoradas / limpiadas al normalizar
 - [x] Editor Instrumentos en Escenario (panel izquierdo) con preview SVG + confirm de reemplazo
 - [x] Pestaña izquierda renombrada **Editor**; todas las filas `instrumentos` + sección **Instrumentos sin ícono** (Paleta y Editor)
 - [x] Tarimas rect/oval gris oscuro, dims fuera (ancho arriba / profundo izq. −90°, negro), z detrás, resumen orgánico **por forma** (Tarimas rect. / Tarimas oval + dims)
@@ -603,8 +599,8 @@ Parámetros en **px de escenario** (`cm × STAGE_PLOT_CM_TO_PX`). Defaults (íte
 - Preview Konva nativo (pan/zoom) en «Ver escenario» — hoy es raster canvas 2D en vivo (`StagePlotLivePreview`); suficiente para opacidades; Konva interactivo sigue siendo deuda.
 - Reordenar lienzos (drag sort_order) en el editor.
 - Editor SVG avanzado (dibujo); hoy: upload en Escenario → **Editor** (panel izquierdo) y Datos → Instrumentos (`svg_icon`), con confirm visual al cambiar.
-- Plots ya migrados (`instrumentFootprintMigrated`): escalas custom del Transformer se conservan. Si un plot se veía enorme **antes** del one-shot, al reabrir/autosave queda a 50×50 cm reales; reescalar a mano solo si se quiere otro tamaño físico.
-- `cat.w`/`cat.h` del catálogo siguen siendo aspect/fallback de paleta; ya no definen el tamaño en escena de instrumentos con huella.
+- Plots con `instrumentFootprintMigrated`: escalas custom viejas del Transformer en ítems-instrumento se **ignoran** al render y se limpian al normalizar (catálogo DB gana).
+- `cat.w`/`cat.h` del catálogo estático siguen siendo aspect/fallback de paleta; el tamaño en escena de instrumentos con huella viene de `stage_plot_*_cm`.
 - **Editor independiente del shell Giras** — **hecho (slice A):** rutas `/fimba/edicion/:edicionId/escenario/:plotId?` + `/stage-plots/:plotId`; FIMBA editores editan sin cuenta OFRN. Deuda: VenuesManager OFRN sin plotId; Option C modal embebido.
 
 ## Iconos SVG en `instrumentos` (2026-08)
@@ -613,8 +609,8 @@ Parámetros en **px de escenario** (`cm × STAGE_PLOT_CM_TO_PX`). Defaults (íte
 - **1 SVG ↔ 1 fila `instrumentos`**: no hay íconos de instrumento sueltos; sin fila → Inventario / `elementos_escenario`.
 - **Familia** = clasificación de usuario; **`stage_plot_type`** = clave de ícono/paleta (preferir única al crear; compartir permitido para variantes).
 - **Cadena**: DB → `public/stage-plot/icons/` → silueta (`stagePlotIconAssets.js`); tamaños en `setStagePlotDbSizeOverrides`.
-- **Admin / editor**: Escenario panel izquierdo **Editor** (familia, tamaño, SVG, clave demoted; **Crear instrumento**) y Datos → Instrumentos (**Clave de ícono (plano)** + Ancho/Profundo insert cm, placeholder **50**; SVG); sanitizado (`stagePlotSvgSanitize.js`).
-- **Insert Escenario**: `defaultStagePlotItemScale(type)` usa `width_cm / 50` para ítems con huella (**50×50 → scale 1**).
+- **Admin / editor**: Escenario panel izquierdo **Editor** (familia, **tamaño de huella** Ancho×Profundo cm → DB, SVG, clave demoted; **Crear instrumento**) y Datos → Instrumentos (**Clave de ícono (plano)** + Ancho/Profundo huella cm, placeholder **50**; SVG); sanitizado (`stagePlotSvgSanitize.js`).
+- **Render Escenario / PDF**: `stagePlotInstrumentCatalogScales(type)` desde `width_cm`/`height_cm` (**50×50 → scale 1**). Ítems ya insertados adoptan el tamaño actual del catálogo sin reinsertar.
 - **Colores**: Uploads conservan fills; sanitize sin rewrite a `currentColor`.
 - [x] **Repo / git**: íconos canónicos solo en `public/stage-plot/icons/`; regenerar seed con `node scripts/seed-instrumentos-stage-plot-svg.mjs` (no commitear `temp_freesvg/` ni `temp_*` — ignorados en `.gitignore`).
 - **Seguridad / tamaño**: sanitizado liviano (sin script/eventos/`use`; Blob→Image). Límite **app-imposed** `STAGE_PLOT_SVG_MAX_CHARS = 500_000` (antes 100k; no es tope de Postgres `text`). Clipart detallado (p. ej. bandoneón ~68k compactado; SVGs más ricos suelen superar 100k) es normal. Antes de guardar se compacta (metadata Inkscape/Adobe, whitespace, precisión decimal). Solo accept SVG (PNG/JPG → error claro). Toasts muestran el máx. formateado (`500.000`).

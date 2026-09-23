@@ -118,6 +118,12 @@ export function getStagePlotCatalogEpoch() {
   return catalogEpoch;
 }
 
+/** Invalida consumers (paleta / tamaños de instrumento) sin tocar el catálogo dinámico. */
+export function bumpStagePlotCatalogEpoch() {
+  catalogEpoch += 1;
+  return catalogEpoch;
+}
+
 /**
  * Filas DB → ítems de catálogo (px @ scale 1 = cm × STAGE_PLOT_CM_TO_PX vía caller).
  * @param {Array<{ id?: number, nombre?: string, stage_plot_type?: string, width_cm?: number, height_cm?: number }>} rows
