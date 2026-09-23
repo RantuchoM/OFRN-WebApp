@@ -50,7 +50,7 @@ Noches calendario = check-out − check-in (días civiles). **+0,5** early y **+
 
 La celda de noches muestra el total con medio (p. ej. **3,5**) y marca `Early +0,5` / `Late +0,5`. Superficies: pedido inicial (tabla, PDF, ajuste de plazas), rooming PDF/Excel (`ofrnRoomingExport.js`, `RoomingReport.jsx`), badges en rooming, **Mi Alojamiento**.
 
-**Texto de pedido inicial** (`buildInitialOrderTextSummary` / `formatStayRangeText`): las primeras líneas llevan el número de noches (incl. medias, p. ej. `3,5 noches`) **sin** paréntesis ni las palabras Early/Late (`(Early +0,5)`, `(Late +0,5)`, `(early)`, etc.). Ejemplo: `7 hombres, 1 mujer. Check-in: jueves, 18/6 - check-out: sábado, 20/6, 3,5 noches`. Las marcas Early/Late siguen en tabla/PDF/Excel del pedido y en el resto de reportes de hotel.
+**Texto de pedido inicial** (`buildInitialOrderTextSummary` / `formatStayRangeText`): las primeras líneas llevan el número de noches (incl. medias) y las etiquetas **Early check-in** / **Late check-out** si aplica, **sin** paréntesis de extras (`(Early +0,5)`, `(Late +0,5)`, `(+0,5)`, `(3,5 noches)`). Ejemplo: `7 hombres, 1 mujer. Check-in: jueves, 18/6 - check-out: sábado, 20/6, 3,5 noches, Early check-in`. Las marcas `Early +0,5` / `Late +0,5` siguen en tabla/PDF/Excel del pedido y en el resto de reportes de hotel.
 
 FIMBA sigue con sus flags booleanos propios; no comparte este helper OFRN.
 
@@ -63,6 +63,6 @@ FIMBA sigue con sus flags booleanos propios; no comparte este helper OFRN.
 - [x] Reglas: tilde al lado de Check-In / Check-Out (sin columnas Early/Late)
 - [x] Creator de reglas: misma tilde junto a «Crear nuevo»
 - [x] +0,5 noche en PDF/Excel/pedido inicial/ajuste/detalle/Mi Alojamiento (celda 3,5 + marca Early/Late)
-- [x] Texto pedido inicial: primeras líneas con número de noches (incl. 3,5) sin Early/Late ni paréntesis
+- [x] Texto pedido inicial: primeras líneas con noches + Early/Late, sin paréntesis `(+0,5)` / `(3,5 noches)`
 - [x] Horas 14:00 / 10:00 al generar
 - [x] Validación CI&gt;CO y comida inicial&gt;final

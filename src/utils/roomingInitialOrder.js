@@ -1681,8 +1681,12 @@ function formatStayRangeText(checkIn, checkOut, group = null) {
   if (!inD || !outD) return "";
   let s = `Check-in: ${inD} - check-out: ${outD}`;
   if (!group) return s;
+  const extras = [];
   const nightsPaid = dateGroupPaidNights(group);
-  if (nightsPaid > 0) s += `, ${formatHotelNights(nightsPaid)} noches`;
+  if (nightsPaid > 0) extras.push(`${formatHotelNights(nightsPaid)} noches`);
+  if (group.earlyCheckIn) extras.push("Early check-in");
+  if (group.lateCheckOut) extras.push("Late check-out");
+  if (extras.length) s += `, ${extras.join(", ")}`;
   return s;
 }
 
@@ -1948,8 +1952,8 @@ function filterSectionsByHotelKey(sections, hotelKey) {
 
 /**
  * Texto plano para enviar a hotelería (mismo criterio de filas que el pedido tabular).
- * Ej: "7 hombres, 1 mujer. Check-in: jueves, 18/6 - check-out: sábado, 20/6, 3,5 noches"
- * Las primeras líneas muestran el número de noches (incl. medias) sin Early/Late ni paréntesis.
+ * Ej: "7 hombres, 1 mujer. Check-in: jueves, 18/6 - check-out: sábado, 20/6, 3,5 noches, Early check-in"
+ * Primeras líneas: noches + etiquetas Early/Late, sin paréntesis de extras (`(Early +0,5)`, `(3,5 noches)`).
  * Cunas: "1 cuna. Check-in DD/MM HH:MM - Check-out DD/MM HH:MM — Apellido, Nombre"
  * Con varios hoteles y gente asignada, el texto se parte por hotel.
  */
