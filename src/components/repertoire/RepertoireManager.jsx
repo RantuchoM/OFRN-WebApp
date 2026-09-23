@@ -75,7 +75,7 @@ import CommentsManager from "../comments/CommentsManager";
 import CommentButton from "../comments/CommentButton";
 import { useAuth } from "../../context/AuthContext";
 import { filterAndRankMultiTokenSearch } from "../../utils/sanitize";
-import WorkForm from "../../views/Repertoire/WorkForm";
+import WorkForm, { WysiwygEditor } from "../../views/Repertoire/WorkForm";
 import RepertoireWorkPickerModal from "./RepertoireWorkPickerModal";
 import { dedupeSeatingStringItems } from "../../utils/seatingStringItemsDedupe";
 import { fetchCuerdasDispositionGroups } from "../../utils/seatingCuerdasConfig";
@@ -84,6 +84,7 @@ import {
   filterRepertorioObraRowsForDisplay,
   effectiveRepertorioObraTitle,
   hasRepertorioObraTitleOverride,
+  normalizeRepertorioProgramTitle,
   stripRepertorioTitleHtml,
 } from "../../utils/repertorioRowDisplay";
 import { workHasPlayableAudio } from "../../utils/repertoireAudioTracks";
@@ -338,7 +339,7 @@ function RepertorioProgramDurationCell({ item, isEditor, updateWorkDetail, compa
   );
 }
 
-/** Título por programa: cursiva si hay override; no escribe obras.titulo. */
+/** Título por programa en HTML (negrita, cursiva, listas). No escribe obras.titulo. */
 function RepertorioProgramTitleControl({
   item,
   isEditor,
@@ -351,17 +352,25 @@ function RepertorioProgramTitleControl({
   const catalogPlain = stripRepertorioTitleHtml(catalogHtml);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
+  const draftRef = useRef("");
   const skipBlurPersist = useRef(false);
+
+  const setDraftHtml = (html) => {
+    draftRef.current = html;
+    setDraft(html);
+  };
 
   useEffect(() => {
     if (!editing) {
-      setDraft(hasOv ? String(item.titulo_concierto || "").trim() : "");
+      const next = hasOv ? String(item.titulo_concierto || "") : "";
+      setDraftHtml(next);
     }
   }, [item.id, item.titulo_concierto, editing, hasOv]);
 
   const revertCatalog = () => {
+    skipBlurPersist.current = true;
     updateWorkDetail(item.id, "titulo_concierto", null);
-    setDraft("");
+    setDraftHtml("");
     setEditing(false);
   };
 
@@ -371,15 +380,10 @@ function RepertorioProgramTitleControl({
       setEditing(false);
       return;
     }
-    const t = String(raw ?? "").trim();
-    const sameAsCatalog =
-      !t || t === catalogPlain || t === String(catalogHtml || "").trim();
-    if (sameAsCatalog) {
-      if (hasRepertorioObraTitleOverride(item)) {
-        updateWorkDetail(item.id, "titulo_concierto", null);
-      }
-    } else {
-      updateWorkDetail(item.id, "titulo_concierto", t);
+    const normalized = normalizeRepertorioProgramTitle(raw, catalogHtml);
+    const current = hasOv ? String(item.titulo_concierto || "").trim() : null;
+    if (normalized !== current) {
+      updateWorkDetail(item.id, "titulo_concierto", normalized);
     }
     setEditing(false);
   };
@@ -389,18 +393,12 @@ function RepertorioProgramTitleControl({
     : undefined;
 
   const display = hasOv ? (
-    variant === "multiline" ? (
-      <div
-        className="text-[15px] font-bold leading-tight italic text-indigo-900"
-        title={catalogTitle}
-      >
-        {effectiveRepertorioObraTitle(item)}
-      </div>
-    ) : (
-      <span className="italic font-semibold text-indigo-900" title={catalogTitle}>
-        {effectiveRepertorioObraTitle(item)}
-      </span>
-    )
+    <div
+      className="min-w-0 border-l-2 border-indigo-300 pl-1 text-indigo-950 [&_ul]:list-disc [&_ul]:pl-4"
+      title={catalogTitle}
+    >
+      <RichTextPreview content={effectiveRepertorioObraTitle(item)} />
+    </div>
   ) : variant === "multiline" ? (
     <MultiLineTitle content={catalogHtml} />
   ) : (
@@ -411,32 +409,30 @@ function RepertorioProgramTitleControl({
 
   if (editing) {
     return (
-      <div className="flex items-center gap-1 min-w-0 w-full max-w-md">
-        <input
-          type="text"
-          className="flex-1 min-w-[8rem] text-xs px-1.5 py-0.5 rounded border border-slate-200"
-          placeholder={catalogPlain || "Título en este programa"}
-          title="Solo este programa y su difusión. Vacío = título del catálogo. No modifica la obra."
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={() => persistDraftAndClose(draft)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              e.currentTarget.blur();
-            }
-            if (e.key === "Escape") {
-              e.preventDefault();
-              skipBlurPersist.current = true;
-              setDraft(hasOv ? String(item.titulo_concierto || "").trim() : "");
-              setEditing(false);
-            }
-          }}
-          autoFocus
-        />
+      <div
+        className="flex items-start gap-1 min-w-0 w-full max-w-md"
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            e.preventDefault();
+            skipBlurPersist.current = true;
+            const next = hasOv ? String(item.titulo_concierto || "") : "";
+            setDraftHtml(next);
+            setEditing(false);
+          }
+        }}
+      >
+        <div className="flex-1 min-w-[10rem]" title="Solo este programa y su difusión. No modifica la obra.">
+          <WysiwygEditor
+            compact
+            value={draft}
+            onChange={setDraftHtml}
+            onBlur={() => persistDraftAndClose(draftRef.current)}
+            placeholder={catalogPlain || "Título en este programa"}
+          />
+        </div>
         <button
           type="button"
-          className="p-0.5 rounded text-slate-500 hover:text-emerald-600 shrink-0"
+          className="p-0.5 rounded text-slate-500 hover:text-emerald-600 shrink-0 mt-1"
           title="Volver al título del catálogo"
           aria-label="Restaurar título original"
           onMouseDown={(e) => e.preventDefault()}
@@ -456,10 +452,11 @@ function RepertorioProgramTitleControl({
         className={`p-0.5 rounded text-slate-400 hover:text-fixed-indigo-600 shrink-0 ${
           compact ? "" : "opacity-0 group-hover/title:opacity-100 transition-opacity"
         }`}
-        title="Editar título solo para este programa"
+        title="Editar título con formato, solo para este programa"
         aria-label="Editar título del programa"
         onClick={() => {
-          setDraft(hasOv ? String(item.titulo_concierto || "").trim() : "");
+          const next = hasOv ? String(item.titulo_concierto || "") : catalogHtml;
+          setDraftHtml(next);
           setEditing(true);
         }}
       >
@@ -4493,12 +4490,8 @@ export default function RepertoireManager({
                   <span className="text-[11px] text-slate-600 truncate max-w-[120px]">
                     {getComposers(activeDragItemData.item.obras)}
                   </span>
-                  <span className={`text-[11px] font-medium truncate max-w-[180px] ${hasRepertorioObraTitleOverride(activeDragItemData.item) ? "italic text-indigo-900" : "text-slate-800"}`} title={stripRepertorioTitleHtml(effectiveRepertorioObraTitle(activeDragItemData.item))}>
-                    {hasRepertorioObraTitleOverride(activeDragItemData.item) ? (
-                      effectiveRepertorioObraTitle(activeDragItemData.item)
-                    ) : (
-                      <RichTextPreview content={activeDragItemData.item.obras?.titulo} />
-                    )}
+                  <span className={`text-[11px] font-medium truncate max-w-[180px] ${hasRepertorioObraTitleOverride(activeDragItemData.item) ? "text-indigo-900" : "text-slate-800"}`} title={stripRepertorioTitleHtml(effectiveRepertorioObraTitle(activeDragItemData.item))}>
+                    <RichTextPreview content={effectiveRepertorioObraTitle(activeDragItemData.item)} />
                   </span>
                 </>
               )}

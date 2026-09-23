@@ -11,14 +11,42 @@ export const isRepertorioPlaceholder = (row) => {
 export const stripRepertorioTitleHtml = (value) =>
   String(value || "")
     .replace(/<[^>]*>?/gm, " ")
+    .replace(/&nbsp;/gi, " ")
     .replace(/\s+/g, " ")
     .trim();
+
+/** Negrita, cursiva, listas o más de un bloque: el HTML no es solo el texto plano. */
+export const repertorioTitleHtmlHasFormat = (html) =>
+  /<(strong|b|em|i|u|s|strike|ul|ol|li|br|sub|sup)\b|<\/div>\s*<div|<\/p>\s*<p/i.test(
+    String(html || ""),
+  );
+
+/**
+ * HTML a persistir en titulo_concierto.
+ * null = usar el catálogo (vacío, idéntico, o el mismo texto sin formato).
+ */
+export const normalizeRepertorioProgramTitle = (html, catalogHtml) => {
+  const raw = String(html ?? "").trim();
+  if (!stripRepertorioTitleHtml(raw)) return null;
+  const catalog = String(catalogHtml ?? "").trim();
+  if (raw === catalog) return null;
+  const plain = stripRepertorioTitleHtml(raw);
+  const catalogPlain = stripRepertorioTitleHtml(catalog);
+  if (
+    plain === catalogPlain &&
+    !repertorioTitleHtmlHasFormat(raw) &&
+    !repertorioTitleHtmlHasFormat(catalog)
+  ) {
+    return null;
+  }
+  return raw;
+};
 
 /** Título cargado solo para esta fila de programa. No aplica a reservas (usan titulo_placeholder). */
 export const hasRepertorioObraTitleOverride = (row) => {
   if (!row || isRepertorioPlaceholder(row)) return false;
   const t = row.titulo_concierto;
-  return typeof t === "string" && t.trim().length > 0;
+  return typeof t === "string" && stripRepertorioTitleHtml(t).length > 0;
 };
 
 /**

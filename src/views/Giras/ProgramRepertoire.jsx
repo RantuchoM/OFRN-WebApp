@@ -40,10 +40,7 @@ import {
 import { useGiraRoster } from "../../hooks/useGiraRoster";
 import { toast } from "sonner";
 import { matchesMultiTokenSearch } from "../../utils/sanitize";
-import {
-  effectiveRepertorioObraTitle,
-  stripRepertorioTitleHtml,
-} from "../../utils/repertorioRowDisplay";
+import { effectiveRepertorioObraTitle } from "../../utils/repertorioRowDisplay";
 
 function sortArcos(arcos) {
   return [...(arcos || [])].sort((a, b) => Number(a.id) - Number(b.id));
@@ -477,9 +474,12 @@ const AdvancedImportModal = ({
                             {idx + 1}
                           </div>
                           <div>
-                            <div className="font-bold text-slate-700 text-sm">
-                              {stripRepertorioTitleHtml(effectiveRepertorioObraTitle(item))}
-                            </div>
+                            <div
+                              className="font-bold text-slate-700 text-sm [&_ul]:list-disc [&_ul]:pl-4"
+                              dangerouslySetInnerHTML={{
+                                __html: effectiveRepertorioObraTitle(item),
+                              }}
+                            />
                             <div className="text-xs text-slate-500">
                               {item.obras?.compositores?.apellido}
                             </div>
