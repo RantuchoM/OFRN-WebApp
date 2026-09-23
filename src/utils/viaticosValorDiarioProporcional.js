@@ -213,13 +213,34 @@ export function calcValorDiarioProporcional({
   };
 }
 
+/**
+ * Valor diario ya ponderado por el % de la fila (misma convención que
+ * `plantilla_viaticos.pdf`: el campo `valor_diario` no es el oficial 86000/92000).
+ * Un solo porcentaje: `días × valor_oficial × (porcentaje/100)`.
+ */
+export function valorDiarioPdfPonderado(segmento, porcentaje = 100) {
+  const already = Number(segmento?.valorDiarioCalc);
+  if (Number.isFinite(already)) return already;
+  const base = Number(segmento?.montoBase);
+  const rawPct = porcentaje === 0 || porcentaje ? porcentaje : 100;
+  const pct = parseFloat(String(rawPct).replace("%", "")) / 100;
+  const safePct = Number.isFinite(pct) ? pct : 1;
+  const safeBase = Number.isFinite(base) ? base : 0;
+  return round2(safeBase * safePct);
+}
+
 /** Primera franja (vieja) vs última (nueva) para el PDF de dos líneas. */
 export function splitSegmentosPdfFranjas(segmentos) {
   const ordered = [...(Array.isArray(segmentos) ? segmentos : [])]
     .filter((s) => Number(s.montoBase) > 0 && Number(s.dias) > 0)
     .sort((a, b) => String(a.fechaDesde).localeCompare(String(b.fechaDesde)));
   if (ordered.length < 2) return null;
-  return { vieja: ordered[0], nueva: ordered[ordered.length - 1] };
+  const vieja = ordered[0];
+  const nueva = ordered[ordered.length - 1];
+  const diasTotal = round2(
+    ordered.reduce((acc, s) => acc + (Number(s.dias) || 0), 0),
+  );
+  return { vieja, nueva, diasTotal };
 }
 
 export function fmtDiasPdf(dias) {

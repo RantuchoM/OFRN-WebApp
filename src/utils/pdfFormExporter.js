@@ -12,6 +12,7 @@ import { resolveLugarComisionPdfField } from "./viaticosExportMotivoLugar";
 import {
   fmtDiasPdf,
   splitSegmentosPdfFranjas,
+  valorDiarioPdfPonderado,
 } from "./viaticosValorDiarioProporcional";
 
 /**
@@ -441,13 +442,26 @@ export const exportViaticosToPDFForm = async (
 
         const pctTxt = String(data.porcentaje || 0);
         if (franjasPdf) {
+          const vdViejaPdf = valorDiarioPdfPonderado(
+            franjasPdf.vieja,
+            data.porcentaje,
+          );
+          const vdNuevaPdf = valorDiarioPdfPonderado(
+            franjasPdf.nueva,
+            data.porcentaje,
+          );
           f("dias_computados", fmtDiasPdf(franjasPdf.vieja.dias));
-          f("valor_diario", money(franjasPdf.vieja.montoBase));
+          f("valor_diario", money(vdViejaPdf));
           f("porcentaje", pctTxt);
           f("porcentaje_viatico", pctTxt);
           f("dias_computados1", fmtDiasPdf(franjasPdf.nueva.dias));
-          f("valor_diario1", money(franjasPdf.nueva.montoBase));
+          f("valor_diario1", money(vdNuevaPdf));
           f("porcentaje1", pctTxt);
+          const diasTotal =
+            data.dias_computables != null && data.dias_computables !== ""
+              ? data.dias_computables
+              : franjasPdf.diasTotal;
+          f("dias_computados_total", fmtDiasPdf(diasTotal));
         } else {
           f("dias_computados", String(data.dias_computables || 0));
           f("valor_diario", money(data.valorDiarioCalc));
@@ -466,12 +480,20 @@ chk("check_temporada", configData.factor_temporada > 0);
             data.dias_computables || 0
           } días de comisión de servicio )`;
         } else if (franjasPdf) {
+          const vdViejaNum = valorDiarioPdfPonderado(
+            franjasPdf.vieja,
+            data.porcentaje,
+          );
+          const vdNuevaNum = valorDiarioPdfPonderado(
+            franjasPdf.nueva,
+            data.porcentaje,
+          );
           const vdVieja = keepEditable
-            ? String(Number(franjasPdf.vieja.montoBase || 0))
-            : fmtMoney(franjasPdf.vieja.montoBase);
+            ? String(Number(vdViejaNum || 0))
+            : fmtMoney(vdViejaNum);
           const vdNueva = keepEditable
-            ? String(Number(franjasPdf.nueva.montoBase || 0))
-            : fmtMoney(franjasPdf.nueva.montoBase);
+            ? String(Number(vdNuevaNum || 0))
+            : fmtMoney(vdNuevaNum);
           descAnticipo = `( ${fmtDiasPdf(franjasPdf.vieja.dias)} días a ${vdVieja} + ${fmtDiasPdf(franjasPdf.nueva.dias)} días a ${vdNueva} -equivalentes al ${
             data.porcentaje || 0
           }% del viático diario)`;
