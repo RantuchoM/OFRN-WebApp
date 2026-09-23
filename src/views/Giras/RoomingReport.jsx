@@ -17,6 +17,8 @@ import {
 } from "../../utils/ofrnRoomingExport";
 import {
   formatHotelNights,
+  hotelNightsFromStay,
+  stayNightMarks,
   STAY_EVENT_FOOTNOTE,
 } from "../../utils/hotelStayEvents";
 import { toast } from "sonner";
@@ -547,26 +549,23 @@ const RoomingReportModal = ({
                                     </span>
                                   </td>
                                   <td className="center">
-                                    {[
-                                      occ.earlyCheckIn ? "Early +0,5" : null,
-                                      occ.lateCheckOut ? "Late +0,5" : null,
-                                    ]
-                                      .filter(Boolean)
-                                      .join(" · ") || "—"}
+                                    {stayNightMarks({
+                                      early: occ.earlyCheckIn,
+                                      late: occ.lateCheckOut,
+                                    }).join(" · ") || "—"}
                                   </td>
                                   <td className="center">
                                     {occ.dateIn && occ.dateOut
                                       ? formatHotelNights(
-                                          Math.max(
-                                            0,
-                                            Math.round(
-                                              (occ.dateOut - occ.dateIn) /
-                                                (1000 * 60 * 60 * 24),
-                                            ),
-                                          ) +
-                                            (occ.ocupa_cama === false
-                                              ? 0
-                                              : occ.extraNights || 0),
+                                          hotelNightsFromStay({
+                                            dateIn: occ.dateIn,
+                                            dateOut: occ.dateOut,
+                                            extraNights:
+                                              occ.ocupa_cama === false
+                                                ? 0
+                                                : occ.extraNights || 0,
+                                            ocupaCama: occ.ocupa_cama !== false,
+                                          }),
                                         )
                                       : "—"}
                                   </td>

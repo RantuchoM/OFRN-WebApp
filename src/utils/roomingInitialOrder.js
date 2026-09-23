@@ -20,9 +20,10 @@ import {
   sliceTime,
 } from "./giraTramos";
 import {
-  extraHotelNightsFromLogistics,
-  logisticsHasEarlyCheckIn,
-  logisticsHasLateCheckOut,
+  formatHotelNights,
+  hotelNightsFromStay,
+  stayExtraFlagsFromStay,
+  stayNightMarks,
 } from "./hotelStayEvents";
 
 export const DEFAULT_ADJ = { std_m: 0, std_f: 0, plus_m: 0, plus_f: 0 };
@@ -386,14 +387,24 @@ export function getOccupancyStayDates({
   };
 }
 
-export function formatOccupancyStay(dateIn, dateOut) {
+export function formatOccupancyStay(dateIn, dateOut, log = null) {
   const inOk = dateIn && !Number.isNaN(dateIn.getTime());
   const outOk = dateOut && !Number.isNaN(dateOut.getTime());
+  const flags = stayExtraFlagsFromStay({ dateIn, dateOut, log });
+  const nights = hotelNightsFromStay({
+    dateIn,
+    dateOut,
+    extraNights: flags.extraNights,
+  });
   return {
     fecha_checkin: inOk ? format(dateIn, "yyyy-MM-dd") : null,
     hora_checkin: inOk ? format(dateIn, "HH:mm") : null,
     fecha_checkout: outOk ? format(dateOut, "yyyy-MM-dd") : null,
     hora_checkout: outOk ? format(dateOut, "HH:mm") : null,
+    nights,
+    earlyCheckIn: flags.early,
+    lateCheckOut: flags.late,
+    extraNights: flags.extraNights,
   };
 }
 
@@ -420,12 +431,19 @@ export function pickWinningLogisticsRule(
 function milestoneFromEventOrRule(event, rule, dateField, timeField) {
   if (event?.fecha) {
     const hora = event.hora_inicio || event.hora || event.time || null;
+    const nestedTipo = event.tipos_evento;
+    const nestedId = Array.isArray(nestedTipo)
+      ? nestedTipo[0]?.id
+      : nestedTipo?.id;
     return {
       fecha: event.fecha,
       date: event.fecha,
       hora_inicio: hora,
       hora,
       time: hora,
+      id_evento: event.id ?? null,
+      id_tipo_evento: event.id_tipo_evento ?? nestedId ?? null,
+      tipos_evento: event.tipos_evento,
     };
   }
   if (rule?.[dateField]) {
@@ -948,10 +966,17 @@ function ensureDateGroup(dateGroups, key, clippedIn, clippedOut, nights) {
       extraHalfNights: 0,
       extraStdNights: 0,
       extraPlusNights: 0,
+      extraPerPax: null,
+      nightsPaid: nights,
+      earlyCheckIn: false,
+      lateCheckOut: false,
     };
   }
   if (!Array.isArray(dateGroups[key].cunas)) dateGroups[key].cunas = [];
   if (dateGroups[key].extraHalfNights == null) dateGroups[key].extraHalfNights = 0;
+  if (dateGroups[key].nightsPaid == null) dateGroups[key].nightsPaid = nights;
+  if (dateGroups[key].earlyCheckIn == null) dateGroups[key].earlyCheckIn = false;
+  if (dateGroups[key].lateCheckOut == null) dateGroups[key].lateCheckOut = false;
   if (dateGroups[key].extraStdNights == null) dateGroups[key].extraStdNights = 0;
   if (dateGroups[key].extraPlusNights == null) dateGroups[key].extraPlusNights = 0;
   if (dateGroups[key].basePlusSingle == null) dateGroups[key].basePlusSingle = 0;
@@ -1062,7 +1087,29 @@ function addPersonToDateGroups({
       if (plusRoom) group.extraPlusNights += addExtra;
       else group.extraStdNights += addExtra;
     }
+    if (!asCuna) {
+      if (extraEarly && groupIdx === 0) group.earlyCheckIn = true;
+      if (extraLate && groupIdx === nightGroups.length - 1) {
+        group.lateCheckOut = true;
+      }
+      if (group.extraPerPax == null) group.extraPerPax = addExtra;
+      else if (group.extraPerPax !== addExtra) group.extraPerPax = null;
+      group.nightsPaid = dateGroupPaidNights(group);
+    }
   });
+}
+
+/** Noches facturadas del rango (calendario + 0,5 early/late). */
+export function dateGroupPaidNights(group) {
+  if (!group) return 0;
+  const cal = Number(group.nights) || 0;
+  if (group.extraPerPax != null) return cal + (Number(group.extraPerPax) || 0);
+  const base = Number(group.baseCount) || 0;
+  if (base > 0 && group.extraHalfNights) {
+    return cal + (Number(group.extraHalfNights) || 0) / base;
+  }
+  if (group.nightsPaid != null) return Number(group.nightsPaid) || 0;
+  return cal;
 }
 
 /** Grupos de fechas para pedido inicial, opcionalmente acotados a un tramo. */
@@ -1175,6 +1222,9 @@ export function buildInitialDateGroups({
       log,
     ));
 
+    const stayFlags = asCuna
+      ? { early: false, late: false, extraNights: 0 }
+      : stayExtraFlagsFromStay({ dateIn: dIn, dateOut: dOut, log });
     addPersonToDateGroups({
       person: enriched,
       dIn,
@@ -1187,8 +1237,8 @@ export function buildInitialDateGroups({
       formatD,
       formatT,
       asCuna,
-      extraEarly: !asCuna && logisticsHasEarlyCheckIn(log),
-      extraLate: !asCuna && logisticsHasLateCheckOut(log),
+      extraEarly: stayFlags.early,
+      extraLate: stayFlags.late,
     });
   });
 
@@ -1229,10 +1279,10 @@ function computeRowsFromDateGroups(
     const plusMatriPax = group.basePlusMatri || 0;
     const plusPax = plusSinglePax + plusMatriPax;
     const totalRowPax = stdPax + plusPax;
-    const stdNights = stdPax * group.nights + (group.extraStdNights || 0);
-    const plusNights = plusPax * group.nights + (group.extraPlusNights || 0);
-    const totalRowNights =
-      totalRowPax * group.nights + (group.extraHalfNights || 0);
+    const nightsPaid = dateGroupPaidNights(group);
+    const stdNights = stdPax * nightsPaid;
+    const plusNights = plusPax * nightsPaid;
+    const totalRowNights = totalRowPax * nightsPaid;
     const totalF = group.baseF + extraStdF + extraPlusF;
     const totalM = group.baseM + extraStdM + extraPlusM;
     const suggestedRooms = computeSuggestedRooms(totalF, totalM, bedsPerRoom);
@@ -1529,6 +1579,15 @@ export function buildInitialOrderPassengerDetailSections({
           ? "Sin asignar"
           : null;
 
+      const asCuna = isPersonInCunaForPedido(personId, segmentRooms, enriched);
+      const flags = asCuna
+        ? { early: false, late: false, extraNights: 0 }
+        : stayExtraFlagsFromStay({
+            dateIn: firstClip.clippedIn,
+            dateOut: lastClip.clippedOut,
+            log,
+          });
+
       passengers.push({
         id: enriched.id,
         apellido: enriched.apellido || "",
@@ -1538,17 +1597,17 @@ export function buildInitialOrderPassengerDetailSections({
         fecha_nac: enriched.fecha_nac || null,
         dateIn: firstClip.clippedIn,
         dateOut: lastClip.clippedOut,
-        nights:
-          eligibleNights.length +
-          (isPersonInCunaForPedido(personId, segmentRooms, enriched)
-            ? 0
-            : extraHotelNightsFromLogistics(log)),
-        earlyCheckIn: logisticsHasEarlyCheckIn(log),
-        lateCheckOut: logisticsHasLateCheckOut(log),
-        extraNights: isPersonInCunaForPedido(personId, segmentRooms, enriched)
+        nights: asCuna
           ? 0
-          : extraHotelNightsFromLogistics(log),
-        en_cuna: isPersonInCunaForPedido(personId, segmentRooms, enriched),
+          : hotelNightsFromStay({
+              dateIn: firstClip.clippedIn,
+              dateOut: lastClip.clippedOut,
+              extraNights: flags.extraNights,
+            }),
+        earlyCheckIn: flags.early,
+        lateCheckOut: flags.late,
+        extraNights: flags.extraNights,
+        en_cuna: asCuna,
         hotelKey,
         hotelName,
       });
@@ -1617,11 +1676,22 @@ function formatCheckDate(date) {
   return `${weekday}, ${day}/${month}`;
 }
 
-function formatStayRangeText(checkIn, checkOut) {
+function formatStayRangeText(checkIn, checkOut, group = null) {
   const inD = formatCheckDate(checkIn);
   const outD = formatCheckDate(checkOut);
   if (!inD || !outD) return "";
-  return `Check-in: ${inD} - check-out: ${outD}`;
+  let s = `Check-in: ${inD} - check-out: ${outD}`;
+  if (!group) return s;
+  const nightsPaid = dateGroupPaidNights(group);
+  const marks = stayNightMarks({
+    early: group.earlyCheckIn,
+    late: group.lateCheckOut,
+  });
+  const bits = [];
+  if (nightsPaid > 0) bits.push(`${formatHotelNights(nightsPaid)} noches`);
+  if (marks.length) bits.push(marks.join(", ").toLowerCase());
+  if (bits.length) s += ` (${bits.join("; ")})`;
+  return s;
 }
 
 function formatCunaDateTime(date) {
@@ -1721,11 +1791,11 @@ function appendTextSummaryBlock(lines, totals, { title, bedsPerRoom } = {}) {
       lines.push(`Desglose: ${paxParts.join(" · ")}`);
     }
 
-    lines.push(`Noches básicas (camas): ${totals.grandTotalStdNights}`);
+    lines.push(`Noches básicas (camas): ${formatHotelNights(totals.grandTotalStdNights)}`);
     if (totals.grandTotalPlusNights > 0) {
-      lines.push(`Noches superiores (camas): ${totals.grandTotalPlusNights}`);
+      lines.push(`Noches superiores (camas): ${formatHotelNights(totals.grandTotalPlusNights)}`);
     }
-    lines.push(`Total camas noche: ${totals.totalBedNights}`);
+    lines.push(`Total camas noche: ${formatHotelNights(totals.totalBedNights)}`);
 
     const roomsLabel = getSuggestedRoomsLabel(bedsPerRoom);
     if (roomsLabel && totals.totalSuggestedRooms > 0) {
@@ -1761,7 +1831,7 @@ function appendOrderRowsToText(lines, computedRows) {
       group,
       cunas,
     } = row;
-    const datePart = formatStayRangeText(group?.checkIn, group?.checkOut);
+    const datePart = formatStayRangeText(group?.checkIn, group?.checkOut, group);
     const rowCunas = Array.isArray(cunas)
       ? cunas
       : Array.isArray(group?.cunas)

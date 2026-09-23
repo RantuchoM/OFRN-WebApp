@@ -519,6 +519,41 @@ const MultiSelectCell = ({
   );
 };
 
+const StayExtraToggle = ({
+  checked,
+  label,
+  title,
+  activeClass,
+  onToggle,
+  disabled,
+}) => (
+  <button
+    type="button"
+    title={title}
+    disabled={disabled}
+    onClick={(e) => {
+      e.stopPropagation();
+      onToggle(!checked);
+    }}
+    className={`shrink-0 w-8 min-h-[56px] rounded-lg border-2 flex flex-col items-center justify-center gap-0.5 transition-colors ${
+      checked
+        ? activeClass
+        : "border-slate-200 bg-white text-slate-400 hover:border-slate-300 hover:text-slate-500"
+    } ${disabled ? "opacity-40 cursor-not-allowed" : ""}`}
+  >
+    <span
+      className={`w-4 h-4 rounded border flex items-center justify-center ${
+        checked ? "bg-white/20 border-white" : "border-slate-300 bg-white"
+      }`}
+    >
+      {checked ? <IconCheck size={11} className="text-white" /> : null}
+    </span>
+    <span className="text-[7px] font-black uppercase leading-none tracking-tight">
+      {label}
+    </span>
+  </button>
+);
+
 const EventCellEditor = ({
   rule,
   field,
@@ -539,9 +574,14 @@ const EventCellEditor = ({
   const { confirm, dialog } = useConfirmDialog();
   const [isOpen, setIsOpen] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [pickerExtraOn, setPickerExtraOn] = useState(Boolean(extraOn));
   const loading = isProcessing || isExternalProcessing;
   const event = allEvents?.find((e) => String(e.id) === String(eventId));
   const stayCfg = staySideConfig(field);
+
+  useEffect(() => {
+    if (isOpen) setPickerExtraOn(Boolean(extraOn));
+  }, [isOpen, extraOn]);
   const manualDate =
     field === "comida_inicio"
       ? rule?.comida_inicio_fecha
@@ -556,7 +596,9 @@ const EventCellEditor = ({
   const handleLink = async (id) => {
     const ev = allEvents?.find((e) => String(e.id) === String(id));
     const effectiveExtra = stayCfg
-      ? Boolean(extraOn || extraOnFromTipo(stayCfg.side, ev?.id_tipo_evento))
+      ? Boolean(
+          pickerExtraOn || extraOnFromTipo(stayCfg.side, ev?.id_tipo_evento),
+        )
       : false;
     const patch = stayCfg
       ? stayFkPatch(stayCfg.side, effectiveExtra, id)
@@ -722,25 +764,65 @@ const EventCellEditor = ({
                   );
                 })}
             </div>
-            <button
-              type="button"
-              onClick={() => {
-                onEditEvent({
-                  id_gira: giraId,
-                  id_tipo_evento: tipoEventoIds[0],
-                  fecha: manualDate || new Date().toISOString().split("T")[0],
-                  hora_inicio: horaInicioForStayTipo(tipoEventoIds[0]),
-                  descripcion: labelDefault,
-                  visible_agenda: true,
-                  _isNew: true,
-                  _linkTo: { ruleId: rule.id, field: field },
-                });
-                setIsOpen(false);
-              }}
-              className="w-full py-3 bg-indigo-600 text-white rounded-xl font-black uppercase text-[10px] flex items-center justify-center gap-2 hover:bg-indigo-700 shadow-lg shadow-indigo-100"
-            >
-              <IconCalendarPlus size={16} /> Crear nuevo
-            </button>
+            {stayCfg ? (
+              <div className="flex items-stretch gap-2">
+                <StayExtraToggle
+                  checked={pickerExtraOn}
+                  label={stayCfg.extraShort}
+                  title={stayCfg.extraTitle}
+                  activeClass={
+                    stayCfg.side === "checkin"
+                      ? "border-sky-600 bg-sky-600 text-white"
+                      : "border-amber-600 bg-amber-600 text-white"
+                  }
+                  onToggle={setPickerExtraOn}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    const createTipo = stayTipoForExtra(
+                      stayCfg.side,
+                      pickerExtraOn,
+                    );
+                    onEditEvent({
+                      id_gira: giraId,
+                      id_tipo_evento: createTipo,
+                      fecha:
+                        manualDate || new Date().toISOString().split("T")[0],
+                      hora_inicio: horaInicioForStayTipo(createTipo),
+                      descripcion: labelDefault,
+                      visible_agenda: true,
+                      _isNew: true,
+                      _linkTo: { ruleId: rule.id, field: field },
+                    });
+                    setIsOpen(false);
+                  }}
+                  className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-black uppercase text-[10px] flex items-center justify-center gap-2 hover:bg-indigo-700 shadow-lg shadow-indigo-100"
+                >
+                  <IconCalendarPlus size={16} /> Crear nuevo
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  onEditEvent({
+                    id_gira: giraId,
+                    id_tipo_evento: tipoEventoIds[0],
+                    fecha: manualDate || new Date().toISOString().split("T")[0],
+                    hora_inicio: horaInicioForStayTipo(tipoEventoIds[0]),
+                    descripcion: labelDefault,
+                    visible_agenda: true,
+                    _isNew: true,
+                    _linkTo: { ruleId: rule.id, field: field },
+                  });
+                  setIsOpen(false);
+                }}
+                className="w-full py-3 bg-indigo-600 text-white rounded-xl font-black uppercase text-[10px] flex items-center justify-center gap-2 hover:bg-indigo-700 shadow-lg shadow-indigo-100"
+              >
+                <IconCalendarPlus size={16} /> Crear nuevo
+              </button>
+            )}
           </div>
         </div>
       </div>,
@@ -819,41 +901,6 @@ const EventCellEditor = ({
     </div>
   );
 };
-
-const StayExtraToggle = ({
-  checked,
-  label,
-  title,
-  activeClass,
-  onToggle,
-  disabled,
-}) => (
-  <button
-    type="button"
-    title={title}
-    disabled={disabled}
-    onClick={(e) => {
-      e.stopPropagation();
-      onToggle(!checked);
-    }}
-    className={`shrink-0 w-8 min-h-[56px] rounded-lg border-2 flex flex-col items-center justify-center gap-0.5 transition-colors ${
-      checked
-        ? activeClass
-        : "border-slate-200 bg-white text-slate-400 hover:border-slate-300 hover:text-slate-500"
-    } ${disabled ? "opacity-40 cursor-not-allowed" : ""}`}
-  >
-    <span
-      className={`w-4 h-4 rounded border flex items-center justify-center ${
-        checked ? "bg-white/20 border-white" : "border-slate-300 bg-white"
-      }`}
-    >
-      {checked ? <IconCheck size={11} className="text-white" /> : null}
-    </span>
-    <span className="text-[7px] font-black uppercase leading-none tracking-tight">
-      {label}
-    </span>
-  </button>
-);
 
 const TimelineNode = ({
   icon: Icon,

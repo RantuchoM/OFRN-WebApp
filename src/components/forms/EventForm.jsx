@@ -41,8 +41,12 @@ import { uploadEventoInternasImage } from "../../services/eventosInternasService
 import FimbaRichTextEditor from "../../views/Fimba/FimbaRichTextEditor";
 import {
   defaultHoraForStayTipo,
+  extraOnFromTipo,
   shouldApplyStayHoraDefault,
   stayHourCategoryPrompt,
+  staySideConfig,
+  staySideFromTipo,
+  stayTipoForExtra,
 } from "../../utils/hotelStayEvents";
 
 const TIPO_TRANSPORTE_SALIDA = 11;
@@ -71,6 +75,8 @@ export default function EventForm({
   );
   const [showExitConfirm, setShowExitConfirm] = useState(false);
   const [stayHourPrompt, setStayHourPrompt] = useState(null);
+  const stayPromptDeclinedRef = useRef({ early: false, late: false });
+  const stayHoraTouchedRef = useRef(false);
   const isNewEvent = isNew || Boolean(formData?._isNew);
   const [transportesList, setTransportesList] = useState([]);
   const [isEditingVenueStatus, setIsEditingVenueStatus] = useState(false);
@@ -142,6 +148,7 @@ export default function EventForm({
   // o es un placeholder (12:00 logística, mapeo 10/14 invertido).
   useEffect(() => {
     if (!isNewEvent) return;
+    if (stayHoraTouchedRef.current) return;
     if (!shouldApplyStayHoraDefault(formData.id_tipo_evento, formData.hora_inicio)) {
       return;
     }
@@ -301,6 +308,55 @@ export default function EventForm({
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
+  const staySide = staySideFromTipo(formData.id_tipo_evento);
+  const stayCfg = staySide ? staySideConfig(staySide) : null;
+  const stayExtraOn = stayCfg
+    ? extraOnFromTipo(stayCfg.side, formData.id_tipo_evento)
+    : false;
+
+  useEffect(() => {
+    stayPromptDeclinedRef.current = { early: false, late: false };
+  }, [staySide]);
+
+  const handleStayExtraToggle = (nextOn) => {
+    if (!stayCfg) return;
+    const kind = stayCfg.side === "checkin" ? "early" : "late";
+    stayPromptDeclinedRef.current[kind] = !nextOn;
+    setStayHourPrompt(null);
+    handleChange("id_tipo_evento", stayTipoForExtra(stayCfg.side, nextOn));
+  };
+
+  const handleTipoChange = (id) => {
+    const next = id == null ? "" : id;
+    const prevSide = staySideFromTipo(formData.id_tipo_evento);
+    const nextSide = staySideFromTipo(next);
+    if (prevSide && nextSide === prevSide && !extraOnFromTipo(nextSide, next)) {
+      stayPromptDeclinedRef.current[nextSide === "checkin" ? "early" : "late"] =
+        true;
+    }
+    if (prevSide !== nextSide) {
+      stayPromptDeclinedRef.current = { early: false, late: false };
+    }
+    setStayHourPrompt(null);
+    handleChange("id_tipo_evento", next);
+  };
+
+  const maybeStayHourPrompt = (tipoId, hora, pendingSave) => {
+    const prompt = stayHourCategoryPrompt(tipoId, hora);
+    if (!prompt || stayPromptDeclinedRef.current[prompt.kind]) return false;
+    setStayHourPrompt({ ...prompt, pendingSave: Boolean(pendingSave) });
+    return true;
+  };
+
+  const handleHoraInicioChange = (val) => {
+    const prev = String(formData.hora_inicio || "").slice(0, 5);
+    const next = String(val || "").slice(0, 5);
+    stayHoraTouchedRef.current = true;
+    handleChange("hora_inicio", val);
+    if (!next || prev === next) return;
+    maybeStayHourPrompt(formData.id_tipo_evento, val, false);
+  };
+
   const eventTypeOptions = useMemo(
     () =>
       (eventTypes || []).map((t) => ({
@@ -336,12 +392,7 @@ export default function EventForm({
 
   const handleAttemptSave = () => {
     if (!canSave) return;
-    const prompt = stayHourCategoryPrompt(
-      formData.id_tipo_evento,
-      formData.hora_inicio,
-    );
-    if (prompt) {
-      setStayHourPrompt(prompt);
+    if (maybeStayHourPrompt(formData.id_tipo_evento, formData.hora_inicio, true)) {
       return;
     }
     onSave(formData);
@@ -498,74 +549,106 @@ export default function EventForm({
             Escribe libremente. Usa los botones para formato.
           </p>
         </div>
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <DateInput
-              label="Fecha*"
-              value={formData.fecha || ""}
-              onChange={(val) => handleChange("fecha", val)}
-              className={
-                fechaError
-                  ? "border border-red-500 bg-white ring-1 ring-red-400"
-                  : undefined
-              }
-            />
-            {fechaError && (
-              <p className="mt-1 text-[11px] font-medium text-red-600">
-                {fechaError.message}
-              </p>
-            )}
-          </div>
+        <div className="flex items-stretch gap-2">
+          <div className="flex-1 min-w-0 space-y-5">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <DateInput
+                  label="Fecha*"
+                  value={formData.fecha || ""}
+                  onChange={(val) => handleChange("fecha", val)}
+                  className={
+                    fechaError
+                      ? "border border-red-500 bg-white ring-1 ring-red-400"
+                      : undefined
+                  }
+                />
+                {fechaError && (
+                  <p className="mt-1 text-[11px] font-medium text-red-600">
+                    {fechaError.message}
+                  </p>
+                )}
+              </div>
 
-          <div>
-            <label
-              className={`block text-[10px] font-bold uppercase mb-1 ${
-                tipoError ? "text-red-600" : "text-slate-500"
+              <div>
+                <label
+                  className={`block text-[10px] font-bold uppercase mb-1 ${
+                    tipoError ? "text-red-600" : "text-slate-500"
+                  }`}
+                >
+                  Tipo de Evento*
+                </label>
+                <SearchableSelect
+                  options={eventTypeOptions}
+                  value={formData.id_tipo_evento || null}
+                  onChange={handleTipoChange}
+                  placeholder="Buscar tipo..."
+                  dropdownMinWidth={280}
+                  invalid={Boolean(tipoError)}
+                />
+                {tipoError && (
+                  <p className="mt-1 text-[11px] font-medium text-red-600">
+                    {tipoError.message}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <TimeInput
+                  label="Hora Inicio*"
+                  value={formData.hora_inicio || ""}
+                  onChange={handleHoraInicioChange}
+                  className={
+                    horaError
+                      ? "border border-red-500 rounded text-sm bg-white ring-1 ring-red-400"
+                      : undefined
+                  }
+                />
+                {horaError && (
+                  <p className="mt-1 text-[11px] font-medium text-red-600">
+                    {horaError.message}
+                  </p>
+                )}
+              </div>
+              <TimeInput
+                label="Hora Fin"
+                value={formData.hora_fin || ""}
+                onChange={(val) => handleChange("hora_fin", val)}
+              />
+            </div>
+          </div>
+          {stayCfg ? (
+            <button
+              type="button"
+              title={stayCfg.extraTitle}
+              aria-pressed={stayExtraOn}
+              onClick={() => handleStayExtraToggle(!stayExtraOn)}
+              className={`shrink-0 w-16 rounded-lg border-2 flex flex-col items-center justify-center gap-1 px-1 transition-colors ${
+                stayExtraOn
+                  ? stayCfg.side === "checkin"
+                    ? "border-sky-600 bg-sky-600 text-white"
+                    : "border-amber-600 bg-amber-600 text-white"
+                  : "border-slate-200 bg-white text-slate-400 hover:border-slate-300 hover:text-slate-500"
               }`}
             >
-              Tipo de Evento*
-            </label>
-            <SearchableSelect
-              options={eventTypeOptions}
-              value={formData.id_tipo_evento || null}
-              onChange={(id) =>
-                handleChange("id_tipo_evento", id == null ? "" : id)
-              }
-              placeholder="Buscar tipo..."
-              dropdownMinWidth={280}
-              invalid={Boolean(tipoError)}
-            />
-            {tipoError && (
-              <p className="mt-1 text-[11px] font-medium text-red-600">
-                {tipoError.message}
-              </p>
-            )}
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <TimeInput
-              label="Hora Inicio*"
-              value={formData.hora_inicio || ""}
-              onChange={(val) => handleChange("hora_inicio", val)}
-              className={
-                horaError
-                  ? "border border-red-500 rounded text-sm bg-white ring-1 ring-red-400"
-                  : undefined
-              }
-            />
-            {horaError && (
-              <p className="mt-1 text-[11px] font-medium text-red-600">
-                {horaError.message}
-              </p>
-            )}
-          </div>
-          <TimeInput
-            label="Hora Fin"
-            value={formData.hora_fin || ""}
-            onChange={(val) => handleChange("hora_fin", val)}
-          />
+              <span
+                className={`w-5 h-5 rounded border flex items-center justify-center ${
+                  stayExtraOn
+                    ? "bg-white/20 border-white"
+                    : "border-slate-300 bg-white"
+                }`}
+              >
+                {stayExtraOn ? (
+                  <IconCheck size={14} className="text-white" />
+                ) : null}
+              </span>
+              <span className="text-[8px] font-black uppercase leading-tight text-center tracking-tight">
+                {stayCfg.extraLabel}
+              </span>
+            </button>
+          ) : null}
         </div>
 
         {/* Estado de venue (solo conciertos) */}
@@ -926,20 +1009,31 @@ export default function EventForm({
         isOpen={Boolean(stayHourPrompt)}
         onClose={() => setStayHourPrompt(null)}
         onConfirm={() => {
-          const yesId = stayHourPrompt?.yesTipoId;
+          const prompt = stayHourPrompt;
           setStayHourPrompt(null);
-          emitSave(yesId);
+          if (!prompt) return;
+          if (prompt.pendingSave) {
+            emitSave(prompt.yesTipoId);
+            return;
+          }
+          setFormData((prev) => ({
+            ...prev,
+            id_tipo_evento: prompt.yesTipoId,
+          }));
         }}
         title={stayHourPrompt?.title || ""}
         message={stayHourPrompt?.message || ""}
         confirmText="Sí"
         hideCancel
-        overlayClassName="z-[10050]"
+        overlayClassName="z-[11000]"
         secondaryAction={{
           label: "No",
           onClick: () => {
+            const prompt = stayHourPrompt;
             setStayHourPrompt(null);
-            emitSave(null);
+            if (!prompt) return;
+            stayPromptDeclinedRef.current[prompt.kind] = true;
+            if (prompt.pendingSave) emitSave(null);
           },
         }}
       />

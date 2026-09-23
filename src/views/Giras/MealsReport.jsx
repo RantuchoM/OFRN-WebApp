@@ -872,16 +872,6 @@ export default function MealsReport({
     tagCatalogs,
   ]);
 
-  const activeRoster = useMemo(
-    () => (enrichedRoster || []).filter((p) => p.estado_gira === "confirmado"),
-    [enrichedRoster],
-  );
-
-  const nonLocalRoster = useMemo(
-    () => activeRoster.filter((p) => !p.is_local),
-    [activeRoster],
-  );
-
   const artistMealSpecs = useMemo(() => {
     if (!fimbaMode) return [];
     const onlyIds = selectedArtistaIds.filter(
@@ -899,13 +889,11 @@ export default function MealsReport({
     () =>
       appendArtistMealSpecsSection(
         buildMealsPedidoText(filteredReport, {
-          nonLocalRoster,
-          includeStayBlocks: true,
           groupByLugar: Boolean(fimbaMode),
         }),
         artistMealSpecs,
       ),
-    [filteredReport, nonLocalRoster, artistMealSpecs, fimbaMode],
+    [filteredReport, artistMealSpecs, fimbaMode],
   );
 
   /** Filas del reporte sin filtro de artista (base del batch por artista). */

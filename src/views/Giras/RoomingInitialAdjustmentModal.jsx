@@ -3,6 +3,7 @@ import { IconFileText, IconX } from "../../components/ui/Icons";
 import {
   buildInitialDateGroups,
   computeSuggestedRooms,
+  dateGroupPaidNights,
   getAdjustmentForRange,
   getSuggestedRoomsLabel,
   INITIAL_ORDER_BEDS_PER_ROOM_OPTIONS,
@@ -12,6 +13,10 @@ import {
   showSuggestedRooms,
   UNASSIGNED_HOTEL_KEY,
 } from "../../utils/roomingInitialOrder";
+import {
+  formatHotelNights,
+  stayNightMarks,
+} from "../../utils/hotelStayEvents";
 import {
   formatTramoLabel,
   getTramoLocalidadIds,
@@ -46,9 +51,10 @@ function computeBlockTotals(block, adjustments, segmentId, bedsPerRoom, hotelKey
     const totalF = g.baseF + (adj.std_f || 0) + (adj.plus_f || 0);
     const totalM = g.baseM + (adj.std_m || 0) + (adj.plus_m || 0);
     const pax = totalF + totalM;
+    const nightsPaid = dateGroupPaidNights(g);
     basePax += g.baseCount;
     totalPax += pax;
-    totalBeds += pax * g.nights;
+    totalBeds += pax * nightsPaid;
     suggestedRooms += computeSuggestedRooms(totalF, totalM, bedsPerRoom);
     totalCunas += Array.isArray(g.cunas) ? g.cunas.length : 0;
   });
@@ -130,7 +136,9 @@ function SectionSummaryBox({ title, totals, bedsPerRoom }) {
         <div className="text-slate-500 font-semibold uppercase text-[10px]">
           Total Camas Noche
         </div>
-        <div className="text-lg font-bold text-amber-700">{totals.totalBeds}</div>
+        <div className="text-lg font-bold text-amber-700">
+          {formatHotelNights(totals.totalBeds)}
+        </div>
       </div>
     </div>
   );
@@ -470,7 +478,12 @@ const RoomingInitialAdjustmentModal = ({
               totalM,
               bedsPerRoom,
             );
-            const totalBedsRow = totalPaxRow * g.nights;
+            const nightsPaid = dateGroupPaidNights(g);
+            const totalBedsRow = totalPaxRow * nightsPaid;
+            const nightMarks = stayNightMarks({
+              early: g.earlyCheckIn,
+              late: g.lateCheckOut,
+            });
             const cunaCount = Array.isArray(g.cunas) ? g.cunas.length : 0;
             const cunaTitle = (g.cunas || [])
               .map((c) =>
@@ -484,7 +497,12 @@ const RoomingInitialAdjustmentModal = ({
                   {g.rangeLabel}
                 </td>
                 <td className="border border-slate-200 px-2 py-1 text-center font-semibold text-slate-700">
-                  {g.nights}
+                  {formatHotelNights(nightsPaid)}
+                  {nightMarks.length > 0 && (
+                    <div className="text-[9px] font-semibold text-sky-700 leading-tight">
+                      {nightMarks.join(" · ")}
+                    </div>
+                  )}
                 </td>
                 <td className="border border-slate-200 px-2 py-1 text-center">
                   {g.baseF}
@@ -578,7 +596,7 @@ const RoomingInitialAdjustmentModal = ({
                   </td>
                 )}
                 <td className="border border-slate-200 px-2 py-1 text-center">
-                  {totalBedsRow}
+                  {formatHotelNights(totalBedsRow)}
                 </td>
               </tr>
             );
@@ -689,7 +707,9 @@ const RoomingInitialAdjustmentModal = ({
               : cortesCount > 0
                 ? ", en cada tramo de la gira"
                 : ""}
-            . No se modifican los integrantes, solo el pedido final.
+            . No se modifican los integrantes, solo el pedido final. Las noches
+            incluyen media noche extra por early check-in y/o late check-out
+            (p. ej. salida 17:00 → +0,5).
           </p>
 
           {!hasAnyRange ? (

@@ -38,11 +38,8 @@ import {
   formatTramoTitle,
   isLocalForTramoIndex,
 } from "../../utils/giraTramos";
-import { bookingBelongsToSegment } from "../../utils/roomingInitialOrder";
-import {
-  logisticsHasEarlyCheckIn,
-  logisticsHasLateCheckOut,
-} from "../../utils/hotelStayEvents";
+import { bookingBelongsToSegment, getLogisticsDates } from "../../utils/roomingInitialOrder";
+import { stayExtraFlagsFromStay } from "../../utils/hotelStayEvents";
 import {
   enforceUniquePersonPerHotel,
   normalizeIntegranteId,
@@ -1432,10 +1429,17 @@ export default function RoomingManager({
         ...room,
         occupants: (room.occupants || []).map((o) => {
           const log = logisticsMap[o.id] || logisticsMap[normalizeIntegranteId(o.id)];
+          const { dateIn, dateOut } = getLogisticsDates(log);
+          const flags = stayExtraFlagsFromStay({
+            dateIn,
+            dateOut,
+            log,
+            ocupaCama: o.ocupa_cama !== false,
+          });
           return {
             ...enrichForSegment(o),
-            earlyCheckIn: logisticsHasEarlyCheckIn(log),
-            lateCheckOut: logisticsHasLateCheckOut(log),
+            earlyCheckIn: flags.early,
+            lateCheckOut: flags.late,
           };
         }),
       })),

@@ -12,10 +12,16 @@ import {
   buildInitialOrderSections,
   buildInitialOrderTextSummary,
   buildInitialOrderPassengerDetailSections,
+  dateGroupPaidNights,
   getSuggestedRoomsLabel,
   listHotelCopyTargets,
   showSuggestedRooms,
 } from "../../utils/roomingInitialOrder";
+import {
+  formatHotelNights,
+  hotelNightsFromStay,
+  stayNightMarks,
+} from "../../utils/hotelStayEvents";
 
 function formatDetailDate(d) {
   return d
@@ -130,7 +136,7 @@ function SectionSummaryBox({ title, totals, className = "", bedsPerRoom = 2 }) {
           Total Noches Bás
         </div>
         <div className="text-2xl font-bold text-slate-600 summary-value text-slate">
-          {totals.grandTotalStdNights}
+          {formatHotelNights(totals.grandTotalStdNights)}
         </div>
       </div>
       <div className="summary-item">
@@ -138,7 +144,7 @@ function SectionSummaryBox({ title, totals, className = "", bedsPerRoom = 2 }) {
           Total Noches Sup
         </div>
         <div className="text-2xl font-bold text-amber-600 summary-value text-amber">
-          {totals.grandTotalPlusNights}
+          {formatHotelNights(totals.grandTotalPlusNights)}
         </div>
       </div>
       <div className="pl-6 border-l border-slate-200 summary-item summary-divider">
@@ -146,7 +152,7 @@ function SectionSummaryBox({ title, totals, className = "", bedsPerRoom = 2 }) {
           Total Camas
         </div>
         <div className="text-2xl font-bold text-indigo-600 summary-value text-indigo">
-          {totals.totalBedNights}
+          {formatHotelNights(totals.totalBedNights)}
         </div>
       </div>
       {(totals.totalCunas || 0) > 0 && (
@@ -238,13 +244,17 @@ function PassengerDetailTable({ passengers = [], emptyLabel = "Sin pasajeros en 
                 p.nights != null
                   ? p.nights
                   : p.dateIn && p.dateOut
-                    ? Math.max(
-                        0,
-                        Math.round(
-                          (p.dateOut - p.dateIn) / (1000 * 60 * 60 * 24),
-                        ),
-                      )
+                    ? hotelNightsFromStay({
+                        dateIn: p.dateIn,
+                        dateOut: p.dateOut,
+                        extraNights: p.en_cuna ? 0 : p.extraNights,
+                        ocupaCama: !p.en_cuna,
+                      })
                     : "-";
+              const nightMarks = stayNightMarks({
+                early: p.earlyCheckIn,
+                late: p.lateCheckOut,
+              });
               return (
                 <tr key={`${p.id}-${n}`}>
                   <td className="border border-slate-300 px-2 py-1.5 text-center align-middle">
@@ -277,16 +287,11 @@ function PassengerDetailTable({ passengers = [], emptyLabel = "Sin pasajeros en 
                   </td>
                   <td className="border border-slate-300 px-2 py-1.5 text-center align-middle font-bold text-slate-800">
                     {typeof nights === "number"
-                      ? nights.toLocaleString("es-AR", {
-                          minimumFractionDigits: nights % 1 === 0 ? 0 : 1,
-                          maximumFractionDigits: 1,
-                        })
+                      ? formatHotelNights(nights)
                       : nights}
-                    {p.extraNights > 0 ? (
+                    {nightMarks.length > 0 ? (
                       <div className="text-[9px] font-semibold text-sky-700">
-                        {p.earlyCheckIn ? "Early +0,5" : ""}
-                        {p.earlyCheckIn && p.lateCheckOut ? " · " : ""}
-                        {p.lateCheckOut ? "Late +0,5" : ""}
+                        {nightMarks.join(" · ")}
                       </div>
                     ) : null}
                   </td>
@@ -349,20 +354,32 @@ function OrderDatesTable({
             cunas,
           } = row;
           const cunaTitle = (cunas || []).map(formatCunaDetail).join(" · ");
+          const nightsPaid = dateGroupPaidNights(group);
+          const nightMarks = stayNightMarks({
+            early: group.earlyCheckIn,
+            late: group.lateCheckOut,
+          });
           return (
             <tr key={idx}>
               <td className="date-col">{group.rangeLabel}</td>
-              <td className="highlight">{group.nights}</td>
+              <td className="highlight">
+                {formatHotelNights(nightsPaid)}
+                {nightMarks.length > 0 && (
+                  <div className="text-[9px] font-semibold text-sky-700 leading-tight">
+                    {nightMarks.join(" · ")}
+                  </div>
+                )}
+              </td>
               <td>{totalRowPax}</td>
               <td className="bg-std">{stdPax > 0 ? stdPax : "-"}</td>
               <td className="bg-std font-bold">
-                {stdNights > 0 ? stdNights : "-"}
+                {stdNights > 0 ? formatHotelNights(stdNights) : "-"}
               </td>
               <td className="bg-plus">{plusPax > 0 ? plusPax : "-"}</td>
               <td className="bg-plus font-bold text-plus">
-                {plusNights > 0 ? plusNights : "-"}
+                {plusNights > 0 ? formatHotelNights(plusNights) : "-"}
               </td>
-              <td className="text-total">{totalRowNights}</td>
+              <td className="text-total">{formatHotelNights(totalRowNights)}</td>
               <td
                 className={cunaCount > 0 ? "font-bold text-emerald-700" : ""}
                 title={cunaTitle || undefined}
@@ -396,10 +413,10 @@ function OrderDatesTable({
             <td></td>
             <td>{block.totalPax}</td>
             <td className="bg-std">{block.totalStdPax}</td>
-            <td className="bg-std">{block.grandTotalStdNights}</td>
+            <td className="bg-std">{formatHotelNights(block.grandTotalStdNights)}</td>
             <td className="bg-plus">{block.totalPlusPax}</td>
-            <td className="bg-plus">{block.grandTotalPlusNights}</td>
-            <td className="text-total">{block.totalBedNights}</td>
+            <td className="bg-plus">{formatHotelNights(block.grandTotalPlusNights)}</td>
+            <td className="text-total">{formatHotelNights(block.totalBedNights)}</td>
             <td
               className={
                 block.totalCunas > 0 ? "font-bold text-emerald-700" : ""
@@ -839,7 +856,7 @@ const InitialOrderReportModal = ({
                         )}
                         <h3 className="desglose-heading">Desglose por Fechas y Categoría</h3>
                         <p className="print-note text-[10px] text-slate-400 mb-2 italic">
-                          * Referencia: (Pax × Noches) = Total Camas Noche. Early check-in y late check-out suman 0,5 noche cada uno (se acumulan). Las cunas no se facturan como noche; se informan para preparación del hotel.
+                          * Referencia: (Pax × Noches) = Total Camas Noche. Noches = calendario (check-out − check-in) + 0,5 early + 0,5 late. Un check-out a las 17:00 cuenta como late. Las cunas no se facturan; se informan para el hotel.
                         </p>
 
                         {hotelBlocks.map((block, blockIdx) => (

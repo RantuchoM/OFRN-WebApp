@@ -4,14 +4,12 @@
  */
 
 import { saveAs } from "file-saver";
-import { differenceInCalendarDays } from "date-fns";
 import { toast } from "sonner";
 import { formatTramoTitle } from "./giraTramos";
 import {
-  extraHotelNightsFromLogistics,
   formatHotelNights,
-  logisticsHasEarlyCheckIn,
-  logisticsHasLateCheckOut,
+  hotelNightsFromStay,
+  stayExtraFlagsFromStay,
   STAY_EVENT_FOOTNOTE,
 } from "./hotelStayEvents";
 
@@ -139,16 +137,21 @@ function processRoom(r, logisticsMap, bk, segmentRow) {
     const log = logisticsMap[occ.id] || {};
     const { dateIn, dateOut } = getLogisticsDates(log);
     const clipped = clipDatesToSegment(dateIn, dateOut, bk, segmentRow);
-    const extraNights =
-      occ.ocupa_cama === false ? 0 : extraHotelNightsFromLogistics(log);
+    const ocupaCama = occ.ocupa_cama !== false;
+    const flags = stayExtraFlagsFromStay({
+      dateIn: clipped.dateIn,
+      dateOut: clipped.dateOut,
+      log,
+      ocupaCama,
+    });
     return {
       ...occ,
       dateIn: clipped.dateIn,
       dateOut: clipped.dateOut,
-      ocupa_cama: occ.ocupa_cama !== false,
-      extraNights,
-      earlyCheckIn: logisticsHasEarlyCheckIn(log),
-      lateCheckOut: logisticsHasLateCheckOut(log),
+      ocupa_cama: ocupaCama,
+      extraNights: flags.extraNights,
+      earlyCheckIn: flags.early,
+      lateCheckOut: flags.late,
     };
   });
 
@@ -429,10 +432,6 @@ function buildRowsFromSections(sections) {
           });
         } else {
           for (const o of r.occupants) {
-            const cal =
-              o.dateIn && o.dateOut
-                ? Math.max(0, differenceInCalendarDays(o.dateOut, o.dateIn))
-                : 0;
             const extra =
               o.ocupa_cama === false ? 0 : Number(o.extraNights) || 0;
             plazas.push({
@@ -456,7 +455,14 @@ function buildRowsFromSections(sections) {
                 : "",
               early: o.earlyCheckIn ? "Sí (+0,5)" : "",
               late: o.lateCheckOut ? "Sí (+0,5)" : "",
-              noches: formatHotelNights(cal + extra),
+              noches: formatHotelNights(
+                hotelNightsFromStay({
+                  dateIn: o.dateIn,
+                  dateOut: o.dateOut,
+                  extraNights: extra,
+                  ocupaCama: o.ocupa_cama !== false,
+                }),
+              ),
             });
           }
         }
@@ -596,11 +602,12 @@ export function totalBedNightsFromRooms(processedRooms = []) {
   let total = 0;
   for (const room of processedRooms) {
     for (const occ of room.bedOccupants || []) {
-      if (occ.dateIn && occ.dateOut) {
-        const nights = differenceInCalendarDays(occ.dateOut, occ.dateIn);
-        const extra = Number(occ.extraNights) || 0;
-        if (nights > 0 || extra > 0) total += Math.max(0, nights) + extra;
-      }
+      total += hotelNightsFromStay({
+        dateIn: occ.dateIn,
+        dateOut: occ.dateOut,
+        extraNights: occ.extraNights,
+        ocupaCama: occ.ocupa_cama !== false,
+      });
     }
   }
   return total;

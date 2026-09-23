@@ -27,6 +27,10 @@ import AppNavLink from "../../components/ui/AppNavLink";
 import { getProgramStyle, checkIsConvoked } from "../../utils/giraUtils";
 import { filterMembershipRowsForProgramDate } from "../../utils/ensembleMembership";
 import { getMyRoomingStatus } from "../../services/giraService";
+import {
+  formatHotelNights,
+  stayNightMarks,
+} from "../../utils/hotelStayEvents";
 import { createPortal } from "react-dom";
 
 const sliceTime = (value, fallback) => {
@@ -1261,6 +1265,11 @@ export default function GiraCard({
                         "10:00",
                       );
 
+                      const nightMarks = stayNightMarks({
+                        early: assignment.earlyCheckIn,
+                        late: assignment.lateCheckOut,
+                      });
+
                       return (
                         <div
                           key={`${assignment.room?.id ?? idx}-${assignment.hotel}`}
@@ -1318,6 +1327,21 @@ export default function GiraCard({
                               </div>
                             </div>
                           </div>
+                          {assignment.nights != null && assignment.nights > 0 && (
+                            <div className="text-sm text-slate-600">
+                              <span className="text-[10px] uppercase font-black text-slate-400 tracking-wider mr-2">
+                                Noches
+                              </span>
+                              <span className="font-bold text-slate-800">
+                                {formatHotelNights(assignment.nights)}
+                              </span>
+                              {nightMarks.length > 0 && (
+                                <span className="ml-2 text-[11px] font-semibold text-sky-700">
+                                  {nightMarks.join(" · ")}
+                                </span>
+                              )}
+                            </div>
+                          )}
                         </div>
                       );
                     })}

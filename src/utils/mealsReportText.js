@@ -189,21 +189,15 @@ export function unifyMealsReportRowsByTypeAndPlace(rows = [], opts = {}) {
 
 /**
  * @param {Array<{ fecha: string, servicio: string, servicioLabel?: string, counts: Record<string, number> }>} filteredRows
- * @param {{ nonLocalRoster?: object[], includeStayBlocks?: boolean, groupByLugar?: boolean }} [opts]
+ * @param {{ groupByLugar?: boolean }} [opts]
  */
 export function buildMealsPedidoText(filteredRows = [], opts = {}) {
-  const {
-    nonLocalRoster = [],
-    includeStayBlocks = true,
-    groupByLugar = false,
-  } = opts;
+  const { groupByLugar = false } = opts;
 
   const formatDayHeader = (isoDate) => {
     const label = format(parseISO(isoDate), "EEEE dd/MM", { locale: es });
     return label.charAt(0).toUpperCase() + label.slice(1);
   };
-
-  const formatDayRange = (isoDate) => format(parseISO(isoDate), "dd/MM");
 
   const serviceOrder = [
     "Desayuno",
@@ -305,95 +299,6 @@ export function buildMealsPedidoText(filteredRows = [], opts = {}) {
     blocks.push(`Cantidad de pasajeros: ${mealPeak}`);
   }
   if (mealBlocks.length > 0) blocks.push(mealBlocks.join("\n\n"));
-
-  if (includeStayBlocks && nonLocalRoster?.length) {
-    const isMinorPerson = (person) => {
-      if (person?.menor === true || person?.menor === 1) return true;
-      if (!person?.fecha_nacimiento) return false;
-      const birth = new Date(person.fecha_nacimiento);
-      if (Number.isNaN(birth.getTime())) return false;
-      const today = new Date();
-      let age = today.getFullYear() - birth.getFullYear();
-      const monthDiff = today.getMonth() - birth.getMonth();
-      if (
-        monthDiff < 0 ||
-        (monthDiff === 0 && today.getDate() < birth.getDate())
-      ) {
-        age -= 1;
-      }
-      return age < 18;
-    };
-
-    const groupedByStay = {};
-    nonLocalRoster.forEach((person) => {
-      const inDate =
-        person?.logistics?.checkin?.date ||
-        person?.logistics?.comida_inicio?.date;
-      const outDate =
-        person?.logistics?.checkout?.date ||
-        person?.logistics?.comida_fin?.date;
-      if (!inDate || !outDate) return;
-      const key = `${inDate}|${outDate}`;
-      if (!groupedByStay[key]) {
-        groupedByStay[key] = {
-          inDate,
-          outDate,
-          pax: 0,
-          minors: 0,
-          superiorRooms: new Set(),
-        };
-      }
-      groupedByStay[key].pax += 1;
-      if (isMinorPerson(person)) groupedByStay[key].minors += 1;
-
-      const room = person?.habitacion;
-      const roomType = String(room?.tipo || "").toLowerCase();
-      const isSuperiorRoom = roomType === "plus" || roomType === "superior";
-      if (isSuperiorRoom && room?.id) {
-        groupedByStay[key].superiorRooms.add(room.id);
-      }
-    });
-
-    const stayBlocks = Object.values(groupedByStay)
-      .sort((a, b) => a.inDate.localeCompare(b.inDate))
-      .map((group) => {
-        const extras = [];
-        if (group.minors > 0) {
-          extras.push(
-            `${group.minors} ${group.minors === 1 ? "menor" : "menores"}`,
-          );
-        }
-        const roomCount = group.superiorRooms.size;
-        if (roomCount > 0) {
-          extras.push(
-            `${roomCount} ${
-              roomCount === 1 ? "habitación superior" : "habitaciones superiores"
-            }`,
-          );
-        }
-        const extraText = extras.length > 0 ? ` (${extras.join(", ")})` : "";
-        const paxLabel = group.pax === 1 ? "pasajero" : "pasajeros";
-        return (
-          `Grupo ingreso ${formatDayRange(group.inDate)} al ${formatDayRange(group.outDate)}\n` +
-          `${group.pax} ${paxLabel}${extraText}`
-        );
-      });
-
-    const stayPaxTotal = Object.values(groupedByStay).reduce(
-      (sum, group) => sum + group.pax,
-      0,
-    );
-
-    blocks.push("Fecha de ingreso y egreso.");
-    if (stayPaxTotal > 0) {
-      blocks.push(
-        `Hospedaje (no locales): ${stayPaxTotal} ${
-          stayPaxTotal === 1 ? "pasajero" : "pasajeros"
-        }`,
-      );
-    }
-    if (stayBlocks.length > 0) blocks.push(stayBlocks.join("\n\n"));
-  }
 
   return blocks.join("\n\n");
 }

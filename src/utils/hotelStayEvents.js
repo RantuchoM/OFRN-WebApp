@@ -11,6 +11,7 @@
  * si un Check-Out es > 10:00, se pregunta si es late.
  */
 
+import { differenceInCalendarDays } from "date-fns";
 import { toInstantKey, sliceTime, mealSlotToInstant } from "./giraTramos";
 import {
   MEAL_SERVICE_ORDER,
@@ -147,6 +148,18 @@ export function staySideFromField(field) {
   return null;
 }
 
+/** Check-in/Early → checkin; Check-out/Late → checkout. */
+export function staySideFromTipo(tipoId) {
+  const id = Number(tipoId);
+  if (id === TIPO_EVENTO_CHECKIN || id === TIPO_EVENTO_EARLY_CHECKIN) {
+    return "checkin";
+  }
+  if (id === TIPO_EVENTO_CHECKOUT || id === TIPO_EVENTO_LATE_CHECKOUT) {
+    return "checkout";
+  }
+  return null;
+}
+
 export function staySideConfig(fieldOrSide) {
   if (!fieldOrSide) return null;
   if (STAY_SIDES[fieldOrSide]) return STAY_SIDES[fieldOrSide];
@@ -267,21 +280,189 @@ function hitHasStayExtra(hit) {
   );
 }
 
+export function hitTipoEventoId(hit) {
+  if (!hit || typeof hit !== "object") return null;
+  const nested = hit.tipos_evento;
+  const nestedId = Array.isArray(nested) ? nested[0]?.id : nested?.id;
+  const raw = hit.id_tipo_evento ?? hit.tipo_id ?? nestedId;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
+function hitHoraMinutes(hit) {
+  if (!hit || typeof hit !== "object") return null;
+  return timeToMinutes(hit.hora_inicio || hit.hora || hit.time);
+}
+
+function dateHoraMinutes(value) {
+  if (value == null || value === "") return null;
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return null;
+    return value.getHours() * 60 + value.getMinutes();
+  }
+  if (typeof value === "string") return timeToMinutes(value);
+  if (typeof value === "object") return hitHoraMinutes(value);
+  return null;
+}
+
+function toStayDate(value) {
+  if (!value) return null;
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/**
+ * Early: tipo 40, FK extra, o hora &lt; 14:00 (no el 12:00 de logística).
+ * Late: tipo 41, FK extra, o hora &gt; 10:00 (no el 12:00 de logística).
+ */
+function isEarlyFromHit(hit, { linkedCounts = false } = {}) {
+  if (!hit || typeof hit !== "object") return false;
+  if (linkedCounts && hitHasStayExtra(hit)) return true;
+  if (isEarlyCheckInTipo(hitTipoEventoId(hit))) return true;
+  const mins = hitHoraMinutes(hit);
+  if (mins == null) return false;
+  const habitual = timeToMinutes(HORA_CHECKIN_HABITUAL);
+  const logistics = timeToMinutes(HORA_LOGISTICA_DEFAULT);
+  return mins < habitual && mins !== logistics;
+}
+
+function isLateFromHit(hit, { linkedCounts = false } = {}) {
+  if (!hit || typeof hit !== "object") return false;
+  if (linkedCounts && hitHasStayExtra(hit)) return true;
+  if (isLateCheckOutTipo(hitTipoEventoId(hit))) return true;
+  const mins = hitHoraMinutes(hit);
+  if (mins == null) return false;
+  const habitual = timeToMinutes(HORA_CHECKOUT_HABITUAL);
+  const logistics = timeToMinutes(HORA_LOGISTICA_DEFAULT);
+  if (mins <= habitual) return false;
+  if (mins === logistics) return false;
+  return true;
+}
+
+function isEarlyFromMinutes(mins) {
+  if (mins == null) return false;
+  const habitual = timeToMinutes(HORA_CHECKIN_HABITUAL);
+  const logistics = timeToMinutes(HORA_LOGISTICA_DEFAULT);
+  return mins < habitual && mins !== logistics;
+}
+
+function isLateFromMinutes(mins) {
+  if (mins == null) return false;
+  const habitual = timeToMinutes(HORA_CHECKOUT_HABITUAL);
+  const logistics = timeToMinutes(HORA_LOGISTICA_DEFAULT);
+  if (mins <= habitual) return false;
+  if (mins === logistics) return false;
+  return true;
+}
+
 export function logisticsHasEarlyCheckIn(log) {
-  return hitHasStayExtra(log?.checkin_early);
+  if (!log) return false;
+  if (isEarlyFromHit(log.checkin_early, { linkedCounts: true })) return true;
+  if (isEarlyFromHit(log.checkin)) return true;
+  return false;
 }
 
 export function logisticsHasLateCheckOut(log) {
-  return hitHasStayExtra(log?.checkout_late);
+  if (!log) return false;
+  if (isLateFromHit(log.checkout_late, { linkedCounts: true })) return true;
+  if (isLateFromHit(log.checkout)) return true;
+  return false;
 }
 
-/** 0, 0.5 o 1.0 según early / late vinculados en la logística de la persona. */
+export function stayExtraFlagsFromLogistics(log) {
+  const early = logisticsHasEarlyCheckIn(log);
+  const late = logisticsHasLateCheckOut(log);
+  return {
+    early,
+    late,
+    extraNights: (early ? HALF_NIGHT_EXTRA : 0) + (late ? HALF_NIGHT_EXTRA : 0),
+  };
+}
+
+/** 0, 0.5 o 1.0 según early / late (tipo, FK extra o hora). */
 export function extraHotelNightsFromLogistics(log) {
-  if (!log) return 0;
-  let extra = 0;
-  if (logisticsHasEarlyCheckIn(log)) extra += HALF_NIGHT_EXTRA;
-  if (logisticsHasLateCheckOut(log)) extra += HALF_NIGHT_EXTRA;
+  return stayExtraFlagsFromLogistics(log).extraNights;
+}
+
+/**
+ * Extra 0,5 también si el instante de estadía es early/late y el log no lo marcó
+ * (p. ej. Check-Out 17:00 sin tilde / tipo 41).
+ */
+export function extraHotelNightsFromStay({
+  dateIn,
+  dateOut,
+  log,
+  ocupaCama = true,
+} = {}) {
+  if (ocupaCama === false) return 0;
+  const flags = stayExtraFlagsFromLogistics(log);
+  let extra = flags.extraNights;
+  if (!flags.early && isEarlyFromMinutes(dateHoraMinutes(dateIn))) {
+    extra += HALF_NIGHT_EXTRA;
+  }
+  if (!flags.late && isLateFromMinutes(dateHoraMinutes(dateOut))) {
+    extra += HALF_NIGHT_EXTRA;
+  }
   return extra;
+}
+
+export function stayExtraFlagsFromStay({
+  dateIn,
+  dateOut,
+  log,
+  ocupaCama = true,
+} = {}) {
+  if (ocupaCama === false) {
+    return { early: false, late: false, extraNights: 0 };
+  }
+  const fromLog = stayExtraFlagsFromLogistics(log);
+  const early =
+    fromLog.early || isEarlyFromMinutes(dateHoraMinutes(dateIn));
+  const late = fromLog.late || isLateFromMinutes(dateHoraMinutes(dateOut));
+  return {
+    early,
+    late,
+    extraNights: (early ? HALF_NIGHT_EXTRA : 0) + (late ? HALF_NIGHT_EXTRA : 0),
+  };
+}
+
+/** Noches de calendario = check-out − check-in (días civiles). */
+export function calendarHotelNights(dateIn, dateOut) {
+  const a = toStayDate(dateIn);
+  const b = toStayDate(dateOut);
+  if (!a || !b) return 0;
+  return Math.max(0, differenceInCalendarDays(b, a));
+}
+
+/**
+ * Noches facturadas: calendario + 0,5 early + 0,5 late.
+ * Cuna (`ocupaCama: false`) = 0. Ausente no llega acá (el roster ya lo filtra).
+ */
+export function hotelNightsFromStay({
+  dateIn,
+  dateOut,
+  log,
+  extraNights,
+  ocupaCama = true,
+} = {}) {
+  if (ocupaCama === false) return 0;
+  const extra =
+    extraNights != null && extraNights !== ""
+      ? Number(extraNights) || 0
+      : extraHotelNightsFromStay({ dateIn, dateOut, log, ocupaCama });
+  const cal = calendarHotelNights(dateIn, dateOut);
+  if (cal <= 0 && extra <= 0) return 0;
+  return cal + extra;
+}
+
+export function stayNightMarks({ early, late } = {}) {
+  const parts = [];
+  if (early) parts.push("Early +0,5");
+  if (late) parts.push("Late +0,5");
+  return parts;
 }
 
 export function formatHotelNights(n) {
@@ -392,4 +573,4 @@ export function ruleEventColumn(field) {
 }
 
 export const STAY_EVENT_FOOTNOTE =
-  "Early check-in y late check-out suman 0,5 noche cada uno (se acumulan). Las noches de calendario siguen siendo check-out − check-in.";
+  "Noches facturadas = (check-out − check-in) + 0,5 early + 0,5 late (se acumulan). Late: tipo 41, tilde/FK extra, o check-out después de las 10:00 (el 12:00 de logística no cuenta). Early: tipo 40, tilde/FK extra, o check-in antes de las 14:00 (el 12:00 de logística no cuenta). Cunas no facturan.";

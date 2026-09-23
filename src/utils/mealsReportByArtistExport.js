@@ -263,7 +263,6 @@ async function writeArtistTextZip(fileName, bundles) {
     used.add(name.toLowerCase());
     const text = appendArtistMealSpecsSection(
       buildMealsPedidoText(bundle.rows, {
-        includeStayBlocks: false,
         groupByLugar: true,
       }),
       bundle.specs,
