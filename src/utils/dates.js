@@ -89,6 +89,24 @@ export function getAgendaQueryFromDateLocal(filterDateFrom) {
 }
 
 /**
+ * Fecha “hasta” real de la query de agenda general (yyyy-MM-dd).
+ * Cubre el máximo entre el “Hasta” del filtro (si está) y hoy + monthsLimit,
+ * para que un rango Sep–Dic no se quede corto y “Cargar más meses” siga
+ * ampliando aunque el filtro ya tenga techo.
+ * @param {string | null | undefined} filterDateTo
+ * @param {number} monthsLimit
+ */
+export function getAgendaQueryToDateLocal(filterDateTo, monthsLimit) {
+  const months = Number(monthsLimit);
+  const byMonths = addMonthsToDateStringLocal(
+    getTodayDateStringLocal(),
+    Number.isFinite(months) && months > 0 ? months : 0,
+  );
+  if (filterDateTo && filterDateTo > byMonths) return filterDateTo;
+  return byMonths;
+}
+
+/**
  * Rango “última semana”: 7 días incluyendo hoy (desde hace 6 días hasta hoy), hora local.
  */
 export function getLastWeekDateRangeLocal() {

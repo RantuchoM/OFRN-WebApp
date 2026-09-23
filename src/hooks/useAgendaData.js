@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { startOfDay, endOfDay, addMonths, parseISO } from "date-fns";
 import { toast } from "sonner";
 import {
   getTodayDateStringLocal,
   getAgendaQueryFromDateLocal,
+  getAgendaQueryToDateLocal,
 } from "../utils/dates";
 import { calculateLogisticsSummary } from "./useLogistics";
 import { membershipActiveOnProgramDate } from "../utils/ensembleMembership";
@@ -26,7 +26,7 @@ const EVENT_SELECT = `
     giras_transportes ( id, detalle, transportes ( nombre, color, icon ) ),
     tipos_evento ( id, nombre, color, categorias_tipos_eventos (id, nombre) ),
     locaciones ( id, nombre, direccion, link_mapa, localidades (localidad) ),
-    programas ( id, nombre_gira, nomenclador, google_drive_folder_id, mes_letra, fecha_desde, fecha_hasta, tipo, zona, estado, fecha_confirmacion_limite, giras_fuentes(tipo, valor_id, valor_texto), giras_integrantes(id_integrante, estado, rol) ),
+    programas ( id, nombre_gira, nomenclador, google_drive_folder_id, mes_letra, fecha_desde, fecha_hasta, tipo, zona, estado, fecha_confirmacion_limite, giras_fuentes(tipo, valor_id, valor_texto) ),
     eventos_programas_asociados ( programas ( id, nombre_gira, google_drive_folder_id, mes_letra, nomenclador, estado, tipo ) ),
     eventos_ensambles ( id_ensamble, ensambles ( id, ensamble ) ),
     eventos_grupos ( id_grupo, giras_grupos ( id, nombre, color ) ),
@@ -115,6 +115,127 @@ function matchesGiraFuente(sources, userProfile, ensamblesRows, progFd) {
 const AGENDA_CACHE_PREFIX = "agenda_cache_";
 /** Bump when the persisted snapshot shape changes (slim v11: no roster/logs/rider). */
 const AGENDA_CACHE_VERSION = "v11";
+/** PostgREST default max-rows is 1000; page until the date window is complete. */
+const AGENDA_PAGE_SIZE = 1000;
+const AGENDA_MAX_PAGES = 30;
+const GIRA_IDS_IN_CHUNK = 200;
+
+function isAbortLikeError(error, signal) {
+  if (signal?.aborted) return true;
+  if (!error) return false;
+  return (
+    error.name === "AbortError" ||
+    error.code === 20 ||
+    error.code === "AbortError" ||
+    error.message?.includes("AbortError")
+  );
+}
+
+async function fetchEventosPaged({
+  supabase,
+  signal,
+  giraId,
+  startDate,
+  endDate,
+  includeDeletedBeyond24h,
+}) {
+  const timestamp24hAgo = new Date(
+    Date.now() - 24 * 60 * 60 * 1000,
+  ).toISOString();
+  const all = [];
+  let offset = 0;
+  for (;;) {
+    if (signal.aborted) return all;
+    let query = supabase.from("eventos").select(EVENT_SELECT);
+    if (!includeDeletedBeyond24h) {
+      query = query.or(
+        `is_deleted.eq.false,is_deleted.is.null,and(is_deleted.eq.true,deleted_at.gt.${timestamp24hAgo})`,
+      );
+    }
+    query = query
+      .order("fecha", { ascending: true })
+      .order("hora_inicio", { ascending: true })
+      .range(offset, offset + AGENDA_PAGE_SIZE - 1)
+      .abortSignal(signal);
+    if (giraId) {
+      query = query.eq("id_gira", giraId);
+    } else {
+      if (startDate) query = query.gte("fecha", startDate);
+      if (endDate) query = query.lte("fecha", endDate);
+    }
+    const { data, error } = await query;
+    if (error) {
+      if (isAbortLikeError(error, signal)) return all;
+      throw error;
+    }
+    const chunk = data || [];
+    all.push(...chunk);
+    if (chunk.length < AGENDA_PAGE_SIZE) break;
+    offset += AGENDA_PAGE_SIZE;
+    if (offset / AGENDA_PAGE_SIZE >= AGENDA_MAX_PAGES) break;
+  }
+  return all;
+}
+
+/**
+ * Roster embed on every event duplicates the full tour. Visibility/logística
+ * only need the current user — fetch once and attach (keeps payload + cache slim).
+ */
+async function attachMyGiraRoster(
+  supabase,
+  eventsData,
+  effectiveUserId,
+  signal,
+) {
+  if (!Array.isArray(eventsData) || eventsData.length === 0) return eventsData;
+  if (!effectiveUserId || effectiveUserId === "guest-general") {
+    return eventsData.map((evt) => {
+      if (!evt?.programas) return evt;
+      return {
+        ...evt,
+        programas: { ...evt.programas, giras_integrantes: [] },
+      };
+    });
+  }
+  const tourIds = [
+    ...new Set(
+      eventsData
+        .map((e) => e.id_gira ?? e.programas?.id)
+        .filter((id) => id != null && id !== ""),
+    ),
+  ];
+  const byGira = new Map();
+  for (let i = 0; i < tourIds.length; i += GIRA_IDS_IN_CHUNK) {
+    if (signal?.aborted) break;
+    const slice = tourIds.slice(i, i + GIRA_IDS_IN_CHUNK);
+    let rosterQuery = supabase
+      .from("giras_integrantes")
+      .select("id_gira, id_integrante, estado, rol")
+      .eq("id_integrante", effectiveUserId)
+      .in("id_gira", slice);
+    if (signal) rosterQuery = rosterQuery.abortSignal(signal);
+    const { data, error } = await rosterQuery;
+    if (error) {
+      if (isAbortLikeError(error, signal)) return eventsData;
+      throw error;
+    }
+    (data || []).forEach((row) => {
+      if (row?.id_gira != null) byGira.set(String(row.id_gira), row);
+    });
+  }
+  return eventsData.map((evt) => {
+    if (!evt?.programas) return evt;
+    const gid = evt.id_gira ?? evt.programas.id;
+    const mine = gid != null ? byGira.get(String(gid)) : null;
+    return {
+      ...evt,
+      programas: {
+        ...evt.programas,
+        giras_integrantes: mine ? [mine] : [],
+      },
+    };
+  });
+}
 
 function isQuotaExceededError(error) {
   if (!error) return false;
@@ -228,15 +349,58 @@ function slimAgendaItemsForCache(items, effectiveUserId) {
   });
 }
 
+function readCachedAgendaWindow(key) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return { from: null, to: null };
+    const parsed = JSON.parse(raw);
+    if (parsed && !Array.isArray(parsed)) {
+      return { from: parsed.from ?? null, to: parsed.to ?? null };
+    }
+  } catch {
+    /* ignore */
+  }
+  return { from: null, to: null };
+}
+
+/**
+ * Legacy v11 stored a raw array (often truncated at PostgREST's 1000).
+ * Wrapped `{ from, to, items }` carries the query window without extra keys.
+ */
+function itemsFromAgendaCache(parsed, { giraId, queryDateFrom, queryDateTo }) {
+  if (Array.isArray(parsed)) {
+    if (!giraId) return null;
+    return parsed;
+  }
+  if (!parsed || !Array.isArray(parsed.items)) return null;
+  if (!giraId) {
+    const cachedFrom = parsed.from || "";
+    const cachedTo = parsed.to || "";
+    if (!cachedFrom && !cachedTo) return null;
+    if (queryDateFrom && cachedFrom && queryDateFrom < cachedFrom) return null;
+    if (queryDateTo && cachedTo && queryDateTo > cachedTo) return null;
+  }
+  return parsed.items;
+}
+
 /**
  * Persist agenda snapshot. Never throws: quota or stringify failures skip cache
  * so the in-memory list (already set from network) still renders.
+ * One key per user/scope: range lives in `{ from, to }` meta, not extra snapshots.
  */
-export function saveToCache(key, data, { effectiveUserId } = {}) {
+export function saveToCache(key, data, { effectiveUserId, queryFrom, queryTo } = {}) {
   try {
     pruneStaleAgendaCaches();
     const snapshot = slimAgendaItemsForCache(data, effectiveUserId);
-    const serialized = JSON.stringify(snapshot);
+    const existingWin =
+      queryFrom != null || queryTo != null
+        ? { from: queryFrom ?? null, to: queryTo ?? null }
+        : readCachedAgendaWindow(key);
+    const serialized = JSON.stringify({
+      from: existingWin.from,
+      to: existingWin.to,
+      items: snapshot,
+    });
     try {
       localStorage.setItem(key, serialized);
       return;
@@ -334,6 +498,10 @@ async function fetchAssociatedEnsembleRehearsals(
  * Recibe filtros de fecha para armar el rango de la query (agenda general).
  * Precarga ~1 mes de pasado; el “Desde” visual recorta en cliente hasta que el
  * usuario pida más atrás que esa ventana (entonces se amplía el gte de la query).
+ * El “Hasta” de la query es max(filtro Hasta, hoy + monthsLimit) y se pagina
+ * de a 1000 filas (techo PostgREST) para no cortar en ~octubre. Cambiar
+ * Desde/Hasta o monthsLimit re-consulta esa ventana (no recorta en cliente
+ * un snapshot truncado). La caché v11 slim no guarda un key por rango.
  *
  * @param {object} opts
  * @param {object} opts.supabase
@@ -373,13 +541,18 @@ export function useAgendaData({
 }) {
   /**
    * Ventana de query general: ~1 mes atrás precargado; solo se mueve más atrás
-   * cuando filterDateFrom lo pide. Valor estable en string → evita refetch al
-   * retroceder semanas dentro de la ventana.
+   * cuando filterDateFrom lo pide. Cambiar Desde/Hasta igual re-consulta (deps
+   * de fetchAgenda) para no recortar un snapshot truncado en cliente.
    */
   const queryDateFrom = useMemo(() => {
     if (giraId) return null;
     return getAgendaQueryFromDateLocal(filterDateFrom);
   }, [giraId, filterDateFrom]);
+
+  const queryDateTo = useMemo(() => {
+    if (giraId) return null;
+    return getAgendaQueryToDateLocal(filterDateTo, monthsLimit);
+  }, [giraId, filterDateTo, monthsLimit]);
 
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -459,10 +632,15 @@ export function useAgendaData({
             const cachedData = localStorage.getItem(CACHE_KEY);
             if (cachedData) {
               const parsedData = JSON.parse(cachedData);
-              if (Array.isArray(parsedData) && parsedData.length > 0) {
-                setItems(parsedData);
+              const cachedItems = itemsFromAgendaCache(parsedData, {
+                giraId,
+                queryDateFrom,
+                queryDateTo,
+              });
+              if (Array.isArray(cachedItems) && cachedItems.length > 0) {
+                setItems(cachedItems);
                 processCategories(
-                  parsedData.filter((i) => !i.isProgramMarker),
+                  cachedItems.filter((i) => !i.isProgramMarker),
                 );
               }
             }
@@ -477,17 +655,6 @@ export function useAgendaData({
         }
 
         const todayStr = getTodayDateStringLocal();
-        let start, end;
-        if (giraId) {
-          start = startOfDay(new Date()).toISOString();
-          end = addMonths(new Date(), monthsLimit).toISOString();
-        } else {
-          // Precarga pasado (preload) y más atrás solo si el filtro visual lo pide.
-          start = startOfDay(parseISO(queryDateFrom)).toISOString();
-          end = filterDateTo
-            ? endOfDay(parseISO(filterDateTo)).toISOString()
-            : addMonths(new Date(), monthsLimit).toISOString();
-        }
 
         const rawProfileRole = userProfile?.rol_sistema;
         const profileRole = (() => {
@@ -535,38 +702,15 @@ export function useAgendaData({
           ensembleEvents.data?.map((e) => e.id_evento),
         );
 
-        const timestamp24hAgo = new Date(
-          Date.now() - 24 * 60 * 60 * 1000,
-        ).toISOString();
-
-        let query = supabase.from("eventos").select(EVENT_SELECT);
-
-        if (!includeDeletedBeyond24h) {
-          query = query.or(
-            `is_deleted.eq.false,is_deleted.is.null,and(is_deleted.eq.true,deleted_at.gt.${timestamp24hAgo})`,
-          );
-        }
-
-        query = query
-          .order("fecha", { ascending: true })
-          .order("hora_inicio", { ascending: true })
-          .abortSignal(signal);
-
-        if (giraId) query = query.eq("id_gira", giraId);
-        else query = query.gte("fecha", start).lte("fecha", end);
-
-        const { data: eventsDataRaw, error } = await query;
-        if (error) {
-          if (
-            error.code === "AbortError" ||
-            error.message?.includes("AbortError") ||
-            signal.aborted
-          )
-            return;
-          throw error;
-        }
-
-        let eventsData = eventsDataRaw || [];
+        let eventsData = await fetchEventosPaged({
+          supabase,
+          signal,
+          giraId,
+          startDate: giraId ? null : queryDateFrom,
+          endDate: giraId ? null : queryDateTo,
+          includeDeletedBeyond24h,
+        });
+        if (signal.aborted) return;
         if (giraId && includeAssociatedEnsembleRehearsals) {
           const existingIds = new Set(eventsData.map((e) => e.id));
           const associatedRehearsals = await fetchAssociatedEnsembleRehearsals(
@@ -580,6 +724,13 @@ export function useAgendaData({
             eventsData = [...eventsData, ...associatedRehearsals];
           }
         }
+        eventsData = await attachMyGiraRoster(
+          supabase,
+          eventsData,
+          effectiveUserId,
+          signal,
+        );
+        if (signal.aborted) return;
 
         const activeTourIds = new Set();
         eventsData?.forEach((e) => {
@@ -987,7 +1138,11 @@ export function useAgendaData({
         const cacheGen = ++cacheWriteGenRef.current;
         setTimeout(() => {
           if (cacheWriteGenRef.current !== cacheGen) return;
-          saveToCache(CACHE_KEY, allItems, { effectiveUserId });
+          saveToCache(CACHE_KEY, allItems, {
+            effectiveUserId,
+            queryFrom: queryDateFrom,
+            queryTo: queryDateTo,
+          });
         }, 0);
       } catch (err) {
         if (
@@ -1013,9 +1168,8 @@ export function useAgendaData({
       effectiveUserId,
       giraId,
       userProfile,
-      monthsLimit,
       queryDateFrom,
-      filterDateTo,
+      queryDateTo,
       checkIsConvoked,
       processCategories,
       includeDeletedBeyond24h,
@@ -1042,12 +1196,18 @@ export function useAgendaData({
       }
 
       try {
-        const { data: evt, error } = await supabase
+        const { data: evtRaw, error } = await supabase
           .from("eventos")
           .select(EVENT_SELECT)
           .eq("id", id)
           .single();
-        if (error || !evt) return false;
+        if (error || !evtRaw) return false;
+        const [evtWithRoster] = await attachMyGiraRoster(
+          supabase,
+          [evtRaw],
+          effectiveUserId,
+        );
+        const evt = evtWithRoster || evtRaw;
         if (
           giraId &&
           !eventBelongsToProgramAgenda(

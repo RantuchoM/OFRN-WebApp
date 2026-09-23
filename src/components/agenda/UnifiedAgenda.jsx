@@ -88,7 +88,7 @@ import {
   getTodayDateStringLocal,
   getCurrentTimeLocal,
   timeStringToMinutes,
-  getAgendaPreloadFromDateLocal,
+  addMonthsToDateStringLocal,
 } from "../../utils/dates";
 import { getTransportEventAffectedSummary } from "../../utils/transportLogisticsWarning";
 import {
@@ -143,6 +143,7 @@ import { normalizeEventosInternasHtml } from "../../utils/eventosInternas";
 import {
   resolveEventHoraFinForSave,
 } from "../../utils/mealLogistics";
+import { resolveEventFormSaveData } from "../../utils/hotelStayEvents";
 
 const DELETED_FILTERS_STORAGE_KEY_PREFIX = "unified_agenda_deleted_filters_v1_";
 const RECENT_CHANGES_ACK_STORAGE_KEY_PREFIX =
@@ -1132,11 +1133,6 @@ export default function UnifiedAgenda({
   }, [giraId, canManageGiraGrupos, items]);
 
   useEffect(() => {
-    if (!isAdmin) return;
-    fetchAgenda();
-  }, [isAdmin, showDeletedEvents, fetchAgenda]);
-
-  useEffect(() => {
     try {
       localStorage.setItem(
         deletedFiltersStorageKey,
@@ -1470,35 +1466,29 @@ export default function UnifiedAgenda({
     const handleOffline = () => setIsOfflineMode(true);
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
-    if (userProfile) fetchAgenda();
     return () => {
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
     };
-  }, [userProfile, giraId, monthsLimit]);
+  }, [userProfile, fetchAgenda]);
 
-  // Re-nutrir desde BD solo si "Desde" sale de la ventana precargada (~1 mes atrás).
-  // Dentro de esa ventana, “1 semana antes” solo re-filtra en cliente.
-  const prevFilterDateFromRef = useRef(undefined);
   useEffect(() => {
-    if (giraId || !userProfile) return;
-    const prev = prevFilterDateFromRef.current;
-    prevFilterDateFromRef.current = filterDateFrom;
-    // Carga inicial: no refetch por el valor de arranque
-    if (prev === undefined) return;
-    if (!filterDateFrom || prev === filterDateFrom) return;
-
-    const preloadFrom = getAgendaPreloadFromDateLocal();
-    // Ya teníamos datos más atrás o quedamos dentro del preload: sin fetch
-    if (filterDateFrom >= preloadFrom) return;
-    // Ampliar solo cuando el nuevo “Desde” es más antiguo que lo precargado
-    // y más antiguo que lo que ya pedimos antes
-    const prevQueryFrom =
-      prev < preloadFrom ? prev : preloadFrom;
-    if (filterDateFrom >= prevQueryFrom) return;
-
-    fetchAgenda(true);
-  }, [giraId, filterDateFrom, userProfile]);
+    if (!userProfile) return;
+    const background = items.length > 0;
+    const delay = background ? 250 : 0;
+    const t = setTimeout(() => fetchAgenda(background), delay);
+    return () => clearTimeout(t);
+    // items.length no va en deps (evitar loop al pintar).
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- background vs spinner
+  }, [
+    userProfile,
+    giraId,
+    monthsLimit,
+    filterDateFrom,
+    filterDateTo,
+    showDeletedEvents,
+    fetchAgenda,
+  ]);
 
   /** Ancla de scroll al expandir el pasado (semana/mes antes). */
   const pastExpandScrollAnchorRef = useRef(null);
@@ -2312,31 +2302,32 @@ export default function UnifiedAgenda({
     }
   };
 
-  const handleEditSave = async () => {
-    if (!editFormData.fecha || !editFormData.hora_inicio) {
+  const handleEditSave = async (snapshot) => {
+    const form = resolveEventFormSaveData(editFormData, snapshot);
+    if (!form.fecha || !form.hora_inicio) {
       toast.error("Faltan datos");
       return;
     }
-    if (!editFormData.id_tipo_evento) {
+    if (!form.id_tipo_evento) {
       toast.error("Elegí un tipo de evento");
       return;
     }
 
     // Validar nota obligatoria si hay cambio de estado de venue (solo conciertos)
-    const isConcierto = Number(editFormData.id_tipo_evento) === 1;
+    const isConcierto = Number(form.id_tipo_evento) === 1;
     const prevStatus =
       editingEventObj?.id_estado_venue == null
         ? null
         : editingEventObj.id_estado_venue;
     const newStatus = !isConcierto
       ? null
-      : editFormData.id_estado_venue == null
+      : form.id_estado_venue == null
         ? null
-        : editFormData.id_estado_venue;
+        : form.id_estado_venue;
     if (isConcierto && prevStatus !== newStatus && newStatus != null) {
       if (
-        !editFormData.venue_status_note ||
-        !editFormData.venue_status_note.trim()
+        !form.venue_status_note ||
+        !form.venue_status_note.trim()
       ) {
         toast.error("Agrega una nota para el cambio de estado de venue.");
         return;
@@ -2346,46 +2337,46 @@ export default function UnifiedAgenda({
     setFormSaving(true);
     try {
       const payload = {
-        descripcion: editFormData.descripcion,
+        descripcion: form.descripcion,
         observaciones_internas: normalizeEventosInternasHtml(
-          editFormData.observaciones_internas,
+          form.observaciones_internas,
         ),
         observaciones_aforo: isConcierto
-          ? String(editFormData.observaciones_aforo || "").trim() || null
+          ? String(form.observaciones_aforo || "").trim() || null
           : null,
-        fecha: editFormData.fecha,
-        hora_inicio: editFormData.hora_inicio,
+        fecha: form.fecha,
+        hora_inicio: form.hora_inicio,
         hora_fin: resolveEventHoraFinForSave(
-          editFormData.hora_fin,
-          editFormData.hora_inicio,
+          form.hora_fin,
+          form.hora_inicio,
           {
-            id_tipo_evento: editFormData.id_tipo_evento,
+            id_tipo_evento: form.id_tipo_evento,
             tipos_evento: formEventTypes.find(
-              (t) => String(t.id) === String(editFormData.id_tipo_evento),
+              (t) => String(t.id) === String(form.id_tipo_evento),
             ),
           },
         ),
-        id_tipo_evento: editFormData.id_tipo_evento || null,
-        id_locacion: editFormData.id_locacion || null,
-        id_gira_transporte: editFormData.id_gira_transporte ?? null,
-        tecnica: editFormData.tecnica || false,
+        id_tipo_evento: form.id_tipo_evento || null,
+        id_locacion: form.id_locacion || null,
+        id_gira_transporte: form.id_gira_transporte ?? null,
+        tecnica: form.tecnica || false,
         es_didactico: isConcierto
-          ? Boolean(editFormData.es_didactico)
+          ? Boolean(form.es_didactico)
           : false,
         id_estado_venue: isConcierto
-          ? editFormData.id_estado_venue || null
+          ? form.id_estado_venue || null
           : null,
       };
       const { error } = await supabase
         .from("eventos")
         .update(payload)
-        .eq("id", editFormData.id);
+        .eq("id", form.id);
       if (error) throw error;
 
       const { error: gruposError } = await setEventoGrupos(
         supabase,
-        editFormData.id,
-        editFormData.selectedGrupos || [],
+        form.id,
+        form.selectedGrupos || [],
       );
       if (gruposError) throw gruposError;
 
@@ -2394,9 +2385,9 @@ export default function UnifiedAgenda({
       if (prevStatus !== newStatus && newStatus != null) {
         try {
           await supabase.from("eventos_venue_log").insert({
-            id_evento: editFormData.id,
+            id_evento: form.id,
             id_estado_venue: newStatus,
-            nota: editFormData.venue_status_note || null,
+            nota: form.venue_status_note || null,
             id_integrante: user.id,
           });
         } catch (logError) {
@@ -2404,7 +2395,7 @@ export default function UnifiedAgenda({
         }
       }
 
-      const editId = editFormData.id;
+      const editId = form.id;
       const tipoMeta = formEventTypes.find(
         (t) => String(t.id) === String(payload.id_tipo_evento),
       );
@@ -2436,7 +2427,7 @@ export default function UnifiedAgenda({
               : payload.id_locacion
                 ? item.locaciones
                 : null,
-            eventos_grupos: (editFormData.selectedGrupos || []).map((gid) => {
+            eventos_grupos: (form.selectedGrupos || []).map((gid) => {
               const g = giraGrupos.find((x) => Number(x.id) === Number(gid));
               return {
                 id_grupo: Number(gid),
@@ -2513,22 +2504,23 @@ export default function UnifiedAgenda({
     [setItems],
   );
 
-  const handleCreateSave = async () => {
-    if (!newFormData.fecha || !newFormData.hora_inicio) {
+  const handleCreateSave = async (snapshot) => {
+    const form = resolveEventFormSaveData(newFormData, snapshot);
+    if (!form.fecha || !form.hora_inicio) {
       toast.error("Faltan datos");
       return;
     }
-    if (!newFormData.id_tipo_evento) {
+    if (!form.id_tipo_evento) {
       toast.error("Elegí un tipo de evento");
       return;
     }
 
     // Validar nota obligatoria si se asigna estado de venue al crear (solo conciertos)
-    const isConcierto = Number(newFormData.id_tipo_evento) === 1;
-    if (isConcierto && newFormData.id_estado_venue) {
+    const isConcierto = Number(form.id_tipo_evento) === 1;
+    if (isConcierto && form.id_estado_venue) {
       if (
-        !newFormData.venue_status_note ||
-        !newFormData.venue_status_note.trim()
+        !form.venue_status_note ||
+        !form.venue_status_note.trim()
       ) {
         toast.error("Agrega una nota para el estado de venue inicial.");
         return;
@@ -2539,39 +2531,39 @@ export default function UnifiedAgenda({
     const payload = withConcertCreationMeta(
       {
         id_gira: giraId,
-        descripcion: newFormData.descripcion || null,
+        descripcion: form.descripcion || null,
         observaciones_internas: normalizeEventosInternasHtml(
-          newFormData.observaciones_internas,
+          form.observaciones_internas,
         ),
         observaciones_aforo: isConcierto
-          ? String(newFormData.observaciones_aforo || "").trim() || null
+          ? String(form.observaciones_aforo || "").trim() || null
           : null,
-        fecha: newFormData.fecha,
-        hora_inicio: newFormData.hora_inicio,
+        fecha: form.fecha,
+        hora_inicio: form.hora_inicio,
         hora_fin: resolveEventHoraFinForSave(
-          newFormData.hora_fin,
-          newFormData.hora_inicio,
+          form.hora_fin,
+          form.hora_inicio,
           {
-            id_tipo_evento: newFormData.id_tipo_evento,
+            id_tipo_evento: form.id_tipo_evento,
             tipos_evento: formEventTypes.find(
-              (t) => String(t.id) === String(newFormData.id_tipo_evento),
+              (t) => String(t.id) === String(form.id_tipo_evento),
             ),
           },
         ),
-        id_tipo_evento: newFormData.id_tipo_evento || null,
-        id_locacion: newFormData.id_locacion || null,
-        id_gira_transporte: newFormData.id_gira_transporte ?? null,
-        tecnica: newFormData.tecnica,
-        es_didactico: isConcierto ? Boolean(newFormData.es_didactico) : false,
+        id_tipo_evento: form.id_tipo_evento || null,
+        id_locacion: form.id_locacion || null,
+        id_gira_transporte: form.id_gira_transporte ?? null,
+        tecnica: form.tecnica,
+        es_didactico: isConcierto ? Boolean(form.es_didactico) : false,
         id_estado_venue: isConcierto
-          ? newFormData.id_estado_venue || null
+          ? form.id_estado_venue || null
           : null,
       },
       user,
       EVENT_CREATION_SOURCES.AGENDA,
       {
         tipos_evento: formEventTypes.find(
-          (t) => String(t.id) === String(newFormData.id_tipo_evento),
+          (t) => String(t.id) === String(form.id_tipo_evento),
         ),
       },
     );
@@ -2586,7 +2578,7 @@ export default function UnifiedAgenda({
       return;
     }
 
-    const selectedGrupoIds = (newFormData.selectedGrupos || []).map(Number);
+    const selectedGrupoIds = (form.selectedGrupos || []).map(Number);
     const { error: gruposError } = await setEventoGrupos(
       supabase,
       data.id,
@@ -2601,12 +2593,12 @@ export default function UnifiedAgenda({
     }
 
     // Log inicial de estado de venue si corresponde (solo conciertos)
-    if (isConcierto && newFormData.id_estado_venue) {
+    if (isConcierto && form.id_estado_venue) {
       try {
         await supabase.from("eventos_venue_log").insert({
           id_evento: data.id,
-          id_estado_venue: newFormData.id_estado_venue,
-          nota: newFormData.venue_status_note || null,
+          id_estado_venue: form.id_estado_venue,
+          nota: form.venue_status_note || null,
           id_integrante: user.id,
         });
       } catch (logError) {
@@ -4711,7 +4703,12 @@ export default function UnifiedAgenda({
         {!giraId && !loading && (
           <div className="p-6 flex justify-center pb-12">
             <button
-              onClick={() => setMonthsLimit((prev) => prev + 3)}
+              onClick={() => {
+                setMonthsLimit((prev) => prev + 3);
+                setFilterDateTo((prev) =>
+                  prev ? addMonthsToDateStringLocal(prev, 3) : prev,
+                );
+              }}
               disabled={isOfflineMode}
               className="flex items-center gap-2 px-6 py-2.5 bg-white border border-indigo-200 text-indigo-700 font-bold rounded-full shadow-sm hover:bg-indigo-50 hover:border-indigo-300 transition-all active:scale-95 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
             >

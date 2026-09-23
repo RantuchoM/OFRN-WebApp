@@ -96,3 +96,14 @@
 - **Barra (≥1):** Eliminar (papelera + confirm), Ocultar (ojo/TÉC existente: `visible_agenda` en transporte, `tecnica` en el resto), Etiqueta de grupo (misma gira + `giras_grupos`). Esc limpia. No rompe Filtros → Categorías.
 - **Historial:** botón solo ícono (`IconHistory`); `title` / `aria-label` «Ver historial». Sin la palabra «Historial» en `ConcertHistoryControls`, UnifiedAgenda ni EventForm.
 - **Implementación:** `UnifiedAgenda.jsx`, `EventGruposAssignModal.jsx`, `ConcertHistoryControls.jsx`, `EventForm.jsx`. Specs: `giras-grupos-convocatoria.md`, `011-event-change-logs.md`.
+
+## 14. Agenda general: ventana futura y «Cargar más meses»
+- **Estado:** Completado (2026-09-23). **No estaba en `origin/main`** (solo WIP local): production seguía cortando ~26/10.
+- **Por qué 26/10:** PostgREST devuelve máx. 1000 filas (`order fecha asc`). La query general arranca ~1 mes atrás (hoy 23/09 → ~23/08). Esas 1000 filas llenan hasta ~26/10. El filtro visual 20/10→25/11 **no cambiaba el fetch** en production: `UnifiedAgenda` no re-consultaba al cambiar Hasta (deps sin `filterDateTo` / `fetchAgenda`) y, sin `.range` paginado, un refetch igual devolvía las mismas 1000 filas desde agosto. La caché `v11` (array, sin ventana) re-pintaba esa lista corta.
+- **Comportamiento:**
+  - Query general: `fecha` en `yyyy-MM-dd` desde `getAgendaQueryFromDateLocal` hasta `getAgendaQueryToDateLocal` = **max(Hasta del filtro, hoy + monthsLimit)**. Default `monthsLimit = 3`.
+  - Se pagina con `.range` de a 1000 hasta agotar la ventana (tope 30 páginas).
+  - Cambiar **Desde o Hasta**, o pulsar **Cargar más meses**, re-consulta esa ventana. El botón suma 3 meses a `monthsLimit` y, si Hasta está seteado, también lo extiende 3 meses (mismo patrón que Difusión).
+  - Caché: una sola clave `agenda_cache_*_v11`. El snapshot es `{ from, to, items }` (meta de ventana, sin keys extra). Arrays v11 legacy de agenda general se ignoran (truncados). Si el rango pedido es más amplio que `from`/`to` guardados, se salta la caché y se pisa el mismo key.
+  - Roster: no se embebe `giras_integrantes` completo en cada evento (cuota / payload). Se pide la fila del usuario por gira y se adjunta.
+- **Implementación:** `dates.js`, `useAgendaData.js`, `UnifiedAgenda.jsx`.

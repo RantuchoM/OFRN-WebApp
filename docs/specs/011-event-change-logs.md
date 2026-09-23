@@ -78,7 +78,8 @@ CREATE TABLE IF NOT EXISTS public.eventos_logs (
 ## Caché de agenda (`useAgendaData`)
 - `created_by`, `creation_source` y el join `creador` (id, nombre, apellido) sí van en el SELECT de lista y en el snapshot de `localStorage`.
 - **`eventos_logs` no se embebe** en `EVENT_SELECT` ni en la caché general. El historial se pide por evento (`getEventHistory`) al abrir el modal.
-- Snapshot `agenda_cache_*_v11`: recorta `giras_integrantes` al usuario actual, omite HTML `rider` de FIMBA y no persiste logs. Si `setItem` lanza `QuotaExceededError`, se borran claves `agenda_cache_*` y se reintenta una vez; si sigue fallando se omite la caché y la lista (ya pintada desde red) no se aborta.
+- Snapshot `agenda_cache_*_v11`: recorta `giras_integrantes` al usuario actual, omite HTML `rider` de FIMBA y no persiste logs. Formato `{ from, to, items }` (una clave; la ventana no duplica snapshots). Arrays v11 legacy de agenda general se ignoran. Si `setItem` lanza `QuotaExceededError`, se borran claves `agenda_cache_*` y se reintenta una vez; si sigue fallando se omite la caché y la lista (ya pintada desde red) no se aborta.
+- **Ventana futura (2026-09-23):** production `main` no tenía el paginado ni el refetch por Desde/Hasta (WIP local). La query pagina de a 1000 filas y el “hasta” es `max(filtro Hasta, hoy + monthsLimit)` en `yyyy-MM-dd`. Cambiar Desde/Hasta o «Cargar más meses» re-consulta. El roster de gira no se embebe en cada evento. Spec: `ajustes_interfaz_y_roles.md` §14.
 
 ## Estado del módulo
 **Activo.** Columnas de alta, trigger de INSERT, `getEventHistory`, modal con «Creado», control visible en conciertos de UnifiedAgenda. Caché agenda `v11` (cuota localStorage no bloquea la lista).
