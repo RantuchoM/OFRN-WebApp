@@ -23,7 +23,6 @@ import {
   formatHotelNights,
   hotelNightsFromStay,
   stayExtraFlagsFromStay,
-  stayNightMarks,
 } from "./hotelStayEvents";
 
 export const DEFAULT_ADJ = { std_m: 0, std_f: 0, plus_m: 0, plus_f: 0 };
@@ -1683,14 +1682,7 @@ function formatStayRangeText(checkIn, checkOut, group = null) {
   let s = `Check-in: ${inD} - check-out: ${outD}`;
   if (!group) return s;
   const nightsPaid = dateGroupPaidNights(group);
-  const marks = stayNightMarks({
-    early: group.earlyCheckIn,
-    late: group.lateCheckOut,
-  });
-  const bits = [];
-  if (nightsPaid > 0) bits.push(`${formatHotelNights(nightsPaid)} noches`);
-  if (marks.length) bits.push(marks.join(", ").toLowerCase());
-  if (bits.length) s += ` (${bits.join("; ")})`;
+  if (nightsPaid > 0) s += `, ${formatHotelNights(nightsPaid)} noches`;
   return s;
 }
 
@@ -1956,7 +1948,8 @@ function filterSectionsByHotelKey(sections, hotelKey) {
 
 /**
  * Texto plano para enviar a hotelería (mismo criterio de filas que el pedido tabular).
- * Ej: "7 hombres, 1 mujer. Check-in: jueves, 18/6 - check-out: sábado, 20/6"
+ * Ej: "7 hombres, 1 mujer. Check-in: jueves, 18/6 - check-out: sábado, 20/6, 3,5 noches"
+ * Las primeras líneas muestran el número de noches (incl. medias) sin Early/Late ni paréntesis.
  * Cunas: "1 cuna. Check-in DD/MM HH:MM - Check-out DD/MM HH:MM — Apellido, Nombre"
  * Con varios hoteles y gente asignada, el texto se parte por hotel.
  */
