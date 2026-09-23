@@ -1042,4 +1042,33 @@ Fuente: `C:\Users\marti\Downloads\Para acomodar` (4 zips extraídos). PDFs ya po
 - [x] `obras.audios` pasa al `drive_file_id` del MP3; overlay + `beforeunload` + cierre bloqueado mientras corre.
 - [x] **Lote (2026-09-21):** checkbox por fila WAV + **todos los WAV** + **Convertir N a MP3**. Cola secuencial (un archivo a la vez). Overlay `N de M` + etapas Descargando / Convirtiendo / Subiendo. Si ya existe el MP3 canónico, el lote lo **reemplaza** sin confirmar por archivo. Tras cada éxito se actualiza `obras.audios`. Un fallo no aborta el resto; al final resumen (éxitos + errores). `beforeunload` cubre todo el lote. El WAV se conserva; subida con token de cliente (no Edge `upload_file`).
 
+---
+
+### Completado (2026-09-23) — Orquesta particellas (Pärt + Messiah) → Para acomodar + gira 130
+
+Fuente Drive [Orquesta particellas](https://drive.google.com/drive/folders/1HuUgZRVJQ72YhztEDyZNcq_U6ws--J-C). Copia canónica a [Para acomodar](https://drive.google.com/drive/folders/10ap1aEjq3X9bFRB3z4DQ-F0fB7y3JutI) (`copiar_link_a_carpeta`). **Suite Rutter omitida.** PDFs ya por instrumento (música en p.1, sin portada IMSLP) → solo rename. `link_drive` = copia en Para acomodar (**no** `copiar_carpeta_a_archivo`).
+
+| id | Título | Comp. | PDFs / partes | Orgánico | Drive copia |
+|----|--------|-------|---------------|----------|-------------|
+| **3640** | Christmas Lullaby | Pärt, Arvo (255) | **5** | `Str` | [13TrnpJsujmtxEdUedg0Zf74RVSs3l8E1](https://drive.google.com/open?id=13TrnpJsujmtxEdUedg0Zf74RVSs3l8E1) |
+| **3641** | Estonian Lullaby | Pärt, Arvo (255) | **4** (falta Vln 2) | `Str` | [13OrYDRW4L6-ii-X7GuJgxkCCiaai47Wi](https://drive.google.com/open?id=13OrYDRW4L6-ii-X7GuJgxkCCiaai47Wi) |
+| **3642** | Vater unser | Pärt, Arvo (255) | **7** (SCORE + piano + cuerdas) | `Key - Str` | [1xWff483Dvqt1DGC6c9zrsxvgYsfyh1-p](https://drive.google.com/open?id=1xWff483Dvqt1DGC6c9zrsxvgYsfyh1-p) |
+| **3643** | Messiah [cuerdas y órgano] | Händel, G.F. (160) | **5** PDFs → **6** particellas | `Key - Str` | [1WolhjGr3Aw0NsHMLVISjYUOidMkPMIjy](https://drive.google.com/open?id=1WolhjGr3Aw0NsHMLVISjYUOidMkPMIjy) |
+
+**Gira 130** *Navidad Coral* (18–19 dic 2026, Ensamble): bloque existente **Repertorio** (`programas_repertorios.id=100`). No se duplicó el bloque ni se tocó Rutter **3196** (orden 1). Altas: 3640 orden 2, 3641 orden 3, 3642 orden 4, 3643 orden 5.
+
+| Artefacto | Rol |
+|-----------|-----|
+| `scripts/lib/orquestaParticellasCatalog.mjs` | Manifiesto 4 obras + skip Rutter |
+| `scripts/process-orquesta-particellas-local.mjs` | Rename canónico en File Stream |
+| `scripts/generate-orquesta-particellas-sync.mjs` | Seed obras + gira 130 |
+| `supabase/seed_orquesta_particellas_sync.sql` | INSERT — **aplicado linked** |
+| `supabase/seed_gira_130_navidad_coral.sql` | `repertorio_obras` — **aplicado linked** |
+
+- [x] Carpetas copiadas y PDFs canónicos en Para acomodar
+- [x] Seeds aplicados (URLs Drive)
+- [ ] Estonian Lullaby: falta particella de **Violín 2**
+- [ ] Christmas / Estonian: sin SCORE
+- [ ] Messiah: sin vientos ni coro; duración `NULL` (partes de oratorio, no excerpt de YouTube); Vc+Cb misma hoja → dos slots, misma URL
+
 

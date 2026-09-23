@@ -296,6 +296,12 @@ export function normalizeInstrumentLabel(rawName) {
   if (/\bcontrabajo\s+y\s+vc\b|\bcontrabajo\s+y\s+violoncello\b/i.test(name))
     return "Contrabajo";
   if (/\bvioloncello\s+y\s+cb\b/i.test(name)) return "Violoncello";
+  if (
+    /\bcellos?\s*[-/]\s*basses?\b|\bvioloncello\s*\/\s*contrabasso\b|\bvioloncello\s+y\s+contrabajo\b/i.test(
+      name,
+    )
+  )
+    return "Violoncello y Contrabajo";
   if (/\bviolas?\b/i.test(name)) return "Viola";
   if (/\bcelli\b|\bcello\b|\bvioloncello\b|\bviolonchelo\b|\bvc\b/i.test(name))
     return "Violoncello";
