@@ -30,6 +30,7 @@ import {
   useLogistics,
   getMatchStrength,
   pickWinningLogisticsRule,
+  resolveLogisticsRuleCharacteristic,
   getCategoriaLogistica,
 } from "../../hooks/useLogistics";
 import {
@@ -81,6 +82,59 @@ const CATEGORIA_OPTIONS = [
   { val: "LOCALES", label: "Locales" },
   { val: "NO_LOCALES", label: "No Locales" },
 ];
+const CHIP_CRITERION_KIND = {
+  target_regions: "Región",
+  target_localities: "Localidad",
+  target_ensambles: "Ensamble",
+  target_categories: "Categoría",
+  target_ids: "Persona",
+};
+const LOGISTICS_CHAR_PREFIX = {
+  persona: "Persona",
+  ensamble: "Ensamble",
+  categoria: "Categoría",
+  grupo: "Grupo",
+  familia: "Familia",
+  localidad: "Localidad",
+  region: "Región",
+};
+const findCatalogLabel = (list, id) => {
+  if (id == null || id === "") return null;
+  return (
+    (list || []).find((o) => String(o.val ?? o.id) === String(id))?.label ||
+    null
+  );
+};
+/** Etiqueta de UI: "Localidad Viedma", "Ensamble Prod." — sin `#id` de regla. */
+const formatLogisticsRuleCharacteristic = (
+  char,
+  catalogs,
+  rosterOptions,
+) => {
+  if (!char) return null;
+  const { kind, id } = char;
+  if (kind === "general") return "General";
+  if (kind === "locales") return "Locales";
+  if (kind === "no_locales") return "No Locales";
+  const prefix = LOGISTICS_CHAR_PREFIX[kind];
+  if (!prefix) return null;
+  if (kind === "grupo") return prefix;
+  if (kind === "familia") return id ? `${prefix} ${id}` : prefix;
+  const list =
+    kind === "persona"
+      ? rosterOptions
+      : kind === "ensamble"
+        ? catalogs?.ensambles
+        : kind === "localidad"
+          ? catalogs?.locations
+          : kind === "region"
+            ? catalogs?.regions
+            : kind === "categoria"
+              ? CATEGORIA_OPTIONS
+              : null;
+  const label = findCatalogLabel(list, id);
+  return label ? `${prefix} ${label}` : prefix;
+};
 const normalize = (str) => (str || "").toLowerCase().trim();
 const SERVICIOS_COMIDA = ["Desayuno", "Almuerzo", "Merienda", "Cena"];
 const PROVEEDORES_COMIDA = [
@@ -1208,6 +1262,18 @@ export default function LogisticsManager({
           chipMatchOptions,
         ),
     );
+    const winnerMatchOptions = (r) => {
+      const field = ruleHasMealMilestones(row) ? "comida_fin" : "checkin";
+      return {
+        segments: chipMatchOptions.segments,
+        instant: resolveRuleFieldInstant(
+          r,
+          field,
+          chipMatchOptions.allEvents,
+        ),
+        field,
+      };
+    };
     const byCity = {};
     filtered.forEach((p) => {
       const city = p.localidades?.localidad || "Sin localidad";
@@ -1216,27 +1282,27 @@ export default function LogisticsManager({
         p,
         logisticsRules,
         allLocalities,
-        (r) => {
-          const field = ruleHasMealMilestones(row)
-            ? "comida_fin"
-            : "checkin";
-          return {
-            segments: chipMatchOptions.segments,
-            instant: resolveRuleFieldInstant(
-              r,
-              field,
-              chipMatchOptions.allEvents,
-            ),
-            field,
-          };
-        },
+        winnerMatchOptions,
       );
+      const overridden = Boolean(
+        winner && Number(winner.id) !== Number(row.id),
+      );
+      const winnerCharacteristic = overridden
+        ? formatLogisticsRuleCharacteristic(
+            resolveLogisticsRuleCharacteristic(
+              winner,
+              p,
+              allLocalities,
+              winnerMatchOptions(winner),
+            ),
+            catalogs,
+            rosterOptions,
+          )
+        : null;
       byCity[city].push({
         person: p,
-        overridden: Boolean(
-          winner && Number(winner.id) !== Number(row.id),
-        ),
-        winnerRule: winner,
+        overridden,
+        winnerCharacteristic,
       });
     });
     Object.values(byCity).forEach((arr) =>
@@ -1255,6 +1321,8 @@ export default function LogisticsManager({
     logisticsRules,
     allLocalities,
     chipMatchOptions,
+    catalogs,
+    rosterOptions,
   ]);
 
   const listBeforeMilestoneFilter = useMemo(() => {
@@ -2552,7 +2620,9 @@ export default function LogisticsManager({
                   </span>
                 </h3>
                 <p className="text-[10px] text-slate-500 mt-1 font-medium">
-                  Criterio en regla #{chipPreviewModal.row.id}
+                  Criterio de{" "}
+                  {CHIP_CRITERION_KIND[chipPreviewModal.chipKey] ||
+                    "esta regla"}
                   {chipPreviewGrouped != null && (
                     <span className="text-slate-700">
                       {" "}
@@ -2595,7 +2665,7 @@ export default function LogisticsManager({
                       </div>
                       <ul className="space-y-1.5">
                         {chipPreviewGrouped.byCity[city].map(
-                          ({ person, overridden, winnerRule }) => (
+                          ({ person, overridden, winnerCharacteristic }) => (
                             <li
                               key={person.id}
                               className={`text-[11px] rounded-lg px-2 py-1.5 border ${
@@ -2607,13 +2677,11 @@ export default function LogisticsManager({
                               <div className="font-bold">
                                 {person.apellido}, {person.nombre}
                               </div>
-                              {overridden && winnerRule && (
+                              {overridden && (
                                 <div className="text-[9px] mt-0.5 font-semibold text-amber-800">
-                                  Gana otra regla (más específica): #
-                                  {winnerRule.id}
-                                  {normalize(winnerRule.alcance) === "general"
-                                    ? " · alcance general"
-                                    : ""}
+                                  Superada por una regla de{" "}
+                                  {winnerCharacteristic ||
+                                    "mayor especificidad"}
                                 </div>
                               )}
                             </li>

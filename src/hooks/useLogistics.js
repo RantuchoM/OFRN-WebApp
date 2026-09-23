@@ -36,6 +36,7 @@ export {
   compareLogisticsRulePrecedence,
   rankMatchingLogisticsRules,
   pickWinningLogisticsRule,
+  resolveLogisticsRuleCharacteristic,
   matchesRule,
   getCategoriaLogistica,
   ROLES_CATEGORIA_LOGISTICA_PRODUCCION,

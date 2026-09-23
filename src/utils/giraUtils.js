@@ -1063,6 +1063,111 @@ export const pickWinningLogisticsRule = (
 };
 
 /**
+ * Característica con la que una regla matchea a la persona (tipo + id de alcance).
+ * Sirve para copy de UI: "Localidad Viedma", "Ensamble Prod." — nunca el `#id` de regla.
+ * `kind`: persona | ensamble | categoria | grupo | familia | localidad | region
+ * | locales | no_locales | general
+ */
+export const resolveLogisticsRuleCharacteristic = (
+  rule,
+  person,
+  allLocalities = [],
+  options = {},
+) => {
+  if (!rule || !person) return null;
+  const strength = getMatchStrength(rule, person, allLocalities, options);
+  const S = LOGISTICS_MATCH_STRENGTH;
+  if (!strength) return null;
+
+  const { segments, instant, field } = options;
+  const categoryContext = { segments, instant, field };
+  const pId = String(person.id ?? person.id_integrante);
+  const { pLoc, pReg } = resolvePersonTerritoryIds(person, rule, allLocalities);
+  const pCat = getCategoriaLogistica(person);
+  const scopeNorm = normalize(rule.alcance);
+
+  if (strength === S.PERSONA) {
+    const id =
+      String(rule.id_integrante) === pId
+        ? rule.id_integrante
+        : (rule.target_ids || []).find((x) => String(x) === pId);
+    return { kind: "persona", id: id != null ? String(id) : pId };
+  }
+
+  if (strength === S.ENSAMBLE) {
+    const personEns = new Set(resolvePersonEnsambleIds(person).map(String));
+    const fromColumn = rule.target_ensambles || [];
+    const fromScope = scopeNorm === "ensamble" ? rule.target_ids || [] : [];
+    const matchId = [...fromColumn, ...fromScope]
+      .map(String)
+      .find((id) => id && personEns.has(id));
+    return { kind: "ensamble", id: matchId || null };
+  }
+
+  if (strength === S.CATEGORIA) {
+    if (scopeNorm === "grupo") {
+      const pGids = new Set(resolvePersonGrupoIds(person, options));
+      const matchId = (rule.target_ids || [])
+        .map(String)
+        .find((id) => pGids.has(id));
+      return { kind: "grupo", id: matchId || null };
+    }
+    if (
+      (scopeNorm === "categoria" || scopeNorm === "instrumento") &&
+      rule.instrumento_familia &&
+      normalize(rule.instrumento_familia) ===
+        normalize(person.instrumentos?.familia)
+    ) {
+      return { kind: "familia", id: rule.instrumento_familia };
+    }
+    const matchCat = collectRuleLogisticsCategories(rule).find((cat) => {
+      if (isLogisticsGeoBucketCategory(cat)) return false;
+      return (
+        normalize(cat) === normalize(pCat) ||
+        categoryMatches(cat, pCat, person, categoryContext)
+      );
+    });
+    return {
+      kind: "categoria",
+      id: matchCat != null ? String(matchCat) : null,
+    };
+  }
+
+  if (strength === S.LOCALIDAD) {
+    const matchId = (rule.target_localities || [])
+      .map(String)
+      .find((id) => id && id === pLoc);
+    const id =
+      matchId ||
+      (scopeNorm === "localidad" && String(rule.id_localidad) === pLoc
+        ? String(rule.id_localidad)
+        : pLoc || null);
+    return { kind: "localidad", id };
+  }
+
+  const regionMatch = (rule.target_regions || [])
+    .map(String)
+    .find((id) => id && id === pReg);
+  const regionId =
+    regionMatch ||
+    (scopeNorm === "region" && String(rule.id_region) === pReg
+      ? String(rule.id_region)
+      : null);
+  if (regionId) return { kind: "region", id: regionId };
+
+  const matchingGeo = collectRuleLogisticsCategories(rule).find(
+    (cat) =>
+      isLogisticsGeoBucketCategory(cat) &&
+      categoryMatches(cat, pCat, person, categoryContext),
+  );
+  if (matchingGeo === "LOCALES") return { kind: "locales", id: "LOCALES" };
+  if (matchingGeo === "NO_LOCALES")
+    return { kind: "no_locales", id: "NO_LOCALES" };
+
+  return { kind: "general", id: null };
+};
+
+/**
  * Verifica si una regla aplica a la persona.
  * Reglas de transporte (General / Región / Localidad): no aplican solo a
  * producción, staff o chofer. En alcance Localidad, además de músicos,

@@ -51,6 +51,8 @@ Cuando dos reglas comparten el mismo nivel, gana la de **mayor especificidad de 
 
 Implementado en `getRuleCategoryTiebreak`, `compareLogisticsRulePrecedence` y `pickWinningLogisticsRule` (`giraUtils.js`). `calculateLogisticsSummary` y el preview de `LogisticsManager.jsx` solo consumen ese resultado.
 
+**UI chip `?` (preview de criterio, 2026-09-23):** si la persona queda en ámbar, el texto dice que el criterio está **superado por una regla de {tipo + alcance}** (`Localidad Viedma`, `Ensamble Prod.`, `Categoría Producción`). Nunca `regla #12` ni el id de la fila. `resolveLogisticsRuleCharacteristic` nombra el match que ganó (misma fuerza que `getMatchStrength`); las etiquetas salen de los catálogos del preview.
+
 ## Implementación
 
 - **Fuente de verdad:** `getCategoriaLogistica` y `ROLES_CATEGORIA_LOGISTICA_PRODUCCION` en `src/utils/giraUtils.js` (reexportadas por `src/hooks/useLogistics.js`). `RoomingManager` y el resto de vistas consumen el resumen vía `useLogistics`, sin lógica duplicada de categorías.
@@ -83,4 +85,5 @@ Ninguna relativa a esta spec: `target_ensambles` está en schema + migración.
 - [x] Picker Ensamble en reglas logísticas (no sub-ítem de No Locales)
 - [x] Un solo calculador (`pickWinningLogisticsRule`)
 - [x] Vacantes/refuerzo: localidad/región/general solo estable; ensamble por membresía `ENS:`; No Locales sigue cubriendo EXTERNOS
+- [x] Preview `?` del chip: copy por tipo+alcance de la regla ganadora, sin `#id`
 
