@@ -50,7 +50,16 @@ Noches calendario = check-out − check-in (días civiles). **+0,5** early y **+
 
 La celda de noches muestra el total con medio (p. ej. **3,5**) y marca `Early +0,5` / `Late +0,5`. Superficies: pedido inicial (tabla, PDF, ajuste de plazas), rooming PDF/Excel (`ofrnRoomingExport.js`, `RoomingReport.jsx`), badges en rooming, **Mi Alojamiento**.
 
-**Texto de pedido inicial** (`buildInitialOrderTextSummary` / `formatStayRangeText`): las primeras líneas llevan el número de noches (incl. medias, p. ej. `3,5 noches`) y las palabras **early** / **late** cuando apliquen, **sin** paréntesis ni `+0,5`. Ejemplo: `7 hombres, 1 mujer. Check-in: jueves, 18/6 - check-out: sábado, 20/6, 3,5 noches, early`. Si hay ambos: `..., 3,5 noches, early, late`. Las marcas `Early +0,5` / `Late +0,5` siguen en tabla/PDF/Excel del pedido y en el resto de reportes de hotel.
+**Texto de pedido inicial** (`buildInitialOrderTextSummary` / `formatStayRangeText`): las primeras líneas **no** llevan conteo de noches. Early/late van en la etiqueta de fecha, no como tag final ni junto a noches. Capitalización: `Check-in:` / `early check-in:` y `check-out:` / `late check-out:`. Coma final después de la fecha de salida. Sin paréntesis ni `+0,5`.
+
+Ejemplos:
+
+- Late: `20 hombres, 19 mujeres. Check-in: miércoles, 30/9 - late check-out: sábado, 3/10,`
+- Early: `7 hombres, 1 mujer. early check-in: jueves, 18/6 - check-out: sábado, 20/6,`
+- Ambos: `early check-in: jueves, 18/6 - late check-out: sábado, 20/6,`
+- Sin extra: `Check-in: jueves, 18/6 - check-out: sábado, 20/6,`
+
+Las marcas `Early +0,5` / `Late +0,5` y el número de noches (incl. medias, p. ej. **3,5**) siguen en tabla/PDF/Excel del pedido y en el resto de reportes de hotel.
 
 FIMBA sigue con sus flags booleanos propios; no comparte este helper OFRN.
 
@@ -63,6 +72,6 @@ FIMBA sigue con sus flags booleanos propios; no comparte este helper OFRN.
 - [x] Reglas: tilde al lado de Check-In / Check-Out (sin columnas Early/Late)
 - [x] Creator de reglas: misma tilde junto a «Crear nuevo»
 - [x] +0,5 noche en PDF/Excel/pedido inicial/ajuste/detalle/Mi Alojamiento (celda 3,5 + marca Early/Late)
-- [x] Texto pedido inicial: primeras líneas con número de noches (incl. 3,5) y palabras early/late, sin paréntesis ni +0,5
+- [x] Texto pedido inicial: primeras líneas con `Check-in:` / `early check-in:` y `check-out:` / `late check-out:`, coma final, sin noches ni +0,5
 - [x] Horas 14:00 / 10:00 al generar
 - [x] Validación CI&gt;CO y comida inicial&gt;final
