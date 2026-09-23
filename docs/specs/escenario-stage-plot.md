@@ -4,7 +4,7 @@
 
 - **Escala**: `STAGE_PLOT_CM_TO_PX = 4` → 1 cm real = 4 unidades lógicas del canvas.
 - **Legacy**: payloads guardados a `STAGE_PLOT_LEGACY_CM_TO_PX = 10` se migran al cargar (cm se preservan; coords/params/scale de ítems y formaciones × `4/10`).
-- **Default**: 90 × 56 cm (360 × 224 px internos).
+- **Default**: 1100 × 700 cm = 11 × 7 m (4400 × 2800 px internos). Solo aplica a lienzos nuevos / payload vacío (`createEmptyStagePlotPayload`); plots guardados conservan sus `widthCm`/`heightCm`.
 - **Máximos**: Ancho **1600 cm**, Alto **1200 cm** → canvas hasta **6400 × 4800 px** (~4× el tope anterior de 400×300 cm).
 - **Persistencia**: el payload guarda `stage.widthCm`, `stage.heightCm` como fuente de verdad y deriva `stage.width` / `stage.height` al normalizar (`widthCm × STAGE_PLOT_CM_TO_PX`).
 - **Compatibilidad**:
@@ -123,9 +123,11 @@ Hint del canvas cambia según la herramienta activa.
 | `src/views/Fimba/FimbaEscenarioPage.jsx` | Guard FIMBA edición → escenario standalone |
 | `src/utils/stagePlotFormations.js` | Geometría de formaciones; defaults en cm→px |
 | `src/services/stagePlotService.js` | CRUD multi-plot, `loadStagePlotStandaloneContext`, `createStagePlotForEvent`, `unlinkEventFromStagePlot` |
+| `src/services/stagePlotTemplatesService.js` | CRUD plantillas globales (`stage_plot_templates`) |
 | `src/utils/stagePlotTransfer.js` | Export/import JSON (`.ofrn-escenario.json`) |
 | `src/utils/appNavigation.js` | `buildStandaloneEscenarioTo` + legacy `buildEscenarioEditorTo` |
 | `src/views/Giras/StagePlotImportModal.jsx` | Import archivo / otra gira + export JSON |
+| `src/views/Giras/StagePlotTemplatesModal.jsx` | Crear / aplicar / renombrar / guardar encima / eliminar plantillas |
 | `src/views/Giras/StagePlotViewerModal.jsx` | Vista técnico solo lectura: preview en vivo + opacidades + PDF/JPG |
 | `src/views/Giras/StagePlotLivePreview.jsx` | Preview raster (canvas 2D) del payload; re-render al cambiar opacidades |
 | `src/views/Giras/StagePlotOpacityControls.jsx` | 4 deslizantes de opacidad Lienzo (técnico + export editor) |
@@ -170,11 +172,26 @@ Migraciones: `20260826162040_stage_plots` → `20260827095903_stage_plots_multi_
 
 ### UI
 
-- Editor: switcher multi-lienzo = label **Elegir lienzo** + `SearchableSelect` (lista de plots) + **lápiz** renombrar (`IconPencil`, input inline Enter/blur / Escape) **junto al dropdown** + botón **+ Lienzo**; eliminar (mín. 1), panel **Asociar**, dropdown desktop **Importar / Exportar** (PDF, JPG, Descargar JSON, Importar archivo/otra gira → `StagePlotImportModal`). (No pills horizontales.)
+- Editor: switcher multi-lienzo = label **Elegir lienzo** + `SearchableSelect` (lista de plots) + **lápiz** renombrar (`IconPencil`, input inline Enter/blur / Escape) **junto al dropdown** + botón **+ Lienzo**; eliminar (mín. 1), panel **Asociar**, dropdown desktop **Importar / Exportar** (PDF, JPG, Descargar JSON, Importar archivo/otra gira → `StagePlotImportModal`), botón **Plantillas** → `StagePlotTemplatesModal`. (No pills horizontales.)
 - Orgánico: `isConfirmedConvocadoForSeatingReports` + filtro por `bloque_ids`.
 - Agenda: botón «Ver escenario» en concierto/ensayo (técnico / editor / management) → `StagePlotViewerModal` (preview en vivo + opacidades locales + PDF/JPG).
 - **FIMBA Venues** (`/fimba/edicion/:id/venues`): listado por locación de conciertos (`id_tipo_evento = 1`) de la gira enlazada a la edición. Metadata operativa en `fimba_venue_info` (referente, rider, sillas, agua, observaciones); nombre/dirección/aforo numérico desde `locaciones`. Espectáculos: artistas taggeados, grupos OFRN, bloque repertorio, **observaciones aforo** (`eventos.observaciones_aforo`). Acciones: **Ver escenario** (`StagePlotViewerModal`); enlace al editor OFRN (Seating → Escenario) solo staff `isManagement`; edición de evento vía `FimbaEventoFormModal` (staff no RO). Link **Agenda** filtrada por locación. **Sin** estado de venue OFRN. Consulta / token `/c`: lectura + Ver escenario.
 - **FIMBA Backline** (`/fimba/edicion/:id/backline`): planilla una fila por concierto; `backline_descripcion` (HTML) / `backline_monto` / `planta_escenario_url` + `planta_escenario_nombre` (chip + preview modal; menú ⋮ con acciones Drive y RiderMaker: Elegir/Cambiar/Crear/Desvincular / Ver Escenario).
+
+### Plantillas globales (implementado)
+
+Catálogo reutilizable entre giras (no atado a `id_programa`).
+
+| Pieza | Rol |
+|-------|-----|
+| `stage_plot_templates` | `id`, `nombre` (editable), `payload` jsonb (mismo schema que `stage_plots.payload`), `musicos_count` (denormalizado), `created_at` / `updated_at`. |
+| `countStagePlotMusicians` | Cuenta ítems con `stagePlotItemHasInstrumentFootprint` (excluye director, atril, décor, tarimas, sillas sueltas, texto, audio). |
+| `stagePlotTemplatesService.js` | list / create / update (nombre y/o payload) / delete. |
+| `StagePlotTemplatesModal` | Portal `z-[100]` (o overlay immersive); crear desde lienzo actual; aplicar (reemplaza disposición del lienzo activo, undoable); renombrar; guardar encima; eliminar. |
+
+Migración: `20260923180000_stage_plot_templates` (aplicada en linked).
+
+**Aplicar vs Importar:** Importar archivo/otra gira crea un **lienzo nuevo**. Aplicar plantilla **reemplaza** items/formaciones/groups/`stage` del lienzo activo (conserva id, nombre del lienzo, `bloque_ids`, eventos).
 
 ### Montaje / URLs
 
@@ -270,6 +287,7 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
 - [x] Export JPG: escenario sin channels + dims Ancho/Profundo (`widthCm`/`heightCm`)
 - [x] Editor: modal de opciones PDF/JPG (`StagePlotExportOptionsModal`) con mismas 4 opacidades que técnico (override solo descarga)
 - [x] Toolbar desktop: dropdown **Importar / Exportar** (PDF, JPG, JSON, Importar archivo/otra gira); sin botones PDF/JPG sueltos
+- [x] **Plantillas globales** (`stage_plot_templates`): crear / aplicar (reemplaza disposición) / renombrar / guardar encima / eliminar; UI muestra cantidad de músicos
 - [x] Centrar formación en eje X del director (botón deshabilitado si ya centrada; snap magnético + histeresis al arrastrar)
 - [x] Formación **semi-arco** (ala–arco–ala, `wingLength`/`wingAngle` simétricos, asas tip_l/tip_r)
 - [x] Semi-arco: plazas laterales (`wingSlots`) + plazas en arco (`arcSlots`); fijo paramétrico por segmento; UI dual + migración desde `slots`
@@ -472,9 +490,10 @@ Seed: silla / banqueta / atril qty 0; tarima rect 200×100 qty 0. Unique parcial
 - Columnas en `locaciones`: `escenario_ancho_cm`, `escenario_profundo_cm` (nullable; checks 40–1600 / 30–1200). Migración `20260827123445_locaciones_escenario_dims` (aplicada en linked OFRN).
 - Editables en Datos → Locaciones (`DataView.jsx`).
 - Payload: `stage.id_locacion` opcional (recordatorio del preset aplicado).
-- **UI picker** (`SearchableSelect`): searchable por nombre y ciudad (`localidades.localidad` en subLabel). Label: `Nombre · Ancho × Profundo cm` (o `· sin medida` si faltan dims; opción deshabilitada).
-- **+ Lienzo:** diálogo nombre + combobox de locación → crea payload con `widthCm`/`heightCm` + pin director. Opción vacía = default 90×56 cm.
-- **Lienzo popover:** combobox «Preset de locación» aplica tamaño vía `applyStagePlotStagePatch` (director recentrado; resto de ítems como al cambiar Ancho/Alto). El click-outside del popover ignora `.searchable-portal` para no cerrar al elegir.
+- **UI picker** (`SearchableSelect`): searchable por nombre y ciudad (`localidades.localidad` en subLabel). Con medidas: label `Nombre · Ancho × Profundo cm`. Sin medidas: label = nombre; subLabel sutil «sin medidas guardadas» (ciudad · hint). **Todas las opciones son seleccionables** (no `disabled` por falta de dims).
+- **Al elegir:** si hay `escenario_ancho_cm` + `escenario_profundo_cm` válidos → aplicar a `widthCm`/`heightCm` vía `applyStagePlotStagePatch` (director recentrado). Si faltan → solo setear `id_locacion` y **mantener** Ancho/Alto actuales (editables en el mismo panel).
+- **+ Lienzo:** diálogo nombre + combobox de locación → con medidas crea payload con tamaño + pin director; sin medidas asocia `id_locacion` y usa default 1100×700 cm (11×7 m). Opción vacía = mismo default sin locación.
+- **Lienzo popover:** combobox «Seleccionar escenario» (misma lógica apply-dims-only-when-present). El click-outside del popover ignora `.searchable-portal` para no cerrar al elegir.
 
 ## Formaciones (escala cm)
 
@@ -522,7 +541,7 @@ Parámetros en **px de escenario** (`cm × STAGE_PLOT_CM_TO_PX`). Defaults (íte
   - Las asas paramétricas (`w`/`e`/`n`, `tip_*`, esquinas rect…) siguen activas para deformar un eje o alas; el recuadro es **adicional**.
   - Preview en vivo (`formationResizePreview` incluye `x,y` si box); commit en `dragEnd` vía `patchFormationsAndReanchor` (una entrada undo).
   - **PDF/JPG**: fuera de alcance v1 (no se exportan asas ni recuadro de edición).
-- Formaciones guardadas a escala 10 px/cm se reescalan al cargar junto con el lienzo (`stagePlotLegacyScaleFactor`). El lienzo default 90×56 cm queda chico frente a un arco de ~3.6 m — ampliar Ancho/Alto del Lienzo.
+- Formaciones guardadas a escala 10 px/cm se reescalan al cargar junto con el lienzo (`stagePlotLegacyScaleFactor`). El default 1100×700 cm (11×7 m) cubre formaciones típicas; ampliar Ancho/Alto del Lienzo si hace falta.
 - **Copiar formación** (`cloneStagePlotFormation` en `stagePlotFormations.js`; UI en barra inferior + menú contextual clic derecho):
   - Offset fijo **+40 cm** en X (`STAGE_PLOT_FORMATIONATION_COPY_OFFSET_PX`).
   - **Copiar formación**: duplica geometría (kind, params, slots, wingSlots/arcSlots si semi_arc, slotMode, slotTs, rotation, facing) con **nuevo id**; plazas vacías (sin ítems). `commitPayload` (undo).

@@ -539,6 +539,22 @@ export function cloneStagePlotPayload(payload) {
 }
 
 /**
+ * Cantidad de músicos en un payload: ítems con huella de instrumento
+ * (`stagePlotItemHasInstrumentFootprint`). Excluye director, atril, décor,
+ * tarimas, sillas sueltas, texto, audio, etc.
+ * @param {unknown} payload
+ * @returns {number}
+ */
+export function countStagePlotMusicians(payload) {
+  const items = normalizeStagePlotPayload(payload).items || [];
+  let n = 0;
+  for (const it of items) {
+    if (stagePlotItemHasInstrumentFootprint(it?.type)) n += 1;
+  }
+  return n;
+}
+
+/**
  * Escalas «~40 cm visual» históricas (catálogo / silueta @ 4 y 10 px/cm).
  * @param {string} type
  * @param {number} scale

@@ -3,7 +3,7 @@ import { getStagePlotItemVisualBounds } from "./stagePlotIconAssets";
 
 /**
  * Escala del lienzo: 1 cm real = STAGE_PLOT_CM_TO_PX unidades lógicas del canvas.
- * Default 360×224 px ↔ 90×56 cm. Max 1600×1200 cm → 6400×4800 px.
+ * Default 4400×2800 px ↔ 1100×700 cm (11×7 m). Max 1600×1200 cm → 6400×4800 px.
  *
  * Legacy payloads usaban 10 px/cm; ver STAGE_PLOT_LEGACY_CM_TO_PX + migración en payload.
  */
@@ -12,8 +12,9 @@ export const STAGE_PLOT_CM_TO_PX = 4;
 /** Escala histórica (v1) para inferir cm desde width/height px antiguos. */
 export const STAGE_PLOT_LEGACY_CM_TO_PX = 10;
 
-export const STAGE_PLOT_DEFAULT_WIDTH_CM = 90;
-export const STAGE_PLOT_DEFAULT_HEIGHT_CM = 56;
+/** Lienzo nuevo vacío: 11 m ancho × 7 m profundo. */
+export const STAGE_PLOT_DEFAULT_WIDTH_CM = 1100;
+export const STAGE_PLOT_DEFAULT_HEIGHT_CM = 700;
 
 /** Límites del popover Lienzo (cm). ~4× el máximo anterior (400×300). */
 export const STAGE_PLOT_WIDTH_CM_MIN = 40;

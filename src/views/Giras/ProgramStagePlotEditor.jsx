@@ -241,6 +241,7 @@ import {
 import { isConfirmedConvocadoForSeatingReports } from "../../utils/seatingRosterGate";
 import StagePlotExportOptionsModal from "./StagePlotExportOptionsModal";
 import StagePlotImportModal from "./StagePlotImportModal";
+import StagePlotTemplatesModal from "./StagePlotTemplatesModal";
 import StagePlotInventarioPanel from "./StagePlotInventarioPanel";
 import {
   findInventarioElementoRow,
@@ -895,19 +896,25 @@ function StageLienzoOpacitySlider({ label, value, disabled, onChange }) {
   );
 }
 
-/** Opción SearchableSelect: `Nombre · Ancho × Profundo cm` (+ ciudad en subLabel). */
+/** Opción SearchableSelect: con medidas → `Nombre · Ancho × Profundo cm`; sin → nombre (+ hint sutil). */
 function formatLocacionPresetOption(loc) {
   const w = Number(loc.escenario_ancho_cm);
   const d = Number(loc.escenario_profundo_cm);
   const hasDims =
     Number.isFinite(w) && w > 0 && Number.isFinite(d) && d > 0;
   const city = String(loc.localidades?.localidad || "").trim();
-  const sizePart = hasDims ? `${w} × ${d} cm` : "sin medida";
+  const name = loc.nombre || "Locación";
+  if (hasDims) {
+    return {
+      id: loc.id,
+      label: `${name} · ${w} × ${d} cm`,
+      subLabel: city || undefined,
+    };
+  }
   return {
     id: loc.id,
-    label: `${loc.nombre || "Locación"} · ${sizePart}`,
-    subLabel: city || undefined,
-    disabled: !hasDims,
+    label: name,
+    subLabel: [city, "sin medidas guardadas"].filter(Boolean).join(" · "),
   };
 }
 
@@ -1047,7 +1054,7 @@ function StageLienzoPopover({
       {canEdit && locaciones.length > 0 && (
         <div className="mb-2 border-t border-slate-100 pt-2">
           <label className="mb-1 block text-[10px] font-medium text-slate-500">
-            Preset de locación
+            Seleccionar escenario
           </label>
           <SearchableSelect
             options={locacionOptions}
@@ -1065,7 +1072,8 @@ function StageLienzoPopover({
             className="text-[11px]"
           />
           <p className="mt-1 text-[9px] leading-snug text-slate-400">
-            Aplica ancho×profundo de la locación y recentra el director.
+            Con medidas: aplica tamaño al lienzo. Sin medidas: mantiene
+            Ancho/Alto actuales.
           </p>
         </div>
       )}
@@ -2675,6 +2683,7 @@ export default function ProgramStagePlot({
   const [giraEvents, setGiraEvents] = useState([]);
   const [assocOpen, setAssocOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [templatesOpen, setTemplatesOpen] = useState(false);
   /** Dropdown desktop Importar / Exportar (PDF, JPG, JSON, modal import). */
   const [importExportOpen, setImportExportOpen] = useState(false);
   /** `{ kind: 'pdf'|'jpg' }` o null — modal de opciones antes de exportar. */
@@ -2821,7 +2830,7 @@ export default function ProgramStagePlot({
 
   const newPlotLocacionOptions = useMemo(
     () => [
-      { id: "", label: "Default (90 × 56 cm)" },
+      { id: "", label: "Default (1100 × 700 cm)" },
       ...locacionesPresets.map(formatLocacionPresetOption),
     ],
     [locacionesPresets],
@@ -3562,25 +3571,29 @@ export default function ProgramStagePlot({
       }
       const widthCm = Number(loc.escenario_ancho_cm);
       const heightCm = Number(loc.escenario_profundo_cm);
-      if (
-        !Number.isFinite(widthCm) ||
-        widthCm <= 0 ||
-        !Number.isFinite(heightCm) ||
-        heightCm <= 0
-      ) {
-        toast.error("Esa locación no tiene ancho/profundo de escenario");
+      const hasDims =
+        Number.isFinite(widthCm) &&
+        widthCm > 0 &&
+        Number.isFinite(heightCm) &&
+        heightCm > 0;
+      if (hasDims) {
+        userZoomedRef.current = true;
+        commitPayload((prev) =>
+          applyStagePlotStagePatch(prev, {
+            widthCm,
+            heightCm,
+            id_locacion: Number(loc.id),
+          }),
+        );
+        toast.success(
+          `Escenario ${Math.round(widthCm)}×${Math.round(heightCm)} cm (${loc.nombre})`,
+        );
         return;
       }
-      userZoomedRef.current = true;
-      commitPayload((prev) =>
-        applyStagePlotStagePatch(prev, {
-          widthCm,
-          heightCm,
-          id_locacion: Number(loc.id),
-        }),
-      );
+      // Sin medidas: asociar locación y dejar Ancho/Alto como están.
+      patchStage({ id_locacion: Number(loc.id) });
       toast.success(
-        `Escenario ${Math.round(widthCm)}×${Math.round(heightCm)} cm (${loc.nombre})`,
+        `Escenario «${loc.nombre}» (sin medidas; se mantienen Ancho/Alto)`,
       );
     },
     [canEdit, commitPayload, patchStage],
@@ -3814,6 +3827,26 @@ export default function ProgramStagePlot({
     if (next) setViewport(next);
   }, []);
 
+  /** Aplica plantilla: reemplaza payload completo del lienzo (undoable). */
+  const applyTemplatePayload = useCallback(
+    (template) => {
+      if (!canEdit || !template?.payload) return;
+      const next = cloneStagePlotPayload(template.payload);
+      commitPayload(() => next);
+      setSelectedIds([]);
+      setSelectedFormationId(null);
+      setConductorDragOrigin(null);
+      syncZCounter(next.items);
+      userZoomedRef.current = false;
+      requestAnimationFrame(() => {
+        const el = stageWrapRef.current;
+        if (!el) return;
+        fitViewport(el.clientWidth, el.clientHeight);
+      });
+    },
+    [canEdit, commitPayload, fitViewport, syncZCounter],
+  );
+
   const applyPlotToEditor = useCallback(
     (plotRow, { resetHistory = true } = {}) => {
       const p = normalizeStagePlotPayload(plotRow?.payload);
@@ -4039,18 +4072,15 @@ export default function ProgramStagePlot({
     if (loc) {
       const widthCm = Number(loc.escenario_ancho_cm);
       const heightCm = Number(loc.escenario_profundo_cm);
-      if (
+      const hasDims =
         Number.isFinite(widthCm) &&
         widthCm > 0 &&
         Number.isFinite(heightCm) &&
-        heightCm > 0
-      ) {
-        payloadInit = applyStagePlotStagePatch(normalizeStagePlotPayload(null), {
-          widthCm,
-          heightCm,
-          id_locacion: Number(loc.id),
-        });
-      }
+        heightCm > 0;
+      payloadInit = applyStagePlotStagePatch(normalizeStagePlotPayload(null), {
+        ...(hasDims ? { widthCm, heightCm } : {}),
+        id_locacion: Number(loc.id),
+      });
     }
     const { data, error } = await createStagePlot(supabase, program.id, {
       nombre: newPlotDialog.nombre?.trim() || `Lienzo ${plotsMeta.length + 1}`,
@@ -6690,6 +6720,20 @@ export default function ProgramStagePlot({
               </div>
             )}
           </div>
+          {canEdit && (
+            <button
+              type="button"
+              onClick={() => setTemplatesOpen(true)}
+              className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-xs font-medium ${
+                templatesOpen
+                  ? "border-indigo-300 bg-indigo-50 text-indigo-700"
+                  : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+              }`}
+              title="Plantillas de escenario (crear, aplicar, editar)"
+            >
+              <IconLayers size={14} /> Plantillas
+            </button>
+          )}
           <button
             ref={lienzoBtnRef}
             type="button"
@@ -6950,6 +6994,17 @@ export default function ProgramStagePlot({
             skipHistoryRef.current = false;
           });
         }}
+      />
+
+      <StagePlotTemplatesModal
+        open={templatesOpen}
+        onClose={() => setTemplatesOpen(false)}
+        supabase={supabase}
+        currentPayload={payload}
+        canEdit={canEdit}
+        onApplyTemplate={applyTemplatePayload}
+        confirm={confirm}
+        zIndex={immersive ? STAGE_PLOT_OVERLAY_Z : 100}
       />
 
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
