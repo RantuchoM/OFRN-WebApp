@@ -528,6 +528,7 @@ CREATE TABLE public.giras_logistica_reglas (
   target_regions ARRAY DEFAULT '{}'::bigint[],
   target_localities ARRAY DEFAULT '{}'::bigint[],
   target_categories ARRAY DEFAULT '{}'::text[],
+  target_ensambles ARRAY DEFAULT '{}'::bigint[],
   hora_checkin time without time zone,
   hora_checkout time without time zone,
   comida_inicio_servicio text,

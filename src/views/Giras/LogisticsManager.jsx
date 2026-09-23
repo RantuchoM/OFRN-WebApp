@@ -22,20 +22,21 @@ import {
   IconLinkOff,
   IconExchange,
   IconHelpCircle,
+  IconMusic,
 } from "../../components/ui/Icons";
 import DateInput from "../../components/ui/DateInput";
 import TimeInput from "../../components/ui/TimeInput";
 import {
   useLogistics,
   getMatchStrength,
-  getRuleCategoryTiebreak,
-  compareLogisticsRulePrecedence,
+  pickWinningLogisticsRule,
   getCategoriaLogistica,
 } from "../../hooks/useLogistics";
 import {
   resolveRulePrimaryInstant,
   resolveRuleFieldInstant,
-  resolveIsLocalForLogisticsCategory,
+  categoryMatches,
+  resolvePersonEnsambleIds,
   ruleHasMealMilestones,
   personIsLocalAtHit,
 } from "../../utils/giraUtils";
@@ -47,6 +48,29 @@ import EventForm from "../../components/forms/EventForm";
 import { normalizeEventosInternasHtml } from "../../utils/eventosInternas";
 import { filterAndRankMultiTokenSearch } from "../../utils/sanitize";
 import ManualTrigger from "../../components/manual/ManualTrigger";
+import {
+  TIPO_EVENTO_CHECKIN,
+  TIPO_EVENTO_CHECKOUT,
+  TIPO_EVENTO_EARLY_CHECKIN,
+  TIPO_EVENTO_LATE_CHECKOUT,
+  LABEL_EARLY_CHECKIN,
+  LABEL_LATE_CHECKOUT,
+  LABEL_CHECKIN,
+  LABEL_CHECKOUT,
+  horaInicioForStayTipo,
+  resolveEventFormSaveData,
+  validateLogisticsRule,
+  staySideConfig,
+  stayFkPatch,
+  staySideFromField,
+  stayTipoForExtra,
+  extraOnFromTipo,
+  ruleStayDisplayEventId,
+  ruleHasStayExtra,
+  staySideForRuleEvent,
+  isStayTipoEvento,
+  STAY_SIDES,
+} from "../../utils/hotelStayEvents";
 
 // --- CONSTANTES ---
 const CATEGORIA_OPTIONS = [
@@ -104,7 +128,9 @@ const isPersonMissingMilestone = (m, milestoneKey, segments) => {
     case "check-in":
     case "check-out": {
       const hitKey = milestoneKey === "check-in" ? "checkin" : "checkout";
-      const hit = l[hitKey];
+      const extraKey =
+        milestoneKey === "check-in" ? "checkin_early" : "checkout_late";
+      const hit = l[hitKey]?.date ? l[hitKey] : l[extraKey];
       let instant = hit?.date
         ? { fecha: hit.date, hora: hit.time || "12:00" }
         : null;
@@ -175,31 +201,6 @@ const formatDiff = (ms) => {
   return days > 0 ? `${days}d ${remHrs}h` : `${remHrs}h`;
 };
 
-// Mantiene consistencia con el motor central: NO_LOCALES incluye EXTERNOS.
-const matchesCategoryChip = (
-  chipCategory,
-  personCategory,
-  person,
-  context = {},
-) => {
-  if (!chipCategory || !personCategory) return false;
-  if (chipCategory === "LOCALES" || chipCategory === "NO_LOCALES") {
-    const isLocal = resolveIsLocalForLogisticsCategory(
-      person,
-      context.segments,
-      context.instant,
-      context.field,
-    );
-    if (chipCategory === "LOCALES") return isLocal;
-    if (personCategory === "EXTERNOS") return true;
-    return !isLocal;
-  }
-  if (chipCategory === personCategory) return true;
-  if (chipCategory === "NO_LOCALES" && personCategory === "EXTERNOS")
-    return true;
-  return false;
-};
-
 /** Persona coincide con el chip (criterio) y la regla le aplica (fuerza > 0). */
 const personMatchesLogisticsChip = (
   row,
@@ -243,8 +244,12 @@ const personMatchesLogisticsChip = (
       return pLoc === String(chipId);
     case "target_regions":
       return pReg === String(chipId);
+    case "target_ensambles":
+      return resolvePersonEnsambleIds(person).some(
+        (id) => String(id) === String(chipId),
+      );
     case "target_categories":
-      return matchesCategoryChip(chipId, pCat, person, {
+      return categoryMatches(chipId, pCat, person, {
         segments,
         instant,
         field: localeField,
@@ -252,36 +257,6 @@ const personMatchesLogisticsChip = (
     default:
       return false;
   }
-};
-
-/** Misma lógica que calculateLogisticsSummary: última regla aplicada gana (mayor fuerza; empate categoría rol > geográfica; empate → última en el listado). */
-const getWinningLogisticsRule = (
-  person,
-  rules,
-  allLocalities,
-  matchOptions = {},
-) => {
-  if (!rules?.length) return null;
-  const { segments, allEvents, field = "checkin" } = matchOptions;
-  const matched = rules
-    .map((r, idx) => {
-      const options = {
-        segments,
-        instant: resolveRuleFieldInstant(r, field, allEvents),
-        field,
-      };
-      const s = getMatchStrength(r, person, allLocalities, options);
-      return {
-        r,
-        s,
-        tie: getRuleCategoryTiebreak(r, person, options),
-        idx,
-      };
-    })
-    .filter((x) => x.s > 0)
-    .sort(compareLogisticsRulePrecedence);
-  if (matched.length === 0) return null;
-  return matched[matched.length - 1].r;
 };
 
 const getProviderColorClass = (p) => {
@@ -337,7 +312,14 @@ function resolveEventTipoColor(idTipoEvento, eventTypes, event) {
     (t) => Number(t.id) === id,
   )?.color;
   if (fromCatalog) return normalizeTipoHex(fromCatalog);
-  if (id === 22 || id === 23) return STAY_TIPO_COLOR_FALLBACK;
+  if (
+    id === TIPO_EVENTO_CHECKIN ||
+    id === TIPO_EVENTO_CHECKOUT ||
+    id === TIPO_EVENTO_EARLY_CHECKIN ||
+    id === TIPO_EVENTO_LATE_CHECKOUT
+  ) {
+    return STAY_TIPO_COLOR_FALLBACK;
+  }
   return "#6366f1";
 }
 
@@ -362,14 +344,30 @@ function stayColorTheme(hex) {
 
 const getEventTypeLabel = (idTipoEvento) => {
   const id = Number(idTipoEvento);
-  if (id === 22) return "Check-In";
-  if (id === 23) return "Check-Out";
+  if (id === TIPO_EVENTO_CHECKIN) return LABEL_CHECKIN;
+  if (id === TIPO_EVENTO_CHECKOUT) return LABEL_CHECKOUT;
+  if (id === TIPO_EVENTO_EARLY_CHECKIN) return LABEL_EARLY_CHECKIN;
+  if (id === TIPO_EVENTO_LATE_CHECKOUT) return LABEL_LATE_CHECKOUT;
   if (id === 7) return "Desayuno";
   if (id === 8) return "Almuerzo";
   if (id === 9) return "Merienda";
   if (id === 10) return "Cena";
   return "Evento";
 };
+
+const RULE_STAY_EVENT_FIELDS = [
+  "id_evento_checkin",
+  "id_evento_checkout",
+  "id_evento_checkin_early",
+  "id_evento_checkout_late",
+];
+
+function ruleReferencesEvent(rule, eventId) {
+  if (!rule || eventId == null || eventId === "") return false;
+  return RULE_STAY_EVENT_FIELDS.some(
+    (f) => String(rule[f]) === String(eventId),
+  );
+}
 
 // --- SUB-COMPONENTES ---
 const getBadgeColorClass = (src) => {
@@ -427,6 +425,12 @@ const MultiSelectCell = ({
         border: "border-amber-100",
         text: "text-amber-400",
       };
+    if (colorClass.includes("bg-teal"))
+      return {
+        bg: "bg-teal-50/50",
+        border: "border-teal-100",
+        text: "text-teal-400",
+      };
     return {
       bg: "bg-slate-50",
       border: "border-slate-200",
@@ -471,7 +475,7 @@ const MultiSelectCell = ({
       {isOpen &&
         createPortal(
           <div
-            className="fixed bg-white border border-slate-300 shadow-2xl rounded-lg p-2 z-[99999] flex flex-col"
+            className="fixed bg-white border border-slate-300 shadow-2xl rounded-lg p-2 z-[100] flex flex-col"
             style={{
               top: containerRef.current?.getBoundingClientRect().bottom + 4,
               left: containerRef.current?.getBoundingClientRect().left,
@@ -529,12 +533,15 @@ const EventCellEditor = ({
   onEditEvent,
   isExternalProcessing,
   eventTypes,
+  onBeforeLink,
+  extraOn = false,
 }) => {
   const { confirm, dialog } = useConfirmDialog();
   const [isOpen, setIsOpen] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const loading = isProcessing || isExternalProcessing;
   const event = allEvents?.find((e) => String(e.id) === String(eventId));
+  const stayCfg = staySideConfig(field);
   const manualDate =
     field === "comida_inicio"
       ? rule?.comida_inicio_fecha
@@ -547,11 +554,36 @@ const EventCellEditor = ({
   }, [eventId]);
 
   const handleLink = async (id) => {
+    const ev = allEvents?.find((e) => String(e.id) === String(id));
+    const effectiveExtra = stayCfg
+      ? Boolean(extraOn || extraOnFromTipo(stayCfg.side, ev?.id_tipo_evento))
+      : false;
+    const patch = stayCfg
+      ? stayFkPatch(stayCfg.side, effectiveExtra, id)
+      : { [`id_evento_${field}`]: id };
+
+    if (onBeforeLink) {
+      const ok = await onBeforeLink(rule, field, id, patch);
+      if (!ok) return;
+    }
     setIsProcessing(true);
     try {
+      if (stayCfg && ev) {
+        const wantedTipo = stayTipoForExtra(stayCfg.side, effectiveExtra);
+        if (
+          wantedTipo &&
+          Number(ev.id_tipo_evento) !== Number(wantedTipo)
+        ) {
+          const { error: tipoErr } = await supabase
+            .from("eventos")
+            .update({ id_tipo_evento: wantedTipo })
+            .eq("id", id);
+          if (tipoErr) throw tipoErr;
+        }
+      }
       const { error } = await supabase
         .from("giras_logistica_reglas")
-        .update({ [`id_evento_${field}`]: id })
+        .update(patch)
         .eq("id", rule.id);
 
       if (error) throw error;
@@ -578,9 +610,12 @@ const EventCellEditor = ({
 
     setIsProcessing(true);
     try {
+      const patch = stayCfg
+        ? stayFkPatch(stayCfg.side, false, null)
+        : { [`id_evento_${field}`]: null };
       await supabase
         .from("giras_logistica_reglas")
-        .update({ [`id_evento_${field}`]: null })
+        .update(patch)
         .eq("id", rule.id);
 
       onRefresh();
@@ -590,9 +625,15 @@ const EventCellEditor = ({
     }
   };
 
-  const typeLabel =
-    labelDefault || getEventTypeLabel(event?.id_tipo_evento || tipoEventoIds?.[0]);
-  const tipoId = event?.id_tipo_evento || tipoEventoIds?.[0];
+  const typeLabel = extraOn && stayCfg
+    ? stayCfg.extraLabel
+    : getEventTypeLabel(
+        event?.id_tipo_evento || tipoEventoIds?.[0],
+      ) || labelDefault;
+  const tipoId =
+    extraOn && stayCfg
+      ? stayCfg.extraTipo
+      : event?.id_tipo_evento || tipoEventoIds?.[0];
   const stayTheme = stayColorTheme(
     resolveEventTipoColor(tipoId, eventTypes, event),
   );
@@ -688,7 +729,7 @@ const EventCellEditor = ({
                   id_gira: giraId,
                   id_tipo_evento: tipoEventoIds[0],
                   fecha: manualDate || new Date().toISOString().split("T")[0],
-                  hora_inicio: "12:00:00",
+                  hora_inicio: horaInicioForStayTipo(tipoEventoIds[0]),
                   descripcion: labelDefault,
                   visible_agenda: true,
                   _isNew: true,
@@ -779,6 +820,41 @@ const EventCellEditor = ({
   );
 };
 
+const StayExtraToggle = ({
+  checked,
+  label,
+  title,
+  activeClass,
+  onToggle,
+  disabled,
+}) => (
+  <button
+    type="button"
+    title={title}
+    disabled={disabled}
+    onClick={(e) => {
+      e.stopPropagation();
+      onToggle(!checked);
+    }}
+    className={`shrink-0 w-8 min-h-[56px] rounded-lg border-2 flex flex-col items-center justify-center gap-0.5 transition-colors ${
+      checked
+        ? activeClass
+        : "border-slate-200 bg-white text-slate-400 hover:border-slate-300 hover:text-slate-500"
+    } ${disabled ? "opacity-40 cursor-not-allowed" : ""}`}
+  >
+    <span
+      className={`w-4 h-4 rounded border flex items-center justify-center ${
+        checked ? "bg-white/20 border-white" : "border-slate-300 bg-white"
+      }`}
+    >
+      {checked ? <IconCheck size={11} className="text-white" /> : null}
+    </span>
+    <span className="text-[7px] font-black uppercase leading-none tracking-tight">
+      {label}
+    </span>
+  </button>
+);
+
 const TimelineNode = ({
   icon: Icon,
   date,
@@ -864,12 +940,18 @@ export default function LogisticsManager({
   const [searchTerm, setSearchTerm] = useState("");
   const [activeMilestones, setActiveMilestones] = useState(() => new Set());
   const [criteriaCollapsed, setCriteriaCollapsed] = useState(true);
-  const [catalogs, setCatalogs] = useState({ locations: [], regions: [] });
+  const [catalogs, setCatalogs] = useState({
+    locations: [],
+    regions: [],
+    ensambles: [],
+  });
   const [managingHito, setManagingHito] = useState(null);
   const [editingFormData, setEditingFormData] = useState(null);
   
   const [conflictModal, setConflictModal] = useState(null);
   const [chipPreviewModal, setChipPreviewModal] = useState(null);
+  const [attemptErrors, setAttemptErrors] = useState({});
+  const [stayExtraPending, setStayExtraPending] = useState({});
 
   const debounceRef = useRef({});
 
@@ -882,6 +964,135 @@ export default function LogisticsManager({
       );
   }, [logisticsRules]);
 
+  const derivedRuleErrors = useMemo(() => {
+    const map = {};
+    (localRules || []).forEach((r) => {
+      const errs = validateLogisticsRule(r, allEvents);
+      if (errs.length) map[r.id] = errs;
+    });
+    return map;
+  }, [localRules, allEvents]);
+
+  const blockIfInvalidRule = useCallback(
+    (rule, events = allEvents) => {
+      const errs = validateLogisticsRule(rule, events);
+      if (errs.length) {
+        setAttemptErrors((p) => ({ ...p, [rule.id]: errs }));
+        toast.error(errs[0]);
+        return true;
+      }
+      setAttemptErrors((p) => {
+        if (!p[rule.id]) return p;
+        const n = { ...p };
+        delete n[rule.id];
+        return n;
+      });
+      return false;
+    },
+    [allEvents],
+  );
+
+  const handleBeforeStayLink = useCallback(
+    async (rule, field, eventId, patch) => {
+      const cfg = staySideConfig(field);
+      const ev = (allEvents || []).find(
+        (e) => String(e.id) === String(eventId),
+      );
+      const extraOn = cfg
+        ? extraOnFromTipo(cfg.side, ev?.id_tipo_evento)
+        : false;
+      const resolved =
+        patch ||
+        (cfg
+          ? stayFkPatch(cfg.side, extraOn, eventId)
+          : { [`id_evento_${field}`]: eventId });
+      return !blockIfInvalidRule({ ...rule, ...resolved }, allEvents);
+    },
+    [allEvents, blockIfInvalidRule],
+  );
+
+  const handleStayExtraToggle = async (idx, side, nextOn) => {
+    const row = localRules[idx];
+    if (!row) return;
+    const pendingKey = `${row.id}-${side}`;
+    const eventId = ruleStayDisplayEventId(row, side);
+    if (!eventId) {
+      setStayExtraPending((p) => {
+        if (!nextOn) {
+          if (!p[pendingKey]) return p;
+          const n = { ...p };
+          delete n[pendingKey];
+          return n;
+        }
+        return { ...p, [pendingKey]: true };
+      });
+      return;
+    }
+
+    const tipo = stayTipoForExtra(side, nextOn);
+    const patch = stayFkPatch(side, nextOn, eventId);
+    if (blockIfInvalidRule({ ...row, ...patch }, allEvents)) return;
+
+    const related = getRelatedRules(eventId, logisticsRules);
+    if (related.length > 1) {
+      const cfg = STAY_SIDES[side];
+      const ok = await confirm({
+        title: nextOn
+          ? `¿Marcar ${cfg.extraLabel}?`
+          : `¿Quitar ${cfg.extraLabel}?`,
+        message: `Este evento está en ${related.length} reglas. El tipo de agenda cambiará para todas.`,
+      });
+      if (!ok) return;
+    }
+
+    setStayExtraPending((p) => {
+      if (!p[pendingKey]) return p;
+      const n = { ...p };
+      delete n[pendingKey];
+      return n;
+    });
+    const relatedIds = new Set(
+      (related.length ? related : [row]).map((r) => String(r.id)),
+    );
+    setLocalRules((prev) =>
+      prev.map((r) =>
+        relatedIds.has(String(r.id))
+          ? {
+              ...r,
+              ...stayFkPatch(
+                staySideForRuleEvent(r, eventId) || side,
+                nextOn,
+                eventId,
+              ),
+            }
+          : r,
+      ),
+    );
+
+    try {
+      if (tipo) {
+        const { error: tipoErr } = await supabase
+          .from("eventos")
+          .update({ id_tipo_evento: tipo })
+          .eq("id", eventId);
+        if (tipoErr) throw tipoErr;
+      }
+      const targets = related.length ? related : [row];
+      for (const r of targets) {
+        const rSide = staySideForRuleEvent(r, eventId) || side;
+        const { error } = await supabase
+          .from("giras_logistica_reglas")
+          .update(stayFkPatch(rSide, nextOn, eventId))
+          .eq("id", r.id);
+        if (error) throw error;
+      }
+      refresh();
+    } catch (err) {
+      toast.error(err?.message || "No se pudo actualizar early/late");
+      refresh();
+    }
+  };
+
   const fetchVenues = useCallback(async () => {
     const { data } = await supabase
       .from("locaciones")
@@ -891,13 +1102,14 @@ export default function LogisticsManager({
 
   useEffect(() => {
     const fetchC = async () => {
-      const [l, r, v, t] = await Promise.all([
+      const [l, r, v, t, ens] = await Promise.all([
         supabase.from("localidades").select("id, localidad"),
         supabase.from("regiones").select("id, region"),
         supabase
           .from("locaciones")
           .select("id, nombre, id_localidad, localidades(localidad)"),
         supabase.from("tipos_evento").select("id, nombre, color, categorias_tipos_eventos ( id, nombre )"),
+        supabase.from("ensambles").select("id, ensamble").order("ensamble"),
       ]);
 
       setCatalogs({
@@ -908,6 +1120,10 @@ export default function LogisticsManager({
         regions: (r.data || []).map((x) => ({ id: x.id, label: x.region })),
         venues: v.data || [],
         eventTypes: t.data || [],
+        ensambles: (ens.data || []).map((x) => ({
+          id: x.id,
+          label: x.ensamble,
+        })),
       });
     };
     fetchC();
@@ -949,11 +1165,24 @@ export default function LogisticsManager({
     filtered.forEach((p) => {
       const city = p.localidades?.localidad || "Sin localidad";
       if (!byCity[city]) byCity[city] = [];
-      const winner = getWinningLogisticsRule(
+      const winner = pickWinningLogisticsRule(
         p,
         logisticsRules,
         allLocalities,
-        chipMatchOptions,
+        (r) => {
+          const field = ruleHasMealMilestones(row)
+            ? "comida_fin"
+            : "checkin";
+          return {
+            segments: chipMatchOptions.segments,
+            instant: resolveRuleFieldInstant(
+              r,
+              field,
+              chipMatchOptions.allEvents,
+            ),
+            field,
+          };
+        },
       );
       byCity[city].push({
         person: p,
@@ -1075,10 +1304,8 @@ export default function LogisticsManager({
   const getEventAssociations = (eventId) => {
     if (!eventId || !logisticsRules) return "";
 
-    const relatedRules = logisticsRules.filter(
-      (r) =>
-        Number(r.id_evento_checkin) === Number(eventId) ||
-        Number(r.id_evento_checkout) === Number(eventId),
+    const relatedRules = logisticsRules.filter((r) =>
+      ruleReferencesEvent(r, eventId),
     );
 
     if (relatedRules.length === 0) return "No se encontraron asociaciones";
@@ -1095,6 +1322,12 @@ export default function LogisticsManager({
       });
       (r.target_localities || []).forEach((id) => {
         const label = catalogs.locations.find(
+          (x) => Number(x.id) === Number(id),
+        )?.label;
+        if (label) associations.add(label);
+      });
+      (r.target_ensambles || []).forEach((id) => {
+        const label = (catalogs.ensambles || []).find(
           (x) => Number(x.id) === Number(id),
         )?.label;
         if (label) associations.add(label);
@@ -1133,11 +1366,7 @@ export default function LogisticsManager({
 
   const getRelatedRules = (eventId, rules) => {
     if (!eventId || !rules) return [];
-    return rules.filter(
-      (r) =>
-        String(r.id_evento_checkin) === String(eventId) ||
-        String(r.id_evento_checkout) === String(eventId),
-    );
+    return rules.filter((r) => ruleReferencesEvent(r, eventId));
   };
 
   // --- LÓGICA DE CONFLICTOS ---
@@ -1179,7 +1408,7 @@ export default function LogisticsManager({
         _isNew: true,
         _linkTo: { ruleId, field }, 
         fecha: event.fecha || new Date().toISOString().split("T")[0],
-        hora_inicio: event.hora_inicio || "12:00:00",
+        hora_inicio: event.hora_inicio || horaInicioForStayTipo(event.id_tipo_evento),
       });
     }
     setConflictModal(null);
@@ -1204,17 +1433,28 @@ export default function LogisticsManager({
   };
 
 
-  const handleSaveEvent = async () => {
-    if (!editingFormData) return;
+  const handleSaveEvent = async (snapshot) => {
+    const form = resolveEventFormSaveData(editingFormData, snapshot);
+    if (!form || (!form.id && !form._isNew)) return;
 
-    const { id, _isNew, _linkTo, ...rest } = editingFormData;
+    const { id, _isNew, _linkTo: rawLinkTo, ...rest } = form;
+    const staySide = rawLinkTo ? staySideFromField(rawLinkTo.field) : null;
+    const extraOn = staySide
+      ? extraOnFromTipo(staySide, rest.id_tipo_evento)
+      : false;
+    const linkTo = rawLinkTo
+      ? {
+          ...rawLinkTo,
+          field: staySide || rawLinkTo.field,
+        }
+      : null;
 
-    const statusKey = _linkTo ? `${_linkTo.ruleId}-${_linkTo.field}` : null;
+    const statusKey = linkTo ? `${linkTo.ruleId}-${linkTo.field}` : null;
     if (statusKey) setSavingStatus((p) => ({ ...p, [statusKey]: "saving" }));
 
     const cleanPayload = {
-      fecha: rest.fecha || editingFormData.date,
-      hora_inicio: rest.hora_inicio || editingFormData.time,
+      fecha: rest.fecha || form.date,
+      hora_inicio: rest.hora_inicio || form.time,
       descripcion: rest.descripcion,
       observaciones_internas: normalizeEventosInternasHtml(
         rest.observaciones_internas,
@@ -1231,6 +1471,75 @@ export default function LogisticsManager({
       notas: rest.notas,
       id_gira: rest.id_gira,
     };
+
+    const previewEvent = {
+      id: id || "__draft__",
+      fecha: cleanPayload.fecha,
+      hora_inicio: cleanPayload.hora_inicio,
+    };
+    const eventsPreview = [
+      ...(allEvents || []).filter(
+        (e) => String(e.id) !== String(previewEvent.id),
+      ),
+      previewEvent,
+    ];
+    if (linkTo) {
+      const rule =
+        (localRules || []).find(
+          (r) => String(r.id) === String(linkTo.ruleId),
+        ) ||
+        (logisticsRules || []).find(
+          (r) => String(r.id) === String(linkTo.ruleId),
+        );
+      if (rule) {
+        const rulePatch = staySide
+          ? stayFkPatch(staySide, extraOn, previewEvent.id)
+          : {
+              [String(linkTo.field).startsWith("id_evento_")
+                ? linkTo.field
+                : `id_evento_${linkTo.field}`]: previewEvent.id,
+            };
+        if (blockIfInvalidRule({ ...rule, ...rulePatch }, eventsPreview)) {
+          if (statusKey) {
+            setSavingStatus((p) => {
+              const n = { ...p };
+              delete n[statusKey];
+              return n;
+            });
+          }
+          return;
+        }
+      }
+    } else if (id) {
+      const related = getRelatedRules(id, logisticsRules);
+      const previewTipo = cleanPayload.id_tipo_evento;
+      if (
+        related.some((r) => {
+          const side = staySideForRuleEvent(r, id);
+          const patched =
+            side && isStayTipoEvento(previewTipo)
+              ? {
+                  ...r,
+                  ...stayFkPatch(
+                    side,
+                    extraOnFromTipo(side, previewTipo),
+                    id,
+                  ),
+                }
+              : r;
+          return blockIfInvalidRule(patched, eventsPreview);
+        })
+      ) {
+        if (statusKey) {
+          setSavingStatus((p) => {
+            const n = { ...p };
+            delete n[statusKey];
+            return n;
+          });
+        }
+        return;
+      }
+    }
 
     try {
       let finalEventId = id;
@@ -1250,14 +1559,41 @@ export default function LogisticsManager({
         if (error) throw error;
       }
 
-      if (_linkTo) {
-        const columnName = _linkTo.field.startsWith("id_evento_")
-          ? _linkTo.field
-          : `id_evento_${_linkTo.field}`;
+      if (linkTo) {
+        const rulePatch = staySide
+          ? stayFkPatch(staySide, extraOn, finalEventId)
+          : {
+              [String(linkTo.field).startsWith("id_evento_")
+                ? linkTo.field
+                : `id_evento_${linkTo.field}`]: finalEventId,
+            };
         await supabase
           .from("giras_logistica_reglas")
-          .update({ [columnName]: finalEventId })
-          .eq("id", _linkTo.ruleId);
+          .update(rulePatch)
+          .eq("id", linkTo.ruleId);
+        setStayExtraPending((p) => {
+          const key = `${linkTo.ruleId}-${staySide || linkTo.field}`;
+          if (!p[key]) return p;
+          const n = { ...p };
+          delete n[key];
+          return n;
+        });
+      } else if (id && isStayTipoEvento(cleanPayload.id_tipo_evento)) {
+        const related = getRelatedRules(id, logisticsRules);
+        for (const r of related) {
+          const side = staySideForRuleEvent(r, id);
+          if (!side) continue;
+          await supabase
+            .from("giras_logistica_reglas")
+            .update(
+              stayFkPatch(
+                side,
+                extraOnFromTipo(side, cleanPayload.id_tipo_evento),
+                id,
+              ),
+            )
+            .eq("id", r.id);
+        }
       }
 
       if (statusKey) setSavingStatus((p) => ({ ...p, [statusKey]: "success" }));
@@ -1288,13 +1624,18 @@ export default function LogisticsManager({
   const handleUnlinkGlobal = async (ruleId, field) => {
     if (!ruleId || !field) return;
 
-    const columnName = field.startsWith("id_evento_")
-      ? field
-      : `id_evento_${field}`;
+    const staySide = staySideFromField(field);
+    const patch = staySide
+      ? stayFkPatch(staySide, false, null)
+      : {
+          [String(field).startsWith("id_evento_")
+            ? field
+            : `id_evento_${field}`]: null,
+        };
 
     const { error } = await supabase
       .from("giras_logistica_reglas")
-      .update({ [columnName]: null })
+      .update(patch)
       .eq("id", ruleId);
 
     if (!error) {
@@ -1363,12 +1704,14 @@ export default function LogisticsManager({
                 {!collapsedGroups.hotel && (
                   <>
                     <th
-                      className={`px-2 py-4 ${criteriaCollapsed ? "w-[18%]" : "w-[12%]"} border-r border-white/10 bg-orange-900/40 text-center`}
+                      className="px-2 py-4 w-[14%] border-r border-white/10 bg-orange-900/40 text-center"
+                      title="La tilde al lado marca Early check-in (+0,5 noche)"
                     >
                       Check-In
                     </th>
                     <th
-                      className={`px-2 py-4 ${criteriaCollapsed ? "w-[18%]" : "w-[12%]"} border-r border-white/10 bg-orange-900/40 text-center`}
+                      className="px-2 py-4 w-[14%] border-r border-white/10 bg-orange-900/40 text-center"
+                      title="La tilde al lado marca Late check-out (+0,5 noche)"
                     >
                       Check-Out
                     </th>
@@ -1409,6 +1752,7 @@ export default function LogisticsManager({
                         {[
                           { k: "target_regions", c: "bg-blue-600" },
                           { k: "target_localities", c: "bg-cyan-600" },
+                          { k: "target_ensambles", c: "bg-teal-600" },
                           { k: "target_categories", c: "bg-purple-600" },
                           { k: "target_ids", c: "bg-amber-600" },
                         ].flatMap((s) =>
@@ -1418,9 +1762,11 @@ export default function LogisticsManager({
                                 ? catalogs.regions
                                 : s.k === "target_localities"
                                   ? catalogs.locations
-                                  : s.k === "target_categories"
-                                    ? CATEGORIA_OPTIONS
-                                    : rosterOptions
+                                  : s.k === "target_ensambles"
+                                    ? catalogs.ensambles
+                                    : s.k === "target_categories"
+                                      ? CATEGORIA_OPTIONS
+                                      : rosterOptions
                               )?.find(
                                 (o) => String(o.val || o.id) === String(id),
                               )?.label ?? "?";
@@ -1456,8 +1802,8 @@ export default function LogisticsManager({
                         )}
                       </div>
                     ) : (
-                      // VISTA EDITOR (4 COLUMNAS)
-                      <div className="grid grid-cols-4 gap-1 w-full animate-in fade-in slide-in-from-left-2 duration-200">
+                      // VISTA EDITOR
+                      <div className="grid grid-cols-5 gap-1 w-full animate-in fade-in slide-in-from-left-2 duration-200">
                         <MultiSelectCell
                           placeholder="Regiones"
                           options={catalogs.regions}
@@ -1475,6 +1821,15 @@ export default function LogisticsManager({
                             handleRowChange(idx, "target_localities", v)
                           }
                           colorClass="bg-cyan-600 text-white"
+                        />
+                        <MultiSelectCell
+                          placeholder="Ensambles"
+                          options={catalogs.ensambles || []}
+                          selectedIds={row.target_ensambles}
+                          onChange={(v) =>
+                            handleRowChange(idx, "target_ensambles", v)
+                          }
+                          colorClass="bg-teal-600 text-white"
                         />
                         <MultiSelectCell
                           placeholder="Categorías"
@@ -1496,43 +1851,120 @@ export default function LogisticsManager({
                         />
                       </div>
                     )}
+                    {(attemptErrors[row.id] || derivedRuleErrors[row.id])?.length >
+                      0 && (
+                      <div
+                        className="mt-1.5 flex items-start gap-1 rounded-md border border-red-200 bg-red-50 px-1.5 py-1 text-[9px] font-bold leading-snug text-red-700"
+                        role="alert"
+                      >
+                        <IconAlertCircle size={12} className="mt-0.5 shrink-0" />
+                        <span>
+                          {(
+                            attemptErrors[row.id] || derivedRuleErrors[row.id]
+                          ).join(" ")}
+                        </span>
+                      </div>
+                    )}
                   </td>
                   {!collapsedGroups.hotel && (
                     <>
                       <td className="p-1 border-r border-slate-200 bg-orange-50/10 min-w-0">
-                        <EventCellEditor
-                          rule={row}
-                          field="checkin"
-                          eventId={row.id_evento_checkin}
-                          allEvents={allEvents}
-                          tipoEventoIds={[22]}
-                          onRefresh={refresh}
-                          supabase={supabase}
-                          giraId={gira.id}
-                          labelDefault="Check-In"
-                          onManualUpdate={(f, v) => handleRowChange(idx, f, v)}
-                          // PASAMOS EL CALLBACK
-                          onEditEvent={(evt, triggerOpen) => handleRequestEditEvent(evt, row.id, "checkin", triggerOpen)}
-                          locations={catalogs.venues}
-                          eventTypes={catalogs.eventTypes}
-                        />
+                        <div className="flex items-stretch gap-0.5">
+                          <div className="flex-1 min-w-0">
+                            <EventCellEditor
+                              rule={row}
+                              field="checkin"
+                              eventId={ruleStayDisplayEventId(row, "checkin")}
+                              allEvents={allEvents}
+                              extraOn={
+                                ruleHasStayExtra(row, "checkin") ||
+                                Boolean(stayExtraPending[`${row.id}-checkin`])
+                              }
+                              tipoEventoIds={
+                                ruleHasStayExtra(row, "checkin") ||
+                                stayExtraPending[`${row.id}-checkin`]
+                                  ? [
+                                      TIPO_EVENTO_EARLY_CHECKIN,
+                                      TIPO_EVENTO_CHECKIN,
+                                    ]
+                                  : [
+                                      TIPO_EVENTO_CHECKIN,
+                                      TIPO_EVENTO_EARLY_CHECKIN,
+                                    ]
+                              }
+                              onRefresh={refresh}
+                              supabase={supabase}
+                              giraId={gira.id}
+                              labelDefault={LABEL_CHECKIN}
+                              onManualUpdate={(f, v) => handleRowChange(idx, f, v)}
+                              onEditEvent={(evt, triggerOpen) => handleRequestEditEvent(evt, row.id, "checkin", triggerOpen)}
+                              locations={catalogs.venues}
+                              eventTypes={catalogs.eventTypes}
+                              onBeforeLink={handleBeforeStayLink}
+                            />
+                          </div>
+                          <StayExtraToggle
+                            checked={
+                              ruleHasStayExtra(row, "checkin") ||
+                              Boolean(stayExtraPending[`${row.id}-checkin`])
+                            }
+                            label={STAY_SIDES.checkin.extraShort}
+                            title={STAY_SIDES.checkin.extraTitle}
+                            activeClass="border-sky-600 bg-sky-600 text-white"
+                            onToggle={(next) =>
+                              handleStayExtraToggle(idx, "checkin", next)
+                            }
+                          />
+                        </div>
                       </td>
                       <td className="p-1 border-r border-slate-200 bg-orange-50/10 min-w-0">
-                        <EventCellEditor
-                          rule={row}
-                          field="checkout"
-                          eventId={row.id_evento_checkout}
-                          allEvents={allEvents}
-                          tipoEventoIds={[23]}
-                          onRefresh={refresh}
-                          supabase={supabase}
-                          giraId={gira.id}
-                          labelDefault="Check-Out"
-                          onManualUpdate={(f, v) => handleRowChange(idx, f, v)}
-                          onEditEvent={(evt, triggerOpen) => handleRequestEditEvent(evt, row.id, "checkout", triggerOpen)}
-                          locations={catalogs.venues}
-                          eventTypes={catalogs.eventTypes}
-                        />
+                        <div className="flex items-stretch gap-0.5">
+                          <div className="flex-1 min-w-0">
+                            <EventCellEditor
+                              rule={row}
+                              field="checkout"
+                              eventId={ruleStayDisplayEventId(row, "checkout")}
+                              allEvents={allEvents}
+                              extraOn={
+                                ruleHasStayExtra(row, "checkout") ||
+                                Boolean(stayExtraPending[`${row.id}-checkout`])
+                              }
+                              tipoEventoIds={
+                                ruleHasStayExtra(row, "checkout") ||
+                                stayExtraPending[`${row.id}-checkout`]
+                                  ? [
+                                      TIPO_EVENTO_LATE_CHECKOUT,
+                                      TIPO_EVENTO_CHECKOUT,
+                                    ]
+                                  : [
+                                      TIPO_EVENTO_CHECKOUT,
+                                      TIPO_EVENTO_LATE_CHECKOUT,
+                                    ]
+                              }
+                              onRefresh={refresh}
+                              supabase={supabase}
+                              giraId={gira.id}
+                              labelDefault={LABEL_CHECKOUT}
+                              onManualUpdate={(f, v) => handleRowChange(idx, f, v)}
+                              onEditEvent={(evt, triggerOpen) => handleRequestEditEvent(evt, row.id, "checkout", triggerOpen)}
+                              locations={catalogs.venues}
+                              eventTypes={catalogs.eventTypes}
+                              onBeforeLink={handleBeforeStayLink}
+                            />
+                          </div>
+                          <StayExtraToggle
+                            checked={
+                              ruleHasStayExtra(row, "checkout") ||
+                              Boolean(stayExtraPending[`${row.id}-checkout`])
+                            }
+                            label={STAY_SIDES.checkout.extraShort}
+                            title={STAY_SIDES.checkout.extraTitle}
+                            activeClass="border-amber-600 bg-amber-600 text-white"
+                            onToggle={(next) =>
+                              handleStayExtraToggle(idx, "checkout", next)
+                            }
+                          />
+                        </div>
                       </td>
                     </>
                   )}
@@ -1546,6 +1978,19 @@ export default function LogisticsManager({
                           supabase={supabase}
                           onRefresh={refresh}
                           labelDefault="Inicio"
+                          onValidate={(patch) => {
+                            const errs = validateLogisticsRule(
+                              { ...row, ...patch },
+                              allEvents,
+                            );
+                            if (errs.length) {
+                              setAttemptErrors((p) => ({
+                                ...p,
+                                [row.id]: errs,
+                              }));
+                            }
+                            return errs;
+                          }}
                         />
                       </td>
                       <td className="p-1 border-r border-slate-200 bg-emerald-50/10 min-w-0">
@@ -1556,6 +2001,19 @@ export default function LogisticsManager({
                           supabase={supabase}
                           onRefresh={refresh}
                           labelDefault="Fin"
+                          onValidate={(patch) => {
+                            const errs = validateLogisticsRule(
+                              { ...row, ...patch },
+                              allEvents,
+                            );
+                            if (errs.length) {
+                              setAttemptErrors((p) => ({
+                                ...p,
+                                [row.id]: errs,
+                              }));
+                            }
+                            return errs;
+                          }}
                         />
                       </td>
                     </>
@@ -1827,20 +2285,30 @@ export default function LogisticsManager({
                       },
                       {
                         id: "c_in",
-                        ...l.checkin,
-                        label: "Check-In",
+                        ...(l.checkin?.date ? l.checkin : l.checkin_early),
+                        label:
+                          l.checkin_early?.date || l.checkin_early?.id_evento
+                            ? LABEL_EARLY_CHECKIN
+                            : "Check-In",
                         icon: IconHotel,
                         colorClass:
-                          "text-orange-600 border-orange-600 bg-orange-50",
+                          l.checkin_early?.date || l.checkin_early?.id_evento
+                            ? "text-sky-600 border-sky-600 bg-sky-50"
+                            : "text-orange-600 border-orange-600 bg-orange-50",
                         field: "id_evento_checkin",
                       },
                       {
                         id: "c_out",
-                        ...l.checkout,
-                        label: "Check-Out",
+                        ...(l.checkout?.date ? l.checkout : l.checkout_late),
+                        label:
+                          l.checkout_late?.date || l.checkout_late?.id_evento
+                            ? LABEL_LATE_CHECKOUT
+                            : "Check-Out",
                         icon: IconHotel,
                         colorClass:
-                          "text-orange-600 border-orange-600 bg-orange-50",
+                          l.checkout_late?.date || l.checkout_late?.id_evento
+                            ? "text-amber-700 border-amber-600 bg-amber-50"
+                            : "text-orange-600 border-orange-600 bg-orange-50",
                         field: "id_evento_checkout",
                       },
                       {
@@ -2029,6 +2497,9 @@ export default function LogisticsManager({
               <div className="min-w-0">
                 <h3 className="text-sm font-black text-slate-800 uppercase flex items-center gap-2">
                   <IconHelpCircle className="text-indigo-500 shrink-0" size={18} />
+                  {chipPreviewModal.chipKey === "target_ensambles" ? (
+                    <IconMusic className="text-teal-600 shrink-0" size={16} />
+                  ) : null}
                   <span className="truncate">
                     {chipPreviewModal.chipLabel}
                   </span>
@@ -2057,8 +2528,8 @@ export default function LogisticsManager({
               <p className="text-[10px] text-amber-900 leading-snug">
                 <span className="font-bold">Prioridad:</span> si una persona
                 aparece en ámbar, otra regla con mayor especificidad (persona
-                &gt; categoría &gt; localidad &gt; región &gt; general) es la
-                que define los hitos en la práctica.
+                &gt; ensamble &gt; rol/familia &gt; localidad &gt; no
+                locales/general) es la que define los hitos en la práctica.
               </p>
             </div>
             <div className="overflow-y-auto flex-1 p-0 min-h-0">
@@ -2182,6 +2653,7 @@ export default function LogisticsManager({
               supabase={supabase}
               onRefreshLocations={fetchVenues}
               giraId={editingFormData?.id_gira}
+              isNew={Boolean(editingFormData._isNew)}
             />
           </div>
         </div>

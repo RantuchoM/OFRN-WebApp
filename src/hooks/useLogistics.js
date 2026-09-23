@@ -3,8 +3,7 @@ import { useGiraRoster } from "./useGiraRoster";
 import {
   normalize,
   getMatchStrength,
-  getRuleCategoryTiebreak,
-  compareLogisticsRulePrecedence,
+  rankMatchingLogisticsRules,
   matchesRule,
   getCategoriaLogistica,
   resolveTransportAdmissionStatus,
@@ -35,9 +34,12 @@ export {
   getMatchStrength,
   getRuleCategoryTiebreak,
   compareLogisticsRulePrecedence,
+  rankMatchingLogisticsRules,
+  pickWinningLogisticsRule,
   matchesRule,
   getCategoriaLogistica,
   ROLES_CATEGORIA_LOGISTICA_PRODUCCION,
+  LOGISTICS_MATCH_STRENGTH,
   resolveTransportAdmissionStatus,
   isPersonAdmittedToTransport,
   isPersonVetoedFromTransport,
@@ -48,9 +50,9 @@ export {
 export const getPriorityValue = (scope) => {
   const s = normalize(scope);
   if (s === "persona" || s === "p") return 5;
-  if (s === "categoria" || s === "instrumento" || s === "grupo") return 4;
-  if (s === "localidad" || s === "l") return 3;
-  if (s === "region" || s === "r") return 2;
+  if (s === "ensamble" || s === "e") return 4;
+  if (s === "categoria" || s === "instrumento" || s === "grupo") return 3;
+  if (s === "localidad" || s === "l") return 2;
   return 1;
 };
 
@@ -77,9 +79,11 @@ export const calculateLogisticsSummary = (
     const s = normalize(r.alcance);
     if (s === "persona") return "P";
     if (s === "grupo") return "U"; // grupo de convocatoria (giras_grupos)
+    if (s === "ensamble") return "E";
     if (s === "categoria" || s === "instrumento") return "C";
     if (s === "localidad") return "L";
     if (s === "region") return "R";
+    if ((r.target_ensambles || []).length > 0) return "E";
     if ((r.target_categories || []).length > 0) return "C";
     if ((r.target_localities || []).length > 0) return "L";
     if ((r.target_regions || []).length > 0) return "R";
@@ -123,6 +127,8 @@ export const calculateLogisticsSummary = (
     let log = {
       checkin: {},
       checkout: {},
+      checkin_early: {},
+      checkout_late: {},
       comida_inicio: {},
       comida_fin: {},
       prov_des: "-",
@@ -195,24 +201,16 @@ export const calculateLogisticsSummary = (
     };
 
     const applyFieldRules = (field, legacyDate, legacyTime, svcField) => {
-      const matchOptions = (r) => ({
-        segments,
-        instant: resolveRuleFieldInstant(r, field, allEvents),
-        field,
-      });
-      const rulesWithStrength = logisticsRules
-        .map((r, idx) => {
-          const options = matchOptions(r);
-          const strength = getMatchStrength(r, person, allLocalities, options);
-          return {
-            rule: r,
-            strength,
-            categoryTiebreak: getRuleCategoryTiebreak(r, person, options),
-            idx,
-          };
-        })
-        .filter((item) => item.strength > 0)
-        .sort(compareLogisticsRulePrecedence);
+      const rulesWithStrength = rankMatchingLogisticsRules(
+        person,
+        logisticsRules,
+        allLocalities,
+        (r) => ({
+          segments,
+          instant: resolveRuleFieldInstant(r, field, allEvents),
+          field,
+        }),
+      );
 
       rulesWithStrength.forEach(({ rule: r, strength }) => {
         resolve(field, legacyDate, legacyTime, svcField, r, strength);
@@ -221,6 +219,8 @@ export const calculateLogisticsSummary = (
 
     applyFieldRules("checkin", "fecha_checkin", "hora_checkin", "Check-In");
     applyFieldRules("checkout", "fecha_checkout", "hora_checkout", "Check-Out");
+    applyFieldRules("checkin_early", null, null, "Early check-in");
+    applyFieldRules("checkout_late", null, null, "Late check-out");
     applyFieldRules(
       "comida_inicio",
       "comida_inicio_fecha",
@@ -234,24 +234,17 @@ export const calculateLogisticsSummary = (
       "comida_fin_servicio",
     );
 
-    const provRulesWithStrength = logisticsRules
-      .map((r, idx) => {
-        const options = {
-          segments,
-          instant:
-            resolveRuleFieldInstant(r, "checkin", allEvents) ||
-            resolveRuleFieldInstant(r, "checkout", allEvents),
-        };
-        const strength = getMatchStrength(r, person, allLocalities, options);
-        return {
-          rule: r,
-          strength,
-          categoryTiebreak: getRuleCategoryTiebreak(r, person, options),
-          idx,
-        };
-      })
-      .filter((item) => item.strength > 0)
-      .sort(compareLogisticsRulePrecedence);
+    const provRulesWithStrength = rankMatchingLogisticsRules(
+      person,
+      logisticsRules,
+      allLocalities,
+      (r) => ({
+        segments,
+        instant:
+          resolveRuleFieldInstant(r, "checkin", allEvents) ||
+          resolveRuleFieldInstant(r, "checkout", allEvents),
+      }),
+    );
 
     provRulesWithStrength.forEach(({ rule: r }) => {
       if (r.prov_desayuno && r.prov_desayuno !== "-")

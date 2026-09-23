@@ -7,6 +7,7 @@ import {
   getMealServiceStyle,
 } from "../../utils/mealLogistics";
 import { useConfirmDialog } from "../../hooks/useConfirmDialog";
+import { toast } from "sonner";
 
 const MESES = [
   "Enero",
@@ -161,6 +162,7 @@ export default function MealSlotCellEditor({
   supabase,
   onRefresh,
   labelDefault,
+  onValidate,
 }) {
   const { confirm, dialog } = useConfirmDialog();
   const [isOpen, setIsOpen] = useState(false);
@@ -187,6 +189,20 @@ export default function MealSlotCellEditor({
 
   const persist = async (nextFecha, nextServicio) => {
     if (!rule?.id) return;
+    if (typeof onValidate === "function") {
+      const dateField =
+        which === "fin" ? "comida_fin_fecha" : "comida_inicio_fecha";
+      const svcField =
+        which === "fin" ? "comida_fin_servicio" : "comida_inicio_servicio";
+      const errs = onValidate({
+        [dateField]: nextFecha || null,
+        [svcField]: nextServicio || null,
+      });
+      if (Array.isArray(errs) && errs.length) {
+        toast.error(errs[0]);
+        return;
+      }
+    }
     setSaving(true);
     try {
       const { error } = await supabase

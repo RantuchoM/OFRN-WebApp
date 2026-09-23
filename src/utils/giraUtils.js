@@ -577,6 +577,16 @@ const RULE_FIELD_INSTANT = {
     date: "fecha_checkout",
     time: "hora_checkout",
   },
+  checkin_early: {
+    event: "id_evento_checkin_early",
+    date: null,
+    time: null,
+  },
+  checkout_late: {
+    event: "id_evento_checkout_late",
+    date: null,
+    time: null,
+  },
   comida_inicio: {
     event: null,
     date: "comida_inicio_fecha",
@@ -634,7 +644,9 @@ export const resolveRuleFieldInstant = (rule, field, allEvents = []) => {
 export const resolveRulePrimaryInstant = (rule, allEvents = []) => {
   for (const field of [
     "checkin",
+    "checkin_early",
     "checkout",
+    "checkout_late",
     "comida_inicio",
     "comida_fin",
   ]) {
@@ -677,7 +689,7 @@ export const ruleHasMealMilestones = (rule) =>
  * "NO_LOCALES" debe abarcar también perfiles clasificados como "EXTERNOS".
  * Locales / No locales: hotel y bus al instante del hito; comidas al tramo 0.
  */
-const categoryMatches = (
+export const categoryMatches = (
   ruleCategory,
   personCategory,
   person = null,
@@ -744,6 +756,103 @@ export const personMatchesGrupoRule = (rule, person, options = {}) => {
   return pGids.some((gid) => set.has(gid));
 };
 
+/**
+ * Fuerza de match (un solo motor). Mayor gana.
+ * 5 Persona → 4 Ensamble → 3 rol/familia/grupo → 2 Localidad → 1 catch-all
+ * (región / general / LOCALES / NO_LOCALES).
+ */
+export const LOGISTICS_MATCH_STRENGTH = Object.freeze({
+  PERSONA: 5,
+  ENSAMBLE: 4,
+  CATEGORIA: 3,
+  LOCALIDAD: 2,
+  CATCH_ALL: 1,
+  NONE: 0,
+});
+
+export const isLogisticsGeoBucketCategory = (cat) =>
+  cat === "LOCALES" || cat === "NO_LOCALES";
+
+/** IDs de ensamble del roster (join `ensambles` o `integrantes_ensambles`). */
+export const resolvePersonEnsambleIds = (person) => {
+  const ids = new Set();
+  (person?.ensambles || []).forEach((e) => {
+    if (e?.id != null && String(e.id) !== "") ids.add(String(e.id));
+  });
+  (person?.integrantes_ensambles || []).forEach((ie) => {
+    const id = ie?.id_ensamble ?? ie?.ensambles?.id;
+    if (id != null && String(id) !== "") ids.add(String(id));
+  });
+  return [...ids];
+};
+
+/**
+ * ¿La persona está en algún ensamble de la regla?
+ * `target_ensambles` (reglas combinadas) o `target_ids` si alcance Ensamble.
+ * Misma membresía que convocatoria `ENS:` (refuerzo/vacante sí, si está en el ensamble).
+ */
+export const personMatchesEnsambleRule = (rule, person) => {
+  if (!rule || !person) return false;
+  const fromColumn = rule.target_ensambles || [];
+  const fromScope =
+    normalize(rule.alcance) === "ensamble" ? rule.target_ids || [] : [];
+  const ruleIds = [...fromColumn, ...fromScope]
+    .map(String)
+    .filter((id) => id !== "");
+  if (ruleIds.length === 0) return false;
+  return ruleIds.some((id) => personMatchesEnsConvocadoTag(person, `ENS:${id}`));
+};
+
+const collectRuleLogisticsCategories = (rule) => {
+  const cats = [...(rule?.target_categories || [])];
+  const scope = normalize(rule?.alcance);
+  if (scope === "categoria" || scope === "instrumento") {
+    cats.push(...(rule.target_ids || []));
+  }
+  return cats;
+};
+
+const ruleMatchesTrueLogisticsCategory = (
+  rule,
+  person,
+  pCat,
+  categoryContext,
+  options,
+) => {
+  const scopeNorm = normalize(rule?.alcance);
+  if (scopeNorm === "grupo") {
+    return personMatchesGrupoRule(rule, person, options);
+  }
+  if (scopeNorm === "categoria" || scopeNorm === "instrumento") {
+    if (
+      rule.instrumento_familia &&
+      normalize(rule.instrumento_familia) ===
+        normalize(person.instrumentos?.familia)
+    ) {
+      return true;
+    }
+  }
+  return collectRuleLogisticsCategories(rule).some((cat) => {
+    if (isLogisticsGeoBucketCategory(cat)) return false;
+    return (
+      normalize(cat) === normalize(pCat) ||
+      categoryMatches(cat, pCat, person, categoryContext)
+    );
+  });
+};
+
+const ruleMatchesGeoBucketCategory = (
+  rule,
+  person,
+  pCat,
+  categoryContext,
+) =>
+  collectRuleLogisticsCategories(rule).some(
+    (cat) =>
+      isLogisticsGeoBucketCategory(cat) &&
+      categoryMatches(cat, pCat, person, categoryContext),
+  );
+
 /** Fuerza del match para ordenar reglas. Si estado_gira === 'ausente', siempre 0. */
 export const getMatchStrength = (
   rule,
@@ -754,6 +863,7 @@ export const getMatchStrength = (
   if (!rule || !person) return 0;
   if (normalize(person.estado_gira) === "ausente") return 0;
 
+  const S = LOGISTICS_MATCH_STRENGTH;
   const { segments, instant, field } = options;
   const categoryContext = { segments, instant, field };
 
@@ -762,73 +872,72 @@ export const getMatchStrength = (
   const pCat = getCategoriaLogistica(person);
   const scopeNorm = normalize(rule.alcance);
 
-  // target_ids en alcance Persona = id integrante; en Categoria = nombre de categoría
-  // logística (SOLISTAS, …); en Grupo = id de giras_grupos. No confundir.
+  // 5 — target_ids en alcance Persona = id integrante; no confundir con
+  // Categoria / Grupo / Ensamble.
   if (
     scopeNorm === "persona" &&
     ((rule.target_ids || []).map(String).includes(pId) ||
       String(rule.id_integrante) === pId)
   )
-    return 5;
+    return S.PERSONA;
   if (
     scopeNorm !== "categoria" &&
     scopeNorm !== "instrumento" &&
     scopeNorm !== "grupo" &&
+    scopeNorm !== "ensamble" &&
     (rule.target_ids || []).map(String).includes(pId)
   )
-    return 5;
+    return S.PERSONA;
 
+  // 4 Ensamble (convocatoria ENS: ya aplica a toda membresía, no solo estable).
+  if (personMatchesEnsambleRule(rule, person)) return S.ENSAMBLE;
+
+  // 3 Rol / familia / grupo. Cubos LOCALES/NO_LOCALES no entran aquí.
   if (
-    (rule.target_categories || []).some((cat) =>
-      categoryMatches(cat, pCat, person, categoryContext),
+    ruleMatchesTrueLogisticsCategory(
+      rule,
+      person,
+      pCat,
+      categoryContext,
+      options,
     )
   )
-    return 4;
-  if (scopeNorm === "categoria" || scopeNorm === "instrumento") {
-    if (
-      rule.instrumento_familia &&
-      normalize(rule.instrumento_familia) ===
-        normalize(person.instrumentos?.familia)
-    )
-      return 4;
-    // StopRulesManager guarda categoría logística en target_ids (p.ej. SOLISTAS)
-    const cats = rule.target_ids || [];
-    if (
-      cats.some(
-        (cat) =>
-          normalize(cat) === normalize(pCat) ||
-          categoryMatches(cat, pCat, person, categoryContext),
-      )
-    )
-      return 4;
+    return S.CATEGORIA;
+
+  const geoMatch = ruleMatchesGeoBucketCategory(
+    rule,
+    person,
+    pCat,
+    categoryContext,
+  );
+
+  // 2 Localidad — solo planta estable (refuerzos: ID o ensamble, no territorio).
+  if (isCondicionEstable(person)) {
+    if ((rule.target_localities || []).map(String).includes(pLoc))
+      return S.LOCALIDAD;
+    if (scopeNorm === "localidad" && String(rule.id_localidad) === pLoc)
+      return S.LOCALIDAD;
   }
 
-  // Grupo OFRN (`giras_grupos`): misma fuerza que Categoría (nivel 4).
-  if (scopeNorm === "grupo") {
-    return personMatchesGrupoRule(rule, person, options) ? 4 : 0;
+  // 1 Catch-all: región / general / LOCALES / NO_LOCALES.
+  if (isCondicionEstable(person)) {
+    if ((rule.target_regions || []).map(String).includes(pReg))
+      return S.CATCH_ALL;
+    if (scopeNorm === "region" && String(rule.id_region) === pReg)
+      return S.CATCH_ALL;
+    const hasGeoRestriction = collectRuleLogisticsCategories(rule).some(
+      isLogisticsGeoBucketCategory,
+    );
+    if (scopeNorm === "general" && !hasGeoRestriction) return S.CATCH_ALL;
   }
 
-  // Niveles 3–1 (localidad / región / general) solo planta Estable.
-  if (!isCondicionEstable(person)) return 0;
-
-  if ((rule.target_localities || []).map(String).includes(pLoc)) return 3;
-  if (
-    normalize(rule.alcance) === "localidad" &&
-    String(rule.id_localidad) === pLoc
-  )
-    return 3;
-
-  if ((rule.target_regions || []).map(String).includes(pReg)) return 2;
-  if (normalize(rule.alcance) === "region" && String(rule.id_region) === pReg)
-    return 2;
-
-  if (normalize(rule.alcance) === "general") return 1;
-  return 0;
+  if (geoMatch) return S.CATCH_ALL;
+  return S.NONE;
 };
 
 /**
- * Desempate entre reglas de misma fuerza (nivel 4 categoría).
- * Rol explícito (p. ej. PRODUCCION) prima sobre chips geográficos (NO_LOCALES / LOCALES).
+ * Desempate entre reglas de misma fuerza (p. ej. dos categorías de rol).
+ * Cubos LOCALES/NO_LOCALES ya no empatan con rol: van a CATCH_ALL.
  */
 const LOGISTICS_CATEGORY_TIEBREAK = {
   PRODUCCION: 90,
@@ -837,12 +946,12 @@ const LOGISTICS_CATEGORY_TIEBREAK = {
   SOLISTAS: 80,
   STAFF: 75,
   EXTERNOS: 50,
-  NO_LOCALES: 10,
-  LOCALES: 10,
+  NO_LOCALES: 0,
+  LOCALES: 0,
 };
 
 export const getRuleCategoryTiebreak = (rule, person, options = {}) => {
-  const categories = rule?.target_categories || [];
+  const categories = collectRuleLogisticsCategories(rule);
   if (!rule || !person || categories.length === 0) return 0;
 
   const { segments, instant, field } = options;
@@ -852,12 +961,12 @@ export const getRuleCategoryTiebreak = (rule, person, options = {}) => {
   let max = 0;
   for (const cat of categories) {
     if (!categoryMatches(cat, pCat, person, categoryContext)) continue;
-    if (cat === pCat) {
-      max = Math.max(max, LOGISTICS_CATEGORY_TIEBREAK[cat] ?? 60);
+    if (isLogisticsGeoBucketCategory(cat)) {
+      max = Math.max(max, LOGISTICS_CATEGORY_TIEBREAK[cat] ?? 0);
       continue;
     }
-    if (cat === "LOCALES" || cat === "NO_LOCALES") {
-      max = Math.max(max, LOGISTICS_CATEGORY_TIEBREAK[cat] ?? 10);
+    if (cat === pCat) {
+      max = Math.max(max, LOGISTICS_CATEGORY_TIEBREAK[cat] ?? 60);
       continue;
     }
     max = Math.max(max, LOGISTICS_CATEGORY_TIEBREAK[cat] ?? 40);
@@ -876,6 +985,48 @@ export const compareLogisticsRulePrecedence = (a, b) => {
   if (tieA !== tieB) return tieA - tieB;
 
   return (a.idx ?? 0) - (b.idx ?? 0);
+};
+
+/**
+ * Rankea reglas que aplican a la persona. `optionsOrFn` es el contexto de match
+ * o `(rule, idx) => options` (localía LOCALES/NO_LOCALES depende del hito).
+ */
+export const rankMatchingLogisticsRules = (
+  person,
+  rules = [],
+  allLocalities = [],
+  optionsOrFn = {},
+) => {
+  const getOptions =
+    typeof optionsOrFn === "function" ? optionsOrFn : () => optionsOrFn || {};
+  return (rules || [])
+    .map((rule, idx) => {
+      const options = getOptions(rule, idx) || {};
+      return {
+        rule,
+        strength: getMatchStrength(rule, person, allLocalities, options),
+        categoryTiebreak: getRuleCategoryTiebreak(rule, person, options),
+        idx,
+      };
+    })
+    .filter((item) => item.strength > 0)
+    .sort(compareLogisticsRulePrecedence);
+};
+
+/** Única función que elige la regla ganadora (última del rank). */
+export const pickWinningLogisticsRule = (
+  person,
+  rules = [],
+  allLocalities = [],
+  optionsOrFn = {},
+) => {
+  const ranked = rankMatchingLogisticsRules(
+    person,
+    rules,
+    allLocalities,
+    optionsOrFn,
+  );
+  return ranked.length ? ranked[ranked.length - 1].rule : null;
 };
 
 /**
@@ -945,10 +1096,13 @@ export const matchesRule = (
     scope !== "categoria" &&
     scope !== "instrumento" &&
     scope !== "grupo" &&
+    scope !== "ensamble" &&
     (rule.target_ids || []).map(String).includes(pId)
   ) {
     return true;
   }
+
+  if (personMatchesEnsambleRule(rule, person)) return true;
 
   if (
     (rule.target_categories || []).some((cat) =>
@@ -994,7 +1148,8 @@ export const isAdmissionExclusionRule = (rule) =>
 
 /**
  * Admisión efectiva a un transporte (giras_logistica_admision).
- * Gana la regla aplicable con mayor `prioridad`; un veto Persona anula una inclusión Localidad.
+ * Gana la misma regla que comidas/hotel (`pickWinningLogisticsRule`).
+ * Un veto Persona anula una inclusión Localidad.
  *
  * @returns {"admitted"|"excluded"|"none"}
  */
@@ -1016,8 +1171,8 @@ export const resolveTransportAdmissionStatus = (
     return isInternalTransport ? "admitted" : "none";
   }
 
-  applicable.sort((a, b) => (b.prioridad || 0) - (a.prioridad || 0));
-  const top = applicable[0];
+  const top = pickWinningLogisticsRule(person, applicable, allLocalities);
+  if (!top) return isInternalTransport ? "admitted" : "none";
   return isAdmissionExclusionRule(top) ? "excluded" : "admitted";
 };
 

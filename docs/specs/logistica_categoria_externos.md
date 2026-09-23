@@ -18,6 +18,22 @@ Un integrante se clasifica como `EXTERNOS` cuando cumple **todas** estas condici
 2. `EXTERNOS` — si aplica según las reglas anteriores.
 3. `LOCALES` o `NO_LOCALES` — según `is_local` (flag global del roster).
 
+## Fuerza de match (default, 2026-09-23)
+
+Un solo motor: `getMatchStrength` + `pickWinningLogisticsRule` + `matchesRule` en `src/utils/giraUtils.js`. Cobertura, comidas, hotel (`roomingInitialOrder` solo adapta el hito check-in) y admisión de bus delegan ahí. No hay un segundo “quién gana Viedma vs No Locales”.
+
+| Nivel | Alcance | Notas |
+|------:|---------|-------|
+| **5** | Persona (ID) | Siempre el más específico. |
+| **4** | **Ensamble** | `target_ensambles` (checklist propio, no dentro de No Locales). Membresía = convocatoria `ENS:` (refuerzo/vacante **sí** si están en el ensamble). |
+| **3** | Categoría/rol/familia/grupo **específica** | `PRODUCCION`, `SOLISTAS`, `EXTERNOS`, familia, `giras_grupos`. **No** incluye cubos `LOCALES`/`NO_LOCALES`. Queda bajo Ensamble; el producto ya tenía rol > localidad. |
+| **2** | **Localidad** | Solo `condicion === 'estable'`. **Gana a No Locales** (gira 13: Viedma cena sábado > merienda No Locales). |
+| **1** | Catch-all | Región, general, `LOCALES`, **`NO_LOCALES`**. |
+
+Si más adelante Ensamble debe quedar bajo Localidad, basta un swap de constantes en `LOGISTICS_MATCH_STRENGTH`.
+
+**UI Reglas logísticas:** tipo **Ensamble** hermano de Región / Localidad / Categoría / Persona (`MultiSelectCell` portal `z-[100]`, chips teal). No se mete como sub-ítem de No Locales.
+
 ## Localía en reglas `LOCALES` / `NO_LOCALES` (multi-tramo)
 
 | Hito | Criterio de “local” |
@@ -29,21 +45,18 @@ El cuadrito Loc/Viaj del header sigue siendo **por tramo seleccionado** (preview
 
 ## Desempate entre reglas de misma fuerza (comidas y hotelería)
 
-Cuando dos reglas comparten el mismo nivel de `getMatchStrength` (p. ej. ambas nivel 4 por categoría), gana la de **mayor especificidad de chip**:
+Cuando dos reglas comparten el mismo nivel, gana la de **mayor especificidad de chip de rol** (`PRODUCCION` > `SOLISTAS` > …). `LOCALES`/`NO_LOCALES` ya no empatan con rol (van a nivel 1); a igual catch-all gana la **última** regla del listado.
 
-1. Coincidencia directa con la categoría del integrante (`PRODUCCION`, `STAFF`, `SOLISTAS`, etc.).
-2. Coincidencia geográfica vía `NO_LOCALES` / `LOCALES` (incluye perfiles `PRODUCCION` no locales que también matchean `NO_LOCALES`).
-3. Si persiste el empate, gana la **última** regla en el listado.
+**Ejemplo gira 13:** No Locales (merienda sábado, fuerza 1) vs Viedma (cena sábado, fuerza 2) → gana Viedma. Un bloque Ensamble (fuerza 4) ganaría a Viedma.
 
-**Ejemplo:** un integrante de Producción no local puede matchear una regla `PRODUCCION` y otra `NO_LOCALES` con la misma fuerza; prevalece la de `PRODUCCION`.
-
-Implementado en `getRuleCategoryTiebreak` y `compareLogisticsRulePrecedence` (`giraUtils.js`), usados por `calculateLogisticsSummary` y el preview de `LogisticsManager.jsx`.
+Implementado en `getRuleCategoryTiebreak`, `compareLogisticsRulePrecedence` y `pickWinningLogisticsRule` (`giraUtils.js`). `calculateLogisticsSummary` y el preview de `LogisticsManager.jsx` solo consumen ese resultado.
 
 ## Implementación
 
 - **Fuente de verdad:** `getCategoriaLogistica` y `ROLES_CATEGORIA_LOGISTICA_PRODUCCION` en `src/utils/giraUtils.js` (reexportadas por `src/hooks/useLogistics.js`). `RoomingManager` y el resto de vistas consumen el resumen vía `useLogistics`, sin lógica duplicada de categorías.
 - **Localía por hito:** `resolveIsLocalForLogisticsCategory` en `giraUtils.js`; `calculateLogisticsSummary` pasa `field` a `getMatchStrength` en comidas.
-- **Reglas y matching:** `getMatchStrength`, `matchesRule` y `calculateLogisticsSummary` usan el mismo valor devuelto para `target_categories` y alcance `Categoria` en rutas/admisión.
+- **Reglas y matching:** `getMatchStrength`, `matchesRule` y `pickWinningLogisticsRule` son la única fuente; `calculateLogisticsSummary` / rooming / admisión de bus solo consumen.
+- **Ensamble:** columna `giras_logistica_reglas.target_ensambles` (`bigint[]`).
 - **Desempate categoría:** `getRuleCategoryTiebreak` + `compareLogisticsRulePrecedence` en hotelería, hitos de comida y proveedores (`prov_*`).
 - **UI:** selectores de categoría incluyen el valor exacto `EXTERNOS` (p. ej. `StopRulesManager.jsx`, `LogisticsManager.jsx`).
 - **Sync roster → comidas:** `LogisticsDashboard` refresca su `useLogistics` al entrar a matriz/asistencia/reporte, y `LogisticsManager` notifica `onLogisticsChange` al guardar reglas (evita datos stale sin F5).
@@ -56,8 +69,18 @@ Implementado en `getRuleCategoryTiebreak` y `compareLogisticsRulePrecedence` (`g
 
 ## Base de datos
 
-No se requieren cambios de esquema: la categoría es un **string** en reglas (`target_categories`, `target_ids` según el flujo) y en memoria en el cálculo de logística.
+- Categoría logística: **string** en `target_categories` / `target_ids` (rutas).
+- Ensambles: `giras_logistica_reglas.target_ensambles bigint[]` (migración `20260923151000_logistica_target_ensambles`).
 
 ## Discrepancias con `schema.sql`
 
-Ninguna: `integrantes.condicion` y el uso dinámico de `is_local` en el roster ya existen; EXTERNOS solo combina esos campos en la capa de aplicación.
+Ninguna relativa a esta spec: `target_ensambles` está en schema + migración.
+
+## Checklist
+
+- [x] `NO_LOCALES` catch-all (fuerza 1) por debajo de localidad (2)
+- [x] Ensamble (4) > localidad (2) > No Locales (1)
+- [x] Picker Ensamble en reglas logísticas (no sub-ítem de No Locales)
+- [x] Un solo calculador (`pickWinningLogisticsRule`)
+- [x] Vacantes/refuerzo: localidad/región/general solo estable; ensamble por membresía `ENS:`; No Locales sigue cubriendo EXTERNOS
+

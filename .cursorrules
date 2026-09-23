@@ -19,11 +19,14 @@
 - **Vacantes (`es_simulacion`)**: son `integrantes` reales (IDs numéricos), no una tabla aparte. Al tocar roster, seating, grupos (`giras_grupos` / `giras_grupos_integrantes`), hotel, transporte, comidas u otra logística de gira, coordinar también generar / asignar / eliminar vacante. Hotel: si el titular es de otro género, sale de la habitación; el grupo se hereda o se quita sin esa excepción. Detalle: `.cursor/rules/gira-vacantes-coordinacion.mdc`.
 
 ## 4. Reglas de Logística (Fuerza de Match)
-- **Jerarquía (Strength)**: 
-  - Nivel 5: ID Personal.
-  - Nivel 4: Categoría/Rol.
-  - Nivel 3-1 (Localidad/Región/General): SOLO aplica si `integrante.condicion === 'estable'`.
-- **Transporte Físico**: Los refuerzos (no estables) solo suben al bus por regla de ID personal, nunca por regla general de localidad.
+- **Un solo motor:** `getMatchStrength` / `pickWinningLogisticsRule` / `matchesRule` en `giraUtils.js`. No duplicar “quién gana” en cobertura, comidas, hotel o transporte.
+- **Jerarquía (Strength)** — mayor gana:
+  - 5 Persona (ID personal).
+  - 4 Ensamble (`target_ensambles`; membresía como tag `ENS:`).
+  - 3 Categoría/rol/familia/grupo **específica** (no cubos `LOCALES`/`NO_LOCALES`). El producto ya tenía rol > localidad.
+  - 2 Localidad — solo si `condicion === 'estable'`. Gana a No Locales.
+  - 1 Catch-all: región / general / `LOCALES` / `NO_LOCALES`.
+- **Transporte Físico**: Los refuerzos (no estables) solo suben al bus por regla de ID personal, nunca por regla general de localidad. `NO_LOCALES` puede incluir `EXTERNOS` (catch-all, no territorio).
 
 ## 5. Estándares de UI y Componentes
 - **Modales**: Usar siempre `React Portals` hacia `document.body`.
