@@ -21,10 +21,7 @@ import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 import { generateSeatingPdf } from "../../utils/seatingPdfExporter"; // <--- IMPORTAR AQUÍ
 import ConciertosDifusionPanel from "../../components/difusion/ConciertosDifusionPanel";
 import MusiciansListModal from "../../components/difusion/MusiciansListModal";
-import {
-  hasRepertorioObraTitleOverride,
-  repertorioObraTitleForDifusion,
-} from "../../utils/repertorioRowDisplay";
+import { repertorioObraTitleForDifusion } from "../../utils/repertorioRowDisplay";
 
 // --- UTILIDAD: RENDERER DE TEXTO RICO ---
 const RichTextPreview = ({ content, className = "" }) => {
@@ -828,16 +825,10 @@ export default function GiraDifusion({ supabase, gira, onBack }) {
                         <span className="text-slate-300 hidden sm:inline">
                           |
                         </span>
-                        <div className="text-slate-600 italic inline-block flex-1 min-w-[200px]">
-                          {hasRepertorioObraTitleOverride(obraItem) ? (
-                            <span className="whitespace-pre-wrap">
-                              {repertorioObraTitleForDifusion(obraItem)}
-                            </span>
-                          ) : (
-                            <RichTextPreview
-                              content={repertorioObraTitleForDifusion(obraItem)}
-                            />
-                          )}
+                        <div className="text-slate-600 inline-block flex-1 min-w-[200px] [&_b]:font-bold [&_strong]:font-bold [&_em]:italic [&_i]:italic">
+                          <RichTextPreview
+                            content={repertorioObraTitleForDifusion(obraItem)}
+                          />
                         </div>
                       </li>
                     ))}
