@@ -3,6 +3,7 @@
 import { resolveLocalidadResidencia } from "./integranteDomicilioViaticos";
 import { integranteKey } from "./integranteIds";
 import { isCondicionEstable } from "./vacantesLogistics";
+import { isProduccionParticipanteLabel } from "./participantesSort";
 import {
   isLocalAt,
   isLocalAtMealSlot,
@@ -158,6 +159,9 @@ export const ROLES_PRODUCCION = [
 
 /** Rol por defecto cuando no está asignado (ID de tabla roles). */
 export const DEFAULT_ROL_ID = "musico";
+
+/** Rol por defecto si el integrante está en Prod. y también en un ensamble músico. */
+export const ROLE_MUS_PROD = "mus_prod";
 
 /** Cargo por defecto para exportaciones (label de visualización). */
 export const DEFAULT_CARGO = "Músico";
@@ -374,22 +378,55 @@ export const getInstrumentDefaultTourRoleFromMember = (member) => {
   return String(roleId).trim();
 };
 
-const hasProductionEnsemble = (member) => {
+const ensembleNameFromRel = (ensRel) => {
+  const rel = Array.isArray(ensRel) ? ensRel[0] : ensRel;
+  if (typeof rel === "string") return rel;
+  return rel?.ensamble ?? "";
+};
+
+/** Nombres de ensamble del integrante (join `integrantes_ensambles` o array plano `ensambles`). */
+export const getMemberEnsembleNames = (member) => {
+  const names = [];
   const rows = Array.isArray(member?.integrantes_ensambles)
     ? member.integrantes_ensambles
     : [];
-  return rows.some((row) => {
-    const ensRel = Array.isArray(row?.ensambles)
-      ? row.ensambles[0]
-      : row?.ensambles;
-    return normalize(ensRel?.ensamble) === "produccion";
-  });
+  for (const row of rows) {
+    const fromJoin = ensembleNameFromRel(row?.ensambles);
+    if (fromJoin) names.push(fromJoin);
+    else if (typeof row?.ensamble === "string" && row.ensamble.trim()) {
+      names.push(row.ensamble);
+    }
+  }
+  const flat = Array.isArray(member?.ensambles) ? member.ensambles : [];
+  for (const entry of flat) {
+    const name = ensembleNameFromRel(entry);
+    if (name) names.push(name);
+  }
+  return names;
 };
 
+const hasProductionEnsemble = (member) =>
+  getMemberEnsembleNames(member).some((name) =>
+    isProduccionParticipanteLabel(name),
+  );
+
+const hasMusicianEnsemble = (member) =>
+  getMemberEnsembleNames(member).some(
+    (name) => String(name).trim() !== "" && !isProduccionParticipanteLabel(name),
+  );
+
 /**
- * Rol de gira por defecto: `instrumentos.rol_gira_default`, luego ensamble producción, sino músico.
+ * Rol de gira por defecto al convocar:
+ * 1. Prod. (Producción) + ensamble músico (p. ej. VS) → `mus_prod` (gana sobre instrumento).
+ * 2. `instrumentos.rol_gira_default`.
+ * 3. Solo ensamble Prod. → `produccion`.
+ * 4. Sino `musico`.
  */
 export const inferDefaultTourRole = (member) => {
+  if (hasProductionEnsemble(member) && hasMusicianEnsemble(member)) {
+    return ROLE_MUS_PROD;
+  }
+
   const fromInstrument = getInstrumentDefaultTourRoleFromMember(member);
   if (fromInstrument) return fromInstrument;
 
@@ -400,20 +437,16 @@ export const inferDefaultTourRole = (member) => {
 
 /**
  * Rol efectivo en gira: override de `giras_integrantes.rol` o inferencia por perfil.
+ * `musico` persistido se trata como default automático (no override real).
  */
 export const resolveTourRoleOverride = (manualRole, member, fallbackRole) => {
   const normalizedManualRole = normalize(manualRole);
-  const fallback = fallbackRole || inferDefaultTourRole(member);
+  const inferred = fallbackRole || inferDefaultTourRole(member);
 
-  if (!normalizedManualRole) return fallback;
+  if (!normalizedManualRole) return inferred;
 
-  const instrumentDefault = getInstrumentDefaultTourRoleFromMember(member);
-  if (instrumentDefault && normalizedManualRole === DEFAULT_ROL_ID) {
-    return instrumentDefault;
-  }
-
-  if (hasProductionEnsemble(member) && normalizedManualRole === DEFAULT_ROL_ID) {
-    return "produccion";
+  if (normalizedManualRole === DEFAULT_ROL_ID && inferred !== DEFAULT_ROL_ID) {
+    return inferred;
   }
 
   return manualRole;

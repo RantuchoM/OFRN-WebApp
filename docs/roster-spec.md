@@ -18,6 +18,14 @@ Para obtener la lista de personas que viajan:
 3. **FILTRO CRÍTICO**: Eliminar a cualquier integrante que tenga un registro en `giras_integrantes` con `estado = 'ausente'`.
 4. **Exclusión de ensamble:** miembros de ensambles en `EXCL_ENSAMBLE` activos en la fecha del programa se eliminan siempre.
 
+### 3.1 Rol por defecto (`giras_integrantes.rol` / `rol_gira`)
+Al agregar o convocar (auto-roster, alta individual, ficha nueva en gira): `inferDefaultTourRole` en `giraUtils.js`.
+
+- Si el integrante está en **Prod.** (ensamble `Prod.` / Producción) **y** en un ensamble músico (p. ej. VS), el default es **`mus_prod`**, no `musico`. Prod. gana sobre el ensamble músico y sobre `instrumentos.rol_gira_default`.
+- Solo Prod. → `produccion` (o el default del instrumento, p. ej. chofer).
+- Solo músico → `musico` / default de instrumento.
+- `musico` persistido se interpreta como default automático (`resolveTourRoleOverride`); `solista` / `produccion` / etc. se respetan.
+
 ## 4. Vacantes (integrantes simulados)
 
 - Las vacantes son filas en `integrantes` con `es_simulacion = true` y `condicion = 'Refuerzo'`, vinculadas a la gira vía `giras_integrantes` (`rol = 'musico'`, `estado = 'confirmado'`). El ID lo asigna la BD (IDENTITY). El rótulo de plaza va en `integrantes.apellido`.

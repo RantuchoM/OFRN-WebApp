@@ -27,11 +27,21 @@ Lista de IDs de rol (tabla `roles`) que pertenecen al grupo Producción (convoca
 ### ROLES_CATEGORIA_LOGISTICA_PRODUCCION
 Subconjunto que mapea a la categoría logística `PRODUCCION` en reglas de hotelería, comidas y transporte: produccion, chofer, mus_prod. Fuente: `getCategoriaLogistica` en `giraUtils.js`. **No** incluye staff ni otros roles de `ROLES_PRODUCCION` que tienen categoría propia (`STAFF`) o geográfica (`LOCALES` / `NO_LOCALES`).
 
-### DEFAULT_ROL_ID, DEFAULT_CARGO
-Valores por defecto para rol no asignado y cargo en exportaciones.
+### DEFAULT_ROL_ID, ROLE_MUS_PROD, DEFAULT_CARGO
+Valores por defecto para rol no asignado (`musico`), músico-producción (`mus_prod`) y cargo en exportaciones.
 
 ### instrumentos.rol_gira_default
-FK a `roles.id`. Prioridad en `inferDefaultTourRole` (antes que ensamble Producción). Se edita en Datos → Instrumentos. Si `giras_integrantes.rol` quedó en `musico` sin override real, `resolveTourRoleOverride` aplica el default del instrumento.
+FK a `roles.id`. Se edita en Datos → Instrumentos. En `inferDefaultTourRole` **no** gana si la persona está en Prod. **y** en un ensamble músico.
+
+### Rol por defecto al convocar (`inferDefaultTourRole`)
+Prioridad (2026-09-23):
+
+1. **Ensamble Prod.** (`Prod.`, `Prod`, `Producción` — misma heurística que `isProduccionParticipanteLabel`) **y** al menos un ensamble músico (p. ej. VS) → `mus_prod`. Gana sobre el default del instrumento. Quien solo es músico (sin Prod.) sigue en `musico` / default de instrumento.
+2. `instrumentos.rol_gira_default` (chofer, producción, etc.).
+3. Solo ensamble Prod. (sin ensamble músico) → `produccion`.
+4. Sino `musico`.
+
+`resolveTourRoleOverride`: si `giras_integrantes.rol` quedó en `musico`, se trata como default automático y se aplica la inferencia. Overrides reales (`solista`, `produccion`, `mus_prod`, …) no se reescriben.
 
 ## Reglas de Implementación
 1. Prohibido usar strings literales como `'solista'` o `'GRP:TUTTI'` fuera de `giraUtils.js`.

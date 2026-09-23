@@ -257,7 +257,14 @@ export async function fetchRosterForGira(supabase, gira, options = {}) {
     // ocultaba filas aunque el INSERT ya hubiera creado el vínculo (409 "duplicado").
     if (isManual) {
       estadoReal = manualData?.estado ?? "confirmado";
-      rolReal = resolveTourRoleOverride(manualData?.rol, m, rolReal);
+      rolReal = resolveTourRoleOverride(
+        manualData?.rol,
+        {
+          ...m,
+          integrantes_ensambles: ieForProgram,
+        },
+        rolReal,
+      );
       keep = true;
       esAdicional = isBaseValid ? false : estadoReal === "confirmado";
     } else if (isExcluded) {
@@ -311,7 +318,15 @@ export async function fetchRosterForGira(supabase, gira, options = {}) {
   const sorted = finalRoster.sort((a, b) => {
     if (a.estado_gira === "ausente" && b.estado_gira !== "ausente") return 1;
     if (a.estado_gira !== "ausente" && b.estado_gira === "ausente") return -1;
-    const rolesPrio = { director: 1, solista: 2, musico: 3, produccion: 4, staff: 5, chofer: 6 };
+    const rolesPrio = {
+      director: 1,
+      solista: 2,
+      musico: 3,
+      mus_prod: 4,
+      produccion: 4,
+      staff: 5,
+      chofer: 6,
+    };
     const pA = rolesPrio[a.rol_gira] || 99;
     const pB = rolesPrio[b.rol_gira] || 99;
     if (pA !== pB) return pA - pB;

@@ -9,6 +9,7 @@ Permitir agrupar integrantes de una gira y asignar esos grupos a eventos (ensayo
 - Una gira puede tener 0..N grupos (opcionales).
 - Una persona puede pertenecer a varios grupos; un evento puede tener uno o más grupos.
 - **Ausentes** (`giras_integrantes.estado === 'ausente'`): la membresía en DB se conserva, pero no aparece tag en roster ni cuenta para visibilidad de eventos.
+- **Rol por defecto al convocar:** si el integrante está en ensamble **Prod.** y también en un ensamble músico (p. ej. VS), `giras_integrantes.rol` / `rol_gira` infiere `mus_prod` (no `musico`). Solo músicos no cambian. Detalle: `docs/roster-categories-standard.md` y `docs/roster-spec.md` §3.1.
 - **Eventos sin `eventos_grupos`**: comportamiento histórico (visible según reglas de roster/ensamble existentes). Son los “eventos generales”.
 - **Eventos con ≥1 grupo**: el músico solo los ve si pertenece (efectivamente) a al menos uno.
 - **Editores / management** (`admin`, `editor`, `coord_general`, `director`): ven **todos** los eventos; las cards muestran chips del grupo.
@@ -117,3 +118,4 @@ El filtro de header es una vista editorial adicional (no cambia la visibilidad b
 - [x] Agenda músico: paradas del bus asignado visibles aunque `eventos_grupos` sea de otro grupo (2026-09-14)
 - [x] UnifiedAgenda: chips de artista FIMBA junto a grupos cuando hay `eventos_fimba_propuestas` (2026-09-14)
 - [x] UnifiedAgenda: multi-select editor (check bajo hora, bulk eliminar/ocultar/etiqueta de grupo, trash por fila) (2026-09-22)
+- [x] Rol por defecto: Prod. + ensamble músico → `mus_prod` (`inferDefaultTourRole`; 2026-09-23)

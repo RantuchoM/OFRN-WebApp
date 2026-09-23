@@ -35,7 +35,10 @@ import {
   applyEffectiveGiraInstrument,
 } from "../../utils/giraUtils";
 import { buildAusenteMailNotification, buildBajaGiraMailNotification, buildExclusionEnsambleMailNotification, buildExclusionFamiliaMailNotification, buildInclusionFamiliaMailNotification, buildPresenteMailNotification } from "../../utils/rosterBajaMotivos";
-import { integranteActiveOnProgramRange } from "../../utils/ensembleMembership";
+import {
+  integranteActiveOnProgramRange,
+  filterMembershipRowsForProgramDate,
+} from "../../utils/ensembleMembership";
 import MusicianForm from "../Musicians/MusicianForm";
 import {
   AddVacancyModal,
@@ -2449,7 +2452,10 @@ export default function GiraRoster({
     try {
       const { data, error } = await supabase
         .from("integrantes")
-        .select("*, instrumentos(instrumento, familia, rol_gira_default)")
+        .select(
+          `*, instrumentos(instrumento, familia, rol_gira_default),
+           integrantes_ensambles(id, id_ensamble, fecha_desde, fecha_hasta, ensambles(id, ensamble))`,
+        )
         .eq("id", idForQuery)
         .maybeSingle();
 
@@ -2460,6 +2466,10 @@ export default function GiraRoster({
           nombre: data.nombre || "",
           mail: data.mail || null,
           instrumentos: data.instrumentos || null,
+          integrantes_ensambles: filterMembershipRowsForProgramDate(
+            data.integrantes_ensambles || [],
+            gira.fecha_desde,
+          ),
           nombre_completo:
             data.nombre_completo ||
             `${data.apellido || ""}, ${data.nombre || ""}`.trim(),
