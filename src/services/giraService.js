@@ -869,7 +869,7 @@ export const getMyRoomingStatus = async (supabase, giraId, userId) => {
     const eventIds = [
       ...new Set(
         rules.flatMap((r) =>
-          [r.id_evento_checkin, r.id_evento_checkout].filter(Boolean),
+          [r.id_evento_checkin, r.id_evento_checkout, r.id_evento_checkin_early, r.id_evento_checkout_late].filter(Boolean),
         ),
       ),
     ];
@@ -1100,6 +1100,14 @@ export const deleteGiraTransporteCascade = async (supabase, giraTransporteId) =>
           .from("giras_logistica_reglas")
           .update({ id_evento_checkout: null })
           .in("id_evento_checkout", eventIds),
+        supabase
+          .from("giras_logistica_reglas")
+          .update({ id_evento_checkin_early: null })
+          .in("id_evento_checkin_early", eventIds),
+        supabase
+          .from("giras_logistica_reglas")
+          .update({ id_evento_checkout_late: null })
+          .in("id_evento_checkout_late", eventIds),
       ]);
       for (const r of cleanup) {
         if (r.error) throw r.error;

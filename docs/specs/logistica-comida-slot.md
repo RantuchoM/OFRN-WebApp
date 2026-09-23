@@ -3,7 +3,9 @@
 ## Objetivo
 La cobertura de comidas de una regla logística (`comida_inicio` / `comida_fin`) identifica un **slot** — tipo base + día — no un `eventos.id`. Varios almuerzos el mismo día (convocatorias distintas) son instancias del mismo slot. Borrar o fusionar un evento no desasocia la regla.
 
-Check-in y check-out siguen vinculados a un evento concreto.
+Check-in y check-out siguen vinculados a un evento concreto. Early check-in / Late check-out son tipos 40/41 con FKs `id_evento_checkin_early` / `id_evento_checkout_late` (ver `docs/specs/early-late-checkin-checkout.md`).
+
+La regla no persiste si check-in (o early) es posterior al check-out (o late), ni si la comida inicial es posterior a la final.
 
 ## Modelo
 

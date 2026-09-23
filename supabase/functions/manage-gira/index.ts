@@ -315,6 +315,8 @@ async function duplicateGira(
         prov_cena: r.prov_cena,
         id_evento_checkin: r.id_evento_checkin,
         id_evento_checkout: r.id_evento_checkout,
+        id_evento_checkin_early: r.id_evento_checkin_early,
+        id_evento_checkout_late: r.id_evento_checkout_late,
       }));
       await supabase.from("giras_logistica_reglas").insert(newReglas);
       log(` → OK. ${reglas.length} reglas logísticas copiadas.`);

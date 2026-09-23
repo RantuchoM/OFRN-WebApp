@@ -8,8 +8,8 @@ Poder exportar el rooming (quién en cada habitación, tipo, fechas) **filtrado 
 ### OFRN (Giras → Rooming → Reportes → Reporte de habitaciones)
 - Modal portal `z-[100]` (`RoomingReport.jsx`).
 - Selector **Hotel**: Todos | cada hospedaje con habitaciones.
-- **Imprimir / PDF**: respeta el filtro (un hotel o secciones por hotel).
-- **Excel**: hojas `Habitaciones` + `Rooming plazas`; si hay varios hoteles y filtro = Todos, **una hoja extra por hotel** (plazas) para mandar a cada recepción.
+- **Imprimir / PDF**: respeta el filtro (un hotel o secciones por hotel). Noches = calendario (check-out − check-in) **+ 0,5** por Early check-in y **+ 0,5** por Late check-out (se acumulan). Nota al pie.
+- **Excel**: hojas `Habitaciones` + `Rooming plazas` (columnas Early CI / Late CO / Noches); si hay varios hoteles y filtro = Todos, **una hoja extra por hotel** (plazas) para mandar a cada recepción.
 - Util: `src/utils/ofrnRoomingExport.js`.
 
 ### FIMBA (Hotelería → Reportes / Excel rooming)

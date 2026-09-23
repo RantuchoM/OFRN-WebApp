@@ -15,6 +15,10 @@ import {
   listOfrnRoomingHotels,
   totalBedNightsFromRooms,
 } from "../../utils/ofrnRoomingExport";
+import {
+  formatHotelNights,
+  STAY_EVENT_FOOTNOTE,
+} from "../../utils/hotelStayEvents";
 import { toast } from "sonner";
 
 const formatDate = (d) =>
@@ -417,8 +421,18 @@ const RoomingReportModal = ({
                           <span
                             style={{ fontSize: "14px", marginLeft: "5px" }}
                           >
-                            {totalBedNights}
+                            {formatHotelNights(totalBedNights)}
                           </span>
+                          <div
+                            style={{
+                              fontWeight: "normal",
+                              fontSize: "10px",
+                              color: "#64748b",
+                              marginTop: "6px",
+                            }}
+                          >
+                            {STAY_EVENT_FOOTNOTE}
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -439,6 +453,12 @@ const RoomingReportModal = ({
                           <th style={{ width: "70px" }}>F. Nac</th>
                           <th style={{ width: "85px" }}>Check In</th>
                           <th style={{ width: "85px" }}>Check Out</th>
+                          <th style={{ width: "70px" }} className="center">
+                            Extra
+                          </th>
+                          <th style={{ width: "55px" }} className="center">
+                            Noches
+                          </th>
                         </tr>
                       </thead>
                       <tbody>
@@ -525,6 +545,30 @@ const RoomingReportModal = ({
                                     >
                                       {formatTime(occ.dateOut)}
                                     </span>
+                                  </td>
+                                  <td className="center">
+                                    {[
+                                      occ.earlyCheckIn ? "Early +0,5" : null,
+                                      occ.lateCheckOut ? "Late +0,5" : null,
+                                    ]
+                                      .filter(Boolean)
+                                      .join(" · ") || "—"}
+                                  </td>
+                                  <td className="center">
+                                    {occ.dateIn && occ.dateOut
+                                      ? formatHotelNights(
+                                          Math.max(
+                                            0,
+                                            Math.round(
+                                              (occ.dateOut - occ.dateIn) /
+                                                (1000 * 60 * 60 * 24),
+                                            ),
+                                          ) +
+                                            (occ.ocupa_cama === false
+                                              ? 0
+                                              : occ.extraNights || 0),
+                                        )
+                                      : "—"}
                                   </td>
                                 </tr>
                               ))}

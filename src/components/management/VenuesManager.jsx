@@ -29,6 +29,7 @@ import { toast } from "sonner";
 import { format, startOfDay, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
 import { normalizeEventosInternasHtml } from "../../utils/eventosInternas";
+import { resolveEventFormSaveData } from "../../utils/hotelStayEvents";
 
 function formatVenueStageDims(loc) {
   const w = Number(loc?.escenario_ancho_cm);
@@ -452,8 +453,9 @@ export function VenuesManager({ supabase }) {
     }
   };
 
-  const handleEditSave = async () => {
-    if (!editFormData.fecha || !editFormData.hora_inicio) {
+  const handleEditSave = async (snapshot) => {
+    const form = resolveEventFormSaveData(editFormData, snapshot);
+    if (!form.fecha || !form.hora_inicio) {
       toast.error("Faltan datos de fecha u horario.");
       return;
     }
@@ -463,12 +465,12 @@ export function VenuesManager({ supabase }) {
         ? null
         : editingEventObj.id_estado_venue;
     const newStatus =
-      editFormData.id_estado_venue == null
+      form.id_estado_venue == null
         ? null
-        : editFormData.id_estado_venue;
+        : form.id_estado_venue;
 
     if (prevStatus !== newStatus && newStatus != null) {
-      if (!editFormData.venue_status_note?.trim()) {
+      if (!form.venue_status_note?.trim()) {
         toast.error("Agrega una nota para el cambio de estado de venue.");
         return;
       }
@@ -477,36 +479,36 @@ export function VenuesManager({ supabase }) {
     setSaving(true);
     try {
       const payload = {
-        descripcion: editFormData.descripcion,
+        descripcion: form.descripcion,
         observaciones_internas: normalizeEventosInternasHtml(
-          editFormData.observaciones_internas,
+          form.observaciones_internas,
         ),
         observaciones_aforo:
-          Number(editFormData.id_tipo_evento) === 1
-            ? String(editFormData.observaciones_aforo || "").trim() || null
+          Number(form.id_tipo_evento) === 1
+            ? String(form.observaciones_aforo || "").trim() || null
             : null,
-        fecha: editFormData.fecha,
-        hora_inicio: editFormData.hora_inicio,
-        hora_fin: editFormData.hora_fin || editFormData.hora_inicio,
-        id_tipo_evento: editFormData.id_tipo_evento || null,
-        id_locacion: editFormData.id_locacion || null,
-        id_gira_transporte: editFormData.id_gira_transporte ?? null,
-        tecnica: editFormData.tecnica || false,
-        id_estado_venue: editFormData.id_estado_venue || null,
+        fecha: form.fecha,
+        hora_inicio: form.hora_inicio,
+        hora_fin: form.hora_fin || form.hora_inicio,
+        id_tipo_evento: form.id_tipo_evento || null,
+        id_locacion: form.id_locacion || null,
+        id_gira_transporte: form.id_gira_transporte ?? null,
+        tecnica: form.tecnica || false,
+        id_estado_venue: form.id_estado_venue || null,
       };
 
       const { error } = await supabase
         .from("eventos")
         .update(payload)
-        .eq("id", editFormData.id);
+        .eq("id", form.id);
       if (error) throw error;
 
       if (prevStatus !== newStatus && newStatus != null) {
         try {
           await supabase.from("eventos_venue_log").insert({
-            id_evento: editFormData.id,
+            id_evento: form.id,
             id_estado_venue: newStatus,
-            nota: editFormData.venue_status_note || null,
+            nota: form.venue_status_note || null,
             id_integrante: userId || null,
           });
         } catch (logErr) {

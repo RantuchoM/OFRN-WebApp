@@ -7,6 +7,13 @@ import { saveAs } from "file-saver";
 import { differenceInCalendarDays } from "date-fns";
 import { toast } from "sonner";
 import { formatTramoTitle } from "./giraTramos";
+import {
+  extraHotelNightsFromLogistics,
+  formatHotelNights,
+  logisticsHasEarlyCheckIn,
+  logisticsHasLateCheckOut,
+  STAY_EVENT_FOOTNOTE,
+} from "./hotelStayEvents";
 
 async function loadExcelJS() {
   const { default: ExcelJS } = await import("exceljs");
@@ -84,8 +91,12 @@ export function getLogisticsDates(log) {
   };
 
   return {
-    dateIn: parseMilestone(log?.checkin, log?.checkin_time, "14:00"),
-    dateOut: parseMilestone(log?.checkout, log?.checkout_time, "10:00"),
+    dateIn:
+      parseMilestone(log?.checkin, log?.checkin_time, "14:00") ||
+      parseMilestone(log?.checkin_early, null, "14:00"),
+    dateOut:
+      parseMilestone(log?.checkout, log?.checkout_time, "10:00") ||
+      parseMilestone(log?.checkout_late, null, "10:00"),
   };
 }
 
@@ -128,11 +139,16 @@ function processRoom(r, logisticsMap, bk, segmentRow) {
     const log = logisticsMap[occ.id] || {};
     const { dateIn, dateOut } = getLogisticsDates(log);
     const clipped = clipDatesToSegment(dateIn, dateOut, bk, segmentRow);
+    const extraNights =
+      occ.ocupa_cama === false ? 0 : extraHotelNightsFromLogistics(log);
     return {
       ...occ,
       dateIn: clipped.dateIn,
       dateOut: clipped.dateOut,
       ocupa_cama: occ.ocupa_cama !== false,
+      extraNights,
+      earlyCheckIn: logisticsHasEarlyCheckIn(log),
+      lateCheckOut: logisticsHasLateCheckOut(log),
     };
   });
 
@@ -335,6 +351,9 @@ const PLAZA_COLS = [
   { header: "F. Nac", key: "fnac", width: 12 },
   { header: "Check-in", key: "checkin", width: 14 },
   { header: "Check-out", key: "checkout", width: 14 },
+  { header: "Early CI", key: "early", width: 10 },
+  { header: "Late CO", key: "late", width: 10 },
+  { header: "Noches", key: "noches", width: 10 },
 ];
 
 function buildRowsFromSections(sections) {
@@ -358,7 +377,18 @@ function buildRowsFromSections(sections) {
             const outL = formatDate(o.dateOut);
             const range =
               inL || outL ? ` (${inL || "—"} → ${outL || "—"})` : "";
-            return `${name}${cuna}${range}`;
+            const extra =
+              o.extraNights > 0
+                ? ` +${formatHotelNights(o.extraNights)} media noche`
+                : "";
+            const flags = [
+              o.earlyCheckIn ? "Early CI" : null,
+              o.lateCheckOut ? "Late CO" : null,
+            ]
+              .filter(Boolean)
+              .join(", ");
+            const flagBit = flags ? ` [${flags}]` : "";
+            return `${name}${cuna}${range}${flagBit}${extra}`;
           })
           .join("; ");
 
@@ -393,9 +423,18 @@ function buildRowsFromSections(sections) {
             fnac: "",
             checkin: "",
             checkout: "",
+            early: "",
+            late: "",
+            noches: "",
           });
         } else {
           for (const o of r.occupants) {
+            const cal =
+              o.dateIn && o.dateOut
+                ? Math.max(0, differenceInCalendarDays(o.dateOut, o.dateIn))
+                : 0;
+            const extra =
+              o.ocupa_cama === false ? 0 : Number(o.extraNights) || 0;
             plazas.push({
               tramo,
               hotel: hotel.hotelName,
@@ -415,6 +454,9 @@ function buildRowsFromSections(sections) {
               checkout: o.dateOut
                 ? `${formatDate(o.dateOut)} ${formatTime(o.dateOut)}`.trim()
                 : "",
+              early: o.earlyCheckIn ? "Sí (+0,5)" : "",
+              late: o.lateCheckOut ? "Sí (+0,5)" : "",
+              noches: formatHotelNights(cal + extra),
             });
           }
         }
@@ -499,7 +541,10 @@ export async function exportOfrnRoomingExcel({
   wb.created = new Date();
 
   fillSheet(wb.addWorksheet("Habitaciones"), HAB_COLS, habitaciones);
-  fillSheet(wb.addWorksheet("Rooming plazas"), PLAZA_COLS, plazas);
+  const plazasSheet = wb.addWorksheet("Rooming plazas");
+  fillSheet(plazasSheet, PLAZA_COLS, plazas);
+  plazasSheet.addRow([]);
+  plazasSheet.addRow({ tramo: STAY_EVENT_FOOTNOTE });
 
   // Si hay varios hoteles, una hoja extra por hotel (solo plazas) para mandar a cada recepción.
   if (
@@ -553,7 +598,8 @@ export function totalBedNightsFromRooms(processedRooms = []) {
     for (const occ of room.bedOccupants || []) {
       if (occ.dateIn && occ.dateOut) {
         const nights = differenceInCalendarDays(occ.dateOut, occ.dateIn);
-        if (nights > 0) total += nights;
+        const extra = Number(occ.extraNights) || 0;
+        if (nights > 0 || extra > 0) total += Math.max(0, nights) + extra;
       }
     }
   }

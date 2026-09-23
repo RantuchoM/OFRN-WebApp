@@ -23,6 +23,7 @@ import CommentButton from "../../components/comments/CommentButton";
 import EventForm from "../../components/forms/EventForm";
 import { normalizeEventosInternasHtml } from "../../utils/eventosInternas";
 import { resolveEventHoraFinForSave } from "../../utils/mealLogistics";
+import { resolveEventFormSaveData } from "../../utils/hotelStayEvents";
 
 // --- SUBCOMPONENTE DE MODAL DE LECTURA DE EVENTO CON DETALLES ---
 const ReadOnlyEventDetailModal = ({
@@ -304,42 +305,43 @@ export default function WeeklyCalendar({
     setLoadingModal(false);
   };
 
-  const handleSaveEdit = async () => {
-    if (!editFormData.fecha || !editFormData.hora_inicio)
+  const handleSaveEdit = async (snapshot) => {
+    const form = resolveEventFormSaveData(editFormData, snapshot);
+    if (!form.fecha || !form.hora_inicio)
       return alert("Fecha y Hora Inicio son requeridas");
 
     setLoadingModal(true);
     try {
       const payload = {
-        descripcion: editFormData.descripcion.trim() || null,
+        descripcion: form.descripcion.trim() || null,
         observaciones_internas: normalizeEventosInternasHtml(
-          editFormData.observaciones_internas,
+          form.observaciones_internas,
         ),
         observaciones_aforo:
-          Number(editFormData.id_tipo_evento) === 1
-            ? String(editFormData.observaciones_aforo || "").trim() || null
+          Number(form.id_tipo_evento) === 1
+            ? String(form.observaciones_aforo || "").trim() || null
             : null,
-        fecha: editFormData.fecha,
-        hora_inicio: editFormData.hora_inicio,
+        fecha: form.fecha,
+        hora_inicio: form.hora_inicio,
         hora_fin: resolveEventHoraFinForSave(
-          editFormData.hora_fin,
-          editFormData.hora_inicio,
+          form.hora_fin,
+          form.hora_inicio,
           {
-            id_tipo_evento: editFormData.id_tipo_evento,
+            id_tipo_evento: form.id_tipo_evento,
             tipos_evento: eventTypes.find(
-              (t) => String(t.id) === String(editFormData.id_tipo_evento),
+              (t) => String(t.id) === String(form.id_tipo_evento),
             ),
           },
         ),
-        id_tipo_evento: editFormData.id_tipo_evento || null,
-        id_locacion: editFormData.id_locacion || null,
-        id_gira_transporte: editFormData.id_gira_transporte ?? null,
+        id_tipo_evento: form.id_tipo_evento || null,
+        id_locacion: form.id_locacion || null,
+        id_gira_transporte: form.id_gira_transporte ?? null,
       };
 
       const { error } = await supabase
         .from("eventos")
         .update(payload)
-        .eq("id", editFormData.id);
+        .eq("id", form.id);
       if (error) throw error;
 
       setShowEditModal(false);
@@ -348,12 +350,12 @@ export default function WeeklyCalendar({
       // Llamar a la función del padre para recargar la vista (Actualizar GirasView)
       if (updateEventInSupabase) {
         await updateEventInSupabase({
-          id: editFormData.id,
-          start: editFormData.fecha + "T" + editFormData.hora_inicio,
+          id: form.id,
+          start: form.fecha + "T" + form.hora_inicio,
           end:
-            editFormData.fecha +
+            form.fecha +
             "T" +
-            (editFormData.hora_fin || editFormData.hora_inicio),
+            (form.hora_fin || form.hora_inicio),
         });
       }
     } catch (error) {

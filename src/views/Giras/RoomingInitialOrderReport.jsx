@@ -276,7 +276,19 @@ function PassengerDetailTable({ passengers = [], emptyLabel = "Sin pasajeros en 
                     </span>
                   </td>
                   <td className="border border-slate-300 px-2 py-1.5 text-center align-middle font-bold text-slate-800">
-                    {nights}
+                    {typeof nights === "number"
+                      ? nights.toLocaleString("es-AR", {
+                          minimumFractionDigits: nights % 1 === 0 ? 0 : 1,
+                          maximumFractionDigits: 1,
+                        })
+                      : nights}
+                    {p.extraNights > 0 ? (
+                      <div className="text-[9px] font-semibold text-sky-700">
+                        {p.earlyCheckIn ? "Early +0,5" : ""}
+                        {p.earlyCheckIn && p.lateCheckOut ? " · " : ""}
+                        {p.lateCheckOut ? "Late +0,5" : ""}
+                      </div>
+                    ) : null}
                   </td>
                 </tr>
               );
@@ -827,7 +839,7 @@ const InitialOrderReportModal = ({
                         )}
                         <h3 className="desglose-heading">Desglose por Fechas y Categoría</h3>
                         <p className="print-note text-[10px] text-slate-400 mb-2 italic">
-                          * Referencia: (Pax × Noches) = Total Camas Noche. Las cunas no se facturan como noche; se informan para preparación del hotel.
+                          * Referencia: (Pax × Noches) = Total Camas Noche. Early check-in y late check-out suman 0,5 noche cada uno (se acumulan). Las cunas no se facturan como noche; se informan para preparación del hotel.
                         </p>
 
                         {hotelBlocks.map((block, blockIdx) => (

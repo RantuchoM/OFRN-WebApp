@@ -40,6 +40,10 @@ import {
 } from "../../utils/giraTramos";
 import { bookingBelongsToSegment } from "../../utils/roomingInitialOrder";
 import {
+  logisticsHasEarlyCheckIn,
+  logisticsHasLateCheckOut,
+} from "../../utils/hotelStayEvents";
+import {
   enforceUniquePersonPerHotel,
   normalizeIntegranteId,
   removePersonFromScopedRooms,
@@ -660,6 +664,13 @@ const MusicianCard = ({
       <div className="truncate max-w-[120px]">
         <b>{m.apellido}</b> {m.nombre}
         {isCuna && " (Cuna)"}
+        {(m.earlyCheckIn || m.lateCheckOut) && (
+          <span className="ml-1 text-[8px] font-black uppercase text-sky-700">
+            {m.earlyCheckIn ? "Early" : ""}
+            {m.earlyCheckIn && m.lateCheckOut ? " · " : ""}
+            {m.lateCheckOut ? "Late" : ""}
+          </span>
+        )}
       </div>
       <div className="flex items-center gap-1">
         {isLocal && (
@@ -1411,18 +1422,25 @@ export default function RoomingManager({
     () => rooms.filter((r) => visibleBookingIds.has(r.id_hospedaje)),
     [rooms, visibleBookingIds],
   );
+  const [loading, setLoading] = useState(false);
+  const [logisticsRules, setLogisticsRules] = useState([]);
+  const [logisticsMap, setLogisticsMap] = useState({});
   /** Ocupantes con localía del tramo activo (evita advertencia de local en otro tramo). */
   const visibleRoomsEnriched = useMemo(
     () =>
       visibleRooms.map((room) => ({
         ...room,
-        occupants: (room.occupants || []).map((o) => enrichForSegment(o)),
+        occupants: (room.occupants || []).map((o) => {
+          const log = logisticsMap[o.id] || logisticsMap[normalizeIntegranteId(o.id)];
+          return {
+            ...enrichForSegment(o),
+            earlyCheckIn: logisticsHasEarlyCheckIn(log),
+            lateCheckOut: logisticsHasLateCheckOut(log),
+          };
+        }),
       })),
-    [visibleRooms, enrichForSegment],
+    [visibleRooms, enrichForSegment, logisticsMap],
   );
-  const [loading, setLoading] = useState(false);
-  const [logisticsRules, setLogisticsRules] = useState([]);
-  const [logisticsMap, setLogisticsMap] = useState({});
   const [showReport, setShowReport] = useState(false);
   const [showInitialOrder, setShowInitialOrder] = useState(false);
   const [showReportsHub, setShowReportsHub] = useState(false);

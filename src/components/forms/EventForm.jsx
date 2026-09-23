@@ -39,6 +39,11 @@ import {
 } from "../../utils/eventosInternas";
 import { uploadEventoInternasImage } from "../../services/eventosInternasService";
 import FimbaRichTextEditor from "../../views/Fimba/FimbaRichTextEditor";
+import {
+  defaultHoraForStayTipo,
+  shouldApplyStayHoraDefault,
+  stayHourCategoryPrompt,
+} from "../../utils/hotelStayEvents";
 
 const TIPO_TRANSPORTE_SALIDA = 11;
 const TIPO_TRANSPORTE_LLEGADA = 12;
@@ -65,6 +70,8 @@ export default function EventForm({
     [roles],
   );
   const [showExitConfirm, setShowExitConfirm] = useState(false);
+  const [stayHourPrompt, setStayHourPrompt] = useState(null);
+  const isNewEvent = isNew || Boolean(formData?._isNew);
   const [transportesList, setTransportesList] = useState([]);
   const [isEditingVenueStatus, setIsEditingVenueStatus] = useState(false);
   const [gruposOptions, setGruposOptions] = useState([]);
@@ -131,10 +138,22 @@ export default function EventForm({
     };
   }, [supabase, effectiveGiraId]);
 
+  // Early check-in 14:00 / late check-out 10:00 si el tipo es 40/41 y la hora está vacía
+  // o es un placeholder (12:00 logística, mapeo 10/14 invertido).
+  useEffect(() => {
+    if (!isNewEvent) return;
+    if (!shouldApplyStayHoraDefault(formData.id_tipo_evento, formData.hora_inicio)) {
+      return;
+    }
+    const canonical = defaultHoraForStayTipo(formData.id_tipo_evento);
+    if (!canonical) return;
+    setFormData((prev) => ({ ...prev, hora_inicio: canonical }));
+  }, [isNewEvent, formData.id_tipo_evento]);
+
   // Al crear un evento tipo concierto (1), estado de venue por defecto "Solicitado" (id 2).
   // Si el usuario cambia a otro tipo (p. ej. tocó Concierto por error), limpiar venue.
   useEffect(() => {
-    if (!isNew) return;
+    if (!isNewEvent) return;
     const isConcierto = Number(formData.id_tipo_evento) === 1;
     if (isConcierto) {
       if (formData.id_estado_venue == null || formData.id_estado_venue === "") {
@@ -152,11 +171,11 @@ export default function EventForm({
         venue_status_note: "",
       }));
     }
-  }, [isNew, formData.id_tipo_evento]);
+  }, [isNewEvent, formData.id_tipo_evento]);
 
   // En edición: si dejan de ser concierto, no conservar estado/nota de venue en el form.
   useEffect(() => {
-    if (isNew) return;
+    if (isNewEvent) return;
     if (Number(formData.id_tipo_evento) === 1) return;
     if (
       (formData.id_estado_venue != null && formData.id_estado_venue !== "") ||
@@ -168,7 +187,7 @@ export default function EventForm({
         venue_status_note: "",
       }));
     }
-  }, [isNew, formData.id_tipo_evento]);
+  }, [isNewEvent, formData.id_tipo_evento]);
 
   const transportOptions = useMemo(() => {
     return transportesList.map((t) => {
@@ -298,6 +317,36 @@ export default function EventForm({
   );
 
   // 3. FUNCIONES DE CIERRE (Ajustadas a tu ConfirmModal)
+  const emitSave = useCallback(
+    (nextTipoId) => {
+      const next = {
+        ...formData,
+        ...(nextTipoId != null ? { id_tipo_evento: nextTipoId } : {}),
+      };
+      if (
+        nextTipoId != null &&
+        Number(nextTipoId) !== Number(formData.id_tipo_evento)
+      ) {
+        setFormData(next);
+      }
+      onSave(next);
+    },
+    [formData, onSave, setFormData],
+  );
+
+  const handleAttemptSave = () => {
+    if (!canSave) return;
+    const prompt = stayHourCategoryPrompt(
+      formData.id_tipo_evento,
+      formData.hora_inicio,
+    );
+    if (prompt) {
+      setStayHourPrompt(prompt);
+      return;
+    }
+    onSave(formData);
+  };
+
   const handleSafeClose = (e) => {
     if (e) {
       e.preventDefault();
@@ -320,9 +369,9 @@ export default function EventForm({
       <div className="px-4 py-3 border-b border-slate-100 flex justify-between items-center bg-slate-50 shrink-0">
         <div className="min-w-0 pr-2">
           <h3 className="font-bold text-slate-800 flex items-center gap-2">
-            <IconEdit size={18} /> {isNew ? "Nuevo Evento" : "Editar Evento"}
+            <IconEdit size={18} /> {isNewEvent ? "Nuevo Evento" : "Editar Evento"}
           </h3>
-          {!isNew && isConcertHistoryEvent(formData) && formatConcertCreatedLine(formData) ? (
+          {!isNewEvent && isConcertHistoryEvent(formData) && formatConcertCreatedLine(formData) ? (
             <p className="text-[10px] text-slate-500 mt-0.5 truncate">
               {formatConcertCreatedLine(formData)}
             </p>
@@ -790,7 +839,7 @@ export default function EventForm({
       {/* FOOTER */}
       <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-between items-center shrink-0">
         <div className="flex gap-2">
-          {!isNew && (
+          {!isNewEvent && (
             <>
               {onDelete && (
                 <button
@@ -842,10 +891,7 @@ export default function EventForm({
             Cancelar
           </button>
           <button
-            onClick={() => {
-              if (!canSave) return;
-              onSave();
-            }}
+            onClick={handleAttemptSave}
             disabled={loading || !canSave}
             title={
               canSave
@@ -859,7 +905,7 @@ export default function EventForm({
             ) : (
               <IconCheck size={18} />
             )}
-            {isNew ? "Crear" : "Guardar"}
+            {isNewEvent ? "Crear" : "Guardar"}
           </button>
           </div>
         </div>
@@ -874,6 +920,28 @@ export default function EventForm({
         message="Tienes modificaciones pendientes. Si sales ahora, se perderán todos los cambios realizados en este evento."
         confirmText="Descartar y salir"
         cancelText="Continuar editando"
+        overlayClassName="z-[10050]"
+      />
+      <ConfirmModal
+        isOpen={Boolean(stayHourPrompt)}
+        onClose={() => setStayHourPrompt(null)}
+        onConfirm={() => {
+          const yesId = stayHourPrompt?.yesTipoId;
+          setStayHourPrompt(null);
+          emitSave(yesId);
+        }}
+        title={stayHourPrompt?.title || ""}
+        message={stayHourPrompt?.message || ""}
+        confirmText="Sí"
+        hideCancel
+        overlayClassName="z-[10050]"
+        secondaryAction={{
+          label: "No",
+          onClick: () => {
+            setStayHourPrompt(null);
+            emitSave(null);
+          },
+        }}
       />
     </div>
   );

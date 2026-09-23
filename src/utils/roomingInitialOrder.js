@@ -7,9 +7,7 @@ import {
 } from "date-fns";
 import { es } from "date-fns/locale";
 import {
-  compareLogisticsRulePrecedence,
-  getMatchStrength,
-  getRuleCategoryTiebreak,
+  pickWinningLogisticsRule as pickWinningLogisticsRuleCore,
   normalize,
   resolveRuleFieldInstant,
 } from "./giraUtils";
@@ -21,6 +19,11 @@ import {
   nightBelongsToTramo,
   sliceTime,
 } from "./giraTramos";
+import {
+  extraHotelNightsFromLogistics,
+  logisticsHasEarlyCheckIn,
+  logisticsHasLateCheckOut,
+} from "./hotelStayEvents";
 
 export const DEFAULT_ADJ = { std_m: 0, std_f: 0, plus_m: 0, plus_f: 0 };
 
@@ -100,7 +103,12 @@ export function getLogisticsDates(log) {
     log?.checkout_time,
     "10:00",
   );
-  return { dateIn: checkin.date, dateOut: checkout.date };
+  const early = parseLogisticsMilestone(log?.checkin_early, null, "14:00");
+  const late = parseLogisticsMilestone(log?.checkout_late, null, "10:00");
+  return {
+    dateIn: checkin.date || early.date,
+    dateOut: checkout.date || late.date,
+  };
 }
 
 export function getDatesFromBooking(booking) {
@@ -390,8 +398,8 @@ export function formatOccupancyStay(dateIn, dateOut) {
 }
 
 /**
- * Una sola regla ganadora (fuerza 5 ID > 4 categoría/rol > 3–1 territorio/general).
- * No se unen fechas de reglas más débiles: in y out salen de esa regla.
+ * Una sola regla ganadora (motor `giraUtils.pickWinningLogisticsRule`).
+ * Hotel usa el hito check-in/out. No se unen fechas de reglas más débiles.
  */
 export function pickWinningLogisticsRule(
   person,
@@ -400,25 +408,13 @@ export function pickWinningLogisticsRule(
   events = [],
   segments = [],
 ) {
-  const ranked = (rules || [])
-    .map((rule, idx) => {
-      const options = {
-        segments,
-        instant:
-          resolveRuleFieldInstant(rule, "checkin", events) ||
-          resolveRuleFieldInstant(rule, "checkout", events),
-        field: "checkin",
-      };
-      return {
-        rule,
-        strength: getMatchStrength(rule, person, localities, options),
-        categoryTiebreak: getRuleCategoryTiebreak(rule, person, options),
-        idx,
-      };
-    })
-    .filter((item) => item.strength > 0)
-    .sort(compareLogisticsRulePrecedence);
-  return ranked.length ? ranked[ranked.length - 1].rule : null;
+  return pickWinningLogisticsRuleCore(person, rules, localities, (rule) => ({
+    segments,
+    instant:
+      resolveRuleFieldInstant(rule, "checkin", events) ||
+      resolveRuleFieldInstant(rule, "checkout", events),
+    field: "checkin",
+  }));
 }
 
 function milestoneFromEventOrRule(event, rule, dateField, timeField) {
@@ -445,7 +441,7 @@ function milestoneFromEventOrRule(event, rule, dateField, timeField) {
 
 /** Logística `{ checkin, checkout }` solo de la regla ganadora. */
 export function logisticsLogFromRule(rule, events = []) {
-  if (!rule) return { checkin: {}, checkout: {} };
+  if (!rule) return { checkin: {}, checkout: {}, checkin_early: {}, checkout_late: {} };
   const checkinEv = (events || []).find(
     (e) => String(e.id) === String(rule.id_evento_checkin),
   );
@@ -464,6 +460,22 @@ export function logisticsLogFromRule(rule, events = []) {
       rule,
       "fecha_checkout",
       "hora_checkout",
+    ),
+    checkin_early: milestoneFromEventOrRule(
+      (events || []).find(
+        (e) => String(e.id) === String(rule.id_evento_checkin_early),
+      ),
+      rule,
+      null,
+      null,
+    ),
+    checkout_late: milestoneFromEventOrRule(
+      (events || []).find(
+        (e) => String(e.id) === String(rule.id_evento_checkout_late),
+      ),
+      rule,
+      null,
+      null,
     ),
   };
 }
@@ -933,9 +945,15 @@ function ensureDateGroup(dateGroups, key, clippedIn, clippedOut, nights) {
       basePlusMatriM: 0,
       basePlusMatriF: 0,
       cunas: [],
+      extraHalfNights: 0,
+      extraStdNights: 0,
+      extraPlusNights: 0,
     };
   }
   if (!Array.isArray(dateGroups[key].cunas)) dateGroups[key].cunas = [];
+  if (dateGroups[key].extraHalfNights == null) dateGroups[key].extraHalfNights = 0;
+  if (dateGroups[key].extraStdNights == null) dateGroups[key].extraStdNights = 0;
+  if (dateGroups[key].extraPlusNights == null) dateGroups[key].extraPlusNights = 0;
   if (dateGroups[key].basePlusSingle == null) dateGroups[key].basePlusSingle = 0;
   if (dateGroups[key].basePlusMatri == null) dateGroups[key].basePlusMatri = 0;
   if (dateGroups[key].baseStdM == null) dateGroups[key].baseStdM = 0;
@@ -959,6 +977,8 @@ function addPersonToDateGroups({
   formatD,
   formatT,
   asCuna = false,
+  extraEarly = false,
+  extraLate = false,
 }) {
   if (!dIn || !dOut || isNaN(dIn.getTime()) || isNaN(dOut.getTime())) return;
 
@@ -974,7 +994,8 @@ function addPersonToDateGroups({
   );
   if (!eligibleNights.length) return;
 
-  groupConsecutiveNights(eligibleNights).forEach((nightGroup) => {
+  const nightGroups = groupConsecutiveNights(eligibleNights);
+  nightGroups.forEach((nightGroup, groupIdx) => {
     const { clippedIn, clippedOut, nights } = buildClippedRange(
       dIn,
       dOut,
@@ -1030,6 +1051,17 @@ function addPersonToDateGroups({
     }
     if (isF) group.baseF++;
     else group.baseM++;
+
+    let addExtra = 0;
+    if (!asCuna) {
+      if (extraEarly && groupIdx === 0) addExtra += 0.5;
+      if (extraLate && groupIdx === nightGroups.length - 1) addExtra += 0.5;
+    }
+    if (addExtra > 0) {
+      group.extraHalfNights += addExtra;
+      if (plusRoom) group.extraPlusNights += addExtra;
+      else group.extraStdNights += addExtra;
+    }
   });
 }
 
@@ -1155,6 +1187,8 @@ export function buildInitialDateGroups({
       formatD,
       formatT,
       asCuna,
+      extraEarly: !asCuna && logisticsHasEarlyCheckIn(log),
+      extraLate: !asCuna && logisticsHasLateCheckOut(log),
     });
   });
 
@@ -1195,9 +1229,10 @@ function computeRowsFromDateGroups(
     const plusMatriPax = group.basePlusMatri || 0;
     const plusPax = plusSinglePax + plusMatriPax;
     const totalRowPax = stdPax + plusPax;
-    const stdNights = stdPax * group.nights;
-    const plusNights = plusPax * group.nights;
-    const totalRowNights = totalRowPax * group.nights;
+    const stdNights = stdPax * group.nights + (group.extraStdNights || 0);
+    const plusNights = plusPax * group.nights + (group.extraPlusNights || 0);
+    const totalRowNights =
+      totalRowPax * group.nights + (group.extraHalfNights || 0);
     const totalF = group.baseF + extraStdF + extraPlusF;
     const totalM = group.baseM + extraStdM + extraPlusM;
     const suggestedRooms = computeSuggestedRooms(totalF, totalM, bedsPerRoom);
@@ -1503,7 +1538,16 @@ export function buildInitialOrderPassengerDetailSections({
         fecha_nac: enriched.fecha_nac || null,
         dateIn: firstClip.clippedIn,
         dateOut: lastClip.clippedOut,
-        nights: eligibleNights.length,
+        nights:
+          eligibleNights.length +
+          (isPersonInCunaForPedido(personId, segmentRooms, enriched)
+            ? 0
+            : extraHotelNightsFromLogistics(log)),
+        earlyCheckIn: logisticsHasEarlyCheckIn(log),
+        lateCheckOut: logisticsHasLateCheckOut(log),
+        extraNights: isPersonInCunaForPedido(personId, segmentRooms, enriched)
+          ? 0
+          : extraHotelNightsFromLogistics(log),
         en_cuna: isPersonInCunaForPedido(personId, segmentRooms, enriched),
         hotelKey,
         hotelName,
