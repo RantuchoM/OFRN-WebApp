@@ -1,21 +1,5 @@
 import { IconHistory } from "../ui/Icons";
-import {
-  formatConcertCreatedLine,
-  isConcertHistoryEvent,
-} from "../../utils/eventCreationLog";
-
-export function ConcertCreatedLine({ event, className = "" }) {
-  if (!isConcertHistoryEvent(event)) return null;
-  const text = formatConcertCreatedLine(event);
-  if (!text) return null;
-  return (
-    <p
-      className={`text-[10px] text-slate-500 leading-tight ${className}`.trim()}
-    >
-      {text}
-    </p>
-  );
-}
+import { formatLogDate, formatLogTime } from "../../utils/eventCreationLog";
 
 export function AgendaEventHistoryButton({
   event,
@@ -24,7 +8,11 @@ export function AgendaEventHistoryButton({
   prominent = false,
 }) {
   if (!event || typeof onOpen !== "function") return null;
-  const label = `${event.tipos_evento?.nombre || "Evento"} ${event.fecha || ""} ${String(event.hora_inicio || "").slice(0, 5)}`;
+  const date = formatLogDate(event.fecha) || event.fecha || "";
+  const time =
+    formatLogTime(event.hora_inicio) ||
+    String(event.hora_inicio || "").slice(0, 5);
+  const label = `${event.tipos_evento?.nombre || "Evento"} ${date} ${time}`.trim();
   const handleClick = (e) => {
     e.stopPropagation();
     onOpen({

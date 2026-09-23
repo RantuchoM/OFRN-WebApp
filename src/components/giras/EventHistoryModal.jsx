@@ -1,29 +1,101 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
-import { IconX, IconLoader, IconHistory } from "../ui/Icons";
+import {
+  IconX,
+  IconLoader,
+  IconHistory,
+  IconUser,
+  IconClock,
+  IconMapPin,
+  IconArrowRight,
+} from "../ui/Icons";
 import { getEventHistory } from "../../services/giraService";
 import {
+  buildScheduleChangeGroups,
   creationSourceLabel,
-  formatConcertCreatedLine,
   formatDateTimeEs,
+  formatLogDate,
+  formatLogTime,
   formatPersonNombre,
 } from "../../utils/eventCreationLog";
 
-const FIELD_LABELS = {
-  fecha: "Fecha",
-  hora_inicio: "Hora inicio",
-  hora_fin: "Hora fin",
-  created: "Creado",
-};
+function authorNameFrom(person) {
+  return formatPersonNombre(person) || "";
+}
 
-function createdLineFromLog(log) {
-  const name = formatPersonNombre(log?.integrantes);
-  const source = creationSourceLabel(log?.valor_nuevo);
+function createdMetaFromLog(log) {
   const dateStr = formatDateTimeEs(log?.created_at);
-  let line = dateStr ? `Creado el ${dateStr}` : "Creado";
-  if (name) line += ` por ${name}`;
-  if (source) line += ` · ${source}`;
-  return line;
+  return {
+    line: dateStr ? `Creado el ${dateStr}` : "Creado",
+    name: authorNameFrom(log?.integrantes),
+    source: creationSourceLabel(log?.valor_nuevo),
+  };
+}
+
+/** «Concierto 2026-11-14 21:00» → fechas dd/mm/yyyy en el título. */
+function formatEventLabelDates(label) {
+  if (!label) return "Evento";
+  return String(label).replace(
+    /\b(\d{4})-(\d{2})-(\d{2})\b/g,
+    (_, y, m, d) => `${d}/${m}/${y}`,
+  );
+}
+
+function HighlightPart({ text, changed, side }) {
+  const display = text || "—";
+  if (!changed) {
+    return (
+      <span className="text-sm text-slate-600 font-medium tabular-nums">
+        {display}
+      </span>
+    );
+  }
+  if (side === "before") {
+    return (
+      <span className="text-sm text-slate-500 font-medium tabular-nums line-through decoration-slate-400/80">
+        {display}
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center rounded-md bg-emerald-50 px-1.5 py-0.5 text-sm font-semibold text-emerald-800 tabular-nums ring-1 ring-inset ring-emerald-200/80">
+      {display}
+    </span>
+  );
+}
+
+function ScheduleStamp({ snap, changed, side }) {
+  const date = formatLogDate(snap?.fecha);
+  const time = formatLogTime(snap?.hora_inicio);
+  return (
+    <p className="text-sm font-medium flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 min-w-0">
+      <HighlightPart
+        text={date || "—"}
+        changed={Boolean(changed?.fecha)}
+        side={side}
+      />
+      {time || changed?.hora_inicio ? (
+        <HighlightPart
+          text={time || "—"}
+          changed={Boolean(changed?.hora_inicio)}
+          side={side}
+        />
+      ) : null}
+    </p>
+  );
+}
+
+function SideRow({ before, after, changed }) {
+  return (
+    <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-1">
+      <HighlightPart text={before} changed={changed} side="before" />
+      <IconArrowRight
+        size={14}
+        className={changed ? "text-emerald-500 shrink-0" : "text-slate-300 shrink-0"}
+      />
+      <HighlightPart text={after} changed={changed} side="after" />
+    </div>
+  );
 }
 
 export default function EventHistoryModal({
@@ -63,14 +135,34 @@ export default function EventHistoryModal({
     () => logs.filter((log) => log.campo !== "created"),
     [logs],
   );
+  const changeGroups = useMemo(
+    () => buildScheduleChangeGroups(changeLogs, eventMeta),
+    [changeLogs, eventMeta],
+  );
 
-  const createdSummary = useMemo(() => {
-    if (createdLog) return createdLineFromLog(createdLog);
-    if (eventMeta) return formatConcertCreatedLine(eventMeta);
-    return "";
+  const createdMeta = useMemo(() => {
+    if (createdLog) return createdMetaFromLog(createdLog);
+    if (!eventMeta) return { line: "", name: "", source: "" };
+    const dateStr = formatDateTimeEs(eventMeta.created_at);
+    return {
+      line: dateStr ? `Creado el ${dateStr}` : "",
+      name:
+        authorNameFrom(eventMeta.creador) ||
+        authorNameFrom(eventMeta.created_by_integrante) ||
+        authorNameFrom(eventMeta.integrantes),
+      source: creationSourceLabel(eventMeta.creation_source),
+    };
   }, [createdLog, eventMeta]);
 
+  const createdSummary = createdMeta.line;
+  const createdAuthor = createdMeta.name;
+  const createdSource = createdMeta.source;
+  const hasCreatedCard = Boolean(
+    createdSummary || createdAuthor || createdSource,
+  );
+
   const zClass = nested ? "z-[110]" : "z-[100]";
+  const titleLabel = formatEventLabelDates(eventLabel);
 
   const content = (
     <div
@@ -90,7 +182,7 @@ export default function EventHistoryModal({
             className="text-base font-bold text-slate-800 truncate pr-2 flex items-center gap-2"
           >
             <IconHistory size={18} className="text-indigo-600 shrink-0" />
-            Historial — {eventLabel}
+            Historial — {titleLabel}
           </h2>
           <button
             type="button"
@@ -108,7 +200,7 @@ export default function EventHistoryModal({
             </div>
           ) : (
             <>
-              {createdSummary ? (
+              {hasCreatedCard ? (
                 <div className="border border-indigo-100 rounded-xl p-3 bg-indigo-50/60">
                   <span className="text-xs font-bold uppercase tracking-wide text-indigo-600 block mb-1">
                     Creado
@@ -116,57 +208,135 @@ export default function EventHistoryModal({
                   <p className="text-sm font-medium text-slate-800">
                     {createdSummary}
                   </p>
+                  {createdAuthor || createdSource ? (
+                    <p className="mt-1.5 flex items-center gap-1.5 text-xs text-indigo-700">
+                      {createdAuthor ? (
+                        <IconUser size={14} className="shrink-0" />
+                      ) : null}
+                      <span>
+                        {[createdAuthor, createdSource]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </span>
+                    </p>
+                  ) : null}
                 </div>
               ) : null}
 
-              {changeLogs.length === 0 && !createdSummary ? (
+              {changeLogs.length === 0 && !hasCreatedCard ? (
                 <p className="text-slate-500 text-sm text-center py-8">
                   No hay cambios registrados para este evento.
                 </p>
               ) : changeLogs.length === 0 ? (
                 <p className="text-slate-400 text-xs text-center py-2">
-                  No hay cambios posteriores de fecha u hora.
+                  No hay cambios posteriores de fecha, hora o locación.
                 </p>
               ) : (
                 <ul className="space-y-3">
-                  {changeLogs.map((log) => (
-                    <li
-                      key={log.id}
-                      className="border border-slate-200 rounded-xl p-3 bg-slate-50/50"
-                    >
-                      <div className="flex items-center justify-between gap-2 mb-1">
-                        <span className="text-xs font-bold uppercase tracking-wide text-indigo-600">
-                          {FIELD_LABELS[log.campo] || log.campo}
-                        </span>
-                        <span className="text-[10px] text-slate-400">
-                          {formatDateTimeEs(log.created_at) || "—"}
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-2 gap-2 text-sm">
-                        <div>
-                          <span className="text-slate-400 text-xs block">
-                            Anterior
+                  {changeGroups.map((group) => {
+                    const who = authorNameFrom(group.integrantes);
+                    const locChanged = Boolean(group.changed?.locacion);
+                    const finChanged = Boolean(group.changed?.hora_fin);
+                    const stampChanged =
+                      Boolean(group.changed?.fecha) ||
+                      Boolean(group.changed?.hora_inicio);
+                    return (
+                      <li
+                        key={group.key}
+                        className="border border-slate-200 rounded-xl overflow-hidden bg-white"
+                      >
+                        <div className="flex items-center justify-between gap-2 px-3 py-2 bg-slate-50 border-b border-slate-100">
+                          <span className="text-[11px] text-slate-500">
+                            {formatDateTimeEs(group.created_at) || "—"}
                           </span>
-                          <span className="text-slate-700 font-medium">
-                            {log.valor_anterior ?? "—"}
+                          {who ? (
+                            <span className="flex items-center gap-1 text-[11px] text-slate-600 truncate">
+                              <IconUser
+                                size={12}
+                                className="text-slate-400 shrink-0"
+                              />
+                              {who}
+                            </span>
+                          ) : null}
+                        </div>
+
+                        <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-1 px-3 pt-2 pb-1">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                            Antes
+                          </span>
+                          <span className="w-4" aria-hidden="true" />
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700">
+                            Después
                           </span>
                         </div>
-                        <div>
-                          <span className="text-slate-400 text-xs block">
-                            Nuevo
-                          </span>
-                          <span className="text-slate-800 font-medium">
-                            {log.valor_nuevo ?? "—"}
-                          </span>
+
+                        <div className="px-3 pb-3 space-y-2">
+                          <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-1">
+                            <ScheduleStamp
+                              snap={group.before}
+                              changed={group.changed}
+                              side="before"
+                            />
+                            <IconArrowRight
+                              size={14}
+                              className={
+                                stampChanged
+                                  ? "text-emerald-500 shrink-0"
+                                  : "text-slate-300 shrink-0"
+                              }
+                            />
+                            <ScheduleStamp
+                              snap={group.after}
+                              changed={group.changed}
+                              side="after"
+                            />
+                          </div>
+
+                          {finChanged ? (
+                            <div>
+                              <div className="flex items-center gap-1.5 mb-1">
+                                <IconClock
+                                  size={14}
+                                  className="text-indigo-500 shrink-0"
+                                />
+                                <span className="text-xs font-bold uppercase tracking-wide text-indigo-600">
+                                  Hasta
+                                </span>
+                              </div>
+                              <SideRow
+                                before={
+                                  formatLogTime(group.before.hora_fin) || "—"
+                                }
+                                after={
+                                  formatLogTime(group.after.hora_fin) || "—"
+                                }
+                                changed={finChanged}
+                              />
+                            </div>
+                          ) : null}
+
+                          {locChanged ? (
+                            <div>
+                              <div className="flex items-center gap-1.5 mb-1">
+                                <IconMapPin
+                                  size={14}
+                                  className="text-indigo-500 shrink-0"
+                                />
+                                <span className="text-xs font-bold uppercase tracking-wide text-indigo-600">
+                                  Locación
+                                </span>
+                              </div>
+                              <SideRow
+                                before={group.before.locacion || "—"}
+                                after={group.after.locacion || "—"}
+                                changed={locChanged}
+                              />
+                            </div>
+                          ) : null}
                         </div>
-                      </div>
-                      {formatPersonNombre(log.integrantes) ? (
-                        <p className="text-[10px] text-slate-400 mt-1">
-                          Por {formatPersonNombre(log.integrantes)}
-                        </p>
-                      ) : null}
-                    </li>
-                  ))}
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </>

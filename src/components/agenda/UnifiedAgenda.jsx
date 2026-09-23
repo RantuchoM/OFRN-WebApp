@@ -121,10 +121,7 @@ import AgendaMealActionModal from "./AgendaMealActionModal";
 import AgendaEventDescripcionHtml from "./AgendaEventDescripcionHtml";
 import EventTranspositionModal from "./EventTranspositionModal";
 import EventHistoryModal from "../giras/EventHistoryModal";
-import {
-  AgendaEventHistoryButton,
-  ConcertCreatedLine,
-} from "./ConcertHistoryControls";
+import { AgendaEventHistoryButton } from "./ConcertHistoryControls";
 import {
   EVENT_CREATION_SOURCES,
   isConcertHistoryEvent,
@@ -3835,8 +3832,6 @@ export default function UnifiedAgenda({
                                     </div>
                                   )}
 
-                                  <ConcertCreatedLine event={evt} className="mt-0.5" />
-
                                   <div className="flex flex-wrap gap-1">
                                     {isTransportEvent && transportName && (
                                       <span
@@ -4406,7 +4401,6 @@ export default function UnifiedAgenda({
                                           })}
                                       </div>
                                     )}
-                                  <ConcertCreatedLine event={evt} className="mt-1" />
                                 </div>
 
                                 {/* COLUMNA 4: LOCACIÓN */}

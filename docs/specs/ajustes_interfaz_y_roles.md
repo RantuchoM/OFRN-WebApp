@@ -94,7 +94,7 @@
 - **Check:** tilde pequeña **debajo de la hora** (vista compacta y grilla), **centrada horizontalmente bajo el texto** de la hora (`inline-flex` del ancho de `20:00`, no de toda la columna).
 - **Trash de fila:** `IconTrash` rojo a la derecha (como vacante de roster); abre el confirm de papelera existente.
 - **Barra (≥1):** Eliminar (papelera + confirm), Ocultar (ojo/TÉC existente: `visible_agenda` en transporte, `tecnica` en el resto), Etiqueta de grupo (misma gira + `giras_grupos`). Esc limpia. No rompe Filtros → Categorías.
-- **Historial:** botón solo ícono (`IconHistory`); `title` / `aria-label` «Ver historial». Sin la palabra «Historial» en `ConcertHistoryControls`, UnifiedAgenda ni EventForm.
+- **Historial:** botón solo ícono (`IconHistory`); `title` / `aria-label` «Ver historial». Sin la palabra «Historial» en `ConcertHistoryControls`, UnifiedAgenda ni EventForm. **Sin** línea «Creado el …» en la tarjeta de agenda (el alta y los diffs van en `EventHistoryModal`).
 - **Implementación:** `UnifiedAgenda.jsx`, `EventGruposAssignModal.jsx`, `ConcertHistoryControls.jsx`, `EventForm.jsx`. Specs: `giras-grupos-convocatoria.md`, `011-event-change-logs.md`.
 
 ## 14. Agenda general: ventana futura y «Cargar más meses»

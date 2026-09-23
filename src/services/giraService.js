@@ -982,12 +982,13 @@ const EVENT_LOGS_SELECT = `
 `;
 
 const EVENT_CREATION_META_SELECT = `
-  id, created_at, created_by, creation_source,
-  creador:integrantes!eventos_created_by_fkey ( id, nombre, apellido )
+  id, fecha, hora_inicio, hora_fin, id_locacion, created_at, created_by, creation_source,
+  creador:integrantes!eventos_created_by_fkey ( id, nombre, apellido ),
+  locaciones ( id, nombre )
 `;
 
 /**
- * Historial de un evento: logs (created + fecha/hora) y meta de alta.
+ * Historial de un evento: logs (created + fecha/hora/locación) y meta de alta.
  * @returns {Promise<{ logs: Array, event: object|null }>}
  */
 export const getEventHistory = async (supabase, eventId) => {

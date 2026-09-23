@@ -1,19 +1,19 @@
 # Spec 011: Logs de cambios en eventos sensibles
 
 ## Propósito
-Registrar en base de datos los cambios de **fecha**, **hora_inicio** y **hora_fin** en eventos de categorías sensibles (Conciertos, Ensayos, Transporte) para auditoría y consulta desde la UI.
+Registrar en base de datos los cambios de **fecha**, **hora_inicio**, **hora_fin** y **locación** en eventos de categorías sensibles (Conciertos, Ensayos, Transporte) para auditoría y consulta desde la UI.
 
-Además, en **conciertos** (categoría `tipos_evento.id_categoria = 1`) registrar **quién** creó el evento y **desde qué fuente**, y mostrar ese dato de forma visible en agenda e historial.
+Además, en **conciertos** (categoría `tipos_evento.id_categoria = 1`) registrar **quién** creó el evento y **desde qué fuente**, y mostrar ese dato en el **modal de historial** (no en la tarjeta de agenda).
 
 ## Alcance
-- **Eventos auditados (fecha/hora)**: Solo aquellos cuyo `id_tipo_evento` pertenece a una categoría en `tipos_evento` con `id_categoria` IN (1, 2, 6):
+- **Eventos auditados (fecha/hora/locación)**: Solo aquellos cuyo `id_tipo_evento` pertenece a una categoría en `tipos_evento` con `id_categoria` IN (1, 2, 6):
   - **1** – Conciertos  
   - **2** – Ensayos  
   - **6** – Transporte  
 - **Alta de conciertos** (categoría 1): en INSERT se guarda `eventos.created_by` (FK `integrantes.id`, nullable en filas viejas) y `eventos.creation_source` (`agenda` | `gira_form` | `transposition` | `script` | `fimba`). El trigger `tr_audit_event_insert` inserta `eventos_logs` con `campo = 'created'`.
-- **Campos auditados en UPDATE**: `fecha`, `hora_inicio`, `hora_fin`.  
+- **Campos auditados en UPDATE**: `fecha`, `hora_inicio`, `hora_fin`, `id_locacion`.  
 - **Regla UPDATE**: Se inserta un registro en `eventos_logs` **solo si el valor cambió** (`OLD.valor IS DISTINCT FROM NEW.valor`).
-- **Fuera de alcance**: comidas, traslados y demás tipos no requieren logging extra de alta. No se auditan descripción, locación, etc.
+- **Fuera de alcance**: comidas, traslados y demás tipos no requieren logging extra de alta. No se auditan descripción, etc.
 
 ## Base de datos
 
@@ -34,18 +34,19 @@ CREATE TABLE IF NOT EXISTS public.eventos_logs (
 );
 ```
 - `campo = 'created'`: `valor_nuevo` = `creation_source`; `created_by` copia `eventos.created_by`.
+- `campo = 'locacion'`: nombres de `locaciones.nombre` (si no hay fila, el id como texto). Logs anteriores a `20260923163000` no tienen locación.
 
 ### Función y trigger
-- **UPDATE**: `fn_audit_event_changes()` / `tr_audit_event_changes` — si `id_categoria` IN (1, 2, 6), loguea fecha/horas que cambiaron.
+- **UPDATE**: `fn_audit_event_changes()` / `tr_audit_event_changes` — si `id_categoria` IN (1, 2, 6), loguea fecha, horas y locación que cambiaron.
 - **INSERT**: `fn_audit_event_insert()` / `tr_audit_event_insert` — si `id_categoria = 1`, inserta la fila `created`.
 - **Nota**: En PostgreSQL el trigger debe usar `EXECUTE FUNCTION` (no `EXECUTE_FUNCTION`).
-- Migración: `supabase/migrations/20260922120000_eventos_concert_creation_log.sql`.
+- Migraciones: `supabase/migrations/20260922120000_eventos_concert_creation_log.sql`, `supabase/migrations/20260923163000_eventos_logs_audit_locacion.sql`.
 
 ## Servicio
 - **Archivo**: `src/services/giraService.js`  
-- **Función**: `getEventHistory(supabase, eventId)` — logs + meta de alta (`created_at`, `created_by`, `creation_source`, join a integrante).  
+- **Función**: `getEventHistory(supabase, eventId)` — logs + estado actual (`fecha`, `hora_inicio`, `hora_fin`, `id_locacion`, `locaciones.nombre`) + meta de alta (`created_at`, `created_by`, `creation_source`, join a integrante).  
 - **Función**: `getEventLogs(supabase, eventId)` — lista de logs (compat).  
-- Helper de payload: `src/utils/eventCreationLog.js` (`withConcertCreationMeta`, `concertCreationFields`).
+- Helper de payload: `src/utils/eventCreationLog.js` (`withConcertCreationMeta`, `concertCreationFields`, `buildScheduleChangeGroups`).
 
 ### Rutas de INSERT que setean `created_by` / `creation_source`
 - Agenda / EventForm / duplicar: `agenda`.
@@ -60,17 +61,18 @@ CREATE TABLE IF NOT EXISTS public.eventos_logs (
 - **Componente**: `src/components/giras/EventHistoryModal.jsx`  
 - **Render**: React Portal (`createPortal(..., document.body)`). Overlay `z-[100]` (anidado sobre EventForm: `z-[110]`).  
 - **Props**: `supabase`, `eventId`, `eventLabel`, `event` (meta opcional), `nested`, `onClose`.  
-- **Comportamiento**: Al montar, `getEventHistory`. Tarjeta **Creado** arriba (fecha/hora, persona si hay, etiqueta de fuente en español). Debajo, cambios de fecha/hora. Conciertos viejos: fecha desde `eventos.created_at`; quién/fuente vacíos.
+- **Comportamiento**: Al montar, `getEventHistory`. Tarjeta **Creado** arriba (fecha/hora en **dd/mm/yyyy**, persona si hay, etiqueta de fuente en español). Debajo, cambios agrupados por `created_at`. Cada cambio muestra la **fecha+hora completa del concierto** en esa versión (`dd/mm/yyyy HH:MM`), no un campo aislado; se resalta solo lo que cambió (p. ej. misma fecha y hora nueva en verde). Locación y hora de fin van en filas aparte si cambiaron. Conciertos viejos: fecha de alta desde `eventos.created_at`; quién/fuente vacíos.
+- **Fechas**: `formatLogDate` / `formatDateTimeEs` (`eventCreationLog.js`). ISO `YYYY-MM-DD` → `dd/mm/yyyy` (sin parsear UTC). Horas `20:00:00` → `20:00`. Timestamps (`created_at`) con hora local es-AR.
+- **Autor**: se muestra el **nombre** del integrante (`formatPersonNombre`) solo si `eventos_logs.created_by` (join `integrantes`) o, en la tarjeta Creado, `eventos.created_by`. Si no hay dato, no se inventa. Los logs de UPDATE **no** graban autor (el trigger no tiene integrante de sesión en la intranet); los logs `created` sí, cuando el alta guardó `created_by`.
 
 ### Control visible en agenda (conciertos)
 - **Vista**: `src/components/agenda/UnifiedAgenda.jsx` (tarjeta móvil compacta + grilla escritorio).  
-- Conciertos: línea «Creado el … por … · fuente» + botón de historial **solo ícono** (`IconHistory`; `title`/`aria-label` «Ver historial», sin la palabra «Historial»).
-- Ensayos: icono de historial discreto (siguen existiendo logs de fecha/hora).  
+- Conciertos y ensayos: botón de historial **solo ícono** (`IconHistory`; `title`/`aria-label` «Ver historial», sin la palabra «Historial»). **Sin** subtítulo «Creado el …» en la tarjeta (`ConcertCreatedLine` se eliminó). Fecha/hora/autor se ven al abrir `EventHistoryModal`.
 - Comidas y traslados: **sin** control de historial (no ensuciar la tarjeta).  
 - EventForm (editar concierto): línea de creado en el header + botón historial **solo ícono** en el footer.
 
 ## Reglas de negocio
-- El trigger de UPDATE **solo escribe log si hubo cambio real** en fecha o en alguna de las horas (`IS DISTINCT FROM`).  
+- El trigger de UPDATE **solo escribe log si hubo cambio real** en fecha, horas o locación (`IS DISTINCT FROM`).  
 - El trigger de INSERT **solo** escribe `created` para categoría Conciertos.  
 - `created_by` es el integrante logueado (mismo criterio que `eventos_venue_log.id_integrante`).  
 - No se loguea cada comida.
@@ -82,9 +84,10 @@ CREATE TABLE IF NOT EXISTS public.eventos_logs (
 - **Ventana futura (2026-09-23):** production `main` no tenía el paginado ni el refetch por Desde/Hasta (WIP local). La query pagina de a 1000 filas y el “hasta” es `max(filtro Hasta, hoy + monthsLimit)` en `yyyy-MM-dd`. Cambiar Desde/Hasta o «Cargar más meses» re-consulta. El roster de gira no se embebe en cada evento. Spec: `ajustes_interfaz_y_roles.md` §14.
 
 ## Estado del módulo
-**Activo.** Columnas de alta, trigger de INSERT, `getEventHistory`, modal con «Creado», control visible en conciertos de UnifiedAgenda. Caché agenda `v11` (cuota localStorage no bloquea la lista).
+**Activo.** Columnas de alta, trigger de INSERT, trigger UPDATE con locación (`20260923163000`), `getEventHistory` con snapshot actual, modal con fecha+hora completa Antes/Después (dd/mm/yyyy) y locación si cambió. En agenda: solo ícono de historial (sin línea «Creado el…» en la tarjeta). Caché agenda `v11`.
 
 ## Deuda
 - `merge_integrantes` aún no remapea `eventos.created_by` ni `eventos_logs.created_by`.
 - Scripts SQL de seed no setean `creation_source = 'script'` (el trigger igual deja el log `created` sin autor).
-- Los cambios de fecha/hora del trigger UPDATE no graban autor (solo el alta de concierto).
+- Los cambios de fecha/hora/locación del trigger UPDATE no graban autor (solo el alta de concierto). No se copia `eventos.created_by` al log de UPDATE (sería el creador original, no quien editó). La UI muestra nombre solo si `eventos_logs.created_by` está poblado.
+- Logs de locación solo a partir de `20260923163000`; cambios de sala anteriores no aparecen en el historial.
