@@ -837,7 +837,7 @@ export const getMyRoomingStatus = async (supabase, giraId, userId) => {
       supabase.from("giras_logistica_reglas").select("*").eq("id_gira", giraId),
       supabase
         .from("eventos")
-        .select("id, fecha, hora_inicio")
+        .select("id, fecha, hora_inicio, id_tipo_evento")
         .eq("id_gira", giraId)
         .eq("is_deleted", false),
       supabase.from("localidades").select("id, localidad, id_region"),
@@ -879,7 +879,7 @@ export const getMyRoomingStatus = async (supabase, giraId, userId) => {
     if (missingEventIds.length) {
       const { data: extraEvents, error: extraErr } = await supabase
         .from("eventos")
-        .select("id, fecha, hora_inicio")
+        .select("id, fecha, hora_inicio, id_tipo_evento")
         .in("id", missingEventIds)
         .eq("is_deleted", false);
       if (extraErr) {
@@ -956,7 +956,7 @@ export const getMyRoomingStatus = async (supabase, giraId, userId) => {
 
       assignments.push({
         hotel: booking.hoteles?.nombre || "Sin nombre asignado",
-        ...formatOccupancyStay(stay.dateIn, stay.dateOut),
+        ...formatOccupancyStay(stay.dateIn, stay.dateOut, log),
         segmentIndex: segRow?.indice ?? null,
         segmentLabel: segRow
           ? formatTramoTitle(
