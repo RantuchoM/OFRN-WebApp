@@ -17,8 +17,14 @@
   - **Commit final**: blur, Enter o `flushAllDrafts()` clampea (vacío → valor actual/fallback; OOB → min/max + toast) y sincroniza el string del input.
   - Al cerrar (click afuera / Escape / botón Lienzo) se llama `flushAllDrafts()` **antes** de desmontar — no confiar solo en `blur()`. Inputs `type="text"` + `inputMode="numeric"`.
   - Si el payload **ya** está en el máximo y el usuario escribe lo mismo, no hay cambio visual (esperado); si escribe por encima, sí hay toast.
-- **Resize desde el centro**: al cambiar `widthCm`/`heightCm` (inputs Lienzo o preset locación con medidas), el origen del lienzo sigue siendo upstage-left `(0,0)`, pero el **contenido** (ítems + formaciones) se traslada `Δwidth/2`, `Δheight/2` (`translateStagePlotContent` dentro de `applyStagePlotStagePatch`) para que el **centro geométrico** del rectángulo quede fijo respecto a la orquesta. El director se **re-ancla** después al downstage (`pinStagePlotConductors`); no se traslada con el resto. Sin cambio real de px → no traslada ni pinean.
-- **Resize visible (viewport)**: `patchStage` / preset con tamaño marca `userZoomedRef` para **no** re-encajar (conserva `viewport.scale` → un lienzo más grande se ve más grande). Además, un efecto pannea `viewport.x/y` con `panViewportForStageCenterResize` para fijar el centro del rectángulo en pantalla (también en undo/redo de ese cambio). Carga / cambio de lienzo / plantilla marcan `skipStageCenterPanRef` y usan `fitViewport`. `fitViewport` lee tamaño desde `payloadRef` (callback estable). Rect Konva y etiqueta bajo “FONDO / UPSTAGE” leen `payload.stage.width` / `height` / `widthCm` / `heightCm`.
+- **Resize anclado al centro downstage** (eje del director): al cambiar `widthCm`/`heightCm` (inputs Lienzo o preset locación con medidas), el origen del lienzo sigue siendo upstage-left `(0,0)`, pero el **contenido** se traslada para no moverse respecto del **borde downstage** y del **eje X central** (donde se pinea el director):
+  - `dx = ΔwidthPx / 2` (crece/encoge por ambos lados).
+  - `dy = ΔheightPx` (crece/encoge solo hacia upstage; **no** `Δh/2`).
+  - Helper: `stagePlotDownstageCenterResizeOffset` → `translateStagePlotContent` (ítems no-conductor + formaciones + `groups.alignAnchor`) dentro de `applyStagePlotStagePatch`.
+  - El director se **re-ancla** después con `pinStagePlotConductors` al downstage; como el contenido usó `dy = Δh`, la distancia orquesta↔director se conserva.
+  - **Por qué no centro geométrico**: `Δh/2` + pin deja la orquesta `/2` más lejos del director y hace saltar el radial en pantalla (el viewport solo compensaba la mitad del salto del director).
+  - Sin cambio real de px → no traslada ni pinean.
+- **Resize visible (viewport)**: `patchStage` / preset con tamaño marca `userZoomedRef` para **no** re-encajar (conserva `viewport.scale` → un lienzo más grande se ve más grande). Además, un efecto pannea `viewport.x/y` con el **mismo** `(dx, dy)` de contenido (`panViewportForStageContentOffset`) para fijar el ancla downstage-center en pantalla (también en undo/redo de ese cambio). Carga / cambio de lienzo / plantilla marcan `skipStageCenterPanRef` y usan `fitViewport`. `fitViewport` lee tamaño desde `payloadRef` (callback estable). Rect Konva y etiqueta bajo “FONDO / UPSTAGE” leen `payload.stage.width` / `height` / `widthCm` / `heightCm`.
 
 ## Cuadrícula
 
@@ -54,7 +60,7 @@ Toggle en la toolbar del editor (junto a Lienzo / Zoom), solo si `canEdit`. Esta
 
 | Gestos | **Seleccionar** | **Mover** |
 |--------|-----------------|-----------|
-| Clic en ítem (incl. **director**) / formación | Selecciona (Ctrl/⌘/Shift = aditivo: toggle ítem o formación sin borrar el otro lado) | Selecciona (igual); luego se puede arrastrar |
+| Clic en ítem (incl. **director**) / formación | Selecciona (Ctrl/⌘/Shift = aditivo: toggle ítem o formación sin borrar el otro lado). **Excepción sticky**: si solo hay formación seleccionada, clic sin modificador en ítem **no** cambia la selección | Igual (sticky + aditivo); luego se puede arrastrar |
 | Arrastrar ítem / formación **no seleccionado(a)** | Solo selecciona (no mueve hasta el siguiente gesto) | Mueve sin pre-selección |
 | Arrastrar ítem / formación **ya seleccionado(a)** | Mueve **toda** la selección (ítems + formación + tarimas/décor si están en `selectedIds`) con el mismo delta; un paso undo | Igual (multi-move / formación + reanchor) |
 | Arrastrar vacío | Marquee (rectángulo) | **Pan** del viewport (igual que Espacio/central); sin marquee; sin modificador **limpia** selección al iniciar |
@@ -65,14 +71,22 @@ Toggle en la toolbar del editor (junto a Lienzo / Zoom), solo si `canEdit`. Esta
 
 **Hit de formación**: guía (línea hit transparente) **y plazas** siempre `listening` para clic/tap → `handleSelectFormation` en Seleccionar y Mover. `draggable` de la formación en Seleccionar solo si `selectedFormationId === id`; en Mover siempre (salvo preview de asa/plaza). `draggable` de plazas solo si la formación está seleccionada y `slotMode !== "fixed"`. Ítems: `draggable` en Seleccionar solo si `selectedIds` incluye el id; en Mover siempre. El clic en no-seleccionado no arrastra en el mismo gesto porque `draggable` pasa a true recién tras el render post-selección.
 
+**Selección sticky de formación (solo formación)**: si `selectedFormationId` está set y `selectedIds` está vacío, los clics **sin** modificador sobre ítems (incl. magnetizados en esa formación) **no** llaman replace vía `handleSelectItem` — se ignoran y la formación sigue seleccionada. `itemIsDraggable` también es `false` en ese estado (evita que Mover arrastre un instrumento sin deseleccionar). Deselección explícita: clic/arrastre en **vacío** (marquee en Seleccionar sin hit; pan+limpia en Mover; clic vacío sin drag en marquee) o borrar/cambiar selección por UI. **Shift/Ctrl/⌘** sigue siendo aditivo (añade ítems → selección mixta). Doble clic magnetizado → seleccionar formación (sin cambio). Clic derecho sobre un ítem sigue abriendo menú de ítem (selecciona ese objeto).
+
 **Preservar selección mixta en mousedown**: `ItemShape` / `FormationShape` llaman `onSelect` en `onMouseDown` **antes** de `dragStart`. Por eso:
 - `handleSelectItem`: si el ítem **ya** está en `selectedIds` y hay `selectedFormationId`, **no** limpia la formación ni reduce la multi (igual que multi-ítem).
 - `handleSelectFormation`: si la formación **ya** está seleccionada y hay `selectedIds`, **no** vacía los ítems.
 Sin esto, el arrastre grupal nunca veía ambos lados en `dragGroupRef`.
 
-**Deselección aditiva en selección mixta** (Ctrl/⌘/Shift): quitar un ítem de `selectedIds` **no** limpia `selectedFormationId` (ni al revés). Solo el clic **sin** modificador sobre un ítem/formación **no** seleccionado hace replace (selección única y limpia el otro lado). Toggle aditivo sobre la formación ya seleccionada la saca de la selección y deja los ítems.
+**Deselección aditiva en selección mixta** (Ctrl/⌘/Shift): quitar un ítem de `selectedIds` **no** limpia `selectedFormationId` (ni al revés). Con selección mixta (ítems + formación), el clic **sin** modificador sobre un ítem **no** seleccionado hace replace (selección única y limpia la formación) — distinto del sticky formation-only. Toggle aditivo sobre la formación ya seleccionada la saca de la selección y deja los ítems.
 
 **Drag de selección mixta** (ítems + formación a la vez, p. ej. tras marquee): `dragGroupRef` incluye orígenes de ítems **y** `formationId`/`formationOrigin`. Da igual si el puntero arrastra un ítem o la formación: el mismo `dx,dy` se aplica a todos los nodos seleccionados (live: nodos ítem + `liveFormationPos` si el leader es ítem). Al soltar, `commitSelectionGroupDrag` hace **un** `commitPayload`: traslada la formación, reancla magnetizados de esa formación (`reanchorItemsToFormations`, conservan `slotId`), y traslada el resto de ítems seleccionados (limpian `slotId` si no pertenecen a esa formación). Sin doble commit (followers / proxy ignorados). Flechas usan `moveMixedSelectionByKeyboard` con la misma semántica.
+
+**Magnetize en multi-drag (mantener unidos)**:
+- Si la selección incluye la formación **o** el multi-drag infiere una formación compartida (`resolveGroupDragFormation`: 2+ ítems seleccionados con el mismo `slotId` de formación, o todos los seleccionados magnetizados a la misma), el grupo mueve esa formación + reancla; **no** limpia `slotId` de los magnetizados a esa formación.
+- Inferencia cubre el caso marquee/Ctrl que selecciona solo instrumentos magnetizados sin marcar la formación en `selectedFormationId`.
+- Arrastre de **un solo** ítem (sin grupo): sigue demagnetizando / re-snap (`applySnapToMovedItems`) — peel intencional al sacar un instrumento solo.
+- Multi de ítems **sin** formación compartida ni formación seleccionada: traduce y limpia `slotId` (suelto).
 
 **Decoración del lienzo** (textos FONDO/PÚBLICO, línea downstage, dims): `listening={false}` para no robar hits al director u otros ítems cerca del borde.
 
@@ -102,7 +116,7 @@ Hint del canvas cambia según la herramienta activa.
 - **Arrastrable**: en edición, el director se mueve como cualquier ítem **en Mover** o **en Seleccionar si ya está seleccionado** (`itemIsDraggable`); clic sin selección previa solo selecciona. Clamp dentro del lienzo, margen 8 px. **No** magnetiza a plazas de formación.
 - **Selección**: mismo path que otros ítems (`handleSelectItem` / marquee AABB); etiquetas decorativas del lienzo no escuchan eventos para no tapar el hit cerca de downstage.
 - **Persistencia**: `normalizeStagePlotPayload` **conserva** `x,y` del conductor (no re-pinea). Así sobrevive load / undo / autosave / export.
-- **Al cambiar tamaño del lienzo** (`patchStage` / `applyStagePlotStagePatch` / preset locación): el contenido (ítems no-conductor + formaciones) se traslada para crecer/encoger **desde el centro**; el director se re-ancla con `pinStagePlotConductors` al downstage (undo/redo coherente). Después el usuario puede volver a moverlo.
+- **Al cambiar tamaño del lienzo** (`patchStage` / `applyStagePlotStagePatch` / preset locación): el contenido (ítems no-conductor + formaciones + `alignAnchor`) se traslada con `stagePlotDownstageCenterResizeOffset` (`Δw/2`, `Δh`) para crecer/encoger anclado al **centro downstage**; el director se re-ancla con `pinStagePlotConductors` (undo/redo coherente). Después el usuario puede volver a moverlo.
 - **+ Director**: coloca en la posición canónica si no existe (misma fórmula con escala default).
 - **Viewport inicial / reset zoom** (`computeStagePlotViewportFit`): ancla el **borde inferior** del director (pies), no el centro del ítem, abajo-centro del viewport.
 - **Radial / formaciones**: `resolveFormationFacingPoint` usa el **centro** del conductor (o posición canónica si no hay ítem) como punto de mira y origen del abanico radial (lienzo + PDF/JPG). Durante el drag del director, el radial usa un override en vivo (`conductorDragOrigin`) hasta el commit.
@@ -113,7 +127,7 @@ Hint del canvas cambia según la herramienta activa.
 |---------|-----|
 | `src/utils/stagePlotPdf.js` | Export PDF (hoja 1 escenario + dims; canales hoja 2) y JPG (solo escenario + dims); `renderStagePlotToCanvas` compartido con preview técnico |
 | `src/utils/stagePlotConstants.js` | Escala cm↔px, grid, offset director, clamps |
-| `src/utils/stagePlotPayload.js` | Normalización `widthCm`/`heightCm`, `applyStagePlotStagePatch`, `translateStagePlotContent`, `pinStagePlotConductors` |
+| `src/utils/stagePlotPayload.js` | Normalización `widthCm`/`heightCm`, `stagePlotDownstageCenterResizeOffset`, `applyStagePlotStagePatch`, `translateStagePlotContent`, `pinStagePlotConductors` |
 | `src/utils/stagePlotGroups.js` | Geometría de alineación / distribución en formaciones |
 | `src/utils/stagePlotViewportGestures.js` | Distingue pan (scroll trackpad / rueda) vs zoom (pinch / Ctrl+rueda) |
 | `src/views/Giras/ProgramStagePlot.jsx` | Re-export → `ProgramStagePlotEditor.jsx` |
@@ -240,13 +254,15 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
 - [x] Selección marquee (rectángulo; intersección AABB; **todos** los ítems + formaciones a la vez; tarimas/elementos incluidos; formación al envolver con o sin plazas/instrumentos)
 - [x] Herramientas **Seleccionar** / **Mover** (toolbar + V/M; default **Mover**; marquee solo en select; vacío en move = pan; drag en move o select si ya seleccionado; cursor hint + asas; asa giro = cursor SVG rotate)
 - [x] Drag de selección mixta (ítems + formación + tarimas en `selectedIds`): mismo delta para todos; `commitSelectionGroupDrag` + reanchor; un undo
+- [x] Multi-drag magnetizado: `resolveGroupDragFormation` + reanchor conservan `slotId` (mixta o multi-ítems en la misma formación); single-item drag sigue demagnetizando
 - [x] Clic en formación (guía + plazas always-listening) y en director selecciona en ambas herramientas
+- [x] Formación sticky (solo formación seleccionada): clics en instrumentos no rebotan a ítem hasta deselect en vacío; aditivo Shift/Ctrl/⌘ y mixta sin cambio
 - [x] Lienzo UI en cm con límites
 - [x] Radial Líneas: draft local + commit en blur/Enter (mismo patrón que Ancho/Alto)
 - [x] Flush imperativo de drafts Lienzo al cerrar popover (fix: tamaño no se aplicaba)
 - [x] Live apply Ancho/Alto/Líneas mientras el popover está abierto (debounce ~220 ms, solo si draft ∈ [min, max])
 - [x] Director re-anclado al **resize** de lienzo / preset locación (`pinStagePlotConductors`); posición libre persistida al normalizar
-- [x] Resize de lienzo **desde el centro**: `translateStagePlotContent` (Δw/2, Δh/2) + pan de viewport al centro; fit (“Ajustar vista”) sigue anclando pies del director
+- [x] Resize de lienzo anclado al **centro downstage**: `stagePlotDownstageCenterResizeOffset` (Δw/2, Δh) + `translateStagePlotContent` + pan de viewport con el mismo offset; fit (“Ajustar vista”) sigue anclando pies del director
 - [x] Director **arrastrable**; radial (lienzo + PDF/JPG) origen = `resolveFormationFacingPoint` (centro del conductor), con override en vivo durante el drag
 - [x] Viewport encaja con pies del director abajo-centro (`computeStagePlotViewportFit`)
 - [x] Backward compat payloads sin cm
@@ -293,6 +309,7 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
 - [x] Rotación de formación: botones −15° / +15° (barra desktop + pill móvil) + input Rot °; `patchFormationsAndReanchor`
 - [x] Formación **semi-arco** (ala–arco–ala, `wingLength`/`wingAngle` simétricos, asas tip_l/tip_r)
 - [x] Semi-arco: plazas laterales (`wingSlots`) + plazas en arco (`arcSlots`); fijo paramétrico por segmento; UI dual + migración desde `slots`
+- [x] Fix conteo de plazas: draft local (`FormationPlazasCountInput`) — Enter/blur aplica, Escape cancela; al cambiar N no empaqueta, conserva `slotId` existentes
 - [x] Modos de plaza **fijo / libre / simétrico** (`slotMode` + `slotTs`; UI barra inferior)
 - [x] Flechas mueven formación seleccionada con reanchor (mismo path que drag; no demagnetiza `slotId`)
 - [x] Menú contextual de ítem: «Seleccionar formación» si magnetizado (`slotId` → formación existente)
@@ -300,7 +317,7 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
 - [x] SVG en `instrumentos` (`svg_icon` + `stage_plot_type`) + seed 21 filas + guitarra papapishu (`21` / `guitar`) + bandoneón FreeSVG (`22b` / `bandoneon`) + percusión OFRN (`13` / `13a`–`13h`)
 - [x] Clic derecho en vacío del lienzo: abre menú de la selección actual (formación o ítems) sin deseleccionar
 - [x] Undo/redo de movimiento grupal = **una** entrada: multi-selección / grupo explícito / formación+reanchor / selección mixta ítems+formación; rafaga de flechas coalescida
-- [x] Recuadro gris de selección en formación + asas `box_*` (8) para **escala uniforme** (params lineales + traslación anclada); convive con asas paramétricas; undo en drag end + reanchor
+- [x] Recuadro gris de selección en formación + asas `box_*` (8): bordes = un eje (L/R ancho, T/B alto); esquinas = escala uniforme (dimensión total); params lineales + traslación anclada; convive con asas paramétricas; undo en drag end + reanchor
 - [x] **Vista Venues** (`/management/venues`): locaciones con conciertos programados agrupadas; eventos con fecha, programa, grupos, estado venue; medidas de escenario de la locación; «Ver escenario» (`StagePlotViewerModal`) y enlace al editor Escenario de la gira
 - [x] **Editor móvil** simplificado (fullscreen; mover / + sheet / floating Copiar·Eliminar; pinch + zoom buttons; autosave compartido)
 - [x] **Hub móvil Escenario**: elegir lienzo creado → Exportar (PDF / JPG / JSON + opciones de guía) o Editar (recién ahí abre el editor); sin autoabrir editor
@@ -318,7 +335,7 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
 - **Una sola entrada** cuando:
   1. Se arrastra un **grupo explícito** o una **multi-selección** (marquee/recorte incluido): Konva Transformer `_proxyDrag` dispara `dragEnd` en cada nodo; solo el **leader** hace `commitPayload` con todas las posiciones; los followers se ignoran (`dragGroupRef` + `suppressItemDragEndIdsRef`).
   2. Se mueve una **formación** sola: `commitFormationPosition` actualiza formación + `reanchorItemsToFormations` en el mismo commit.
-  3. Se arrastra una **selección mixta** (ítems + formación): `commitSelectionGroupDrag` aplica el mismo delta a formación + ítems seleccionados (+ reanchor de magnetizados) en un solo commit, sea el leader un ítem o la formación.
+  3. Se arrastra una **selección mixta** (ítems + formación) **o** un multi de ítems magnetizados a la misma formación (formación inferida): `commitSelectionGroupDrag` aplica el mismo delta a formación + ítems (+ reanchor de magnetizados, conservan `slotId`) en un solo commit, sea el leader un ítem o la formación.
   4. **Transform** multi-nodo: `pendingTransformRef` agrupa los `transformend` en un microtask.
   5. **Flechas** (ítems, formación o **mixta**): el primer keydown empuja historial; el key-repeat actualiza con `skipHistoryRef` hasta `keyup`/`blur` (`keyboardNudgeBurstRef`). Mixta → `moveMixedSelectionByKeyboard` (mismo delta + reanchor que el drag).
 - Autosave / load de plot resetea el stack (sin undo hacia vacío).
@@ -354,7 +371,7 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
   - Helpers: `stagePlotInstrumentCatalogScales(type)` / `stagePlotInstrumentDimensionsCm` / `stagePlotInstrumentScalesFromCm` (Ancho×Profundo cm ↔ `scaleX`/`scaleY` de **render**).
   - Helpers de atril (`stagePlotAtril.js` / `stagePlotSatelliteAtrilGeometry`) se conservan para **colocar** atriles manuales (orientación hacia director).
 - **Fuente de verdad del tamaño**: columnas `instrumentos.stage_plot_width_cm` / `stage_plot_height_cm` (migración `20260828185148` + DEFAULT/backfill `20260828190819`; vacío/NULL → **50×50**). Cargadas en runtime vía `setStagePlotDbSizeOverrides` (`stagePlotInstrumentIconsService` / `reloadStagePlotInstrumentIcons`). **No** se edita en el lienzo.
-- **Render (lienzo + PDF/JPG + preview)**: siempre `stagePlotInstrumentCatalogScales(type)` — **ignora** `scale` / `scaleX` / `scaleY` guardados en el ítem del plot. Cambiar el tamaño en DB (panel **Editor** / Datos → Instrumentos) actualiza **de inmediato** todos los ítems de ese tipo en el lienzo abierto: `applyStagePlotInstrumentSizeOverride` + `bumpStagePlotCatalogEpoch` → evento `ofrn:stage-plot-catalog-changed` → `catalogEpoch` en el editor; `ItemShape` fuerza `node.scaleX/Y` desde catálogo (Konva no deja scales stale).
+- **Render (lienzo + PDF/JPG + preview)**: siempre `stagePlotInstrumentCatalogScales(type)` — **ignora** `scale` / `scaleX` / `scaleY` guardados en el ítem del plot. Cambiar el tamaño en DB (panel **Editor** / Datos → Instrumentos) actualiza **de inmediato todas** las instancias de ese tipo en el lienzo abierto (no solo el ítem con foco/selección): `applyStagePlotInstrumentSizeOverride` + `bumpStagePlotCatalogEpoch` → evento `ofrn:stage-plot-catalog-changed` → `catalogEpoch` + sync imperativo `syncAllFootprintScalesFromCatalog` (recorre nodos Konva vía `itemNodeRefs` / `resolveItemNode`, fuerza `scaleX/Y`, `Transformer.forceUpdate` + `stage.batchDraw`). `ItemShape` también re-lee el catálogo en `useLayoutEffect` al cambiar epoch.
 - **Persistencia**: `normalizeStagePlotItem` **descarta** `scaleX`/`scaleY` de instrumentos con huella y escribe `scale` desde el catálogo (limpieza de payloads viejos con escalas del Transformer). Tarimas y otros ítems siguen con scale propio.
 - **Sin resize en el lienzo** (solo instrumentos con huella):
   - Transformer: `resizeEnabled=false` / `enabledAnchors=[]` si la selección incluye algún instrumento con huella; **rotación y movimiento** sí.
@@ -471,7 +488,7 @@ Seed: silla / banqueta / atril qty 0; tarima rect 200×100 qty 0. Unique parcial
 - [x] Atriles opcionales vía menú contextual (sin auto-satélite); par+atril solo desde menú (no sidebars)
 - [x] Sin auto-rotación de instrumentos (rotation=0 salvo Transformer)
 - [x] `stage_plot_width_cm` / `stage_plot_height_cm` + editor Datos/Editor; tamaño canónico en **todos** los planos (no solo al insertar)
-- [x] Cambio de tamaño en Editor/Datos refresca el lienzo **abierto** al instante (`catalogEpoch` + force scale Konva)
+- [x] Cambio de tamaño en Editor/Datos refresca el lienzo **abierto** al instante (`catalogEpoch` + sync imperativo de **todas** las huellas Konva, no solo el ítem seleccionado / Transformer)
 - [x] Instrumentos no resizables en lienzo; escalas viejas del ítem ignoradas / limpiadas al normalizar
 - [x] Editor Instrumentos en Escenario (panel izquierdo) con preview SVG + confirm de reemplazo
 - [x] Pestaña izquierda renombrada **Editor**; todas las filas `instrumentos` + sección **Instrumentos sin ícono** (Paleta y Editor)
@@ -493,7 +510,7 @@ Seed: silla / banqueta / atril qty 0; tarima rect 200×100 qty 0. Unique parcial
 - Editables en Datos → Locaciones (`DataView.jsx`).
 - Payload: `stage.id_locacion` opcional (recordatorio del preset aplicado).
 - **UI picker** (`SearchableSelect`): searchable por nombre y ciudad (`localidades.localidad` en subLabel). Con medidas: label `Nombre · Ancho × Profundo cm`. Sin medidas: label = nombre; subLabel sutil «sin medidas guardadas» (ciudad · hint). **Todas las opciones son seleccionables** (no `disabled` por falta de dims).
-- **Al elegir:** si hay `escenario_ancho_cm` + `escenario_profundo_cm` válidos → aplicar a `widthCm`/`heightCm` vía `applyStagePlotStagePatch` (contenido centrado + director re-anclado downstage). Si faltan → solo setear `id_locacion` y **mantener** Ancho/Alto actuales (editables en el mismo panel).
+- **Al elegir:** si hay `escenario_ancho_cm` + `escenario_profundo_cm` válidos → aplicar a `widthCm`/`heightCm` vía `applyStagePlotStagePatch` (contenido anclado downstage-center + director re-anclado). Si faltan → solo setear `id_locacion` y **mantener** Ancho/Alto actuales (editables en el mismo panel).
 - **+ Lienzo:** diálogo nombre + combobox de locación → con medidas crea payload con tamaño + pin director; sin medidas asocia `id_locacion` y usa default 1100×700 cm (11×7 m). Opción vacía = mismo default sin locación.
 - **Lienzo popover:** combobox «Seleccionar escenario» (misma lógica apply-dims-only-when-present). El click-outside del popover ignora `.searchable-portal` para no cerrar al elegir.
 
@@ -517,6 +534,8 @@ Parámetros en **px de escenario** (`cm × STAGE_PLOT_CM_TO_PX`). Defaults (íte
   - Campos: `wingSlots` (L, alias legacy de lectura `lateralSlots`) + `arcSlots` (A). `slots` = **2·L + A** (sincronizado en normalize / UI).
   - Defaults al crear: L=2, A=4 → total 8. Migración de plots viejos con solo `slots`: L=`min(2, floor((N−1)/2))`, A=`max(1, N−2L)`.
   - UI (barra inferior, solo `semi_arc`): **Plazas laterales** + **Plazas en arco** (+ hint Σ total). Otras formaciones siguen con un solo **Plazas**.
+  - **Inputs de conteo (draft local)**: `FormationPlazasCountInput` — draft mientras se escribe; **Enter** o **blur** aplican (clamp min–max); **Escape** cancela y restaura el valor commitado. No hay apply por tecla (evita 8→`1`→10 demagnetizando). `type="text"` + `inputMode="numeric"`.
+  - **Al cambiar N** (`patchFormationsAndReanchor`): **no** redistribuye/empaqueta magnetizados. Conserva `slotId` de índices que siguen existiendo; al **bajar** N solo demagnetiza `index >= N` (reanchor estándar). Al **subir** N las plazas nuevas quedan vacías.
   - **Fijo** (`evenSemiArcFixedSlotTs`): no equiespacia en toda la polilínea.
     - Ala izq: L plazas en u=`0, 1/L, …, (L−1)/L` desde el **extremo** hacia el arco (**excluye** la juntura).
     - Arco: A plazas; si A≥2 incluye **ambas junturas** (primera = inicio de arco / “el tercero” tras L=2); si A=1 → centro del arco.
@@ -529,20 +548,25 @@ Parámetros en **px de escenario** (`cm × STAGE_PLOT_CM_TO_PX`). Defaults (íte
   - **Simétrico**: igual que libre, pero al editar la plaza *i* se espeja a *n−1−i* (`t[j]=1−t[i]`); centro (N impar) queda en t=0.5. Al pasar a simétrico se fuerza espejo desde índices bajos (`enforceSymmetricSlotTs`).
   - UI: barra inferior de formación (junto a Plazas / laterales+arco) — botones **Fijo / Libre / Simétrico**. Cambiar a fijo limpia `slotTs` y redistribuye (undo vía `commitPayload` / `patchFormationsAndReanchor`).
   - Helpers: `applyFormationSlotMode`, `applySemiArcSlotCounts`, `evenSemiArcFixedSlotTs`, `resolveSemiArcSlotCounts`, `setFormationSlotT`, `resolveFormationSlotTs`, `projectWorldPointToFormationT` en `stagePlotFormations.js`.
-- **Overflow** al redistribuir: margen 25 cm, stack 45 cm.
+- **Overflow** al redistribuir (`redistributeSlotsForFormationIds`): margen 25 cm, stack 45 cm. La UI de conteo de plazas **ya no** pasa esa lista al cambiar N (no empaqueta); el path queda disponible por API.
 - **Asas de resize**: siguen ~7 px en pantalla (`/ viewport.scale` únicamente).
-- **Recuadro gris (escala uniforme)** — formación **seleccionada**:
+- **Recuadro gris (resize por asa)** — formación **seleccionada**:
   - **Bounds**: AABB local de guía + puntas de ala (`semi_arc`) + plazas (`computeFormationSlots`) + padding `FORMATION_BOUNDS_BOX_PADDING_PX` (≈½ marcador). Dibujo: `Line` cerrada bajo marcadores de plaza, stroke `#94a3b8`, fill `rgba(148,163,184,0.07)`, `strokeScaleEnabled={false}`.
   - **Asas `box_nw|ne|sw|se|n|s|e|w`**: 8 asas en el Layer superior (junto a asas paramétricas); fill `#f8fafc`, stroke `#94a3b8`; cursor resize según rotación (misma tabla que rect/horseshoe).
-  - **Drag**: snapshot al `dragStart`; factor de escala desde esquina/borde opuesto (`formationFromBoundsBoxHandleDrag` → `scaleFormationUniform`). **Un solo factor** para todos los params lineales; `slotTs` / ángulos (`startAngle`, `endAngle`, `wingAngle`) sin cambio. Recentra `x,y` para fijar el ancla opuesta.
-  - **Por kind** (multiplican × `s`, respetando mínimos):
-    - `arc`: `rx`, `ry`
-    - `semi_arc`: `rx`, `ry`, `wingLength`
-    - `line`: `length`
-    - `rect` / `horseshoe`: `width`, `depth`
+  - **Drag** (`formationFromBoundsBoxHandleDrag` → `scaleFormationAxes`; snapshot al `dragStart`; ancla = asa opuesta):
+    - **Bordes L/R** (`box_e` / `box_w`): solo **ancho** (`sx`); alto/profundo intacto (`sy = 1`).
+    - **Bordes T/B** (`box_n` / `box_s`): solo **alto** (`sy`); ancho intacto (`sx = 1`).
+    - **Esquinas** (`box_nw|ne|sw|se`): **dimensión total** — escala uniforme (`sx = sy` desde distancia al ancla; conserva aspect de params).
+    - `slotTs` / ángulos (`startAngle`, `endAngle`, `wingAngle`) sin cambio. Recentra `x,y` para fijar el ancla opuesta (`anchorLocal.x×sx`, `anchorLocal.y×sy`).
+  - **Por kind** (respetando mínimos; ejes independientes en bordes):
+    - `arc`: X → `rx`; Y → `ry`; esquina → ambos × `s`
+    - `semi_arc`: X → `rx` + `wingLength`; Y → `ry`; esquina → `rx`/`ry`/`wingLength` × `s`. `wingSlots`/`arcSlots` no cambian.
+    - `line`: X → `length` (T/B no toca params; la línea no tiene profundo)
+    - `rect` / `horseshoe`: X → `width`; Y → `depth`; esquina → ambos × `s`
   - Las asas paramétricas (`w`/`e`/`n`, `tip_*`, esquinas rect…) siguen activas para deformar un eje o alas; el recuadro es **adicional**.
   - Preview en vivo (`formationResizePreview` incluye `x,y` si box); commit en `dragEnd` vía `patchFormationsAndReanchor` (una entrada undo).
   - **PDF/JPG**: fuera de alcance v1 (no se exportan asas ni recuadro de edición).
+  - [x] Fix (2026-09): bordes del recuadro ya no aplicaban escala uniforme (antes `sx`/`sy` de un eje se pasaba a `scaleFormationUniform` y deformaba el otro eje).
 - Formaciones guardadas a escala 10 px/cm se reescalan al cargar junto con el lienzo (`stagePlotLegacyScaleFactor`). El default 1100×700 cm (11×7 m) cubre formaciones típicas; ampliar Ancho/Alto del Lienzo si hace falta.
 - **Copiar formación** (`cloneStagePlotFormation` en `stagePlotFormations.js`; UI en barra inferior + menú contextual clic derecho):
   - Offset fijo **+40 cm** en X (`STAGE_PLOT_FORMATIONATION_COPY_OFFSET_PX`).
@@ -627,7 +651,7 @@ Parámetros en **px de escenario** (`cm × STAGE_PLOT_CM_TO_PX`). Defaults (íte
 - **Familia** = clasificación de usuario; **`stage_plot_type`** = clave de ícono/paleta (preferir única al crear; compartir permitido para variantes).
 - **Cadena**: DB → `public/stage-plot/icons/` → silueta (`stagePlotIconAssets.js`); tamaños en `setStagePlotDbSizeOverrides`.
 - **Admin / editor**: Escenario panel izquierdo **Editor** (familia, **tamaño de huella** Ancho×Profundo cm → DB, SVG, clave demoted; **Crear instrumento**) y Datos → Instrumentos (**Clave de ícono (plano)** + Ancho/Profundo huella cm, placeholder **50**; SVG); sanitizado (`stagePlotSvgSanitize.js`).
-- **Render Escenario / PDF**: `stagePlotInstrumentCatalogScales(type)` desde `width_cm`/`height_cm` (**50×50 → scale 1**). Ítems ya insertados adoptan el tamaño actual del catálogo sin reinsertar; con el editor abierto el cambio es inmediato (evento de catálogo + force `scaleX/Y` en Konva).
+- **Render Escenario / PDF**: `stagePlotInstrumentCatalogScales(type)` desde `width_cm`/`height_cm` (**50×50 → scale 1**). Ítems ya insertados adoptan el tamaño actual del catálogo sin reinsertar; con el editor abierto el cambio es inmediato en **todas** las instancias del tipo (evento de catálogo + sync Konva en lote + force `scaleX/Y`).
 - **Colores**: Uploads conservan fills; sanitize sin rewrite a `currentColor`.
 - [x] **Repo / git**: íconos canónicos solo en `public/stage-plot/icons/`; regenerar seed con `node scripts/seed-instrumentos-stage-plot-svg.mjs` (no commitear `temp_freesvg/` ni `temp_*` — ignorados en `.gitignore`).
 - **Seguridad / tamaño**: sanitizado liviano (sin script/eventos/`use`; Blob→Image). Límite **app-imposed** `STAGE_PLOT_SVG_MAX_CHARS = 500_000` (antes 100k; no es tope de Postgres `text`). Clipart detallado (p. ej. bandoneón ~68k compactado; SVGs más ricos suelen superar 100k) es normal. Antes de guardar se compacta (metadata Inkscape/Adobe, whitespace, precisión decimal). Solo accept SVG (PNG/JPG → error claro). Toasts muestran el máx. formateado (`500.000`).

@@ -399,19 +399,62 @@ export function pinStagePlotConductors(items, stageWidth, stageHeight) {
 }
 
 /**
- * Traslada ítems y formaciones para que un resize de lienzo crezca/encoja
- * desde el centro geométrico (origen upstage-left se “abre” por ambos lados).
- * Los conductores se omiten: se re-pinean después al borde downstage.
+ * Offset (px de escenario) para que un resize del rectángulo (origen
+ * upstage-left) deje el contenido fijo respecto al **centro downstage**
+ * (eje X del director + borde downstage).
+ *
+ * - Ancho: abre/cierra por ambos lados → `Δwidth/2`.
+ * - Alto: abre/cierra solo hacia upstage → `Δheight` (no `/2`).
+ *
+ * Motivo: el director se re-ancla al downstage. Un modelo de “centro
+ * geométrico” (`Δh/2`) + pin mueve la orquesta respecto del director y
+ * hace saltar el radial en pantalla.
+ *
+ * @param {number} prevWidthPx
+ * @param {number} prevHeightPx
+ * @param {number} nextWidthPx
+ * @param {number} nextHeightPx
+ * @returns {{ dx: number, dy: number }}
+ */
+export function stagePlotDownstageCenterResizeOffset(
+  prevWidthPx,
+  prevHeightPx,
+  nextWidthPx,
+  nextHeightPx,
+) {
+  const prevW = Number(prevWidthPx);
+  const prevH = Number(prevHeightPx);
+  const nextW = Number(nextWidthPx);
+  const nextH = Number(nextHeightPx);
+  const dW =
+    (Number.isFinite(nextW) ? nextW : 0) -
+    (Number.isFinite(prevW) ? prevW : 0);
+  const dH =
+    (Number.isFinite(nextH) ? nextH : 0) -
+    (Number.isFinite(prevH) ? prevH : 0);
+  return { dx: dW / 2, dy: dH };
+}
+
+/**
+ * Traslada ítems, formaciones y `groups.alignAnchor` con el offset de
+ * resize downstage-center. Los conductores se omiten (se re-pinean después).
  * @param {unknown[]} items
  * @param {unknown[]} formations
  * @param {number} dx
  * @param {number} dy
+ * @param {unknown[]} [groups]
  */
-export function translateStagePlotContent(items, formations, dx, dy) {
+export function translateStagePlotContent(
+  items,
+  formations,
+  dx,
+  dy,
+  groups,
+) {
   const tx = Number.isFinite(dx) ? dx : 0;
   const ty = Number.isFinite(dy) ? dy : 0;
   if (tx === 0 && ty === 0) {
-    return { items, formations };
+    return { items, formations, groups };
   }
   const nextItems = (Array.isArray(items) ? items : []).map((it) => {
     if (!it || typeof it !== "object") return it;
@@ -434,12 +477,31 @@ export function translateStagePlotContent(items, formations, dx, dy) {
       };
     },
   );
-  return { items: nextItems, formations: nextFormations };
+  const nextGroups = (Array.isArray(groups) ? groups : []).map((g) => {
+    if (!g || typeof g !== "object") return g;
+    const o = /** @type {Record<string, unknown>} */ (g);
+    const anchor = o.alignAnchor;
+    if (!anchor || typeof anchor !== "object") return g;
+    const a = /** @type {Record<string, unknown>} */ (anchor);
+    return {
+      ...o,
+      alignAnchor: {
+        ...a,
+        x: (Number(a.x) || 0) + tx,
+        y: (Number(a.y) || 0) + ty,
+      },
+    };
+  });
+  return {
+    items: nextItems,
+    formations: nextFormations,
+    groups: nextGroups,
+  };
 }
 
 /**
  * Aplica patch al `stage`. Si cambian Ancho/Alto (px), traslada el contenido
- * para crecer/encoger desde el centro y re-ancla el director downstage.
+ * anclado al centro downstage y re-ancla el director.
  * @param {ReturnType<typeof normalizeStagePlotPayload>} prev
  * @param {Record<string, unknown>} patch
  */
@@ -476,13 +538,18 @@ export function applyStagePlotStagePatch(prev, patch) {
     return { ...prev, stage: newStage };
   }
 
-  const dx = (dims.width - prevDims.width) / 2;
-  const dy = (dims.height - prevDims.height) / 2;
+  const { dx, dy } = stagePlotDownstageCenterResizeOffset(
+    prevDims.width,
+    prevDims.height,
+    dims.width,
+    dims.height,
+  );
   const translated = translateStagePlotContent(
     prev.items,
     prev.formations,
     dx,
     dy,
+    prev.groups,
   );
   const items = pinStagePlotConductors(
     translated.items,
@@ -495,6 +562,8 @@ export function applyStagePlotStagePatch(prev, patch) {
     stage: newStage,
     items,
     formations: translated.formations,
+    groups:
+      translated.groups !== undefined ? translated.groups : prev.groups,
   };
 }
 

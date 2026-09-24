@@ -1316,7 +1316,7 @@ function formationBoundsBoxHandlePositionsLocal(formation, facingPoint = null) {
 }
 
 /**
- * Asas del recuadro gris (escala uniforme) en coords de escena.
+ * Asas del recuadro gris (bordes = un eje; esquinas = escala uniforme) en coords de escena.
  * @param {object} formation
  * @param {{ x: number, y: number }|null} [facingPoint]
  */
@@ -1340,22 +1340,33 @@ export function formationAllResizeHandlesWorld(formation, facingPoint = null) {
   ];
 }
 
-function scaleFormationParams(kind, params, scaleFactor) {
+/**
+ * Escala params lineales por ejes locales independientes.
+ * - X (ancho/span): width, rx, length, wingLength
+ * - Y (alto/profundo): depth, ry
+ * Ángulos / slotTs sin cambio.
+ * @param {string} kind
+ * @param {Record<string, number>} params
+ * @param {number} sx
+ * @param {number} sy
+ */
+function scaleFormationParamsAxes(kind, params, sx, sy) {
   const p = { ...(params || defaultParams(kind)) };
-  const s = scaleFactor;
+  const fx = Number.isFinite(sx) ? sx : 1;
+  const fy = Number.isFinite(sy) ? sy : 1;
   if (kind === "arc" || kind === "semi_arc") {
     p.rx = Math.max(
       FORMATION_MIN_RADIUS,
-      (Number(p.rx) || stagePlotCmToPx(180)) * s,
+      (Number(p.rx) || stagePlotCmToPx(180)) * fx,
     );
     p.ry = Math.max(
       FORMATION_MIN_RADIUS,
-      (Number(p.ry) || stagePlotCmToPx(100)) * s,
+      (Number(p.ry) || stagePlotCmToPx(100)) * fy,
     );
     if (kind === "semi_arc") {
       p.wingLength = Math.max(
         FORMATION_MIN_WING_LENGTH,
-        (Number(p.wingLength) || stagePlotCmToPx(80)) * s,
+        (Number(p.wingLength) || stagePlotCmToPx(80)) * fx,
       );
     }
     return p;
@@ -1365,7 +1376,7 @@ function scaleFormationParams(kind, params, scaleFactor) {
       ...p,
       length: Math.max(
         FORMATION_MIN_LENGTH,
-        (Number(p.length) || stagePlotCmToPx(360)) * s,
+        (Number(p.length) || stagePlotCmToPx(360)) * fx,
       ),
     };
   }
@@ -1373,54 +1384,77 @@ function scaleFormationParams(kind, params, scaleFactor) {
     ...p,
     width: Math.max(
       FORMATION_MIN_WIDTH,
-      (Number(p.width) || stagePlotCmToPx(280)) * s,
+      (Number(p.width) || stagePlotCmToPx(280)) * fx,
     ),
     depth: Math.max(
       FORMATION_MIN_DEPTH,
-      (Number(p.depth) || stagePlotCmToPx(150)) * s,
+      (Number(p.depth) || stagePlotCmToPx(150)) * fy,
     ),
   };
 }
 
-/** Factor mínimo de escala uniforme para respetar mínimos por kind. */
-export function minUniformScaleForFormation(formation) {
+/**
+ * Factores mínimos por eje para respetar mínimos por kind.
+ * @returns {{ sx: number, sy: number }}
+ */
+export function minScaleAxesForFormation(formation) {
   const kind = formation.kind;
   const p = formation.params || defaultParams(kind);
-  const candidates = [0.05];
+  let sx = 0.05;
+  let sy = 0.05;
   if (kind === "arc" || kind === "semi_arc") {
-    candidates.push(
+    sx = Math.max(
+      sx,
       FORMATION_MIN_RADIUS / (Number(p.rx) || stagePlotCmToPx(180)),
+    );
+    sy = Math.max(
+      sy,
       FORMATION_MIN_RADIUS / (Number(p.ry) || stagePlotCmToPx(100)),
     );
     if (kind === "semi_arc") {
-      candidates.push(
+      sx = Math.max(
+        sx,
         FORMATION_MIN_WING_LENGTH /
           (Number(p.wingLength) || stagePlotCmToPx(80)),
       );
     }
   } else if (kind === "line") {
-    candidates.push(
+    sx = Math.max(
+      sx,
       FORMATION_MIN_LENGTH / (Number(p.length) || stagePlotCmToPx(360)),
     );
   } else {
-    candidates.push(
+    sx = Math.max(
+      sx,
       FORMATION_MIN_WIDTH / (Number(p.width) || stagePlotCmToPx(280)),
+    );
+    sy = Math.max(
+      sy,
       FORMATION_MIN_DEPTH / (Number(p.depth) || stagePlotCmToPx(150)),
     );
   }
-  return Math.max(...candidates);
+  return { sx, sy };
+}
+
+/** Factor mínimo de escala uniforme para respetar mínimos por kind. */
+export function minUniformScaleForFormation(formation) {
+  const { sx, sy } = minScaleAxesForFormation(formation);
+  return Math.max(sx, sy);
 }
 
 /**
- * Escala uniforme de todos los params lineales; ancla fija en coords locales.
+ * Escala por ejes locales (sx, sy) con ancla fija en coords locales.
  * slotTs / ángulos sin cambio.
  */
-export function scaleFormationUniform(formation, scaleFactor, anchorLocal) {
-  const s = Math.max(scaleFactor, minUniformScaleForFormation(formation));
-  const params = scaleFormationParams(
+export function scaleFormationAxes(formation, sx, sy, anchorLocal) {
+  const mins = minScaleAxesForFormation(formation);
+  const fx = Math.max(sx, mins.sx);
+  const fy = Math.max(sy, mins.sy);
+  const params = scaleFormationParamsAxes(
     formation.kind,
     formation.params || defaultParams(formation.kind),
-    s,
+    fx,
+    fy,
   );
   const anchorWorld = formationLocalToWorld(
     formation,
@@ -1428,8 +1462,8 @@ export function scaleFormationUniform(formation, scaleFactor, anchorLocal) {
     anchorLocal.y,
   );
   const scaledOffset = rotateLocal(
-    anchorLocal.x * s,
-    anchorLocal.y * s,
+    anchorLocal.x * fx,
+    anchorLocal.y * fy,
     formation.rotation || 0,
   );
   return {
@@ -1441,7 +1475,18 @@ export function scaleFormationUniform(formation, scaleFactor, anchorLocal) {
 }
 
 /**
- * Redimensionado proporcional arrastrando una asa box_* (recuadro gris).
+ * Escala uniforme de todos los params lineales; ancla fija en coords locales.
+ * slotTs / ángulos sin cambio.
+ */
+export function scaleFormationUniform(formation, scaleFactor, anchorLocal) {
+  return scaleFormationAxes(formation, scaleFactor, scaleFactor, anchorLocal);
+}
+
+/**
+ * Redimensionado del recuadro gris (asas box_*).
+ * - Bordes L/R (`box_e`/`box_w`): solo ancho (sx); alto intacto.
+ * - Bordes T/B (`box_n`/`box_s`): solo alto (sy); ancho intacto.
+ * - Esquinas: escala uniforme (dimensión total, aspect).
  * @param {object} baseFormation — snapshot al inicio del drag
  */
 export function formationFromBoundsBoxHandleDrag(
@@ -1468,19 +1513,26 @@ export function formationFromBoundsBoxHandleDrag(
   const newDx = dragLocal.x - anchor.x;
   const newDy = dragLocal.y - anchor.y;
 
-  let s = 1;
+  let sx = 1;
+  let sy = 1;
   if (handleId === "box_e" || handleId === "box_w") {
-    if (Math.abs(baseDx) > 1e-6) s = newDx / baseDx;
+    if (Math.abs(baseDx) > 1e-6) sx = newDx / baseDx;
+    sy = 1;
   } else if (handleId === "box_n" || handleId === "box_s") {
-    if (Math.abs(baseDy) > 1e-6) s = newDy / baseDy;
+    sx = 1;
+    if (Math.abs(baseDy) > 1e-6) sy = newDy / baseDy;
   } else {
     const baseDist = Math.hypot(baseDx, baseDy);
     const newDist = Math.hypot(newDx, newDy);
-    if (baseDist > 1e-6) s = newDist / baseDist;
+    const s = baseDist > 1e-6 ? newDist / baseDist : 1;
+    sx = s;
+    sy = s;
   }
 
-  if (!Number.isFinite(s) || s <= 0) return baseFormation;
-  return scaleFormationUniform(baseFormation, s, anchor);
+  if (!Number.isFinite(sx) || !Number.isFinite(sy) || sx <= 0 || sy <= 0) {
+    return baseFormation;
+  }
+  return scaleFormationAxes(baseFormation, sx, sy, anchor);
 }
 
 /**

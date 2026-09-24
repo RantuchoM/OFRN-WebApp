@@ -137,6 +137,7 @@ import {
   getStagePlotTextLayout,
   normalizeStagePlotPayload,
   normalizeStagePlotRadialLines,
+  stagePlotDownstageCenterResizeOffset,
   toggleStagePlotFontStyle,
   STAGE_PLOT_RADIAL_LINES_DEFAULT,
   STAGE_PLOT_RADIAL_LINES_MAX,
@@ -528,18 +529,21 @@ function computeStagePlotViewportFit({
 }
 
 /**
- * Pan para fijar el centro geométrico del rectángulo del escenario en pantalla
- * cuando cambian width/height a escala constante (crece/encoge desde el centro).
+ * Pan para fijar en pantalla el mismo ancla que el contenido
+ * (`stagePlotDownstageCenterResizeOffset`: eje downstage-center).
+ * @param {{ scale?: number, x: number, y: number }} viewport
+ * @param {number} dx offset de contenido en px de escenario
+ * @param {number} dy
  */
-function panViewportForStageCenterResize(viewport, dWidth, dHeight) {
+function panViewportForStageContentOffset(viewport, dx, dy) {
   const s = Number(viewport?.scale) || 1;
-  const dW = Number(dWidth) || 0;
-  const dH = Number(dHeight) || 0;
-  if (dW === 0 && dH === 0) return viewport;
+  const tx = Number(dx) || 0;
+  const ty = Number(dy) || 0;
+  if (tx === 0 && ty === 0) return viewport;
   return {
     ...viewport,
-    x: viewport.x - (dW / 2) * s,
-    y: viewport.y - (dH / 2) * s,
+    x: viewport.x - tx * s,
+    y: viewport.y - ty * s,
   };
 }
 
@@ -777,6 +781,114 @@ function StageLienzoDimensionInput({
           if (e.key === "Enter") {
             e.preventDefault();
             commit();
+            e.currentTarget.blur();
+          }
+        }}
+        className={inputClassName}
+      />
+    </label>
+  );
+}
+
+/**
+ * Plazas / wing / arc count: local draft while typing; commit on Enter or blur.
+ * Escape restores the committed value (no mid-keystroke demagnetize on 8→1→10).
+ */
+function FormationPlazasCountInput({
+  label,
+  value,
+  min,
+  max,
+  onCommit,
+  title,
+  inputClassName = "w-12 rounded border border-slate-200 px-1.5 py-0.5 text-xs",
+}) {
+  const [draft, setDraft] = useState(() => String(value ?? min));
+  const draftRef = useRef(draft);
+  const focusedRef = useRef(false);
+  const skipCommitRef = useRef(false);
+  const valueRef = useRef(value);
+  const onCommitRef = useRef(onCommit);
+  valueRef.current = value;
+  onCommitRef.current = onCommit;
+
+  useEffect(() => {
+    if (!focusedRef.current) {
+      const next = String(value ?? min);
+      draftRef.current = next;
+      setDraft(next);
+    }
+  }, [value, min]);
+
+  const commit = useCallback(() => {
+    const raw = draftRef.current;
+    const fallback = Number(valueRef.current);
+    const base = Number.isFinite(fallback) ? Math.round(fallback) : min;
+    const n = Number(raw);
+    const next =
+      raw === "" || raw == null || !Number.isFinite(n)
+        ? base
+        : Math.max(min, Math.min(max, Math.round(n)));
+    const asStr = String(next);
+    draftRef.current = asStr;
+    setDraft(asStr);
+    focusedRef.current = false;
+    if (next === base) return;
+    // Optimistic so a following blur after Enter does not double-commit.
+    valueRef.current = next;
+    onCommitRef.current(next);
+  }, [min, max]);
+
+  const cancelDraft = useCallback(() => {
+    const asStr = String(
+      Number.isFinite(Number(valueRef.current))
+        ? Math.round(Number(valueRef.current))
+        : min,
+    );
+    draftRef.current = asStr;
+    setDraft(asStr);
+    focusedRef.current = false;
+  }, [min]);
+
+  return (
+    <label
+      className="flex shrink-0 items-center gap-1 text-[11px] text-slate-600"
+      title={title}
+    >
+      {label}
+      <input
+        type="text"
+        inputMode="numeric"
+        pattern="[0-9]*"
+        autoComplete="off"
+        value={draft}
+        onFocus={(e) => {
+          focusedRef.current = true;
+          skipCommitRef.current = false;
+          e.target.select();
+        }}
+        onChange={(e) => {
+          const next = e.target.value.replace(/\D/g, "");
+          draftRef.current = next;
+          setDraft(next);
+        }}
+        onBlur={() => {
+          if (skipCommitRef.current) {
+            skipCommitRef.current = false;
+            return;
+          }
+          commit();
+        }}
+        onKeyDown={(e) => {
+          e.stopPropagation();
+          if (e.key === "Enter") {
+            e.preventDefault();
+            commit();
+            e.currentTarget.blur();
+          } else if (e.key === "Escape") {
+            e.preventDefault();
+            skipCommitRef.current = true;
+            cancelDraft();
             e.currentTarget.blur();
           }
         }}
@@ -1102,6 +1214,60 @@ function isEditableKeyboardTarget(target) {
   if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
   if (el.isContentEditable) return true;
   return !!el.closest?.('[contenteditable="true"]');
+}
+
+/**
+ * Formation to move with a multi-item drag so magnetized instruments stay united.
+ * Prefer explicit `selectedFormationId`; otherwise infer when 2+ selected items
+ * share the same slot formation (or every selected item is magnetized to one).
+ * Single-item drag must NOT use this — intentional demagnetize stays on that path.
+ * @param {{ formations?: object[], items?: object[] }} prev
+ * @param {string|null|undefined} selectedFormationId
+ * @param {Iterable<string>} dragIds
+ * @returns {object|null}
+ */
+function resolveGroupDragFormation(prev, selectedFormationId, dragIds) {
+  const formations = prev?.formations || [];
+  const items = prev?.items || [];
+  const idList = [...dragIds];
+  if (selectedFormationId != null && selectedFormationId !== "") {
+    const fm = formations.find(
+      (f) => String(f.id) === String(selectedFormationId),
+    );
+    if (fm) return fm;
+  }
+  if (idList.length <= 1) return null;
+
+  const idSet = new Set(idList.map(String));
+  /** @type {Map<string, number>} */
+  const counts = new Map();
+  for (const it of items) {
+    if (!idSet.has(String(it.id))) continue;
+    const parsed = parseSlotId(it.slotId);
+    if (!parsed) continue;
+    const fid = String(parsed.formationId);
+    counts.set(fid, (counts.get(fid) || 0) + 1);
+  }
+  if (counts.size === 0) return null;
+
+  let bestId = null;
+  let bestCount = 0;
+  for (const [fid, n] of counts) {
+    if (n > bestCount) {
+      bestCount = n;
+      bestId = fid;
+    }
+  }
+  if (!bestId) return null;
+
+  const allSelectedOnBest = idList.every((sid) => {
+    const it = items.find((i) => String(i.id) === String(sid));
+    const parsed = parseSlotId(it?.slotId);
+    return parsed && String(parsed.formationId) === bestId;
+  });
+  if (bestCount < 2 && !allSelectedOnBest) return null;
+
+  return formations.find((f) => String(f.id) === bestId) || null;
 }
 
 function useStagePlotIcon(type, color) {
@@ -2047,6 +2213,8 @@ const ItemShape = React.memo(function ItemShape({
   chairSquaresOpacity = 1,
   draggable,
   shapeRef,
+  /** Registro estable de nodo Konva (id, node) — evita bustar memo con lambdas. */
+  registerNode,
   /** Escala del viewport del Stage (pan/zoom); solo afecta labels de tarima. */
   viewportScale = 1,
   /** Piso nocturno (Stage re-invertido): labels de tarima claros. */
@@ -2187,10 +2355,15 @@ const ItemShape = React.memo(function ItemShape({
   const setGroupRef = useCallback(
     (node) => {
       groupRef.current = node;
-      if (typeof shapeRef === "function") shapeRef(node);
-      else if (shapeRef && typeof shapeRef === "object") shapeRef.current = node;
+      if (typeof registerNode === "function") {
+        registerNode(item.id, node);
+      } else if (typeof shapeRef === "function") {
+        shapeRef(node);
+      } else if (shapeRef && typeof shapeRef === "object") {
+        shapeRef.current = node;
+      }
     },
-    [shapeRef],
+    [registerNode, shapeRef, item.id],
   );
 
   /**
@@ -2228,11 +2401,13 @@ const ItemShape = React.memo(function ItemShape({
     if (!hasFootprint) return;
     const node = groupRef.current;
     if (!node) return;
-    // Konva puede dejar scaleX/Y stale tras drag/transform; forzar desde catálogo.
-    node.scaleX(scaleX);
-    node.scaleY(scaleY);
+    // Re-leer catálogo en el effect: no confiar solo en scaleX/Y del render
+    // (memo / props stale). Epoch o dims del tipo deben re-aplicar a Konva.
+    const catalog = stagePlotInstrumentCatalogScales(item.type);
+    node.scaleX(catalog.scaleX);
+    node.scaleY(catalog.scaleY);
     node.getLayer()?.batchDraw();
-  }, [hasFootprint, scaleX, scaleY, catalogEpoch]);
+  }, [hasFootprint, item.type, scaleX, scaleY, catalogEpoch]);
 
   useLayoutEffect(() => {
     if (!selected) return;
@@ -2760,9 +2935,9 @@ export default function ProgramStagePlot({
   const stageWrapRef = useRef(null);
   const labelEditorRef = useRef(null);
   const viewportRef = useRef({ scale: 1, x: 40, y: 40 });
-  /** Último tamaño de escenario visto; pan de centro al cambiar Ancho/Alto (y undo). */
+  /** Último tamaño de escenario visto; pan downstage-center al cambiar Ancho/Alto (y undo). */
   const stageSizeForCenterPanRef = useRef(null);
-  /** Evita pan de centro al cargar/cambiar de lienzo o plantilla (fit aparte). */
+  /** Evita pan de resize al cargar/cambiar de lienzo o plantilla (fit aparte). */
   const skipStageCenterPanRef = useRef(true);
   const [canvasSize, setCanvasSize] = useState({ w: 640, h: 420 });
   const [viewport, setViewport] = useState({ scale: 1, x: 40, y: 40 });
@@ -3090,24 +3265,103 @@ export default function ProgramStagePlot({
   const moveSelectedItemsByKeyboard = useCallback(
     (dx, dy) => {
       if (!canEdit || (dx === 0 && dy === 0)) return false;
-      const ids = selectedIdsRef.current;
-      if (!ids.length) return false;
-      const idSet = new Set(ids);
+      let dragIds = [...selectedIdsRef.current];
+      if (!dragIds.length) return false;
+      const prev = payloadRef.current;
+
+      for (const sid of [...dragIds]) {
+        const item = prev.items.find((i) => i.id === sid);
+        if (!item?.groupId) continue;
+        const group = getGroupById(prev, item.groupId);
+        if (group?.kind === "string_pair") continue;
+        const groupMembers = getGroupMemberIds(prev, item.groupId);
+        dragIds = [...new Set([...dragIds, ...groupMembers])];
+      }
+
+      const fm = resolveGroupDragFormation(
+        prev,
+        selectedFormationIdRef.current,
+        dragIds,
+      );
+      // Multi + shared/explicit formation: same semantics as commitSelectionGroupDrag.
+      if (fm && dragIds.length > 1) {
+        const origins = new Map();
+        for (const sid of dragIds) {
+          const it = prev.items.find((i) => i.id === sid);
+          origins.set(sid, { x: it?.x ?? 0, y: it?.y ?? 0 });
+        }
+        withKeyboardNudgeHistory(() => {
+          commitPayload((p) => {
+            const stage = p.stage || {};
+            const sw = Number(stage.width) || 900;
+            const sh = Number(stage.height) || 560;
+            const clamp = (v, max) => Math.min(max - 8, Math.max(8, v));
+            const fid = String(fm.id);
+
+            const formations = (p.formations || []).map((f) =>
+              String(f.id) === fid
+                ? { ...f, x: fm.x + dx, y: fm.y + dy }
+                : f,
+            );
+
+            let items = (p.items || []).map((it) => {
+              if (!origins.has(it.id)) return it;
+              const parsed = parseSlotId(it.slotId);
+              if (parsed && String(parsed.formationId) === fid) {
+                return it;
+              }
+              const o = origins.get(it.id);
+              return {
+                ...it,
+                x: clamp(o.x + dx, sw),
+                y: clamp(o.y + dy, sh),
+                slotId: null,
+              };
+            });
+            items = reanchorItemsToFormations(formations, items, stage, [fid]);
+
+            const movedGroupIds = new Set(
+              (p.items || [])
+                .filter((it) => origins.has(it.id) && it.groupId)
+                .map((it) => it.groupId),
+            );
+            const groups =
+              movedGroupIds.size > 0
+                ? (p.groups || []).map((grp) =>
+                    movedGroupIds.has(grp.id) && grp.alignAnchor
+                      ? {
+                          ...grp,
+                          alignAnchor: {
+                            x: grp.alignAnchor.x + dx,
+                            y: grp.alignAnchor.y + dy,
+                          },
+                        }
+                      : grp,
+                  )
+                : p.groups;
+
+            return { ...p, formations, items, groups };
+          });
+        });
+        return true;
+      }
+
+      const idSet = new Set(dragIds);
       withKeyboardNudgeHistory(() => {
-        commitPayload((prev) => {
-          const nextItems = prev.items.map((it) =>
+        commitPayload((p) => {
+          const nextItems = p.items.map((it) =>
             idSet.has(it.id)
               ? { ...it, x: it.x + dx, y: it.y + dy, slotId: null }
               : it,
           );
           const movedGroupIds = new Set(
-            prev.items
+            p.items
               .filter((it) => idSet.has(it.id) && it.groupId)
               .map((it) => it.groupId),
           );
           const groups =
             movedGroupIds.size > 0
-              ? (prev.groups || []).map((g) =>
+              ? (p.groups || []).map((g) =>
                   movedGroupIds.has(g.id) && g.alignAnchor
                     ? {
                         ...g,
@@ -3118,8 +3372,8 @@ export default function ProgramStagePlot({
                       }
                     : g,
                 )
-              : prev.groups;
-          return { ...prev, items: nextItems, groups };
+              : p.groups;
+          return { ...p, items: nextItems, groups };
         });
       });
       return true;
@@ -3417,6 +3671,48 @@ export default function ProgramStagePlot({
     return node || null;
   }, []);
 
+  /**
+   * Fuerza scaleX/Y desde catálogo DB en TODOS los instrumentos con huella del
+   * lienzo. ItemShape + React.memo / Transformer solo actualizaban el nodo con
+   * foco; este sync imperativo cubre el resto al cambiar epoch.
+   */
+  const syncAllFootprintScalesFromCatalog = useCallback(() => {
+    const items = payloadRef.current?.items || [];
+    for (const item of items) {
+      if (!stagePlotItemHasInstrumentFootprint(item?.type)) continue;
+      const node = resolveItemNode(item.id);
+      if (!node) continue;
+      const { scaleX: sx, scaleY: sy } = stagePlotInstrumentCatalogScales(
+        item.type,
+      );
+      node.scaleX(sx);
+      node.scaleY(sy);
+    }
+    const tr = transformerRef.current;
+    if (tr?.nodes()?.length) {
+      tr.forceUpdate();
+      tr.getLayer()?.batchDraw();
+    }
+    const stage = konvaStageRef.current;
+    if (stage) {
+      stage.batchDraw();
+    } else {
+      for (const node of itemNodeRefs.current.values()) {
+        node.getLayer()?.batchDraw();
+        break;
+      }
+    }
+  }, [resolveItemNode]);
+  const syncAllFootprintScalesFromCatalogRef = useRef(
+    syncAllFootprintScalesFromCatalog,
+  );
+  syncAllFootprintScalesFromCatalogRef.current = syncAllFootprintScalesFromCatalog;
+
+  const registerItemNode = useCallback((id, node) => {
+    if (node) itemNodeRefs.current.set(id, node);
+    else itemNodeRefs.current.delete(id);
+  }, []);
+
   const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
   const selectedItems = useMemo(
     () => payload.items.filter((i) => selectedIdSet.has(i.id)),
@@ -3456,7 +3752,19 @@ export default function ProgramStagePlot({
     attach();
     const t = requestAnimationFrame(attach);
     return () => cancelAnimationFrame(t);
-  }, [selectedIds, selectedFormationId, payload.items, viewport.scale, resolveItemNode]);
+  }, [
+    selectedIds,
+    selectedFormationId,
+    payload.items,
+    viewport.scale,
+    catalogEpoch,
+    resolveItemNode,
+  ]);
+
+  /** Tras epoch de catálogo: re-escalar huellas aunque ItemShape no re-pinte. */
+  useLayoutEffect(() => {
+    syncAllFootprintScalesFromCatalog();
+  }, [catalogEpoch, syncAllFootprintScalesFromCatalog]);
 
   const { withIcon: paletteInstrumentsWithIcon, withoutIcon: paletteInstrumentsSinIcono } =
     useMemo(
@@ -3591,7 +3899,7 @@ export default function ProgramStagePlot({
         patch.width != null ||
         patch.height != null;
       if (sizePatch) {
-        // Conservar zoom; el pan se corrige al centro vía stageSizeForCenterPanRef.
+        // Conservar zoom; pan al ancla downstage-center vía stageSizeForCenterPanRef.
         userZoomedRef.current = true;
       }
       commitPayload((prev) => applyStagePlotStagePatch(prev, patch));
@@ -3817,11 +4125,16 @@ export default function ProgramStagePlot({
   );
 
   const itemIsDraggable = useCallback(
-    (itemId) =>
-      canEdit &&
-      (canvasTool === STAGE_PLOT_TOOL_MOVE ||
-        (canvasTool === STAGE_PLOT_TOOL_SELECT && selectedIdSet.has(itemId))),
-    [canEdit, canvasTool, selectedIdSet],
+    (itemId) => {
+      if (!canEdit) return false;
+      // Sticky formation-only: items must not steal drag until outside deselect.
+      if (selectedFormationId != null && selectedIdSet.size === 0) return false;
+      return (
+        canvasTool === STAGE_PLOT_TOOL_MOVE ||
+        (canvasTool === STAGE_PLOT_TOOL_SELECT && selectedIdSet.has(itemId))
+      );
+    },
+    [canEdit, canvasTool, selectedIdSet, selectedFormationId],
   );
 
   // Asas de la formación seleccionada por encima de ítems y del Transformer
@@ -4001,6 +4314,9 @@ export default function ProgramStagePlot({
   useEffect(() => {
     const syncCatalogEpoch = () => {
       setCatalogEpoch(getStagePlotCatalogEpoch());
+      // Imperativo: no esperar al commit de React ni a que cada ItemShape
+      // memoizado re-renderice (solo el seleccionado veía el Transformer).
+      syncAllFootprintScalesFromCatalogRef.current();
     };
     syncCatalogEpoch();
     window.addEventListener(STAGE_PLOT_CATALOG_CHANGED_EVENT, syncCatalogEpoch);
@@ -4234,8 +4550,8 @@ export default function ProgramStagePlot({
     };
   }, [loading, fitViewport, activePlotId, mobileUi, immersive]);
 
-  // Al cambiar Ancho/Alto (o undo/redo de ese cambio), fijar el centro del
-  // rectángulo en pantalla; el contenido ya se traslada en applyStagePlotStagePatch.
+  // Al cambiar Ancho/Alto (o undo/redo), fijar el ancla downstage-center en
+  // pantalla; el contenido ya se traslada en applyStagePlotStagePatch.
   useEffect(() => {
     const w = payload.stage?.width;
     const h = payload.stage?.height;
@@ -4248,12 +4564,16 @@ export default function ProgramStagePlot({
       return;
     }
 
-    const dW = w - prev.w;
-    const dH = h - prev.h;
+    const { dx, dy } = stagePlotDownstageCenterResizeOffset(
+      prev.w,
+      prev.h,
+      w,
+      h,
+    );
     stageSizeForCenterPanRef.current = { w, h };
-    if (dW === 0 && dH === 0) return;
+    if (dx === 0 && dy === 0) return;
 
-    setViewport((v) => panViewportForStageCenterResize(v, dW, dH));
+    setViewport((v) => panViewportForStageContentOffset(v, dx, dy));
   }, [payload.stage?.width, payload.stage?.height]);
 
   // Evitar scroll de página sobre el lienzo (wheel debe ser non-passive).
@@ -4729,21 +5049,15 @@ export default function ProgramStagePlot({
 
   const patchFormationsAndReanchor = (updater) => {
     commitPayload((prev) => {
-      const prevFormations = prev.formations || [];
-      const formations = updater(prevFormations);
-      const prevById = new Map(prevFormations.map((f) => [f.id, f]));
-      const redistributeSlotsForFormationIds = formations
-        .filter((f) => {
-          const old = prevById.get(f.id);
-          return old && old.slots !== f.slots;
-        })
-        .map((f) => f.id);
+      const formations = updater(prev.formations || []);
+      // Do not pack/redistribute on N change: keep magnetized slotIds for
+      // indices that still exist; demagnetize only index >= new N (decrease).
       const items = reanchorItemsToFormations(
         formations,
         prev.items,
         prev.stage,
         null,
-        redistributeSlotsForFormationIds,
+        null,
       );
       return { ...prev, formations, items };
     });
@@ -5289,6 +5603,12 @@ export default function ProgramStagePlot({
     );
     const alreadySelected = selectedIdsRef.current.includes(id);
     const hadFormation = selectedFormationIdRef.current != null;
+    // Sticky formation-only: plain clicks on instruments (incl. magnetized)
+    // stay on the formation until outside deselect / marquee / Move-empty pan.
+    // Shift/Ctrl/⌘ additive still toggles items into a mixed selection.
+    if (hadFormation && selectedIdsRef.current.length === 0 && !additive) {
+      return;
+    }
     // Clear formation only on non-additive replace (click unselected item).
     // Additive toggle/add and mousedown on an already-selected member of a
     // mixed selection must keep selectedFormationId (group drag + deselect).
@@ -5809,10 +6129,13 @@ export default function ProgramStagePlot({
         return;
       }
 
-      const formationId = selectedFormationIdRef.current;
-      const fm = formationId
-        ? (prev.formations || []).find((f) => f.id === formationId)
-        : null;
+      // Explicit mixed selection OR infer formation when multi magnetized items
+      // share slots — keep slotId / move formation together (no demagnetize).
+      const fm = resolveGroupDragFormation(
+        prev,
+        selectedFormationIdRef.current,
+        dragIds,
+      );
       const includeFormation = Boolean(fm);
 
       if (dragIds.length <= 1 && !includeFormation) {
@@ -5832,7 +6155,7 @@ export default function ProgramStagePlot({
         leaderId: id,
         leaderKind: "item",
         origins,
-        formationId: includeFormation ? formationId : null,
+        formationId: includeFormation ? fm.id : null,
         formationOrigin: includeFormation
           ? { x: fm.x, y: fm.y }
           : null,
@@ -5981,6 +6304,7 @@ export default function ProgramStagePlot({
   /**
    * One history entry: translate selected items + optional formation by the same
    * delta. Slotted items on the moved formation keep slotId and are reanchored.
+   * Other moved items clear slotId (intentional peel from other formations / free).
    */
   const commitSelectionGroupDrag = useCallback(
     (g, dx, dy) => {
@@ -6014,6 +6338,7 @@ export default function ProgramStagePlot({
         let items = (prev.items || []).map((it) => {
           if (!movedIds?.has(it.id)) return it;
           const parsed = fid ? parseSlotId(it.slotId) : null;
+          // Magnetized to the formation we are moving → leave for reanchor (keep slotId).
           if (fid && parsed && String(parsed.formationId) === fid) {
             return it;
           }
@@ -6083,54 +6408,13 @@ export default function ProgramStagePlot({
         const origin = g.origins.get(id);
         const dx = x - (origin?.x ?? x);
         const dy = y - (origin?.y ?? y);
-        if (g.formationId) {
-          commitSelectionGroupDrag(g, dx, dy);
-        } else {
-          const movedIds = g.origins;
-          const movedPositions = new Map();
-          const stage = payloadRef.current.stage || {};
-          const sw = Number(stage.width) || 900;
-          const sh = Number(stage.height) || 560;
-          for (const [sid, o] of movedIds) {
-            movedPositions.set(sid, {
-              x: Math.min(sw - 8, Math.max(8, o.x + dx)),
-              y: Math.min(sh - 8, Math.max(8, o.y + dy)),
-            });
-          }
-          // Suppress follower dragEnds that fire after we clear dragGroupRef.
-          suppressItemDragEndIdsRef.current = new Set(movedIds.keys());
-          queueMicrotask(() => {
-            suppressItemDragEndIdsRef.current = null;
-          });
-          // One history entry for the whole multi/group drag (all positions).
-          commitPayload((prev) => {
-            const leader = prev.items.find((it) => it.id === id);
-            const nextItems = prev.items.map((it) => {
-              if (!movedPositions.has(it.id)) return it;
-              const p = movedPositions.get(it.id);
-              return { ...it, x: p.x, y: p.y, slotId: null };
-            });
-            const groups =
-              leader?.groupId && (dx !== 0 || dy !== 0)
-                ? (prev.groups || []).map((grp) =>
-                    grp.id === leader.groupId && grp.alignAnchor
-                      ? {
-                          ...grp,
-                          alignAnchor: {
-                            x: grp.alignAnchor.x + dx,
-                            y: grp.alignAnchor.y + dy,
-                          },
-                        }
-                      : grp,
-                  )
-                : prev.groups;
-            return { ...prev, items: nextItems, groups };
-          });
-        }
+        // Always one path: with formationId → reanchor keep slotId; without → clear.
+        commitSelectionGroupDrag(g, dx, dy);
         dragGroupRef.current = null;
         return;
       }
       dragGroupRef.current = null;
+      // Single-item drag: demagnetize + optional re-snap (intentional peel).
       commitPayload((prev) => ({
         ...prev,
         items: applySnapToMovedItems(prev, new Map([[id, { x, y }]])),
@@ -6157,7 +6441,9 @@ export default function ProgramStagePlot({
         return;
       }
       const prev = payloadRef.current;
-      const fm = (prev.formations || []).find((f) => f.id === formationId);
+      const fm = (prev.formations || []).find(
+        (f) => String(f.id) === String(formationId),
+      );
       if (!fm) {
         dragGroupRef.current = null;
         return;
@@ -7131,9 +7417,10 @@ export default function ProgramStagePlot({
               supabase={supabase}
               canEdit={canEdit}
               onInstrumentsChange={setInstrumentosRows}
-              onCatalogReload={() =>
-                setCatalogEpoch(getStagePlotCatalogEpoch())
-              }
+              onCatalogReload={() => {
+                setCatalogEpoch(getStagePlotCatalogEpoch());
+                syncAllFootprintScalesFromCatalogRef.current();
+              }}
             />
           ) : (
             <>
@@ -7432,10 +7719,7 @@ export default function ProgramStagePlot({
                     viewportScale={viewportScale}
                     nightStage={isForcedDark}
                     catalogEpoch={catalogEpoch}
-                    shapeRef={(node) => {
-                      if (node) itemNodeRefs.current.set(item.id, node);
-                      else itemNodeRefs.current.delete(item.id);
-                    }}
+                    registerNode={registerItemNode}
                     onSelect={handleSelectItem}
                     onContextMenu={handleItemContextMenu}
                     onDblClick={handleItemDblClick}
@@ -7508,10 +7792,7 @@ export default function ProgramStagePlot({
                     viewportScale={viewportScale}
                     nightStage={isForcedDark}
                     catalogEpoch={catalogEpoch}
-                    shapeRef={(node) => {
-                      if (node) itemNodeRefs.current.set(item.id, node);
-                      else itemNodeRefs.current.delete(item.id);
-                    }}
+                    registerNode={registerItemNode}
                     onSelect={handleSelectItem}
                     onContextMenu={handleItemContextMenu}
                     onDblClick={handleItemDblClick}
@@ -7818,44 +8099,26 @@ export default function ProgramStagePlot({
                 </span>
                 {selectedFormation.kind === "semi_arc" ? (
                   <>
-                    <label className="flex shrink-0 items-center gap-1 text-[11px] text-slate-600">
-                      Plazas laterales
-                      <input
-                        type="number"
-                        min={0}
-                        max={32}
-                        value={selectedFormation.wingSlots ?? 0}
-                        onChange={(e) =>
-                          updateSelectedFormation({
-                            wingSlots: Math.max(
-                              0,
-                              Math.min(32, Number(e.target.value) || 0),
-                            ),
-                          })
-                        }
-                        className="w-12 rounded border border-slate-200 px-1.5 py-0.5 text-xs"
-                        title="Por ala, desde el extremo hacia el arco (sin la juntura)"
-                      />
-                    </label>
-                    <label className="flex shrink-0 items-center gap-1 text-[11px] text-slate-600">
-                      Plazas en arco
-                      <input
-                        type="number"
-                        min={1}
-                        max={64}
-                        value={selectedFormation.arcSlots ?? 1}
-                        onChange={(e) =>
-                          updateSelectedFormation({
-                            arcSlots: Math.max(
-                              1,
-                              Math.min(64, Number(e.target.value) || 1),
-                            ),
-                          })
-                        }
-                        className="w-12 rounded border border-slate-200 px-1.5 py-0.5 text-xs"
-                        title="Incluye las junturas ala–arco como primera y última plaza del arco"
-                      />
-                    </label>
+                    <FormationPlazasCountInput
+                      label="Plazas laterales"
+                      value={selectedFormation.wingSlots ?? 0}
+                      min={0}
+                      max={32}
+                      title="Por ala, desde el extremo hacia el arco (sin la juntura). Enter o blur aplica; Escape cancela."
+                      onCommit={(wingSlots) =>
+                        updateSelectedFormation({ wingSlots })
+                      }
+                    />
+                    <FormationPlazasCountInput
+                      label="Plazas en arco"
+                      value={selectedFormation.arcSlots ?? 1}
+                      min={1}
+                      max={64}
+                      title="Incluye las junturas ala–arco como primera y última plaza del arco. Enter o blur aplica; Escape cancela."
+                      onCommit={(arcSlots) =>
+                        updateSelectedFormation({ arcSlots })
+                      }
+                    />
                     <span
                       className="shrink-0 text-[10px] text-slate-400"
                       title="Total = 2×laterales + arco"
@@ -7864,24 +8127,15 @@ export default function ProgramStagePlot({
                     </span>
                   </>
                 ) : (
-                  <label className="flex shrink-0 items-center gap-1 text-[11px] text-slate-600">
-                    Plazas
-                    <input
-                      type="number"
-                      min={1}
-                      max={64}
-                      value={selectedFormation.slots}
-                      onChange={(e) =>
-                        updateSelectedFormation({
-                          slots: Math.max(
-                            1,
-                            Math.min(64, Number(e.target.value) || 1),
-                          ),
-                        })
-                      }
-                      className="w-14 rounded border border-slate-200 px-1.5 py-0.5 text-xs"
-                    />
-                  </label>
+                  <FormationPlazasCountInput
+                    label="Plazas"
+                    value={selectedFormation.slots}
+                    min={1}
+                    max={64}
+                    inputClassName="w-14 rounded border border-slate-200 px-1.5 py-0.5 text-xs"
+                    title="Enter o blur aplica; Escape cancela. No aplica en cada tecla."
+                    onCommit={(slots) => updateSelectedFormation({ slots })}
+                  />
                 )}
                 <div className="flex shrink-0 items-center gap-0.5 rounded border border-slate-200 p-0.5">
                   {STAGE_PLOT_SLOT_MODES.map((mode) => {
