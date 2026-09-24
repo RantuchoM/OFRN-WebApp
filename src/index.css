@@ -495,13 +495,13 @@ html.dark .shadow-xl {
 }
 
 html[data-repertoire-player] #feedback-widget-container {
-  bottom: 6.75rem;
+  bottom: 13.25rem;
   right: 0.75rem;
 }
 
 @media (min-width: 640px) {
   html[data-repertoire-player] #feedback-widget-container {
-    bottom: 5.75rem;
+    bottom: 6.25rem;
   }
 }
 

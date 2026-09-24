@@ -102,12 +102,13 @@ function RateControl({ rate, onChange, id, className = "" }) {
   };
 
   return (
-    <div className={`flex items-center gap-0.5 shrink-0 ${className}`}>
+    <div className={`flex items-center gap-1 sm:gap-0.5 shrink-0 ${className}`}>
       <button
         type="button"
         onClick={() => onChange(clampPlaybackRate(rate - 0.05))}
-        className="h-7 w-6 rounded border border-slate-200 text-[11px] font-bold text-slate-500 hover:bg-slate-50"
+        className="flex h-[44px] w-[44px] sm:h-8 sm:w-8 items-center justify-center rounded-lg border border-slate-200 text-lg sm:text-xs font-bold text-slate-600 hover:bg-slate-50"
         title="Más lento"
+        aria-label="Más lento"
       >
         −
       </button>
@@ -125,7 +126,7 @@ function RateControl({ rate, onChange, id, className = "" }) {
             commit();
           }
         }}
-        className="h-7 w-14 rounded border border-slate-200 bg-white px-1 text-center text-[11px] font-bold text-slate-600"
+        className="h-[44px] w-[4.75rem] sm:h-8 sm:w-14 rounded-lg border border-slate-200 bg-white px-1 text-center text-[16px] sm:text-xs font-bold text-slate-700"
         title="Velocidad (ej. 0.78 o 1.8)"
         aria-label="Velocidad de reproducción"
       />
@@ -134,12 +135,13 @@ function RateControl({ rate, onChange, id, className = "" }) {
           <option key={r} value={formatPlaybackRate(r)} />
         ))}
       </datalist>
-      <span className="text-[10px] font-bold text-slate-400">×</span>
+      <span className="text-[15px] sm:text-[10px] font-bold text-slate-500">×</span>
       <button
         type="button"
         onClick={() => onChange(clampPlaybackRate(rate + 0.05))}
-        className="h-7 w-6 rounded border border-slate-200 text-[11px] font-bold text-slate-500 hover:bg-slate-50"
+        className="flex h-[44px] w-[44px] sm:h-8 sm:w-8 items-center justify-center rounded-lg border border-slate-200 text-lg sm:text-xs font-bold text-slate-600 hover:bg-slate-50"
         title="Más rápido"
+        aria-label="Más rápido"
       >
         +
       </button>
@@ -752,17 +754,17 @@ export default function RepertoirePlaylistPlayer({
           key={track.id}
           type="button"
           onClick={() => goTo(i, { autoplay: true })}
-          className={`flex w-full min-w-0 max-w-full items-center gap-2 overflow-hidden px-3 py-1.5 text-left hover:bg-indigo-50 ${
-            dense ? "text-xs" : "text-sm py-2.5"
+          className={`flex w-full min-w-0 max-w-full items-center gap-2 overflow-hidden px-3 text-left hover:bg-indigo-50 ${
+            dense ? "py-2.5 text-sm sm:py-1.5 sm:text-xs" : "py-3 text-sm"
           } ${active ? "bg-indigo-50 text-indigo-800" : "text-slate-700"}`}
         >
-          <span className="w-5 shrink-0 text-[10px] font-bold text-slate-400">
+          <span className="w-6 shrink-0 text-xs font-bold text-slate-400 sm:w-5 sm:text-[10px]">
             {i + 1}
           </span>
           {track.source === "youtube" ? (
-            <IconYoutube size={12} className="shrink-0 text-red-500" />
+            <IconYoutube size={14} className="shrink-0 text-red-500" />
           ) : (
-            <IconDrive size={12} className="shrink-0 text-emerald-600" />
+            <IconDrive size={14} className="shrink-0 text-emerald-600" />
           )}
           <span className="min-w-0 flex-1 truncate font-medium">
             {track.title}
@@ -783,46 +785,53 @@ export default function RepertoirePlaylistPlayer({
     });
 
   const transport = (
-    <div className="flex shrink-0 items-center gap-0.5">
+    <div className="flex shrink-0 items-center gap-1 sm:gap-0.5">
       <button
         type="button"
         onClick={playPrev}
-        className="rounded p-1.5 text-slate-600 hover:bg-slate-100"
+        className={`flex items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 ${
+          fullscreen ? "h-12 w-12" : "h-[44px] w-[44px] sm:h-9 sm:w-9"
+        }`}
         title="Anterior"
+        aria-label="Anterior"
       >
-        <IconSkipBack size={fullscreen ? 22 : 16} />
+        <IconSkipBack size={fullscreen ? 24 : 20} />
       </button>
       <button
         type="button"
         onClick={togglePlay}
         disabled={loadingAudio}
         className={`flex items-center justify-center rounded-full bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 ${
-          fullscreen ? "h-14 w-14" : "h-8 w-8"
+          fullscreen ? "h-16 w-16" : "h-[48px] w-[48px] sm:h-10 sm:w-10"
         }`}
         title={playing ? "Pausar" : "Reproducir"}
+        aria-label={playing ? "Pausar" : "Reproducir"}
       >
         {loadingAudio ? (
-          <IconLoader size={fullscreen ? 22 : 14} className="animate-spin" />
+          <IconLoader size={fullscreen ? 26 : 20} className="animate-spin" />
         ) : playing ? (
-          <IconPause size={fullscreen ? 22 : 14} />
+          <IconPause size={fullscreen ? 26 : 20} />
         ) : (
-          <IconPlay size={fullscreen ? 22 : 14} />
+          <IconPlay size={fullscreen ? 26 : 20} />
         )}
       </button>
       <button
         type="button"
         onClick={playNext}
-        className="rounded p-1.5 text-slate-600 hover:bg-slate-100"
+        className={`flex items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 ${
+          fullscreen ? "h-12 w-12" : "h-[44px] w-[44px] sm:h-9 sm:w-9"
+        }`}
         title="Siguiente"
+        aria-label="Siguiente"
       >
-        <IconSkipForward size={fullscreen ? 22 : 16} />
+        <IconSkipForward size={fullscreen ? 24 : 20} />
       </button>
     </div>
   );
 
   const seekBar = (
-    <div className="mt-0.5 flex items-center gap-2">
-      <span className="w-8 shrink-0 text-[10px] tabular-nums text-slate-400">
+    <div className="mt-1 flex items-center gap-2.5 sm:mt-0.5 sm:gap-2">
+      <span className="w-[3.25rem] shrink-0 text-[15px] font-semibold tabular-nums text-slate-700 sm:w-9 sm:text-[11px] sm:font-medium sm:text-slate-500">
         {formatClock(progress)}
       </span>
       <input
@@ -832,10 +841,10 @@ export default function RepertoirePlaylistPlayer({
         step={0.1}
         value={Math.min(progress, duration || 0)}
         onChange={(e) => onSeek(e.target.value)}
-        className="h-1 w-full cursor-pointer accent-indigo-600"
+        className="h-4 w-full cursor-pointer accent-indigo-600 sm:h-1.5"
         aria-label="Progreso"
       />
-      <span className="w-8 shrink-0 text-right text-[10px] tabular-nums text-slate-400">
+      <span className="w-[3.25rem] shrink-0 text-right text-[15px] font-semibold tabular-nums text-slate-700 sm:w-9 sm:text-[11px] sm:font-medium sm:text-slate-500">
         {formatClock(duration)}
       </span>
     </div>
@@ -858,11 +867,11 @@ export default function RepertoirePlaylistPlayer({
           <button
             type="button"
             onClick={() => setFullscreen(false)}
-            className="rounded p-1.5 text-slate-500 hover:bg-slate-100"
+            className="flex h-[44px] w-[44px] items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
             title="Cerrar pantalla completa"
             aria-label="Cerrar pantalla completa"
           >
-            <IconX size={20} />
+            <IconX size={22} />
           </button>
         </div>
       )}
@@ -877,14 +886,14 @@ export default function RepertoirePlaylistPlayer({
         className={
           fullscreen
             ? "flex min-h-0 flex-1 flex-col md:flex-row"
-            : "flex min-w-0 w-full items-center gap-2 px-2 py-1.5 pr-14 md:gap-3 md:px-3 md:pr-16"
+            : "flex min-w-0 w-full items-center gap-2 px-3 py-2 sm:gap-3 sm:px-3 sm:py-1.5"
         }
       >
         <div
           className={
             fullscreen
               ? "flex w-full shrink-0 flex-col items-center gap-3 bg-white p-4 md:w-[min(28rem,42%)] md:justify-center"
-              : "flex shrink-0 items-center gap-1"
+              : "flex shrink-0 items-center gap-1.5 sm:gap-1"
           }
         >
           <div
@@ -892,7 +901,7 @@ export default function RepertoirePlaylistPlayer({
               current?.source === "youtube"
                 ? fullscreen
                   ? "aspect-video w-full max-w-xl"
-                  : "h-[54px] w-[96px] max-w-[96px] shrink-0"
+                  : "h-9 w-16 max-w-[4rem] shrink-0 sm:h-[54px] sm:w-[96px] sm:max-w-[96px]"
                 : "hidden"
             }`}
           >
@@ -930,16 +939,16 @@ export default function RepertoirePlaylistPlayer({
 
           {fullscreen && (
             <div className="w-full max-w-xl text-center">
-              <p className="text-base font-bold text-slate-900">
+              <p className="text-lg font-bold text-slate-900 sm:text-base">
                 {current?.title || "—"}
                 {current?.subtitle ? (
-                  <span className="block text-sm font-medium text-slate-500">
+                  <span className="block text-base font-medium text-slate-500 sm:text-sm">
                     {current.subtitle}
                   </span>
                 ) : null}
               </p>
               {current?.compositor ? (
-                <p className="mt-1 text-xs text-slate-500">{current.compositor}</p>
+                <p className="mt-1 text-sm text-slate-500 sm:text-xs">{current.compositor}</p>
               ) : null}
               {error ? (
                 ytEmbedBlocked && current?.youtubeId ? (
@@ -972,14 +981,15 @@ export default function RepertoirePlaylistPlayer({
                 <button
                   type="button"
                   onClick={() => setLoop((v) => !v)}
-                  className={`rounded p-1.5 ${
+                  className={`flex h-[44px] w-[44px] items-center justify-center rounded-lg ${
                     loop
                       ? "bg-indigo-50 text-indigo-700"
                       : "text-slate-400 hover:bg-slate-100"
                   }`}
                   title="Repetir playlist"
+                  aria-label="Repetir playlist"
                 >
-                  <IconRepeat size={18} />
+                  <IconRepeat size={20} />
                 </button>
               </div>
             </div>
@@ -989,13 +999,13 @@ export default function RepertoirePlaylistPlayer({
         {!fullscreen && (
           <>
             <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-2">
                 {current?.source === "youtube" ? (
-                  <IconYoutube size={12} className="shrink-0 text-red-500" />
+                  <IconYoutube size={16} className="hidden shrink-0 text-red-500 sm:block" />
                 ) : (
-                  <IconDrive size={12} className="shrink-0 text-emerald-600" />
+                  <IconDrive size={16} className="hidden shrink-0 text-emerald-600 sm:block" />
                 )}
-                <p className="truncate text-xs font-bold text-slate-800">
+                <p className="truncate text-[15px] font-bold leading-snug text-slate-800 sm:text-xs">
                   {current?.title || "—"}
                   {current?.subtitle ? (
                     <span className="font-medium text-slate-500">
@@ -1012,15 +1022,15 @@ export default function RepertoirePlaylistPlayer({
                     href={youtubeWatchUrl(current.youtubeId)}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex max-w-full items-center gap-1 truncate text-[10px] font-bold text-red-600 hover:underline"
+                    className="inline-flex max-w-full items-center gap-1 truncate text-xs font-bold text-red-600 hover:underline sm:text-[10px]"
                   >
-                    Abrir en YouTube <IconExternalLink size={10} className="shrink-0" />
+                    Abrir en YouTube <IconExternalLink size={12} className="shrink-0" />
                   </a>
                 ) : (
-                  <p className="truncate text-[10px] text-red-600">{error}</p>
+                  <p className="truncate text-xs text-red-600 sm:text-[10px]">{error}</p>
                 )
               ) : current?.compositor ? (
-                <p className="truncate text-[10px] text-slate-400">
+                <p className="truncate text-[13px] text-slate-500 sm:text-[10px] sm:text-slate-400">
                   {current.compositor}
                 </p>
               ) : null}
@@ -1036,26 +1046,28 @@ export default function RepertoirePlaylistPlayer({
             <button
               type="button"
               onClick={() => setLoop((v) => !v)}
-              className={`hidden rounded p-1.5 sm:inline-flex ${
+              className={`hidden sm:inline-flex h-9 w-9 items-center justify-center rounded-lg ${
                 loop
                   ? "bg-indigo-50 text-indigo-700"
                   : "text-slate-400 hover:bg-slate-100"
               }`}
               title="Repetir playlist"
+              aria-label="Repetir playlist"
             >
-              <IconRepeat size={15} />
+              <IconRepeat size={18} />
             </button>
 
             <button
               type="button"
               onClick={() => setExpanded((v) => !v)}
-              className="rounded p-1.5 text-slate-500 hover:bg-slate-100"
+              className="flex h-[44px] w-[44px] sm:h-9 sm:w-9 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
               title={expanded ? "Ocultar lista" : "Ver playlist"}
+              aria-label={expanded ? "Ocultar lista" : "Ver playlist"}
             >
               {expanded ? (
-                <IconChevronDown size={16} />
+                <IconChevronDown size={20} />
               ) : (
-                <IconChevronUp size={16} />
+                <IconChevronUp size={20} />
               )}
             </button>
           </>
@@ -1063,7 +1075,7 @@ export default function RepertoirePlaylistPlayer({
 
         {fullscreen && (
           <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto border-t border-slate-200 bg-white md:border-l md:border-t-0">
-            <p className="sticky top-0 z-10 border-b border-slate-100 bg-slate-50 px-3 py-2 text-[10px] font-bold uppercase tracking-wide text-slate-500">
+            <p className="sticky top-0 z-10 border-b border-slate-100 bg-slate-50 px-3 py-2.5 text-xs font-bold uppercase tracking-wide text-slate-500">
               Playlist
             </p>
             {renderTrackList(false)}
@@ -1073,7 +1085,7 @@ export default function RepertoirePlaylistPlayer({
 
       {!fullscreen && (
         <>
-          <div className="flex items-center justify-between gap-2 border-t border-slate-100 px-2 py-1 sm:hidden">
+          <div className="flex items-center justify-between gap-3 border-t border-slate-100 px-3 py-2 sm:hidden">
             <RateControl
               rate={rate}
               onChange={setRate}
@@ -1082,20 +1094,21 @@ export default function RepertoirePlaylistPlayer({
             <button
               type="button"
               onClick={() => setLoop((v) => !v)}
-              className={`rounded p-1.5 ${
-                loop ? "bg-indigo-50 text-indigo-700" : "text-slate-400"
+              className={`flex h-[44px] w-[44px] items-center justify-center rounded-lg ${
+                loop ? "bg-indigo-50 text-indigo-700" : "text-slate-400 hover:bg-slate-100"
               }`}
               title="Repetir playlist"
+              aria-label="Repetir playlist"
             >
-              <IconRepeat size={15} />
+              <IconRepeat size={20} />
             </button>
           </div>
           <button
             type="button"
             onClick={() => setFullscreen(true)}
-            className="flex w-full items-center justify-center gap-1.5 border-t border-slate-200 bg-slate-50 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide text-indigo-700 hover:bg-indigo-50"
+            className="flex min-h-[44px] w-full items-center justify-center gap-2 border-t border-slate-200 bg-slate-50 px-3 py-2.5 text-[15px] font-bold text-indigo-700 hover:bg-indigo-50 pb-[max(0.65rem,env(safe-area-inset-bottom))] sm:min-h-0 sm:gap-1.5 sm:py-1.5 sm:text-[11px] sm:uppercase sm:tracking-wide sm:pb-1.5"
           >
-            <IconMaximize size={13} />
+            <IconMaximize size={16} />
             Pantalla completa
           </button>
         </>
@@ -1116,7 +1129,7 @@ export default function RepertoirePlaylistPlayer({
   return (
     <>
       {!fullscreen ? (
-        <div className="h-[7.25rem] shrink-0 sm:h-[5rem]" aria-hidden />
+        <div className="h-[200px] shrink-0 sm:h-[96px]" aria-hidden />
       ) : null}
       {createPortal(chrome, document.body)}
     </>

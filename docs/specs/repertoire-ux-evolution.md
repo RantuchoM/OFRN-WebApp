@@ -760,6 +760,22 @@ Reproducir el programa como playlist en **Repertorio** y **Mis Partes**, con vel
 - [x] Audios Drive en IndexedDB 24 h (escritura en segundo plano; lectura con timeout para no bloquear el play)
 - [x] El player arranca en `playing` si viene `playRequest` (no esperar un segundo render; eso dejaba el loader colgado)
 
+### Completado (2026-09-24) — Controles táctiles del player
+
+El mini player y el modal a pantalla completa (`RepertoirePlaylistPlayer`, portal `z-[100]`) eran demasiado compactos en teléfono: play 32px, skip con `p-1.5`, tiempos `text-[10px]`, velocidad 28×24px.
+
+- **Móvil (< sm):** play/pausa **48px**, skip / velocidad ± / loop / expandir **44px** (px fijos, no `rem`); tiempos y título **15px**; input de velocidad **16px** (evita zoom iOS); barra de progreso `h-4`; «Pantalla completa» `min-h-[44px]` y `text-[15px]`; lista de pistas `py-2.5 text-sm`. Thumb YouTube del mini 64×36. Spacer del dock `h-[200px]`; FAB de feedback `bottom: 13.25rem`.
+- **Desktop (sm+):** play 40px, skip 36px, velocidad 32px, tiempos `text-[11px]`; barra `h-1.5`; «Pantalla completa» vuelve a la barra compacta; spacer `h-[96px]`; FAB `bottom: 6.25rem`.
+- **Abrir Playlist / Play** en `RepertoireManager` y **Mis Partes** (`MyPartsViewer`): hit area ~44px en móvil (`min-h-11` / `h-11 w-11`), compactos desde `sm`/`md`.
+- **Abrir Playlist en Mis Partes (2026-09-24):** el divisor de bloque (`RepertoireBlockDivider`) seguía en el tamaño viejo (`py-0.5`, `text-[10px]`, `IconPlay` 11px). Ahora usa las mismas clases que Repertorio: `min-h-11` + `px-3 py-2` + `text-xs` + `IconPlay` 14px en móvil; compacto desde `md`.
+- **Play por obra en Mis Partes (2026-09-24):** `IconPlay` en la **columna derecha** de cada tarjeta / celda Obra (no inline con el título, no en Carpeta ni al pie). El título envuelve a la izquierda; Play y chips de esa fila (`Pendiente`) quedan `shrink-0` alineados a la derecha. Tarjeta móvil: `h-11 w-11` + borde indigo como Abrir Playlist. Escritorio: columna Obra, `sm:h-8 sm:w-8`. Mismo `handlePlayWork` / `RepertoirePlaylistPlayer` (un solo player). Solo si hay audio (`playableObraIds` = `obras.id`). Obras sin parte asignada siguen atenuadas por color de texto, no con `opacity` de toda la card (eso escondía el Play). No toca seating ni descarga de particellas.
+- No hay control de volumen (el `<audio>` no lo expone en la UI). Iconos solo de `Icons.jsx`.
+
+- [x] Tap targets ≥ ~44px y textos de tiempo/pista/velocidad más grandes en móvil
+- [x] Desktop usable con clases `sm:`/`md:` (un solo player compartido)
+- [x] Abrir Playlist en Mis Partes al mismo tamaño que Play (Mis Partes) y Abrir Playlist (Repertorio)
+- [x] Play por obra en Mis Partes (columna derecha de la tarjeta / celda Obra; título envuelve a la izquierda; mismo player del programa)
+
 ---
 
 ## Encabezado de bloque en móvil (2026-08-19)

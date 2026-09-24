@@ -180,7 +180,7 @@ const RepertoireBlockDivider = ({
   canPlay = false,
 }) => (
   <div className="flex items-center justify-between gap-2 px-2 py-2 md:px-3 md:py-2.5 bg-slate-100/90 border-y border-slate-200">
-    <div className="flex items-center gap-2 min-w-0">
+    <div className="flex flex-wrap items-center gap-2 min-w-0">
       <span className="text-[11px] font-bold uppercase tracking-wide text-slate-600 truncate">
         {block.nombre}
       </span>
@@ -188,10 +188,10 @@ const RepertoireBlockDivider = ({
         <button
           type="button"
           onClick={() => onPlayBlock(block.id)}
-          className="flex shrink-0 items-center gap-1 rounded border border-indigo-200 bg-white px-2 py-0.5 text-[10px] font-bold uppercase text-indigo-700 hover:bg-indigo-50"
+          className="flex min-h-11 items-center gap-1.5 rounded-lg border border-indigo-200 bg-white px-3 py-2 text-xs font-bold uppercase text-indigo-700 hover:bg-indigo-50 shrink-0 md:min-h-0 md:gap-1 md:rounded md:px-2 md:py-0.5 md:text-[10px]"
           title="Abrir playlist de este bloque"
         >
-          <IconPlay size={11} />
+          <IconPlay size={14} />
           Abrir Playlist
         </button>
       ) : null}
@@ -250,18 +250,16 @@ const MobilePartCard = ({ item, dimmed = false, onPlayWork, canPlay = false }) =
   return (
     <div
       className={`bg-white rounded-lg border shadow-sm p-2.5 relative overflow-visible flex flex-col gap-1.5 ${
-        dimmed
-          ? "border-slate-100 opacity-50"
-          : "border-slate-200"
+        dimmed ? "border-slate-100 bg-slate-50/80" : "border-slate-200"
       }`}
     >
       {/* Borde lateral de estado */}
       <div className={`absolute left-0 top-0 bottom-0 w-1 rounded-l-lg ${borderClass}`}></div>
 
-      <div className="pl-2 flex justify-between items-start gap-2">
-        <div className="min-w-0">
+      <div className="pl-2 flex items-start gap-2">
+        <div className="min-w-0 flex-1">
           <h3
-            className={`font-bold text-sm leading-tight line-clamp-2 ${
+            className={`min-w-0 font-bold text-sm leading-tight line-clamp-2 ${
               dimmed ? "text-slate-400" : "text-slate-900"
             }`}
             dangerouslySetInnerHTML={{ __html: item.titulo }}
@@ -274,13 +272,24 @@ const MobilePartCard = ({ item, dimmed = false, onPlayWork, canPlay = false }) =
             {item.compositor}
           </p>
         </div>
-        
-        {/* Badge de Estado Pequeño */}
-        {item.particella_status === "PENDING" && (
-           <span className="shrink-0 text-[9px] font-bold bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded border border-amber-100 whitespace-nowrap">
-             Pendiente
-           </span>
-        )}
+        <div className="flex shrink-0 items-start gap-1.5 self-start">
+          {item.particella_status === "PENDING" && (
+            <span className="mt-1 text-[9px] font-bold bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded border border-amber-100 whitespace-nowrap">
+              Pendiente
+            </span>
+          )}
+          {canPlay && onPlayWork ? (
+            <button
+              type="button"
+              onClick={() => onPlayWork(item.id, item.blockId)}
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-indigo-200 bg-white text-indigo-700 hover:bg-indigo-50"
+              title="Reproducir"
+              aria-label="Reproducir esta obra"
+            >
+              <IconPlay size={18} />
+            </button>
+          ) : null}
+        </div>
       </div>
       {item.notas_especificas?.trim() ? (
         <div className="pl-2">
@@ -337,17 +346,6 @@ const MobilePartCard = ({ item, dimmed = false, onPlayWork, canPlay = false }) =
         )}
 
         <div className="flex items-center gap-1.5">
-        {canPlay && onPlayWork ? (
-          <button
-            type="button"
-            onClick={() => onPlayWork(item.id, item.blockId)}
-            className="flex items-center gap-1 text-[10px] font-medium text-indigo-600 hover:text-indigo-800"
-            title="Reproducir"
-          >
-            <IconPlay size={14} />
-          </button>
-        ) : null}
-
         {/* Botón Principal (PDF) */}
         {item.particella_status === "AVAILABLE" && (
           <div className="relative" ref={menuRef}>
@@ -1120,24 +1118,37 @@ export default function MyPartsViewer({
                       <tr
                         key={row.uniqueId}
                         className={`transition-colors ${
-                          dimmed
-                            ? "bg-slate-50/80 opacity-45"
-                            : "hover:bg-slate-50"
+                          dimmed ? "bg-slate-50/80" : "hover:bg-slate-50"
                         }`}
                       >
                         <td className="px-4 py-3">
-                          <div
-                            className={`font-bold whitespace-pre-wrap leading-tight ${
-                              dimmed ? "text-slate-400" : "text-slate-900"
-                            }`}
-                            dangerouslySetInnerHTML={{ __html: row.titulo }}
-                          />
-                          <div
-                            className={`text-[11px] mt-1 ${
-                              dimmed ? "text-slate-300" : "text-slate-500"
-                            }`}
-                          >
-                            {row.compositor}
+                          <div className="flex items-start gap-2">
+                            <div className="min-w-0 flex-1">
+                              <div
+                                className={`font-bold whitespace-pre-wrap leading-tight ${
+                                  dimmed ? "text-slate-400" : "text-slate-900"
+                                }`}
+                                dangerouslySetInnerHTML={{ __html: row.titulo }}
+                              />
+                              <div
+                                className={`text-[11px] mt-1 ${
+                                  dimmed ? "text-slate-300" : "text-slate-500"
+                                }`}
+                              >
+                                {row.compositor}
+                              </div>
+                            </div>
+                            {onPlayWork && playableObraIds?.has(String(row.id)) ? (
+                              <button
+                                type="button"
+                                onClick={() => onPlayWork(row.id, block.id)}
+                                className="inline-flex h-11 w-11 shrink-0 self-start items-center justify-center rounded-lg text-indigo-600 transition-colors hover:bg-indigo-50 sm:h-8 sm:w-8 sm:p-1.5"
+                                title="Reproducir"
+                                aria-label="Reproducir esta obra"
+                              >
+                                <IconPlay size={18} />
+                              </button>
+                            ) : null}
                           </div>
                         </td>
 
@@ -1170,20 +1181,6 @@ export default function MyPartsViewer({
                           ) : (
                             <span className="text-slate-300">-</span>
                           )}
-                          {onPlayWork && playableObraIds?.has(String(row.id)) ? (
-                            <button
-                              type="button"
-                              onClick={() => onPlayWork(row.id, block.id)}
-                              className={`inline-flex p-1.5 rounded transition-colors ${
-                                dimmed
-                                  ? "text-slate-300"
-                                  : "text-indigo-600 hover:bg-indigo-50"
-                              }`}
-                              title="Reproducir"
-                            >
-                              <IconPlay size={16} />
-                            </button>
-                          ) : null}
                           </div>
                         </td>
 

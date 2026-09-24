@@ -3331,10 +3331,10 @@ export default function RepertoireManager({
                       <button
                         type="button"
                         onClick={() => onPlayBlock(rep.id)}
-                        className="flex items-center gap-1 rounded border border-indigo-200 bg-white px-2 py-0.5 text-[10px] font-bold uppercase text-indigo-700 hover:bg-indigo-50 shrink-0"
+                        className="flex min-h-11 items-center gap-1.5 rounded-lg border border-indigo-200 bg-white px-3 py-2 text-xs font-bold uppercase text-indigo-700 hover:bg-indigo-50 shrink-0 md:min-h-0 md:gap-1 md:rounded md:px-2 md:py-0.5 md:text-[10px]"
                         title="Abrir playlist de este bloque"
                       >
-                        <IconPlay size={11} />
+                        <IconPlay size={14} />
                         Abrir Playlist
                       </button>
                     ) : null}
@@ -3785,9 +3785,9 @@ export default function RepertoireManager({
                               <button
                                 type="button"
                                 onClick={() => onPlayWork(item.obras.id, rep.id)}
-                                className="text-indigo-600 flex items-center gap-1 text-[10px] font-medium"
+                                className="flex min-h-11 items-center gap-1.5 px-2 text-xs font-medium text-indigo-600 sm:min-h-0 sm:gap-1 sm:px-0 sm:text-[10px]"
                               >
-                                <IconPlay size={12} /> Play
+                                <IconPlay size={16} /> Play
                               </button>
                             )}
                           </div>
@@ -4361,10 +4361,10 @@ export default function RepertoireManager({
                                     e.stopPropagation();
                                     onPlayWork(item.obras.id, rep.id);
                                   }}
-                                  className="flex shrink-0 items-center justify-center rounded p-0.5 text-indigo-600 hover:bg-indigo-50"
+                                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-indigo-600 hover:bg-indigo-50 sm:h-8 sm:w-8 sm:rounded"
                                   title="Reproducir"
                                 >
-                                  <IconPlay size={13} />
+                                  <IconPlay size={16} />
                                 </button>
                               ) : null}
                               <CommentButton
