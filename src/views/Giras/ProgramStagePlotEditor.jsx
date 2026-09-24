@@ -61,6 +61,7 @@ import { useAuth } from "../../context/AuthContext";
 import {
   getStagePlotCatalogItem,
   getStagePlotCatalogEpoch,
+  STAGE_PLOT_CATALOG_CHANGED_EVENT,
   stagePlotCategories,
   STAGE_PLOT_MUSICIAN_INSTRUMENT_CATEGORIES,
   stagePlotItemHasInstrumentFootprint,
@@ -1547,6 +1548,101 @@ function StagePlotFormationContextMenu({
   );
 }
 
+/**
+ * Dropdown «Copiar…» de la barra inferior de formación.
+ * Portal a document.body: la barra usa overflow-x-auto (que fuerza clip en Y)
+ * y el menú abre hacia arriba sobre el lienzo; sin portal queda tapado/clipado.
+ */
+function StagePlotFormationCopyMenu({
+  open,
+  anchorRef,
+  overlayZ = 100,
+  onClose,
+  onCopyFormation,
+  onCopyFormationWithInstruments,
+}) {
+  const menuRef = useRef(null);
+  const [pos, setPos] = useState(null);
+
+  useLayoutEffect(() => {
+    if (!open) {
+      setPos(null);
+      return undefined;
+    }
+    const sync = () => {
+      const el = anchorRef?.current;
+      if (!el) {
+        setPos(null);
+        return;
+      }
+      const rect = el.getBoundingClientRect();
+      const menuW = 248;
+      const left = Math.max(
+        8,
+        Math.min(rect.left, window.innerWidth - menuW - 8),
+      );
+      setPos({
+        left,
+        bottom: Math.max(8, window.innerHeight - rect.top + 4),
+      });
+    };
+    sync();
+    window.addEventListener("resize", sync);
+    window.addEventListener("scroll", sync, true);
+    return () => {
+      window.removeEventListener("resize", sync);
+      window.removeEventListener("scroll", sync, true);
+    };
+  }, [open, anchorRef]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onPointerDown = (e) => {
+      if (menuRef.current?.contains(e.target)) return;
+      if (anchorRef?.current?.contains(e.target)) return;
+      onClose();
+    };
+    const onKeyDown = (e) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open, onClose, anchorRef]);
+
+  if (!open || !pos) return null;
+
+  return createPortal(
+    <div
+      ref={menuRef}
+      role="menu"
+      className="fixed min-w-[240px] rounded-md border border-slate-200 bg-white py-1 shadow-lg"
+      style={{ left: pos.left, bottom: pos.bottom, zIndex: overlayZ }}
+    >
+      <button
+        type="button"
+        role="menuitem"
+        className="block w-full px-3 py-2 text-left text-xs text-slate-700 hover:bg-indigo-50 hover:text-indigo-800"
+        onClick={onCopyFormation}
+      >
+        Copiar formación
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        className="block w-full px-3 py-2 text-left text-xs text-slate-700 hover:bg-indigo-50 hover:text-indigo-800"
+        onClick={onCopyFormationWithInstruments}
+      >
+        Copiar formación con instrumentos
+      </button>
+    </div>,
+    document.body,
+  );
+}
+
 function StagePlotItemContextMenu({
   menu,
   onClose,
@@ -2111,6 +2207,16 @@ const ItemShape = React.memo(function ItemShape({
   }, [isTarima, boundsW, boundsH]);
 
   useLayoutEffect(() => {
+    if (!hasFootprint) return;
+    const node = groupRef.current;
+    if (!node) return;
+    // Konva puede dejar scaleX/Y stale tras drag/transform; forzar desde catálogo.
+    node.scaleX(scaleX);
+    node.scaleY(scaleY);
+    node.getLayer()?.batchDraw();
+  }, [hasFootprint, scaleX, scaleY, catalogEpoch]);
+
+  useLayoutEffect(() => {
     if (!selected) return;
     const node = groupRef.current;
     if (!node) return;
@@ -2129,6 +2235,7 @@ const ItemShape = React.memo(function ItemShape({
     iconImage,
     textLayout,
     isTarima,
+    catalogEpoch,
   ]);
 
   return (
@@ -3255,23 +3362,6 @@ export default function ProgramStagePlot({
   ]);
 
   useEffect(() => {
-    if (!formationCopyMenuOpen) return undefined;
-    const onPointerDown = (e) => {
-      if (formationCopyMenuRef.current?.contains(e.target)) return;
-      setFormationCopyMenuOpen(false);
-    };
-    const onKeyDown = (e) => {
-      if (e.key === "Escape") setFormationCopyMenuOpen(false);
-    };
-    document.addEventListener("mousedown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [formationCopyMenuOpen]);
-
-  useEffect(() => {
     if (!importExportOpen) return undefined;
     const onPointerDown = (e) => {
       if (importExportMenuRef.current?.contains(e.target)) return;
@@ -3878,6 +3968,20 @@ export default function ProgramStagePlot({
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    const syncCatalogEpoch = () => {
+      setCatalogEpoch(getStagePlotCatalogEpoch());
+    };
+    syncCatalogEpoch();
+    window.addEventListener(STAGE_PLOT_CATALOG_CHANGED_EVENT, syncCatalogEpoch);
+    return () => {
+      window.removeEventListener(
+        STAGE_PLOT_CATALOG_CHANGED_EVENT,
+        syncCatalogEpoch,
+      );
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -7005,122 +7109,6 @@ export default function ProgramStagePlot({
             </p>
             )}
 
-            {selectedItems.length > 0 &&
-              canEdit &&
-              floatingToolbarPos && (
-              <div
-                className="pointer-events-auto absolute z-[30] flex items-center gap-1 rounded-full border border-slate-200 bg-white p-1 shadow-lg"
-                style={{
-                  left: floatingToolbarPos.left,
-                  top: floatingToolbarPos.top,
-                }}
-                onMouseDown={(e) => e.stopPropagation()}
-                onClick={(e) => e.stopPropagation()}
-              >
-                {selected?.type === "text" && (
-                  <>
-                    <button
-                      type="button"
-                      title="Editar texto"
-                      onClick={() => focusLabelEditor(selected.id)}
-                      className="flex h-8 w-8 items-center justify-center rounded-full text-slate-600 transition-colors hover:bg-indigo-50 hover:text-indigo-700"
-                    >
-                      <span className="text-[11px] font-bold">T</span>
-                    </button>
-                    <button
-                      type="button"
-                      title="Negrita"
-                      onClick={() =>
-                        updateSelected({
-                          fontStyle: toggleStagePlotFontStyle(
-                            selected.fontStyle,
-                            "bold",
-                          ),
-                        })
-                      }
-                      className={`flex h-8 w-8 items-center justify-center rounded-full transition-colors ${
-                        String(selected.fontStyle || "").includes("bold")
-                          ? "bg-indigo-50 text-indigo-700"
-                          : "text-slate-600 hover:bg-indigo-50 hover:text-indigo-700"
-                      }`}
-                    >
-                      <IconBold size={16} />
-                    </button>
-                    <button
-                      type="button"
-                      title="Cursiva"
-                      onClick={() =>
-                        updateSelected({
-                          fontStyle: toggleStagePlotFontStyle(
-                            selected.fontStyle,
-                            "italic",
-                          ),
-                        })
-                      }
-                      className={`flex h-8 w-8 items-center justify-center rounded-full transition-colors ${
-                        String(selected.fontStyle || "").includes("italic")
-                          ? "bg-indigo-50 text-indigo-700"
-                          : "text-slate-600 hover:bg-indigo-50 hover:text-indigo-700"
-                      }`}
-                    >
-                      <IconItalic size={16} />
-                    </button>
-                  </>
-                )}
-                <button
-                  type="button"
-                  title="Copiar"
-                  onClick={duplicateSelected}
-                  className="flex h-8 w-8 items-center justify-center rounded-full text-slate-600 transition-colors hover:bg-indigo-50 hover:text-indigo-700"
-                >
-                  <IconCopy size={16} />
-                </button>
-                <button
-                  type="button"
-                  title="Eliminar"
-                  onClick={deleteSelected}
-                  className="flex h-8 w-8 items-center justify-center rounded-full text-slate-600 transition-colors hover:bg-red-50 hover:text-red-600"
-                >
-                  <IconTrash size={16} />
-                </button>
-              </div>
-            )}
-
-            {mobileUi &&
-              selectedFormation &&
-              canEdit &&
-              !selectedItems.length && (
-                <div
-                  className="pointer-events-auto absolute bottom-20 left-1/2 z-[30] flex -translate-x-1/2 items-center gap-1 rounded-full border border-slate-200 bg-white p-1 shadow-lg"
-                  onMouseDown={(e) => e.stopPropagation()}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <button
-                    type="button"
-                    title="Copiar formación"
-                    onClick={() => duplicateSelectedFormation(false)}
-                    className="flex h-10 w-10 items-center justify-center rounded-full text-slate-600 active:bg-indigo-50 active:text-indigo-700"
-                  >
-                    <IconCopy size={18} />
-                  </button>
-                  <button
-                    type="button"
-                    title="Eliminar formación"
-                    onClick={deleteSelectedFormation}
-                    className="flex h-10 w-10 items-center justify-center rounded-full text-slate-600 active:bg-red-50 active:text-red-600"
-                  >
-                    <IconTrash size={18} />
-                  </button>
-                </div>
-              )}
-
-            {mobileUi && canEdit && (
-              <StagePlotMobileAddFab
-                onClick={() => setMobileAddOpen(true)}
-                disabled={false}
-              />
-            )}
-
             <div className="no-dark-invert">
             <Stage
               ref={konvaStageRef}
@@ -7454,6 +7442,122 @@ export default function ProgramStagePlot({
               </Layer>
             </Stage>
             </div>
+
+            {selectedItems.length > 0 &&
+              canEdit &&
+              floatingToolbarPos && (
+              <div
+                className="pointer-events-auto absolute z-[40] flex items-center gap-1 rounded-full border border-slate-200 bg-white p-1 shadow-lg"
+                style={{
+                  left: floatingToolbarPos.left,
+                  top: floatingToolbarPos.top,
+                }}
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => e.stopPropagation()}
+              >
+                {selected?.type === "text" && (
+                  <>
+                    <button
+                      type="button"
+                      title="Editar texto"
+                      onClick={() => focusLabelEditor(selected.id)}
+                      className="flex h-8 w-8 items-center justify-center rounded-full text-slate-600 transition-colors hover:bg-indigo-50 hover:text-indigo-700"
+                    >
+                      <span className="text-[11px] font-bold">T</span>
+                    </button>
+                    <button
+                      type="button"
+                      title="Negrita"
+                      onClick={() =>
+                        updateSelected({
+                          fontStyle: toggleStagePlotFontStyle(
+                            selected.fontStyle,
+                            "bold",
+                          ),
+                        })
+                      }
+                      className={`flex h-8 w-8 items-center justify-center rounded-full transition-colors ${
+                        String(selected.fontStyle || "").includes("bold")
+                          ? "bg-indigo-50 text-indigo-700"
+                          : "text-slate-600 hover:bg-indigo-50 hover:text-indigo-700"
+                      }`}
+                    >
+                      <IconBold size={16} />
+                    </button>
+                    <button
+                      type="button"
+                      title="Cursiva"
+                      onClick={() =>
+                        updateSelected({
+                          fontStyle: toggleStagePlotFontStyle(
+                            selected.fontStyle,
+                            "italic",
+                          ),
+                        })
+                      }
+                      className={`flex h-8 w-8 items-center justify-center rounded-full transition-colors ${
+                        String(selected.fontStyle || "").includes("italic")
+                          ? "bg-indigo-50 text-indigo-700"
+                          : "text-slate-600 hover:bg-indigo-50 hover:text-indigo-700"
+                      }`}
+                    >
+                      <IconItalic size={16} />
+                    </button>
+                  </>
+                )}
+                <button
+                  type="button"
+                  title="Copiar"
+                  onClick={duplicateSelected}
+                  className="flex h-8 w-8 items-center justify-center rounded-full text-slate-600 transition-colors hover:bg-indigo-50 hover:text-indigo-700"
+                >
+                  <IconCopy size={16} />
+                </button>
+                <button
+                  type="button"
+                  title="Eliminar"
+                  onClick={deleteSelected}
+                  className="flex h-8 w-8 items-center justify-center rounded-full text-slate-600 transition-colors hover:bg-red-50 hover:text-red-600"
+                >
+                  <IconTrash size={16} />
+                </button>
+              </div>
+            )}
+
+            {mobileUi &&
+              selectedFormation &&
+              canEdit &&
+              !selectedItems.length && (
+                <div
+                  className="pointer-events-auto absolute bottom-20 left-1/2 z-[40] flex -translate-x-1/2 items-center gap-1 rounded-full border border-slate-200 bg-white p-1 shadow-lg"
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <button
+                    type="button"
+                    title="Copiar formación"
+                    onClick={() => duplicateSelectedFormation(false)}
+                    className="flex h-10 w-10 items-center justify-center rounded-full text-slate-600 active:bg-indigo-50 active:text-indigo-700"
+                  >
+                    <IconCopy size={18} />
+                  </button>
+                  <button
+                    type="button"
+                    title="Eliminar formación"
+                    onClick={deleteSelectedFormation}
+                    className="flex h-10 w-10 items-center justify-center rounded-full text-slate-600 active:bg-red-50 active:text-red-600"
+                  >
+                    <IconTrash size={18} />
+                  </button>
+                </div>
+              )}
+
+            {mobileUi && canEdit && (
+              <StagePlotMobileAddFab
+                onClick={() => setMobileAddOpen(true)}
+                disabled={false}
+              />
+            )}
           </div>
 
           {paletteDrag && (
@@ -7515,7 +7619,7 @@ export default function ProgramStagePlot({
           {/* Altura fija siempre: evita que el lienzo salte al seleccionar (ResizeObserver/fitViewport). */}
           {!mobileUi && (
           <div
-            className={`flex shrink-0 items-center gap-2 overflow-x-auto border-t border-slate-200 bg-white px-3 ${
+            className={`relative z-40 flex shrink-0 items-center gap-2 overflow-x-auto border-t border-slate-200 bg-white px-3 ${
               selected?.type === "text" ? "min-h-14 py-1.5" : "h-11"
             }`}
           >
@@ -7851,29 +7955,16 @@ export default function ProgramStagePlot({
                     <IconCopy size={12} /> Copiar…
                     <IconChevronDown size={12} />
                   </button>
-                  {formationCopyMenuOpen ? (
-                    <div
-                      role="menu"
-                      className="absolute bottom-full left-0 z-20 mb-1 min-w-[240px] rounded-md border border-slate-200 bg-white py-1 shadow-lg"
-                    >
-                      <button
-                        type="button"
-                        role="menuitem"
-                        className="block w-full px-3 py-2 text-left text-xs text-slate-700 hover:bg-indigo-50 hover:text-indigo-800"
-                        onClick={() => duplicateSelectedFormation(false)}
-                      >
-                        Copiar formación
-                      </button>
-                      <button
-                        type="button"
-                        role="menuitem"
-                        className="block w-full px-3 py-2 text-left text-xs text-slate-700 hover:bg-indigo-50 hover:text-indigo-800"
-                        onClick={() => duplicateSelectedFormation(true)}
-                      >
-                        Copiar formación con instrumentos
-                      </button>
-                    </div>
-                  ) : null}
+                  <StagePlotFormationCopyMenu
+                    open={formationCopyMenuOpen}
+                    anchorRef={formationCopyMenuRef}
+                    overlayZ={portalMenuZ}
+                    onClose={() => setFormationCopyMenuOpen(false)}
+                    onCopyFormation={() => duplicateSelectedFormation(false)}
+                    onCopyFormationWithInstruments={() =>
+                      duplicateSelectedFormation(true)
+                    }
+                  />
                 </div>
                 <button
                   type="button"

@@ -89,6 +89,9 @@ const BY_TYPE = new Map(STAGE_PLOT_CATALOG.map((c) => [c.type, c]));
 let dynamicByType = new Map();
 let catalogEpoch = 0;
 
+/** Disparado en `window` cuando cambia el epoch (tamaños/SVG/elementos). */
+export const STAGE_PLOT_CATALOG_CHANGED_EVENT = "ofrn:stage-plot-catalog-changed";
+
 /**
  * Registra ítems de catálogo dinámicos (reemplaza el set anterior).
  * @param {StagePlotCatalogItem[]|null|undefined} items
@@ -110,7 +113,7 @@ export function setStagePlotDynamicCatalogItems(items) {
     });
   }
   dynamicByType = next;
-  catalogEpoch += 1;
+  bumpStagePlotCatalogEpoch();
 }
 
 /** Epoch para invalidar useMemo de paleta cuando cambian elementos. */
@@ -121,6 +124,13 @@ export function getStagePlotCatalogEpoch() {
 /** Invalida consumers (paleta / tamaños de instrumento) sin tocar el catálogo dinámico. */
 export function bumpStagePlotCatalogEpoch() {
   catalogEpoch += 1;
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(
+      new CustomEvent(STAGE_PLOT_CATALOG_CHANGED_EVENT, {
+        detail: { epoch: catalogEpoch },
+      }),
+    );
+  }
   return catalogEpoch;
 }
 

@@ -23,7 +23,11 @@ import {
   STAGE_PLOT_SVG_MAX_CHARS,
   formatStagePlotSvgMaxChars,
 } from "../../utils/stagePlotSvgSanitize";
-import { reloadStagePlotInstrumentIcons } from "../../services/stagePlotInstrumentIconsService";
+import {
+  applyStagePlotInstrumentSizeOverride,
+  reloadStagePlotInstrumentIcons,
+  resolveInstrumentStagePlotType,
+} from "../../services/stagePlotInstrumentIconsService";
 import { mergeLocaciones } from "../../services/mergeLocaciones";
 import { matchesMultiTokenSearch } from "../../utils/sanitize";
 
@@ -1439,7 +1443,31 @@ export default function UniversalTable({
         prev.map((row) => (getRowId(row) === id ? { ...row, [key]: cleanValue } : row))
       );
       if (key === "svg_icon" || key === "stage_plot_type" || key === "stage_plot_width_cm" || key === "stage_plot_height_cm") {
-        reloadStagePlotInstrumentIcons().catch(() => {});
+        const updatedRow = data.find((row) => getRowId(row) === id);
+        const nextRow = updatedRow ? { ...updatedRow, [key]: cleanValue } : null;
+        if (
+          nextRow &&
+          (key === "stage_plot_width_cm" || key === "stage_plot_height_cm")
+        ) {
+          const type = resolveInstrumentStagePlotType(nextRow);
+          applyStagePlotInstrumentSizeOverride(
+            type,
+            nextRow.stage_plot_width_cm,
+            nextRow.stage_plot_height_cm,
+          );
+        }
+        await reloadStagePlotInstrumentIcons().catch(() => {});
+        if (
+          nextRow &&
+          (key === "stage_plot_width_cm" || key === "stage_plot_height_cm")
+        ) {
+          const type = resolveInstrumentStagePlotType(nextRow);
+          applyStagePlotInstrumentSizeOverride(
+            type,
+            nextRow.stage_plot_width_cm,
+            nextRow.stage_plot_height_cm,
+          );
+        }
       }
       if (onDataChange) onDataChange();
       return true;

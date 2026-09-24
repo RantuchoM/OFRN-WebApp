@@ -22,6 +22,8 @@ import {
   partitionInstrumentosByStagePlotIcon,
   prepareInstrumentSvgIconForSave,
   reloadStagePlotInstrumentIcons,
+  applyStagePlotInstrumentSizeOverride,
+  resolveInstrumentStagePlotType,
   STAGE_PLOT_INSTRUMENT_TYPE_OPTIONS,
 } from "../../services/stagePlotInstrumentIconsService";
 import { getStagePlotCatalogItem } from "../../utils/stagePlotCatalog";
@@ -923,7 +925,16 @@ export default function StagePlotInstrumentsPanel({
       stage_plot_width_cm: w,
       stage_plot_height_cm: h,
     });
+    const type = resolveInstrumentStagePlotType({
+      ...selected,
+      stage_plot_width_cm: w,
+      stage_plot_height_cm: h,
+    });
+    // Override inmediato: el lienzo abierto no espera el round-trip de reload.
+    applyStagePlotInstrumentSizeOverride(type, w, h);
     await reloadStagePlotInstrumentIcons().catch(() => {});
+    // Re-aplicar tras reload (orden de filas / tipos compartidos).
+    applyStagePlotInstrumentSizeOverride(type, w, h);
     onCatalogReload?.();
     toast.success("Tamaño actualizado (aplica a todos los planos)");
   };

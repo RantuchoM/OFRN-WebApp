@@ -8,6 +8,7 @@ import {
   STAGE_PLOT_ICON_FILES,
   setStagePlotDbIconOverrides,
   setStagePlotDbSizeOverrides,
+  mergeStagePlotDbSizeOverrides,
   clearStagePlotDbIconCache,
 } from "../utils/stagePlotIconAssets";
 import { getStagePlotCatalogItem } from "../utils/stagePlotCatalog";
@@ -115,27 +116,63 @@ export function buildStagePlotSvgByType(rows = []) {
 
 /**
  * Map tipo → { widthCm, heightCm } desde filas con stage_plot_type / id_instr.
+ * Última fila gana si varias comparten el mismo tipo (p. ej. tras editar tamaño).
  * @param {Array<{ id?: string, stage_plot_type?: string|null, stage_plot_width_cm?: number|null, stage_plot_height_cm?: number|null }>} rows
  * @returns {Map<string, { widthCm: number, heightCm: number }>}
  */
 export function buildStagePlotSizeByType(rows = []) {
   const map = new Map();
   for (const row of rows) {
-    const type =
-      (row.stage_plot_type && String(row.stage_plot_type).trim()) ||
-      STAGE_PLOT_ID_INSTR_TO_TYPE[String(row.id || "").trim()] ||
-      null;
+    const type = resolveInstrumentStagePlotType(row);
     if (!type) continue;
     const w = Number(row.stage_plot_width_cm);
     const h = Number(row.stage_plot_height_cm);
     if (!Number.isFinite(w) && !Number.isFinite(h)) continue;
-    if (map.has(type)) continue;
     map.set(type, {
-      widthCm: Number.isFinite(w) ? w : 50,
-      heightCm: Number.isFinite(h) ? h : Number.isFinite(w) ? w : 50,
+      widthCm: Number.isFinite(w) && w > 0 ? w : 50,
+      heightCm: Number.isFinite(h) && h > 0 ? h : Number.isFinite(w) && w > 0 ? w : 50,
     });
   }
   return map;
+}
+
+/**
+ * Clave de ícono (`stage_plot_type`) de una fila `instrumentos`, con fallback id→tipo.
+ * @param {{ id?: string|number, stage_plot_type?: string|null }|null|undefined} row
+ * @returns {string|null}
+ */
+export function resolveInstrumentStagePlotType(row) {
+  if (!row) return null;
+  const fromCol =
+    row.stage_plot_type != null && String(row.stage_plot_type).trim()
+      ? String(row.stage_plot_type).trim()
+      : "";
+  if (fromCol) return fromCol;
+  return STAGE_PLOT_ID_INSTR_TO_TYPE[String(row.id || "").trim()] || null;
+}
+
+/**
+ * Aplica tamaño de huella al override en memoria para un tipo (inmediato en lienzo abierto).
+ * @param {string|null|undefined} type
+ * @param {number|null|undefined} widthCm
+ * @param {number|null|undefined} heightCm
+ */
+export function applyStagePlotInstrumentSizeOverride(type, widthCm, heightCm) {
+  const t = type != null ? String(type).trim() : "";
+  if (!t) return;
+  const w = Number(widthCm);
+  const h = Number(heightCm);
+  mergeStagePlotDbSizeOverrides(
+    new Map([
+      [
+        t,
+        {
+          widthCm: Number.isFinite(w) && w > 0 ? w : 50,
+          heightCm: Number.isFinite(h) && h > 0 ? h : 50,
+        },
+      ],
+    ]),
+  );
 }
 
 /**
