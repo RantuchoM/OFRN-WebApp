@@ -278,6 +278,7 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
 - [x] Modo nocturno: Stage `.no-dark-invert` + piso `STAGE_PLOT_BG_FILL_NIGHT` + grilla/radial `*_STROKE_NIGHT` (contenido sin invertir)
 - [x] Migración `stage_plots` v1 + deploy linked
 - [x] Menú Gira: Seating + Escenario (editor) bajo Repertorio; «Ver escenario» (viewer) top-level cerca del final (antes de Edición/Eliminar; label 2026-09-11: «Seating», no «Disposición»)
+- [x] Command palette (Ctrl+K, gira en contexto, management): **Gira: Escenario** → `view=REPERTOIRE&subTab=seating&seatingView=escenario` (mismo destino que menú Gira; sin atajo propio)
 - [x] Exportar / Reportes unificado (dropdown en Disposición)
 - [x] Iconos cuerdas FreeSVG CC0 (colores de origen): `violin.svg` ([175059](https://freesvg.org/publicdomainq-0008893doscnq)), `viola.svg` ([179008](https://freesvg.org/publicdomainq-violin2)), `cello.svg` ([3882](https://freesvg.org/cello-vector-image) papapishu), `bass.svg` ([183100](https://freesvg.org/double-bass-3253216)).
 - [x] Maderas Gerald_G (Openclipart PD): `flute.svg` (colores de origen) y `oboe.svg` (silueta mono `currentColor`) — archivos distintos; `oboe` ya no reutiliza `flute.svg`.
@@ -632,7 +633,7 @@ Parámetros en **px de escenario** (`cm × STAGE_PLOT_CM_TO_PX`). Defaults (íte
 - **Escenario (legacy Giras):** `view=REPERTOIRE&subTab=seating&seatingView=escenario` (**`view=REPERTOIRE` obligatorio**)
 - **Deep-link lienzo (legacy):** `stagePlotId={id}` (opcional; standalone usa `initialPlotId`)
 - Helper preferido: `buildStandaloneEscenarioTo` — FIMBA Backline / Venues
-- Helper legacy: `buildEscenarioEditorTo` — menú Gira / Gestión sin plot
+- Helper legacy: `buildEscenarioEditorTo` — menú Gira / Gestión / command palette (`Gira: Escenario`) sin plot
 - **Venues (Gestión):** `/management/venues` — Espacios con conciertos; escenario por evento vía modal técnico o editor (standalone o Giras)
 - Deep link legacy `subTab=stage_plot` → redirect replace a escenario bajo seating
 - **Lienzo:** botón interno del editor (popover toolbar), no ítem de menú principal

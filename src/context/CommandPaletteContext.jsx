@@ -236,6 +236,13 @@ export const CommandPaletteProvider = ({ children }) => {
                       run: () => navigate(`/?tab=giras&view=REPERTOIRE&giraId=${gid}&subTab=seating`) 
                   },
                   { 
+                      id: 'gira-escenario-mgr', 
+                      label: 'Gira: Escenario', 
+                      icon: <IconLayout size={14} className="text-red-500"/>, 
+                      section: 'Gira (Gestión)', 
+                      run: () => navigate(`/?tab=giras&view=REPERTOIRE&giraId=${gid}&subTab=seating&seatingView=escenario`) 
+                  },
+                  { 
                       id: 'gira-difusion-mgr', 
                       label: 'Gira: Difusión y Prensa', 
                       icon: <IconInfo size={14} className="text-red-500"/>, 

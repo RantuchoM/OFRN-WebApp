@@ -21,6 +21,26 @@ Menú de navegación rápida accesible con **Ctrl+K** (o **Cmd+K** en macOS) y d
 5. **Informes de Gestión** — un comando por informe (`/management/{slug}`)
 6. **Historial de Giras** — acceso directo a programas desde DB
 
+## Contexto de gira (`?tab=giras` + `giraId`)
+Aparecen solo con una gira en la URL. **Management** ve la sección *Gira (Gestión)* (mismo patrón que `GiraActionMenu`). **Sin atajo propio** (se llega con Ctrl/Cmd+K).
+
+| Comando | URL |
+|---------|-----|
+| Gira: Dashboard / Resumen | `/?tab=giras&view=RESUMEN&giraId={id}` |
+| Gira: Roster (Personas) | `/?tab=giras&view=ROSTER&giraId={id}` |
+| Gira: Agenda Detallada (Gestión) | `/?tab=giras&view=AGENDA&giraId={id}` |
+| Gira: Programación y Repertorio | `/?tab=giras&view=REPERTOIRE&giraId={id}` |
+| Gira: Seating | `/?tab=giras&view=REPERTOIRE&giraId={id}&subTab=seating` (Disposición; sin `seatingView` o `disposicion`) |
+| Gira: Escenario | `/?tab=giras&view=REPERTOIRE&giraId={id}&subTab=seating&seatingView=escenario` — mismo destino que menú Gira → Repertorio → Escenario (`buildEscenarioEditorTo`) |
+| Gira: Difusión y Prensa | `/?tab=giras&view=DIFUSION&giraId={id}` |
+| Gira: Panel Logístico | `/?tab=giras&view=LOGISTICS&giraId={id}` |
+| Gira: Gestión de Viáticos | `/?tab=giras&view=LOGISTICS&giraId={id}&subTab=viaticos` |
+| Logística > Resumen / Transportes / Comidas / Asistencia / Hotelería | `view=LOGISTICS` + `subTab` correspondiente |
+
+Icono de Escenario: `IconLayout` (`Icons.jsx`), igual que el ítem del menú ⋮. No es una página nueva: es el tab Escenario de `ProgramSeating`.
+
+- [x] Escenario en Ctrl+K con gira en contexto (2026-09-24)
+
 ## Vistas de App en Ctrl+K
 Los comandos globales replican la visibilidad del sidebar (`App.jsx` → `allMenuItems`):
 
@@ -80,6 +100,7 @@ No hace falta duplicar la URL en más sitios: `buildManagementPaletteCommands()`
 - [x] Búsqueda del paleta: tokens AND, sin tildes/mayúsculas (`matchesMultiTokenSearch`; spec `docs/specs/busqueda-texto.md`)
 - [x] **Buscar personas / repertorio en dos pasos** (sin prefetch del catálogo al abrir Ctrl+K), abriendo `MusicianForm` / `WorkForm`
 - [x] Ranking: `pers…` clava **Buscar personas**; `rep…` / `obra`/`obras` clava **Buscar repertorio** (por encima de «Ir a Personas/Repertorio»)
+- [x] **Gira: Escenario** en contexto de gira (management), misma URL que menú Gira → Escenario
 
 ## Búsqueda de obras y personas (dos pasos, sin volcar tablas)
 
