@@ -550,12 +550,15 @@ Parámetros en **px de escenario** (`cm × STAGE_PLOT_CM_TO_PX`). Defaults (íte
   - Botón **Centrar** deshabilitado/gris si `isFormationCenteredOnConductor` (`|formation.x − conductorX| ≤ STAGE_PLOT_FORMATIONATION_CENTER_EPSILON_PX` = 0.5 cm ≈ 2 px).
   - Snap magnético al arrastrar: `snapFormationXToConductorCenter` atrae a `conductorX` dentro de `STAGE_PLOT_FORMATIONATION_CENTER_SNAP_PX` (18 cm / 72 px); histeresis de salida `STAGE_PLOT_FORMATIONATION_CENTER_UNSNAP_PX` (28 cm / 112 px). Commit en drag end con `x` snappeado.
   - Guía vertical sutil en `conductorX` mientras la formación está snappeada al centro.
-- **Rotación de formación** (barra inferior): botones **−15°** / **+15°** (`rotateSelectedFormation`) además del campo **Rot °**; valores con `normalizeRotationDeg`; reancla plazas magnetizadas vía `updateSelectedFormation`.
+- **Rotación de formación** (barra inferior desktop + pill flotante móvil):
+  - Botones **−15° / +15°** (mismo patrón que ítems) → `rotateSelectedFormation` → `updateSelectedFormation` / `patchFormationsAndReanchor` (rota la guía + plazas; reancla magnetizados conservando `slotId`; sin auto-rotar ítems).
+  - Input numérico **Rot °** se mantiene para ángulo exacto (`normalizeRotationDeg` → [0, 360)).
+  - No hay asa de giro Konva en formaciones (solo asas de resize/escala); la rotación es por barra / pill.
 - **Mover con teclado** (formación seleccionada): flechas 12 px / Ctrl+flechas 4 px. Misma ruta que drag end (`commitFormationPosition` → `reanchorItemsToFormations` con el `formationId`): actualiza `x,y` de la formación y reposiciona ítems con ese `slotId` **sin** limpiar `slotId`. Prioridad igual que Delete: formación primero, luego ítems. Refs de selección se sincronizan al instante al seleccionar (evita que un keydown temprano mueva ítems y demagnetice).
 - **Paleta → Formaciones** (panel izq., `canEdit`): lista **vertical** (una fila por kind), no chips en wrap. Cada fila: mini SVG esquemático (`FormationPaletteIcon` en `ProgramStagePlotEditor.jsx`, trazo índigo) + label; clic = `addFormation(kind)` (centro). Iconos por kind: **Arco** arco elíptico abierto abajo; **Semi-arco** alas rectas + arco; **Herradura** U con tope curvo; **Rectángulo** tres lados abiertos abajo; **Línea recta** segmento horizontal. Sin `IconPlus` genérico.
 - **Formaciones** (`stage.formationGuidesOpacity`, default `1`; legacy `hideFormationGuides`):
   - Deslizante **Formaciones** **solo** en el popover **Lienzo** (junto a Cuadrícula / Radial / Recuadros): 100% = guías opacas; 0% = ocultas; intermedio = semi-transparente.
-  - **No** hay control de visibilidad de guías en la barra inferior de formación (Centrar / Copiar… / Eliminar) ni en el header de la paleta Formaciones.
+  - **No** hay control de visibilidad de guías en la barra inferior de formación (Centrar / Copiar… / Eliminar / rotación) ni en el header de la paleta Formaciones.
   - Cuando `formationGuidesOpacity <= 0`: no se renderizan `FormationShape` (línea guía + plazas) ni `FormationResizeHandles`. Los ítems siguen visibles; el snap magnético a slots sigue activo (slots lógicos).
   - Para editar/mover formaciones de nuevo: subir opacidad **Formaciones** en Lienzo.
   - Persistido en el payload (undo/redo vía `patchStage` / `applyStagePlotStagePatch`).
