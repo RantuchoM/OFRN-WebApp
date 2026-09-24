@@ -170,6 +170,7 @@ import {
   formationGuideLinePoints,
   formationParamsFromHandlePosition,
   formationSlotMarkerSize,
+  formationTopLeftInsertAnchor,
   getFormationBounds,
   isFormationCenteredOnConductor,
   normalizeRotationDeg,
@@ -2745,7 +2746,8 @@ export default function ProgramStagePlot({
   const viewportRef = useRef({ scale: 1, x: 40, y: 40 });
   const [canvasSize, setCanvasSize] = useState({ w: 640, h: 420 });
   const [viewport, setViewport] = useState({ scale: 1, x: 40, y: 40 });
-  const [paletteDrag, setPaletteDrag] = useState(null); // { type, name, color, x, y }
+  /** Ghost al arrastrar desde paleta: ítem `{ mode:"item", type, name, color, x, y }` o formación `{ mode:"formation", kind, name, x, y }`. */
+  const [paletteDrag, setPaletteDrag] = useState(null);
   /** Vista previa de params mientras se arrastra un asa de formación. */
   const [formationResizePreview, setFormationResizePreview] = useState(null);
   /** Snapshot al inicio de drag de asa (box_* usa base fija + facing). */
@@ -4699,18 +4701,78 @@ export default function ProgramStagePlot({
     });
   };
 
-  const addFormation = (kind) => {
+  const addFormationAt = (kind, x, y) => {
     if (!canEdit) return;
-    const sw = payloadRef.current.stage?.width || 900;
-    const sh = payloadRef.current.stage?.height || 560;
-    // Centro un poco upstage del medio (director suele estar abajo)
-    const fm = createStagePlotFormation(kind, sw / 2, sh * 0.42, 8);
+    const fm = createStagePlotFormation(kind, x, y, 8);
     commitPayload((prev) => ({
       ...prev,
       formations: [...(prev.formations || []), fm],
     }));
     setSelectedIds([]);
     setSelectedFormationId(fm.id);
+  };
+
+  /** Clic en paleta: AABB de la guía al top-left del lienzo (inset ~20 cm). */
+  const addFormation = (kind) => {
+    if (!canEdit) return;
+    const { x, y } = formationTopLeftInsertAnchor(kind);
+    addFormationAt(kind, x, y);
+  };
+
+  /** Drag desde Formaciones — mismo gesto que instrumentos (umbral 4 px). */
+  const startFormationPalettePointerDrag = (e, kind, label) => {
+    if (!canEdit || e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    let moved = false;
+
+    const move = (ev) => {
+      if (
+        !moved &&
+        (Math.abs(ev.clientX - startX) > 4 || Math.abs(ev.clientY - startY) > 4)
+      ) {
+        moved = true;
+      }
+      if (moved) {
+        setPaletteDrag({
+          mode: "formation",
+          kind,
+          name: label,
+          x: ev.clientX,
+          y: ev.clientY,
+        });
+      }
+    };
+
+    const up = (ev) => {
+      document.removeEventListener("pointermove", move);
+      document.removeEventListener("pointerup", up);
+      setPaletteDrag(null);
+      if (!moved) {
+        addFormation(kind);
+        return;
+      }
+      const el = stageWrapRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      if (
+        ev.clientX < rect.left ||
+        ev.clientX > rect.right ||
+        ev.clientY < rect.top ||
+        ev.clientY > rect.bottom
+      ) {
+        return;
+      }
+      const vp = viewportRef.current;
+      const x = (ev.clientX - rect.left - vp.x) / vp.scale;
+      const y = (ev.clientY - rect.top - vp.y) / vp.scale;
+      addFormationAt(kind, x, y);
+    };
+
+    document.addEventListener("pointermove", move);
+    document.addEventListener("pointerup", up);
   };
 
   const updateSelectedFormation = (patch) => {
@@ -5124,6 +5186,7 @@ export default function ProgramStagePlot({
       }
       if (moved) {
         setPaletteDrag({
+          mode: "item",
           type,
           name: it.name,
           color: it.color,
@@ -6994,8 +7057,8 @@ export default function ProgramStagePlot({
               </p>
               {canEdit && (
                 <p className="mb-2 px-1 text-[10px] leading-snug text-slate-400">
-                  Arrastrá al escenario (o clic = centro). Tarimas: clic =
-                  tamaño.
+                  Arrastrá al escenario (o clic = centro). Formaciones: clic =
+                  esquina superior izquierda. Tarimas: clic = tamaño.
                 </p>
               )}
               {canEdit && (
@@ -7009,9 +7072,11 @@ export default function ProgramStagePlot({
                         <button
                           key={kind}
                           type="button"
-                          onClick={() => addFormation(kind)}
-                          title={`Agregar formación: ${label}`}
-                          className="flex w-full items-center gap-2 rounded border border-indigo-200 bg-indigo-50 px-1.5 py-1.5 text-left text-[10px] font-medium text-indigo-800 hover:bg-indigo-100"
+                          onPointerDown={(e) =>
+                            startFormationPalettePointerDrag(e, kind, label)
+                          }
+                          title={`Agregar formación: ${label} — arrastrar al escenario (o clic = esquina superior izquierda)`}
+                          className="flex w-full cursor-grab touch-none items-center gap-2 rounded border border-indigo-200 bg-indigo-50 px-1.5 py-1.5 text-left text-[10px] font-medium text-indigo-800 hover:bg-indigo-100 active:cursor-grabbing"
                         >
                           <FormationPaletteIcon kind={kind} size={18} />
                           <span>{label}</span>
@@ -7598,7 +7663,14 @@ export default function ProgramStagePlot({
                 zIndex: portalDragZ,
               }}
             >
-              <PaletteIcon type={paletteDrag.type} color={paletteDrag.color} />
+              {paletteDrag.mode === "formation" ? (
+                <FormationPaletteIcon kind={paletteDrag.kind} size={18} />
+              ) : (
+                <PaletteIcon
+                  type={paletteDrag.type}
+                  color={paletteDrag.color}
+                />
+              )}
               {paletteDrag.name}
             </div>
           )}

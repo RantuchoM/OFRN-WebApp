@@ -165,6 +165,12 @@ export const STAGE_PLOT_FORMATIONATION_CENTER_SNAP_PX = stagePlotCmToPx(18);
  */
 export const STAGE_PLOT_FORMATIONATION_CENTER_UNSNAP_PX = stagePlotCmToPx(28);
 
+/**
+ * Inset from stage origin (upstage-left) when inserting a formation by click.
+ * ~20 cm — clear of the plot border; director/radial sit downstage so this stays free.
+ */
+export const STAGE_PLOT_FORMATIONATION_INSERT_INSET_PX = stagePlotCmToPx(20);
+
 const SLOT_MARKER = STAGE_PLOT_SLOT_MARKER_PX;
 
 /** Mínimos de resize / normalización (cm → px). */
@@ -1241,6 +1247,28 @@ export function getFormationBounds(formation, facingPoint = null) {
     maxY = Math.max(maxY, p.y);
   }
   return { minX, minY, maxX, maxY };
+}
+
+/**
+ * Anchor (x,y) so a new formation's AABB sits at the stage top-left with inset.
+ * Uses guide geometry only (no facing/slots) so placement is stable before magnetize.
+ * @param {string} kind
+ * @param {number} [insetPx]
+ * @returns {{ x: number, y: number }}
+ */
+export function formationTopLeftInsertAnchor(
+  kind,
+  insetPx = STAGE_PLOT_FORMATIONATION_INSERT_INSET_PX,
+) {
+  const draft = createStagePlotFormation(kind, 0, 0, 8);
+  const b = getFormationBoundsLocal(draft, null);
+  const inset = Number.isFinite(Number(insetPx))
+    ? Number(insetPx)
+    : STAGE_PLOT_FORMATIONATION_INSERT_INSET_PX;
+  return {
+    x: inset - b.minX,
+    y: inset - b.minY,
+  };
 }
 
 /**
