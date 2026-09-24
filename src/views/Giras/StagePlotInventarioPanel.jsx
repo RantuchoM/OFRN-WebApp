@@ -1,10 +1,12 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
   IconLoader,
   IconPlus,
   IconTrash,
   IconRefresh,
+  IconUpload,
+  IconX,
 } from "../../components/ui/Icons";
 import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 import {
@@ -20,6 +22,12 @@ import {
   updateInventarioItem,
   upsertElementoEscenario,
 } from "../../services/stagePlotInventarioService";
+import {
+  sanitizeStagePlotSvgMarkup,
+  stagePlotSvgToDataUrl,
+  STAGE_PLOT_SVG_MAX_CHARS,
+  formatStagePlotSvgMaxChars,
+} from "../../utils/stagePlotSvgSanitize";
 
 /**
  * Panel Inventario (stock global) — Escenario right sidebar.
@@ -635,11 +643,51 @@ function ElementoEscenarioQuickAdd({ busy, setBusy, onCreated }) {
   const [widthCm, setWidthCm] = useState(40);
   const [heightCm, setHeightCm] = useState(40);
   const [svg, setSvg] = useState("");
+  const [svgError, setSvgError] = useState("");
+
+  const svgPreview = useMemo(() => {
+    if (!svg) return null;
+    const r = sanitizeStagePlotSvgMarkup(svg);
+    if (!r.ok || !r.svg) return null;
+    return stagePlotSvgToDataUrl(r.svg, "#1e293b");
+  }, [svg]);
+
+  const applySvgRaw = (raw) => {
+    if (raw == null || String(raw).trim() === "") {
+      setSvg("");
+      setSvgError("");
+      return true;
+    }
+    const prepared = sanitizeStagePlotSvgMarkup(raw);
+    if (!prepared.ok) {
+      setSvgError(prepared.error);
+      toast.error(prepared.error);
+      return false;
+    }
+    setSvgError("");
+    setSvg(prepared.svg || "");
+    if (prepared.cleaned && prepared.svg) {
+      toast.message(
+        "SVG limpiado (metadata de editor / código no permitido removidos).",
+      );
+    }
+    return true;
+  };
 
   const submit = async () => {
     if (!nombre.trim()) {
       toast.error("Nombre requerido");
       return;
+    }
+    let svgToSave = svg.trim() || null;
+    if (svgToSave) {
+      const prepared = sanitizeStagePlotSvgMarkup(svgToSave);
+      if (!prepared.ok) {
+        setSvgError(prepared.error);
+        toast.error(prepared.error);
+        return;
+      }
+      svgToSave = prepared.svg || null;
     }
     setBusy(true);
     try {
@@ -648,13 +696,14 @@ function ElementoEscenarioQuickAdd({ busy, setBusy, onCreated }) {
         stage_plot_type: slug.trim() || null,
         width_cm: widthCm,
         height_cm: heightCm,
-        svg_icon: svg.trim() || null,
+        svg_icon: svgToSave,
         activo: true,
       });
       toast.success("Elemento creado");
       setNombre("");
       setSlug("");
       setSvg("");
+      setSvgError("");
       onCreated?.(el);
     } catch (err) {
       toast.error(err?.message || "Error al crear elemento");
@@ -694,13 +743,82 @@ function ElementoEscenarioQuickAdd({ busy, setBusy, onCreated }) {
           title="Alto cm"
         />
       </div>
+      <div className="flex flex-wrap items-center gap-1">
+        <label className="inline-flex cursor-pointer items-center gap-1 rounded border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-700 hover:bg-slate-50">
+          <IconUpload size={12} />
+          Subir SVG
+          <input
+            type="file"
+            accept=".svg,image/svg+xml"
+            className="sr-only"
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (!file) return;
+              if (
+                !/\.svg$/i.test(file.name || "") &&
+                file.type &&
+                file.type !== "image/svg+xml"
+              ) {
+                toast.error("Solo se aceptan archivos SVG (no PNG/JPG).");
+                return;
+              }
+              if (file.size > STAGE_PLOT_SVG_MAX_CHARS) {
+                toast.error(
+                  `Archivo demasiado grande (máx. ${formatStagePlotSvgMaxChars()} caracteres).`,
+                );
+                return;
+              }
+              try {
+                applySvgRaw(await file.text());
+              } catch {
+                toast.error("No se pudo leer el archivo.");
+              }
+            }}
+          />
+        </label>
+        {svg ? (
+          <button
+            type="button"
+            onClick={() => {
+              setSvg("");
+              setSvgError("");
+            }}
+            className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-slate-500 hover:text-slate-700"
+          >
+            <IconX size={12} /> Quitar
+          </button>
+        ) : null}
+        {svgPreview ? (
+          <img
+            src={svgPreview}
+            alt=""
+            className="h-8 w-8 rounded border border-slate-100 bg-slate-50 object-contain p-0.5"
+          />
+        ) : null}
+      </div>
       <textarea
         className="w-full rounded border border-slate-200 px-1.5 py-0.5 font-mono text-[9px]"
         rows={3}
-        placeholder="<svg …>"
+        placeholder="<svg …> (pegar o subir; se limpia solo)"
         value={svg}
-        onChange={(e) => setSvg(e.target.value)}
+        onChange={(e) => applySvgRaw(e.target.value)}
+        onPaste={(e) => {
+          const text = e.clipboardData?.getData("text");
+          if (text == null || text === "") return;
+          e.preventDefault();
+          applySvgRaw(text);
+        }}
+        spellCheck={false}
       />
+      {svgError ? (
+        <p className="text-[9px] text-red-600">{svgError}</p>
+      ) : (
+        <p className="text-[9px] text-slate-400">
+          Máx. {formatStagePlotSvgMaxChars()} caracteres. Se sanitiza al pegar /
+          subir (Illustrator OK).
+        </p>
+      )}
       <button
         type="button"
         disabled={busy}

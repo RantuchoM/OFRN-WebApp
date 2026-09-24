@@ -418,8 +418,12 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
 ## Mobiliario: sillas / banquetas / atriles / tarimas (panel Orgánico)
 
 - **Sillas / Banquetas:** sin cambio de reglas needed/drawn.
-- **Atriles needed:** sigue ceil(n/2) cuerdas + 1:1 resto (objetivo de roster).
-- **Atriles drawn:** solo `music_stand` explícitos.
+- **Atriles needed** (roster convocado, sin ausentes):
+  - Cuerdas vn/va/vc/bass → `ceil(n/2)`.
+  - Resto (vientos, teclado, etc.) → 1 × músico.
+  - **Percusión** → **1 × percusionista** (`classifyStagePlotMusicianSeat === "perc"` / familia percusión), **no** 1 × ícono ni 1 × tipo (timpani/marimba/…). Un músico con varios instrumentos dibujados sigue pidiendo un solo atril.
+- **Atriles drawn:** solo `music_stand` explícitos (`countStagePlotDrawnAtriles`).
+- **Detalle:** bajo el conteo de atriles, **Ver detalle de atriles** abre modal (`StagePlotAtrilDetailModal`, portal `document.body`, `z-[100]` / overlay immersive) con desglose por grupo (músicos → atriles + regla), lista de percusionistas y comparación vs íconos de perc. en el plano (informativo; no suman atriles).
 - **Tarimas:** solo drawn (sin needed); resumen **por forma** (rect vs oval) + dims (`summarizeStagePlotTarimas` → `stagePlotTarimaShape`).
 - **Inventario stock:** columna **Inv.** (stock global) junto a Plano / Org. / Δ. Ámbar si stock &lt; orgánico.
 
@@ -502,6 +506,7 @@ Seed: silla / banqueta / atril qty 0; tarima rect 200×100 qty 0. Unique parcial
 - [x] Editor: familia-first + Crear instrumento; `stage_plot_type` = clave de ícono (sin UNIQUE DB)
 - [x] Percusión `13a`–`13h` (Timbales…Campanas) + SVG OFRN + catálogo/orgánico (`20260829020843`, linked)
 - [x] Renombrar lienzo: botón lápiz (`IconPencil`) **inmediatamente a la derecha del dropdown** Elegir lienzo → input inline; Enter/blur guarda, Escape cancela (ya no input siempre visible; no entre + Lienzo y Asociar)
+- [x] Atriles needed: percusión = 1 × percusionista convocado (no por ícono); modal **Ver detalle de atriles** (desglose + lista perc.)
 
 
 ## Presets de locación (ancho × profundo)
@@ -650,11 +655,16 @@ Parámetros en **px de escenario** (`cm × STAGE_PLOT_CM_TO_PX`). Defaults (íte
 - **1 SVG ↔ 1 fila `instrumentos`**: no hay íconos de instrumento sueltos; sin fila → Inventario / `elementos_escenario`.
 - **Familia** = clasificación de usuario; **`stage_plot_type`** = clave de ícono/paleta (preferir única al crear; compartir permitido para variantes).
 - **Cadena**: DB → `public/stage-plot/icons/` → silueta (`stagePlotIconAssets.js`); tamaños en `setStagePlotDbSizeOverrides`.
-- **Admin / editor**: Escenario panel izquierdo **Editor** (familia, **tamaño de huella** Ancho×Profundo cm → DB, SVG, clave demoted; **Crear instrumento**) y Datos → Instrumentos (**Clave de ícono (plano)** + Ancho/Profundo huella cm, placeholder **50**; SVG); sanitizado (`stagePlotSvgSanitize.js`).
+- **Admin / editor**: Escenario panel izquierdo **Editor** (familia, **tamaño de huella** Ancho×Profundo cm → DB, SVG, clave demoted; **Crear instrumento**), Datos → Instrumentos (**Clave de ícono (plano)** + Ancho/Profundo huella cm, placeholder **50**; SVG) e Inventario → elementos (`elementos_escenario.svg_icon`). Todo pasa por `sanitizeStagePlotSvgMarkup` (`stagePlotSvgSanitize.js`).
+- **Pipeline de sanitizado (app)**:
+  1. **Entrada usuario**: Escenario → Editor (upload SVG), Crear instrumento (upload), Datos → Instrumentos (`SvgIconField`: upload + paste), Inventario → Nuevo elemento (upload + paste).
+  2. **Antes de guardar**: `prepareInstrumentSvgIconForSave` / `sanitizeStagePlotSvgMarkup` / `upsertElementoEscenario` compactan (DOCTYPE AI, foreignObject, switch, metadata Inkscape/Adobe) y rechazan XSS (`script`, eventos, `use`, URLs peligrosas). Límite `STAGE_PLOT_SVG_MAX_CHARS` (500.000). Si se limpió metadata, toast/hint «SVG limpiado…».
+  3. **Al cargar al lienzo**: `buildStagePlotSvgByType` y `applyElementosEscenarioToStagePlot` **vuelven a sanitizar** filas de DB (defensa en profundidad).
+  4. **Seed scripts** (`scripts/seed-instrumentos-stage-plot-svg.mjs`, `force-seed-string-svgs.mjs`): assets trustados de `public/stage-plot/icons/`; no son upload de usuario. Al usarse en runtime igual pasan por el paso 3.
 - **Render Escenario / PDF**: `stagePlotInstrumentCatalogScales(type)` desde `width_cm`/`height_cm` (**50×50 → scale 1**). Ítems ya insertados adoptan el tamaño actual del catálogo sin reinsertar; con el editor abierto el cambio es inmediato en **todas** las instancias del tipo (evento de catálogo + sync Konva en lote + force `scaleX/Y`).
 - **Colores**: Uploads conservan fills; sanitize sin rewrite a `currentColor`.
 - [x] **Repo / git**: íconos canónicos solo en `public/stage-plot/icons/`; regenerar seed con `node scripts/seed-instrumentos-stage-plot-svg.mjs` (no commitear `temp_freesvg/` ni `temp_*` — ignorados en `.gitignore`).
-- **Seguridad / tamaño**: sanitizado liviano (sin script/eventos/`use`; Blob→Image). Límite **app-imposed** `STAGE_PLOT_SVG_MAX_CHARS = 500_000` (antes 100k; no es tope de Postgres `text`). Clipart detallado (p. ej. bandoneón ~68k compactado; SVGs más ricos suelen superar 100k) es normal. Antes de guardar se compacta (metadata Inkscape/Adobe, whitespace, precisión decimal). Solo accept SVG (PNG/JPG → error claro). Toasts muestran el máx. formateado (`500.000`).
+- **Seguridad / tamaño**: sanitizado liviano (sin script/eventos/`use`; Blob→Image). Límite **app-imposed** `STAGE_PLOT_SVG_MAX_CHARS = 500_000` (antes 100k; no es tope de Postgres `text`). Clipart detallado (p. ej. bandoneón ~68k compactado; SVGs más ricos suelen superar 100k) es normal. Antes de guardar se compacta (metadata Inkscape/Adobe, whitespace, precisión decimal). **Adobe Illustrator SVG 1.0** (OpenClipArt, etc.): se acepta tras normalizar — strip de `<!DOCTYPE … [ENTITY…]>` completo, quita `<foreignObject>` (PGF), unwrap `<switch>`, expande `&ns_svg;` / `&ns_xlink;` y limpia attrs `i:`/`graph:`. Sin eso el toast era «etiquetas no permitidas» (`foreignObject`) y el XML quedaba inválido. Solo accept SVG (PNG/JPG → error claro). Toasts muestran el máx. formateado (`500.000`). Errores de sanitize explican qué falló; si el markup se compactó, UI indica que se limpió.
 
 ## Export PDF / JPG (plano de escenario)
 

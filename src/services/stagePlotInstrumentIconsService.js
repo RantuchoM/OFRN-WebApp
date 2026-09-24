@@ -266,19 +266,19 @@ export function groupInstrumentosByFamilia(rows = []) {
 /**
  * Valida y prepara valor para guardar en instrumentos.svg_icon.
  * @param {unknown} raw
- * @returns {{ ok: true, value: string|null } | { ok: false, error: string }}
+ * @returns {{ ok: true, value: string|null, cleaned?: boolean } | { ok: false, error: string }}
  */
 export function prepareInstrumentSvgIconForSave(raw) {
   const result = sanitizeStagePlotSvgMarkup(raw);
   if (!result.ok) return result;
-  if (!result.svg) return { ok: true, value: null };
+  if (!result.svg) return { ok: true, value: null, cleaned: false };
   if (result.svg.length > STAGE_PLOT_SVG_MAX_CHARS) {
     return {
       ok: false,
       error: `SVG demasiado grande (máx. ${formatStagePlotSvgMaxChars()}).`,
     };
   }
-  return { ok: true, value: result.svg };
+  return { ok: true, value: result.svg, cleaned: Boolean(result.cleaned) };
 }
 
 /**

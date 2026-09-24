@@ -706,6 +706,11 @@ function CreateInstrumentoModal({
                           ? previewSrcFromMarkup(prepared.value)
                           : null,
                       );
+                      if (prepared.cleaned && prepared.value) {
+                        toast.message(
+                          "SVG limpiado (metadata de editor / código no permitido removidos).",
+                        );
+                      }
                     } catch {
                       toast.error("No se pudo leer el archivo.");
                     }
@@ -1002,6 +1007,12 @@ export default function StagePlotInstrumentsPanel({
     const nextSvg = prepared.value;
     const current = selected.svg_icon || null;
     if (String(nextSvg ?? "") === String(current ?? "")) return;
+
+    if (prepared.cleaned && nextSvg) {
+      toast.message(
+        "SVG limpiado (metadata de editor / código no permitido removidos).",
+      );
+    }
 
     let currentSrc = previewSrcFromMarkup(current);
     if (!currentSrc && selected.stage_plot_type) {

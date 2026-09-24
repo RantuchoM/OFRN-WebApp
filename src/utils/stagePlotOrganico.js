@@ -151,6 +151,22 @@ export const STAGE_PLOT_SHARED_ATRIL_KEYS = new Set([
   "bass",
 ]);
 
+/**
+ * Claves de orgánico de la familia percusión.
+ * Atriles needed: 1 × percusionista convocado (no 1 × ícono / tipo en el plano).
+ */
+export const STAGE_PLOT_PERC_ORGANICO_KEYS = new Set([
+  "timpani",
+  "marimba",
+  "vibraphone",
+  "bass_drum",
+  "snare",
+  "cymbals",
+  "xylophone",
+  "tubular_bells",
+  "perc",
+]);
+
 /** Claves de orgánico que cuentan como banqueta (no silla). */
 export const STAGE_PLOT_BANQUETA_ORGANICO_KEYS = new Set([
   "bass",
@@ -164,6 +180,15 @@ export const STAGE_PLOT_BANQUETA_ORGANICO_KEYS = new Set([
   "tubular_bells",
   "perc",
 ]);
+
+/** Nombre corto para listados (apellido, nombre). */
+function stagePlotMusicianDisplayName(member) {
+  const ap =
+    member?.apellido_preferencia || member?.apellido || "";
+  const no = member?.nombre_preferencia || member?.nombre || "";
+  const label = [ap, no].filter(Boolean).join(", ").trim();
+  return label || (member?.id != null ? String(member.id) : "—");
+}
 
 const TYPE_TO_KEY = new Map();
 for (const row of STAGE_PLOT_ORGANICO_ROWS) {
@@ -266,14 +291,17 @@ function organicoKeyForAtrilShare(member) {
 }
 
 /**
- * Atriles necesarios desde conteos por clave organico.
+ * Atriles necesarios desde conteos por clave organico (sin percusión).
  * vn/va/vc/bass → ceil(n/2); resto 1:1.
+ * Percusión se omite aquí: sumar aparte 1 × percusionista convocado
+ * (`classifyStagePlotMusicianSeat === "perc"`), no por ícono dibujado.
  * @param {Record<string, number>} countsByKey
  * @param {number} [extraOnes=0] instrumentistas sin fila organico (1:1)
  */
 export function atrilesFromOrganicoCounts(countsByKey = {}, extraOnes = 0) {
   let n = Math.max(0, Number(extraOnes) || 0);
   for (const row of STAGE_PLOT_ORGANICO_ROWS) {
+    if (STAGE_PLOT_PERC_ORGANICO_KEYS.has(row.key)) continue;
     const c = Number(countsByKey[row.key]) || 0;
     if (c <= 0) continue;
     if (STAGE_PLOT_SHARED_ATRIL_KEYS.has(row.key)) {
@@ -369,6 +397,8 @@ export function summarizeStagePlotTarimas(items = []) {
  * - Sillas: 1 × instrumentista que no es contrabajo ni percusión.
  * - Banquetas needed: #contrabajo + #percusionistas.
  * - Banquetas drawn: ítems `bass` (auto) + ítems `banqueta` (manual perc).
+ * - Atriles needed: ceil(n/2) cuerdas; 1:1 resto no-perc; **1 × percusionista**
+ *   convocado (familia/seat perc — no por ícono de instrumento en el plano).
  * - Atriles drawn: solo ítems `music_stand` explícitos.
  * - Tarimas: conteo por forma (rect/oval) + dims (solo visual; sin «needed»).
  *
@@ -383,6 +413,9 @@ export function computeStagePlotFurnitureSummary(items = [], roster = [], groups
     STAGE_PLOT_ORGANICO_ROWS.map((r) => [r.key, 0]),
   );
   let atrilExtraNeeded = 0;
+  let percusionistasNeeded = 0;
+  /** @type {Array<{ id: string|number, name: string, instrument: string }>} */
+  const percussionists = [];
 
   for (const m of roster) {
     const seat = classifyStagePlotMusicianSeat(m);
@@ -391,6 +424,20 @@ export function computeStagePlotFurnitureSummary(items = [], roster = [], groups
       banquetasNeeded += 1;
     } else {
       sillasNeeded += 1;
+    }
+
+    // Percusión: 1 atril por músico convocado (no por tipo/ícono dibujado).
+    if (seat === "perc") {
+      percusionistasNeeded += 1;
+      percussionists.push({
+        id: m.id,
+        name: stagePlotMusicianDisplayName(m),
+        instrument:
+          m.instrumentos?.instrumento ||
+          m.instrumentos?.abreviatura ||
+          "Percusión",
+      });
+      continue;
     }
 
     const shareKey = organicoKeyForAtrilShare(m);
@@ -404,7 +451,20 @@ export function computeStagePlotFurnitureSummary(items = [], roster = [], groups
       (r) => r.idInstr && r.idInstr.includes(idInstr),
     );
     if (byId) {
-      atrilBuckets[byId.key] += 1;
+      if (STAGE_PLOT_PERC_ORGANICO_KEYS.has(byId.key)) {
+        // Defensa: classify falló pero el id es perc → contar como persona.
+        percusionistasNeeded += 1;
+        percussionists.push({
+          id: m.id,
+          name: stagePlotMusicianDisplayName(m),
+          instrument:
+            m.instrumentos?.instrumento ||
+            m.instrumentos?.abreviatura ||
+            byId.label,
+        });
+      } else {
+        atrilBuckets[byId.key] += 1;
+      }
       continue;
     }
     const byName = STAGE_PLOT_ORGANICO_ROWS.find(
@@ -413,8 +473,23 @@ export function computeStagePlotFurnitureSummary(items = [], roster = [], groups
         Array.isArray(r.nameMatch) &&
         r.nameMatch.some((frag) => name.includes(frag)),
     );
-    if (byName) atrilBuckets[byName.key] += 1;
-    else atrilExtraNeeded += 1;
+    if (byName) {
+      if (STAGE_PLOT_PERC_ORGANICO_KEYS.has(byName.key)) {
+        percusionistasNeeded += 1;
+        percussionists.push({
+          id: m.id,
+          name: stagePlotMusicianDisplayName(m),
+          instrument:
+            m.instrumentos?.instrumento ||
+            m.instrumentos?.abreviatura ||
+            byName.label,
+        });
+      } else {
+        atrilBuckets[byName.key] += 1;
+      }
+    } else {
+      atrilExtraNeeded += 1;
+    }
   }
 
   let sillasDrawn = 0;
@@ -434,9 +509,22 @@ export function computeStagePlotFurnitureSummary(items = [], roster = [], groups
   }
 
   const banquetasDrawn = banquetasDrawnBass + banquetasDrawnManual;
-  const atrilesNeeded = atrilesFromOrganicoCounts(atrilBuckets, atrilExtraNeeded);
+  const atrilesNeededNonPerc = atrilesFromOrganicoCounts(
+    atrilBuckets,
+    atrilExtraNeeded,
+  );
+  const atrilesNeeded = atrilesNeededNonPerc + percusionistasNeeded;
   const atrilesDrawn = countStagePlotDrawnAtriles(items, groups);
   const tarimas = summarizeStagePlotTarimas(items);
+  const atrilDetail = buildStagePlotAtrilDetail({
+    atrilBuckets,
+    atrilExtraNeeded,
+    percusionistasNeeded,
+    percussionists,
+    atrilesNeeded,
+    atrilesDrawn,
+    items,
+  });
 
   const row = (key, label, drawn, required) => {
     const delta = drawn - required;
@@ -496,8 +584,98 @@ export function computeStagePlotFurnitureSummary(items = [], roster = [], groups
     sillas: row("sillas", "Sillas", sillasDrawn, sillasNeeded),
     banquetas: row("banquetas", "Banquetas", banquetasDrawn, banquetasNeeded),
     atriles: row("atriles", "Atriles", atrilesDrawn, atrilesNeeded),
+    atrilDetail,
     tarimas,
     rows: [...furnitureRows, ...tarimaRows],
+  };
+}
+
+/**
+ * Desglose de atriles needed vs drawn para el modal «Ver detalle».
+ * @param {{
+ *   atrilBuckets: Record<string, number>,
+ *   atrilExtraNeeded: number,
+ *   percusionistasNeeded: number,
+ *   percussionists: Array<{ id: string|number, name: string, instrument: string }>,
+ *   atrilesNeeded: number,
+ *   atrilesDrawn: number,
+ *   items: Array,
+ * }} args
+ */
+export function buildStagePlotAtrilDetail({
+  atrilBuckets = {},
+  atrilExtraNeeded = 0,
+  percusionistasNeeded = 0,
+  percussionists = [],
+  atrilesNeeded = 0,
+  atrilesDrawn = 0,
+  items = [],
+} = {}) {
+  /** @type {Array<{ key: string, label: string, musicians: number, atriles: number, rule: string, ruleLabel: string }>} */
+  const breakdown = [];
+
+  for (const row of STAGE_PLOT_ORGANICO_ROWS) {
+    if (STAGE_PLOT_PERC_ORGANICO_KEYS.has(row.key)) continue;
+    const musicians = Number(atrilBuckets[row.key]) || 0;
+    if (musicians <= 0) continue;
+    const shared = STAGE_PLOT_SHARED_ATRIL_KEYS.has(row.key);
+    const atriles = shared ? Math.ceil(musicians / 2) : musicians;
+    breakdown.push({
+      key: row.key,
+      label: row.label,
+      musicians,
+      atriles,
+      rule: shared ? "shared_pair" : "one_per_musician",
+      ruleLabel: shared ? "1 cada 2 (ceil)" : "1 × músico",
+    });
+  }
+
+  if (atrilExtraNeeded > 0) {
+    breakdown.push({
+      key: "_extra",
+      label: "Otros instrumentistas",
+      musicians: atrilExtraNeeded,
+      atriles: atrilExtraNeeded,
+      rule: "one_per_musician",
+      ruleLabel: "1 × músico",
+    });
+  }
+
+  if (percusionistasNeeded > 0 || percussionists.length > 0) {
+    breakdown.push({
+      key: "percusion",
+      label: "Percusión",
+      musicians: percusionistasNeeded,
+      atriles: percusionistasNeeded,
+      rule: "one_per_percussionist",
+      ruleLabel: "1 × percusionista (no por ícono)",
+    });
+  }
+
+  const drawnByType = countStagePlotDrawnByOrganico(items);
+  /** @type {Array<{ key: string, label: string, drawn: number }>} */
+  const percIconsByType = [];
+  let percIconsDrawn = 0;
+  for (const row of STAGE_PLOT_ORGANICO_ROWS) {
+    if (!STAGE_PLOT_PERC_ORGANICO_KEYS.has(row.key)) continue;
+    const drawn = Number(drawnByType[row.key]) || 0;
+    if (drawn <= 0) continue;
+    percIconsDrawn += drawn;
+    percIconsByType.push({ key: row.key, label: row.label, drawn });
+  }
+
+  const delta = atrilesDrawn - atrilesNeeded;
+  return {
+    drawn: atrilesDrawn,
+    needed: atrilesNeeded,
+    delta,
+    status: delta === 0 ? "ok" : delta < 0 ? "missing" : "excess",
+    breakdown,
+    percussionists: [...percussionists].sort((a, b) =>
+      String(a.name).localeCompare(String(b.name), "es"),
+    ),
+    percIconsDrawn,
+    percIconsByType,
   };
 }
 

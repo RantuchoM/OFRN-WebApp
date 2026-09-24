@@ -106,6 +106,7 @@ const labelForSelectValue = (value, options) => {
 /** Campo SVG: file input + textarea + preview (Datos → Instrumentos). */
 function SvgIconField({ value, onChange, fieldClass }) {
   const [error, setError] = useState("");
+  const [hint, setHint] = useState("");
   const preview = useMemo(() => {
     const r = sanitizeStagePlotSvgMarkup(value || "");
     if (!r.ok || !r.svg) return null;
@@ -116,9 +117,15 @@ function SvgIconField({ value, onChange, fieldClass }) {
     const r = sanitizeStagePlotSvgMarkup(raw);
     if (!r.ok) {
       setError(r.error);
+      setHint("");
       return;
     }
     setError("");
+    setHint(
+      r.cleaned
+        ? "SVG limpiado (metadata de editor / código no permitido removidos). Listo para guardar."
+        : "",
+    );
     onChange(r.svg || "");
   };
 
@@ -141,18 +148,21 @@ function SvgIconField({ value, onChange, fieldClass }) {
                 file.type !== "image/svg+xml"
               ) {
                 setError("Solo se aceptan archivos SVG (no PNG/JPG).");
+                setHint("");
                 return;
               }
               if (file.size > STAGE_PLOT_SVG_MAX_CHARS) {
                 setError(
                   `Archivo demasiado grande (máx. ${formatStagePlotSvgMaxChars()} caracteres).`,
                 );
+                setHint("");
                 return;
               }
               try {
                 applyRaw(await file.text());
               } catch {
                 setError("No se pudo leer el archivo.");
+                setHint("");
               }
             }}
           />
@@ -163,6 +173,7 @@ function SvgIconField({ value, onChange, fieldClass }) {
             className="px-3 py-2 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50 min-h-[44px]"
             onClick={() => {
               setError("");
+              setHint("");
               onChange("");
             }}
           >
@@ -175,15 +186,24 @@ function SvgIconField({ value, onChange, fieldClass }) {
         value={value ?? ""}
         placeholder="<svg …>…</svg>"
         onChange={(e) => applyRaw(e.target.value)}
+        onPaste={(e) => {
+          const text = e.clipboardData?.getData("text");
+          if (text == null || text === "") return;
+          e.preventDefault();
+          applyRaw(text);
+        }}
         spellCheck={false}
       />
       {error ? (
         <p className="text-xs text-red-600">{error}</p>
+      ) : hint ? (
+        <p className="text-xs text-emerald-700">{hint}</p>
       ) : (
         <p className="text-[10px] text-slate-400">
-          Máx. {formatStagePlotSvgMaxChars()} caracteres. Solo SVG (no PNG). Sin
-          script / eventos. Se conservan los colores del SVG; usá currentColor
-          solo si querés una silueta mono tintable.
+          Máx. {formatStagePlotSvgMaxChars()} caracteres. Solo SVG (no PNG). Al
+          pegar o subir se limpia automáticamente (Illustrator/Inkscape OK). Sin
+          script / eventos. Se conservan los colores; usá currentColor solo si
+          querés silueta mono tintable.
         </p>
       )}
       {preview ? (
@@ -1417,6 +1437,7 @@ export default function UniversalTable({
       const prepared = sanitizeStagePlotSvgMarkup(cleanValue || "");
       if (!prepared.ok) {
         console.error(prepared.error);
+        alert(prepared.error || "SVG inválido; no se guardó.");
         return false;
       }
       cleanValue = prepared.svg || null;

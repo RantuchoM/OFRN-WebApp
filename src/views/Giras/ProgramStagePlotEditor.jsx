@@ -47,6 +47,7 @@ import {
   IconMusic,
   IconPencil,
   IconX,
+  IconList,
 } from "../../components/ui/Icons";
 import SearchableSelect from "../../components/ui/SearchableSelect";
 import StagePlotInstrumentsPanel from "./StagePlotInstrumentsPanel";
@@ -1671,6 +1672,188 @@ function StagePlotTarimaSizeModal({
   );
 }
 
+/**
+ * Modal: desglose de atriles needed (roster) vs drawn (`music_stand`).
+ * Percusión = 1 × percusionista; íconos del plano no suman atriles.
+ */
+function StagePlotAtrilDetailModal({ open, detail, onClose, overlayZ = 100 }) {
+  const dialogRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onKeyDown = (e) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [open, onClose]);
+
+  if (!open || !detail) return null;
+
+  const deltaLabel =
+    detail.delta === 0
+      ? "="
+      : detail.delta > 0
+        ? `+${detail.delta}`
+        : String(detail.delta);
+  const deltaClass =
+    detail.status === "ok"
+      ? "text-emerald-600"
+      : detail.status === "missing"
+        ? "text-amber-700"
+        : "text-sky-700";
+
+  return createPortal(
+    <div
+      className="fixed inset-0 flex items-center justify-center bg-slate-900/40 p-4"
+      style={{ zIndex: overlayZ }}
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Detalle de atriles"
+        className="flex max-h-[min(36rem,90vh)] w-full max-w-md flex-col rounded-lg border border-slate-200 bg-white shadow-xl"
+      >
+        <div className="flex items-start justify-between gap-2 border-b border-slate-100 px-4 py-3">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-800">
+              Detalle de atriles
+            </h3>
+            <p className="mt-0.5 text-[10px] leading-snug text-slate-400">
+              Orgánico (roster) vs plano. Percusión: 1 atril × percusionista
+              convocado, no por ícono dibujado.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded p-1 text-slate-400 hover:bg-slate-50 hover:text-slate-600"
+            aria-label="Cerrar"
+          >
+            <IconX size={16} />
+          </button>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+          <div className="mb-3 flex items-baseline justify-between gap-2 rounded-md border border-slate-100 bg-slate-50 px-2.5 py-2">
+            <span className="text-[11px] font-medium text-slate-600">
+              Plano / Org.
+            </span>
+            <span className="font-mono text-sm text-slate-800">
+              {detail.drawn}
+              <span className="text-slate-400"> / </span>
+              {detail.needed}
+              <span className={`ml-2 text-xs font-semibold ${deltaClass}`}>
+                {deltaLabel}
+              </span>
+            </span>
+          </div>
+
+          {detail.breakdown?.length > 0 ? (
+            <div className="mb-3">
+              <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                Desglose orgánico
+              </p>
+              <table className="w-full text-left text-[11px]">
+                <thead>
+                  <tr className="text-slate-400">
+                    <th className="py-1 pr-1 font-medium">Grupo</th>
+                    <th className="py-1 pr-1 text-right font-medium">Mús.</th>
+                    <th className="py-1 pr-1 text-right font-medium">Atriles</th>
+                    <th className="py-1 font-medium">Regla</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {detail.breakdown.map((row) => (
+                    <tr
+                      key={row.key}
+                      className="border-t border-slate-100"
+                    >
+                      <td className="py-1 pr-1 font-medium text-slate-700">
+                        {row.label}
+                      </td>
+                      <td className="py-1 pr-1 text-right font-mono text-slate-600">
+                        {row.musicians}
+                      </td>
+                      <td className="py-1 pr-1 text-right font-mono font-semibold text-slate-800">
+                        {row.atriles}
+                      </td>
+                      <td className="py-1 text-[10px] text-slate-400">
+                        {row.ruleLabel}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="mb-3 text-[11px] text-slate-400">
+              Sin instrumentistas convocados que pidan atril.
+            </p>
+          )}
+
+          {(detail.percussionists?.length > 0 ||
+            detail.percIconsDrawn > 0) && (
+            <div className="mb-1 rounded-md border border-amber-100 bg-amber-50/60 px-2.5 py-2">
+              <p className="text-[10px] font-bold uppercase tracking-wide text-amber-800/80">
+                Percusión
+              </p>
+              <p className="mt-0.5 text-[10px] leading-snug text-amber-900/70">
+                Atriles = {detail.percussionists?.length ?? 0} percusionista
+                {(detail.percussionists?.length ?? 0) === 1 ? "" : "s"}. En el
+                plano hay {detail.percIconsDrawn} ícono
+                {detail.percIconsDrawn === 1 ? "" : "s"} de percusión (no
+                suman atriles).
+              </p>
+              {detail.percussionists?.length > 0 && (
+                <ul className="mt-1.5 space-y-0.5">
+                  {detail.percussionists.map((p) => (
+                    <li
+                      key={String(p.id)}
+                      className="flex justify-between gap-2 text-[11px] text-slate-700"
+                    >
+                      <span className="truncate font-medium">{p.name}</span>
+                      <span className="shrink-0 text-slate-400">
+                        {p.instrument}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {detail.percIconsByType?.length > 0 && (
+                <p className="mt-1.5 text-[10px] text-slate-500">
+                  Íconos:{" "}
+                  {detail.percIconsByType
+                    .map((t) => `${t.label} ×${t.drawn}`)
+                    .join(" · ")}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="flex justify-end border-t border-slate-100 px-4 py-2.5">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+          >
+            Cerrar
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 function StagePlotFormationContextMenu({
   menu,
   onClose,
@@ -2925,6 +3108,7 @@ export default function ProgramStagePlot({
   const [paletteCat, setPaletteCat] = useState(null);
   /** Modal tamaño inicial al insertar tarima desde paleta Escenario. */
   const [tarimaSizeModal, setTarimaSizeModal] = useState(null);
+  const [atrilDetailOpen, setAtrilDetailOpen] = useState(false);
   const activePlotIdRef = useRef(null);
   const bloqueIdsRef = useRef([]);
   const eventoIdsRef = useRef([]);
@@ -8990,7 +9174,7 @@ export default function ProgramStagePlot({
                               : row.key === "banquetas"
                                 ? "Needed: contrabajos + percusionistas. Drawn: bass auto + banquetas manuales"
                                 : row.key === "atriles" || row.key.startsWith("atril")
-                                  ? "Solo atriles explícitos (paleta / menú contextual)"
+                                  ? "Needed: ceil(n/2) cuerdas; 1× resto; 1× percusionista (no por ícono). Drawn: music_stand"
                                   : row.key === "tarimas" ||
                                       row.key.startsWith("tarima")
                                     ? row.shape === "oval"
@@ -9029,10 +9213,19 @@ export default function ProgramStagePlot({
                     })}
                   </tbody>
                 </table>
+                <button
+                  type="button"
+                  onClick={() => setAtrilDetailOpen(true)}
+                  className="mt-1.5 inline-flex items-center gap-1 px-1 text-[10px] font-medium text-indigo-700 hover:text-indigo-900 hover:underline"
+                >
+                  <IconList size={11} />
+                  Ver detalle de atriles
+                </button>
                 <p className="mt-1.5 px-1 text-[9px] leading-snug text-slate-400">
                   Plano vs Orgánico (roster) + Inv. (stock global). Ámbar en
                   Inv. = stock &lt; orgánico. Dibujar no descuenta inventario;
-                  toast si tarimas/elementos exceden stock.
+                  toast si tarimas/elementos exceden stock. Percusión: 1 atril
+                  × percusionista (íconos del plano no suman).
                 </p>
               </div>
             </>
@@ -9057,6 +9250,12 @@ export default function ProgramStagePlot({
           overlayZ={immersive ? STAGE_PLOT_OVERLAY_Z : 100}
         />
       )}
+      <StagePlotAtrilDetailModal
+        open={atrilDetailOpen}
+        detail={furnitureSummary?.atrilDetail}
+        onClose={() => setAtrilDetailOpen(false)}
+        overlayZ={immersive ? STAGE_PLOT_OVERLAY_Z : 100}
+      />
       {mobileUi && (
         <StagePlotMobileAddSheet
           open={mobileAddOpen}

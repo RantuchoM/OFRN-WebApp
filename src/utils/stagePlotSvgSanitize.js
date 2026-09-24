@@ -21,19 +21,40 @@ export function formatStagePlotSvgMaxChars() {
 /**
  * Compacta markup: quita metadata Inkscape/Adobe, comentarios y whitespace
  * superfluo; recorta precisión decimal en paths (~3 decimales).
+ *
+ * Clipart Adobe Illustrator (OpenClipArt / AI SVG 1.0) suele traer:
+ * - `<!DOCTYPE … [ <!ENTITY …> ]>` (el `>` interno rompe un strip naive)
+ * - `<switch><foreignObject>…</foreignObject><g>…</g></switch>` (AI PGF)
+ * - `xmlns="&ns_svg;"` vía entidades — sin DOCTYPE el XML queda inválido
+ *
+ * Se normaliza a un SVG plano usable (sin foreignObject) antes del check XSS.
  * @param {string} svg
  */
 function compactStagePlotSvg(svg) {
   let out = svg;
   out = out.replace(/<!--[\s\S]*?-->/g, "");
   out = out.replace(/<\?xml[\s\S]*?\?>/gi, "");
-  out = out.replace(/<!DOCTYPE[\s\S]*?>/gi, "");
+  // DOCTYPE con subset interno opcional `[ … ]` (AI / SVG 1.0)
+  out = out.replace(/<!DOCTYPE\b[^[]*(?:\[[\s\S]*?\])?\s*>/gi, "");
+  // Fallback AI: foreignObject (PGF) + unwrap <switch> dejando el <g> dibujable
+  out = out.replace(/<foreignObject\b[^>]*>[\s\S]*?<\/foreignObject>/gi, "");
+  out = out.replace(/<\/?switch\b[^>]*>/gi, "");
+  // Entidades típicas de export AI (después de quitar el DOCTYPE)
+  out = out.replace(/&ns_svg;/gi, "http://www.w3.org/2000/svg");
+  out = out.replace(/&ns_xlink;/gi, "http://www.w3.org/1999/xlink");
+  out = out.replace(/&ns_[a-z0-9_]+;/gi, "");
   // Bloques de metadata de editores (no afectan el dibujo)
   out = out.replace(
     /<(metadata|sodipodi:namedview|inkscape:perspective)[\s\S]*?<\/\1>/gi,
     "",
   );
-  out = out.replace(/\s(inkscape|sodipodi|xmlns:(inkscape|sodipodi|rdf|cc|dc)):[^\s"'>/=]+(="[^"]*")?/gi, "");
+  out = out.replace(
+    /\s(inkscape|sodipodi|xmlns:(inkscape|sodipodi|rdf|cc|dc)):[^\s"'>/=]+(="[^"]*")?/gi,
+    "",
+  );
+  // Prefijos Adobe Illustrator (i:, graph:, a:, x:)
+  out = out.replace(/\s(?:i|graph|a|x):[\w.-]+(?:="[^"]*")?/gi, "");
+  out = out.replace(/\sxmlns:(?:i|graph|a|x|v)="[^"]*"/gi, "");
   out = out.replace(/\s{2,}/g, " ");
   out = out.replace(/>\s+</g, "><");
   // Acortar floats en path/d y coordenadas numéricas sueltas (sin tocar ids)
@@ -46,7 +67,7 @@ function compactStagePlotSvg(svg) {
 
 /**
  * @param {unknown} raw
- * @returns {{ ok: true, svg: string } | { ok: false, error: string }}
+ * @returns {{ ok: true, svg: string, cleaned?: boolean } | { ok: false, error: string }}
  */
 export function sanitizeStagePlotSvgMarkup(raw) {
   if (raw == null || raw === "") {
@@ -73,47 +94,67 @@ export function sanitizeStagePlotSvgMarkup(raw) {
   }
 
   if (!/<svg[\s>]/i.test(svg)) {
-    return { ok: false, error: "Debe incluir un elemento <svg>…" };
+    return {
+      ok: false,
+      error:
+        "No parece un SVG válido: falta el elemento <svg>. Pegá markup o subí un archivo .svg.",
+    };
   }
 
+  const beforeCompact = svg;
   svg = compactStagePlotSvg(svg);
 
   if (svg.length > STAGE_PLOT_SVG_MAX_CHARS) {
     return {
       ok: false,
-      error: `SVG demasiado grande (máx. ${formatStagePlotSvgMaxChars()} caracteres).`,
+      error: `SVG demasiado grande tras limpiar (máx. ${formatStagePlotSvgMaxChars()} caracteres). Simplificá el dibujo o exportá con menos detalle.`,
     };
   }
 
   if (FORBIDDEN_TAGS.test(svg)) {
     return {
       ok: false,
-      error: "El SVG contiene etiquetas no permitidas (script, iframe, use, …).",
+      error:
+        "Tras limpiar el archivo, aún quedan etiquetas no permitidas (script, iframe, use…). Exportá como SVG plano desde Illustrator/Inkscape.",
     };
   }
 
   // Event handlers on*
   if (/\son[a-z]+\s*=/i.test(svg)) {
-    return { ok: false, error: "El SVG no puede incluir manejadores de eventos." };
+    return {
+      ok: false,
+      error:
+        "El SVG no puede incluir manejadores de eventos (onclick, onload, …).",
+    };
   }
 
   // javascript: / data:text/html en href/xlink
   if (
     /(href|xlink:href)\s*=\s*["']?\s*(javascript:|data:text\/html)/i.test(svg)
   ) {
-    return { ok: false, error: "El SVG contiene URLs peligrosas." };
+    return {
+      ok: false,
+      error: "El SVG contiene URLs peligrosas (javascript: / data:text/html).",
+    };
   }
 
   // <style> con expression / @import (defensa básica)
   if (/@import\b/i.test(svg) || /expression\s*\(/i.test(svg)) {
-    return { ok: false, error: "El SVG contiene CSS no permitido." };
+    return {
+      ok: false,
+      error: "El SVG contiene CSS no permitido (@import / expression).",
+    };
   }
 
   // Conservar paints del autor (fill/stroke/gradients). No reescribir a
   // currentColor. El tint de tema solo aplica si el markup ya usa currentColor
   // (siluetas mono / game-icons).
 
-  return { ok: true, svg };
+  return {
+    ok: true,
+    svg,
+    cleaned: svg !== beforeCompact,
+  };
 }
 
 /**
