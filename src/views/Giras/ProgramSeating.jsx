@@ -297,6 +297,43 @@ const getMusicianPartIds = (musicianAssignments, key) => {
   );
 };
 
+const sameSeatingPartId = (a, b) =>
+  a != null && b != null && String(a) === String(b);
+
+/** Parte efectiva de un tuttista: override individual o, si no hay, la del contenedor. */
+const getStringPersonEffectivePartId = (
+  musicianAssignments,
+  assignments,
+  musicianId,
+  containerId,
+  obraId,
+) => {
+  const individual = getMusicianPartIds(
+    musicianAssignments,
+    `M-${musicianId}-${obraId}`,
+  );
+  const containerPartId = assignments[`C-${containerId}-${obraId}`] || null;
+  if (!individual.length) return containerPartId || null;
+  return individual[0] || containerPartId || null;
+};
+
+const isStringPersonPartOverride = (
+  musicianAssignments,
+  assignments,
+  musicianId,
+  containerId,
+  obraId,
+) => {
+  const individual = getMusicianPartIds(
+    musicianAssignments,
+    `M-${musicianId}-${obraId}`,
+  );
+  if (!individual.length) return false;
+  if (individual.length > 1) return true;
+  const containerPartId = assignments[`C-${containerId}-${obraId}`] || null;
+  return !sameSeatingPartId(individual[0], containerPartId);
+};
+
 const MultiParticellaSelect = ({
   options,
   values = [],
@@ -397,6 +434,7 @@ const MobileSeatingTable = ({
   particellaCounts = {},
   onAssign,
   onMusicianSlotAssign,
+  onStringPersonAssign,
   onRequestCreate,
   musiciansWithoutParts = new Set(),
   musicianTooltipById = {},
@@ -687,35 +725,65 @@ const MobileSeatingTable = ({
                                   );
                                 }
 
-                                const musicianKey = `M-${musicianId}-${obra.obra_id}`;
-                                const containerPartId =
-                                  assignments[`C-${c.id}-${obra.obra_id}`];
-                                const individualPartIds = getMusicianPartIds(
-                                  musicianAssignments,
-                                  musicianKey,
-                                );
-                                const showPart =
-                                  individualPartIds.length > 0 &&
-                                  individualPartIds.some(
-                                    (partId) =>
-                                      String(partId) !== String(containerPartId),
+                                const effectivePartId =
+                                  getStringPersonEffectivePartId(
+                                    musicianAssignments,
+                                    assignments,
+                                    musicianId,
+                                    c.id,
+                                    obra.obra_id,
                                   );
+                                const isOverride = isStringPersonPartOverride(
+                                  musicianAssignments,
+                                  assignments,
+                                  musicianId,
+                                  c.id,
+                                  obra.obra_id,
+                                );
+                                const isEditingThisWork =
+                                  isEditor && editingObraId === obra.obra_id;
+                                const availableParts =
+                                  availablePartsByWork[obra.obra_id] || [];
 
                                 return (
                                   <td
                                     key={`${item.id}-${obra.id}-${ladoLabel}`}
+                                    onClick={(event) => {
+                                      if (isEditingThisWork)
+                                        event.stopPropagation();
+                                    }}
                                     className="p-1 border-l border-slate-100 border-b border-slate-50 text-center align-middle"
                                   >
-                                    {showPart ? (
-                                      <span className="text-[8px] leading-none text-indigo-600 font-bold bg-indigo-50 px-0.5 rounded truncate whitespace-nowrap max-w-[82px] block mx-auto">
-                                        {individualPartIds
-                                          .filter(
-                                            (partId) =>
-                                              String(partId) !==
-                                              String(containerPartId),
+                                    {isEditingThisWork ? (
+                                      <ParticellaSelect
+                                        options={availableParts}
+                                        value={effectivePartId}
+                                        onChange={(val) =>
+                                          onStringPersonAssign?.(
+                                            musicianId,
+                                            c.id,
+                                            obra.obra_id,
+                                            val,
                                           )
-                                          .map(getPartName)
-                                          .join("+")}
+                                        }
+                                        onRequestCreate={() =>
+                                          onRequestCreate?.(
+                                            obra.obra_id,
+                                            c.id_instrumento,
+                                            "M",
+                                            musicianId,
+                                          )
+                                        }
+                                        disabled={false}
+                                        placeholder="Asignar"
+                                        preferredInstrumentId={
+                                          c.id_instrumento
+                                        }
+                                        counts={particellaCounts}
+                                      />
+                                    ) : isOverride ? (
+                                      <span className="text-[8px] leading-none text-indigo-600 font-bold bg-indigo-50 px-0.5 rounded truncate whitespace-nowrap max-w-[82px] block mx-auto">
+                                        {getPartName(effectivePartId)}
                                       </span>
                                     ) : (
                                       <span className="text-[10px] text-slate-300 select-none">
@@ -846,11 +914,9 @@ const MobileSeatingTable = ({
 const ContainerInfoCell = ({
   container,
   myStandInfo,
-  musicianTooltipById,
-  roster = [],
+  expanded = false,
+  onToggleExpanded,
 }) => {
-  const [expanded, setExpanded] = useState(false);
-
   return (
     <div className="flex flex-col h-full justify-start min-w-[140px]">
       <div className="flex items-center justify-between gap-1 mb-1">
@@ -876,7 +942,8 @@ const ContainerInfoCell = ({
 
       <div className="mt-auto">
         <button
-          onClick={() => setExpanded(!expanded)}
+          type="button"
+          onClick={onToggleExpanded}
           className={`w-full text-left text-[9px] py-1 px-1.5 rounded flex items-center justify-between transition-colors border ${
             expanded
               ? "bg-indigo-100 text-indigo-800 border-indigo-200"
@@ -889,45 +956,6 @@ const ContainerInfoCell = ({
             className={`transition-transform duration-200 ${expanded ? "rotate-180" : ""}`}
           />
         </button>
-
-        {expanded && (
-          <div className="mt-1 space-y-0.5 border-l-2 border-indigo-200 pl-1 ml-1 animate-in slide-in-from-top-1 bg-white/50 rounded-r">
-            {container.items.length === 0 && (
-              <span className="text-[9px] text-slate-400 italic block pl-1">
-                Vacío
-              </span>
-            )}
-            {(() => {
-              const sorted = sortSeatingItems(container.items || []);
-              return sorted.map((item, idx) => {
-                const pos = seatingItemMatrixPosition(item, idx);
-                const standNum = pos.atril_num ?? 1;
-                const isEndOfDesk =
-                  pos.lado === 1 && idx !== sorted.length - 1;
-
-                const isVacancy = isSeatingSlotVacancy(item, roster);
-                return (
-                  <div
-                    key={item.id}
-                    className={`text-[9px] truncate leading-tight py-1 flex justify-between px-1 ${
-                      isVacancy
-                        ? `text-amber-900 border ${VACANCY_SEATING_BORDER_CLASS} rounded bg-amber-50`
-                        : "text-slate-700"
-                    } ${isEndOfDesk ? "border-b-2 border-slate-300 mb-2 pb-1" : ""}`}
-                  >
-                    <span title={musicianTooltipById?.[item.id_musico] || ""}>
-                      {item.integrantes?.apellido},{" "}
-                      {item.integrantes?.nombre?.charAt(0)}.
-                    </span>
-                    <span className="text-slate-400 text-[8px] ml-1">
-                      Atril {standNum}
-                    </span>
-                  </div>
-                );
-              });
-            })()}
-          </div>
-        )}
       </div>
     </div>
   );
@@ -1107,6 +1135,8 @@ export default function ProgramSeating({
   /** { mode: 'omit'|'restore', obra, parts } */
   const [omitModal, setOmitModal] = useState(null);
   const [omitSaving, setOmitSaving] = useState(false);
+  const [expandedStringContainerIds, setExpandedStringContainerIds] =
+    useState([]);
   const musicianTooltipById = useMemo(() => {
     const map = {};
     (confirmedRoster || []).forEach((m) => {
@@ -1556,6 +1586,16 @@ export default function ProgramSeating({
       obras.forEach((obra) => {
         const partId = assignments[`C-${c.id}-${obra.obra_id}`];
         if (partId) byObra[obra.obra_id].add(String(partId));
+      });
+      c.items.forEach((item) => {
+        obras.forEach((obra) => {
+          getMusicianPartIds(
+            musicianAssignments,
+            `M-${item.id_musico}-${obra.obra_id}`,
+          ).forEach((partId) => {
+            byObra[obra.obra_id].add(String(partId));
+          });
+        });
       });
     });
 
@@ -2885,6 +2925,45 @@ export default function ProgramSeating({
     await Promise.all(updates);
   };
 
+  const handleStringPersonAssign = async (
+    musicianId,
+    containerId,
+    obraId,
+    particellaId,
+  ) => {
+    if (!isEditor) return;
+    const existing = getMusicianPartIds(
+      musicianAssignments,
+      `M-${musicianId}-${obraId}`,
+    );
+    const containerPartId =
+      assignments[`C-${containerId}-${obraId}`] || null;
+    const pickingInherit =
+      particellaId == null || sameSeatingPartId(particellaId, containerPartId);
+
+    // Solista / varias partes: no borrar el resto al igualar el slot 0 al contenedor.
+    if (existing.length > 1) {
+      await handleMusicianSlotAssign(musicianId, obraId, particellaId, 0);
+      return;
+    }
+
+    if (pickingInherit) {
+      if (existing.length === 0) return;
+      await handleMusicianSlotAssign(musicianId, obraId, null, 0);
+      return;
+    }
+
+    await handleMusicianSlotAssign(musicianId, obraId, particellaId, 0);
+  };
+
+  const toggleStringContainerExpanded = (containerId) => {
+    setExpandedStringContainerIds((prev) =>
+      prev.includes(containerId)
+        ? prev.filter((id) => id !== containerId)
+        : [...prev, containerId],
+    );
+  };
+
   const handleContainerAssign = async (targetId, obraId, particellaId) => {
     if (!isEditor) return;
     const key = `C-${targetId}-${obraId}`;
@@ -3639,6 +3718,7 @@ export default function ProgramSeating({
             particellaCounts={particellaCounts}
             onAssign={handleAssign}
             onMusicianSlotAssign={handleMusicianSlotAssign}
+            onStringPersonAssign={handleStringPersonAssign}
             onRequestCreate={openCreateModal}
             musiciansWithoutParts={musiciansWithoutParts}
             musicianTooltipById={musicianTooltipById}
@@ -3805,9 +3885,11 @@ export default function ProgramSeating({
                         if (!hasUnassigned) return false;
                         return !!getContainerSuggestedPart(c, obra.obra_id);
                       });
+                    const isExpanded = expandedStringContainerIds.includes(c.id);
+                    const sortedItems = sortSeatingItems(c.items || []);
                     return (
+                      <React.Fragment key={c.id}>
                       <tr
-                        key={c.id}
                         className={`transition-colors group ${
                           isEditor && hasNoParts
                             ? "bg-orange-50 hover:bg-orange-100/80"
@@ -3832,8 +3914,10 @@ export default function ProgramSeating({
                               <ContainerInfoCell
                                 container={c}
                                 myStandInfo={myStandText}
-                                musicianTooltipById={musicianTooltipById}
-                                roster={filteredRoster}
+                                expanded={isExpanded}
+                                onToggleExpanded={() =>
+                                  toggleStringContainerExpanded(c.id)
+                                }
                               />
                               {hasContainerSuggestions && (
                                 <button
@@ -3938,6 +4022,152 @@ export default function ProgramSeating({
                           );
                         })}
                       </tr>
+                      {isExpanded &&
+                        sortedItems.map((item, idx) => {
+                          const musicianId = item.id_musico;
+                          const pos = seatingItemMatrixPosition(item, idx);
+                          const standNum = pos.atril_num ?? 1;
+                          const isEndOfDesk =
+                            pos.lado === 1 && idx !== sortedItems.length - 1;
+                          const isMe =
+                            String(musicianId) === String(user.id);
+                          const isVacancy = isSeatingSlotVacancy(
+                            item,
+                            filteredRoster,
+                          );
+                          const hasNoPersonParts =
+                            musiciansWithoutParts.has(String(musicianId));
+                          return (
+                            <tr
+                              key={`${c.id}-person-${item.id || musicianId}`}
+                              className={`transition-colors ${
+                                isEditor && hasNoPersonParts
+                                  ? "bg-orange-50 hover:bg-orange-100/80"
+                                  : isMe
+                                    ? "bg-amber-50"
+                                    : "bg-white hover:bg-indigo-50/20"
+                              }`}
+                            >
+                              <td
+                                className={`p-1 sticky left-0 border-r border-slate-200 z-20 pl-6 align-middle ${
+                                  isMe ? "bg-amber-50" : "bg-white"
+                                } ${isEndOfDesk ? "border-b-2 border-slate-200" : ""}`}
+                              >
+                                <div
+                                  className={`flex items-center justify-between gap-1 px-1 py-0.5 ${
+                                    isVacancy
+                                      ? `border ${VACANCY_SEATING_BORDER_CLASS} rounded bg-amber-50`
+                                      : "border-l-2 border-indigo-200"
+                                  }`}
+                                >
+                                  <span
+                                    className={`text-[10px] truncate ${
+                                      isVacancy
+                                        ? "text-amber-900 font-bold"
+                                        : isMe
+                                          ? "text-amber-900 font-bold"
+                                          : "text-slate-700"
+                                    }`}
+                                    title={
+                                      musicianTooltipById[musicianId] || ""
+                                    }
+                                  >
+                                    {item.integrantes?.apellido},{" "}
+                                    {item.integrantes?.nombre?.charAt(0)}.
+                                  </span>
+                                  <span className="text-slate-400 text-[8px] shrink-0">
+                                    Atril {standNum}
+                                  </span>
+                                </div>
+                              </td>
+                              {displayObras.map((obra) => {
+                                const availableParts =
+                                  assignablePartsByWork[obra.obra_id] || [];
+                                const effectivePartId =
+                                  getStringPersonEffectivePartId(
+                                    musicianAssignments,
+                                    assignments,
+                                    musicianId,
+                                    c.id,
+                                    obra.obra_id,
+                                  );
+                                const isOverride = isStringPersonPartOverride(
+                                  musicianAssignments,
+                                  assignments,
+                                  musicianId,
+                                  c.id,
+                                  obra.obra_id,
+                                );
+                                return (
+                                  <td
+                                    key={`${item.id}-${obra.id}`}
+                                    className={`p-1 border-l border-slate-100 align-middle ${
+                                      isMe ? "bg-amber-50" : ""
+                                    } ${isEndOfDesk ? "border-b-2 border-slate-200" : ""}`}
+                                    title={
+                                      isOverride
+                                        ? "Parte individual (no sigue al grupo)"
+                                        : "Hereda la parte del contenedor"
+                                    }
+                                  >
+                                    {isEditor ? (
+                                      <ParticellaSelect
+                                        options={availableParts}
+                                        value={effectivePartId}
+                                        onChange={(val) =>
+                                          handleStringPersonAssign(
+                                            musicianId,
+                                            c.id,
+                                            obra.obra_id,
+                                            val,
+                                          )
+                                        }
+                                        onRequestCreate={() =>
+                                          openCreateModal(
+                                            obra.obra_id,
+                                            c.id_instrumento,
+                                            "M",
+                                            musicianId,
+                                          )
+                                        }
+                                        disabled={false}
+                                        placeholder="Asignar"
+                                        preferredInstrumentId={
+                                          c.id_instrumento
+                                        }
+                                        counts={particellaCounts}
+                                      />
+                                    ) : (
+                                      <div className="flex items-center justify-center h-full px-2 min-w-0">
+                                        {effectivePartId ? (
+                                          <PartNameLabel
+                                            name={
+                                              availableParts.find(
+                                                (p) =>
+                                                  String(p.id) ===
+                                                  String(effectivePartId),
+                                              )?.nombre_archivo
+                                            }
+                                            textClassName={
+                                              isOverride
+                                                ? "text-xs text-indigo-700 font-bold"
+                                                : "text-xs text-slate-500"
+                                            }
+                                          />
+                                        ) : (
+                                          <span className="text-xs text-slate-300">
+                                            -
+                                          </span>
+                                        )}
+                                      </div>
+                                    )}
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          );
+                        })}
+                      </React.Fragment>
                     );
                   })}
                 </>

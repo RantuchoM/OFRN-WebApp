@@ -5,7 +5,7 @@ Permitir que cualquier músico marcado con el rol de `solista` en la gira pueda 
 
 ### Reglas de Implementación
 1. **Filtro de Cuerdas**: La lógica actual excluye a IDs `"01"`, `"02"`, `"03"`, `"04"` de la lista inferior. Se debe añadir una excepción: músicos con `rol_gira === "solista"` siempre se consideran para la lista inferior, aunque su `id_instr` sea de cuerdas.
-2. **Doble Presencia**: El músico seguirá apareciendo en su `Container` (atril) para referencia visual de ubicación, pero su asignación de particella se gestionará en la tabla inferior para permitir flexibilidad (por ejemplo, un violín solista que toca una parte distinta a la del resto de la fila).
+2. **Doble Presencia**: El músico seguirá apareciendo en su `Container` (atril). En el detalle expandido del contenedor, el editor puede asignarle una particella distinta a la del grupo (mismo override `id_musicos_asignados` que vientos/solistas). La fila de **Vientos, Percusión y Solistas** sigue siendo el lugar para **varias partes** (`+` / slots).
 3. **Persistencia**: Las asignaciones individuales ya utilizan el prefijo `M-{id_musico}-{obra_id}`, por lo que la base de datos ya soporta esta funcionalidad sin cambios en el esquema.
 4. **Partes individuales múltiples**: En las celdas individuales de Seating (desktop y edición móvil) se pueden asociar varias particellas a la misma persona mediante el botón `+` junto al desplegable principal. Cada pulsación agrega un slot adicional. Se persiste como filas separadas de `seating_asignaciones` para el mismo `id_obra` y `id_musico`, sin cambiar el esquema.
 5. **Edición móvil acotada por obra**: En vista móvil para editores, cada obra muestra un botón `Editar` junto al título. Al activarlo, solo esa columna muestra desplegables; el resto del Seating permanece en modo lectura para reducir ruido visual.
@@ -16,13 +16,30 @@ Permitir que cualquier músico marcado con el rol de `solista` en la gira pueda 
 
 ### Criterios de Aceptación
 - Un violín con `rol_gira === "solista"` aparece listado en la tabla inferior (“Vientos, Percusión y Solistas”).
-- Se le puede asignar una particella específica mediante el dropdown `ParticellaSelect`.
-- El cambio no afecta a los músicos de fila (tuttistas) que permanecen gestionados solo por contenedor.
-- En Seating desktop y en edición móvil por obra, una persona puede tener varias partes individuales (slots dinámicos con `+`).
+- Se le puede asignar una particella específica mediante el dropdown `ParticellaSelect` (fila inferior y/o detalle del contenedor).
+- El override del solista no cambia el default de los tuttistas del mismo contenedor; cada tuttista hereda el grupo hasta que el **editor** lo sobreescriba en el detalle del contenedor.
+- En Seating desktop y en edición móvil por obra, una persona de vientos/solistas puede tener varias partes individuales (slots dinámicos con `+`). Los tuttistas de cuerdas usan un desplegable simple por obra.
 - En `Mis Partes`, una asignación múltiple se ve como varias partes separadas para la misma obra.
 - En móvil, los controles superiores de Seating están dentro del desplegable `Menú Seating` con texto visible para cada acción y acceso al comparativo.
 - En el ZIP de `Mis Partes`, la numeración salta obras no tocadas y las asignaciones múltiples usan sufijos alfabéticos (`a`, `b`, `c`…).
 - En la tabla móvil de Seating, varias partes en una celda se muestran compactas en una sola línea (`Ob 1+Ob EH+Fg`).
 - En la cabecera móvil de obras, no se limita el título a la primera palabra; se trunca por ancho disponible.
 - En móvil, la pestaña `Mis Partes` no se parte en dos líneas.
+
+## Tuttistas de cuerdas — override por persona (2026-09-23)
+
+El **editor** (producción) asigna partes en la grilla de Seating, no el músico en Mis Partes.
+
+### Comportamiento
+1. Al expandir un contenedor (p. ej. VIOLÍN 1), cada fila de persona muestra un `ParticellaSelect` por columna de obra.
+2. Valor mostrado por defecto = particella del contenedor (`C-{id_contenedor}-{id_obra}`). Vacantes (`es_simulacion`) incluidas; ausentes no (filtro `useGiraRoster` / `isMusicianOnConfirmedSeatingRoster`).
+3. Si el editor elige otra parte, se persiste override en `seating_asignaciones.id_musicos_asignados` (`M-{id_musico}-{id_obra}`), reutilizando `handleMusicianSlotAssign`.
+4. Si vuelve a la misma parte del contenedor (o quita asignación) y la persona tiene **una sola** parte individual, se borra el override y vuelve a heredar. Si tiene **varias** (solista con slots `+`), se conserva la fila como en vientos.
+5. El dropdown de contenedor sigue siendo el default del grupo; quien no tiene override lo sigue.
+6. Mis Partes (`MyPartsViewer`) no gana UI de elección: solo **lee** el override (prioridad individual sobre contenedor, ya existente).
+
+### UI
+- Escritorio: filas de persona debajo de la fila del contenedor (alineadas a las columnas de obra).
+- Móvil: en modo Editar de esa obra, el mismo desplegable en las filas hijas; en lectura, `〃` si hereda y el nombre de parte si hay override.
+- Vientos/percusión: `MultiParticellaSelect` con `+` sin cambios.
 

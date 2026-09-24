@@ -9,6 +9,7 @@ Mejorar el flujo de asignación de particellas en `ProgramSeating` sugiriendo, d
 - Vista de seating de programa (`ProgramSeating.jsx`), solo en modo escritorio.
 - Fila de **Vientos y Percusión** (asignaciones individuales por músico).
 - Fila de **Cuerdas** a nivel de contenedor (sugerencias basadas en el nombre del contenedor).
+- Al expandir un contenedor, cada persona tiene un desplegable por obra (default = parte del grupo; override individual `M-{id}-{obra}`). Las sugerencias bombilla siguen siendo del **contenedor**, no por tuttista.
 
 ### Modelo de datos
 
@@ -98,6 +99,13 @@ Helpers de normalización:
     - Texto: etiqueta legible de la particella sugerida.
   - Al hacer click:
     - Se ejecuta `handleAssign("C", id_contenedor, id_obra, id_particella_sugerida)`.
+
+### Override por persona en cuerdas
+
+- Expansión del contenedor (escritorio y móvil): filas de `seating_contenedores_items`.
+- Valor mostrado: `musicianAssignments["M-{id}-{obra}"][0]` si existe; si no, `assignments["C-{contenedor}-{obra}"]`.
+- Persistencia: `handleStringPersonAssign` → `handleMusicianSlotAssign`. Igualar al contenedor con una sola parte borra el override (herencia). Varias partes (solista) se dejan como slots individuales.
+- Mis Partes no se edita desde ahí; ya prioriza `id_musicos_asignados` sobre `id_contenedor`.
 
 La función `getContainerSuggestedPart`:
 
