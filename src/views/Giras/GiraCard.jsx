@@ -23,6 +23,7 @@ import LocacionNombreSpan, {
 import CommentButton from "../../components/comments/CommentButton";
 import RepertoireManager from "../../components/repertoire/RepertoireManager";
 import GiraActionMenu from "./GiraActionMenu";
+import StagePlotViewerModal from "./StagePlotViewerModal";
 import AppNavLink from "../../components/ui/AppNavLink";
 import { getProgramStyle, checkIsConvoked } from "../../utils/giraUtils";
 import { filterMembershipRowsForProgramDate } from "../../utils/ensembleMembership";
@@ -125,7 +126,7 @@ export default function GiraCard({
   defaultOpenSection,
   dateAccessory = null,
 }) {
-  const { user, isDifusion } = useAuth();
+  const { user, isDifusion, isTechnician, isManagement, isAdmin } = useAuth();
   const isMenuOpen = activeMenuId === gira.id;
   const [currentSlide, setCurrentSlide] = useState(0);
   const [concertsSlideHeight, setConcertsSlideHeight] = useState(160);
@@ -138,12 +139,20 @@ export default function GiraCard({
   const [myRooming, setMyRooming] = useState(null);
   const [showRoomingModal, setShowRoomingModal] = useState(false);
   const [loadingRooming, setLoadingRooming] = useState(false);
+  const [showStagePlotViewer, setShowStagePlotViewer] = useState(false);
 
   // --- LÓGICA DE ROLES PARA UI ---
   const normalizedRole = userRole?.toLowerCase().trim();
   const isDifusionRole = normalizedRole === "difusion";
   // Barra lateral móvil universal: editores y vista personal; no para rol difusión
   const showQuickAccessSidebar = !isDifusionRole;
+  // Misma puerta que Agenda «Ver escenario»: técnico / editor / management
+  const canViewStagePlot = Boolean(
+    (isEditor || isTechnician || isManagement || isAdmin) && !isDifusionRole,
+  );
+  const handleViewStagePlot = canViewStagePlot
+    ? () => setShowStagePlotViewer(true)
+    : undefined;
 
   const handleOpenMyRooming = async () => {
     // 1. Usamos el objeto 'user' que viene de useAuth()
@@ -747,6 +756,7 @@ export default function GiraCard({
                   onMove={() => onMove(gira)}
                   onDuplicate={() => onDuplicate(gira)}
                   onMyRooming={handleOpenMyRooming}
+                  onViewStagePlot={handleViewStagePlot}
                 />
               </div>
               <div className="p-2 rounded-full hover:bg-white transition-colors [&_button]:text-slate-500 [&_button:hover]:text-fixed-indigo-600">
@@ -838,6 +848,7 @@ export default function GiraCard({
                 onMove={() => onMove(gira)}
                 onDuplicate={() => onDuplicate(gira)}
                 onMyRooming={handleOpenMyRooming}
+                onViewStagePlot={handleViewStagePlot}
               />
             </div>
           </div>
@@ -1089,6 +1100,7 @@ export default function GiraCard({
               onMove={() => onMove(gira)}
               onDuplicate={() => onDuplicate(gira)}
               onMyRooming={handleOpenMyRooming}
+              onViewStagePlot={handleViewStagePlot}
             />
           </div>
 
@@ -1369,6 +1381,13 @@ export default function GiraCard({
           </div>,
           document.body,
         )}
+      <StagePlotViewerModal
+        open={showStagePlotViewer}
+        onClose={() => setShowStagePlotViewer(false)}
+        supabase={supabase}
+        gira={gira}
+        evento={null}
+      />
       {repertoireSectionEnabled && (
         <div className="relative z-20 border-t border-black/5 bg-white/40 p-2 min-w-0 w-full max-w-none">
           {!repertoireExpanded ? (

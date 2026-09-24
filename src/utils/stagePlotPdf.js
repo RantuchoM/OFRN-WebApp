@@ -21,7 +21,11 @@ import {
   stagePlotInstrumentFootprintLayout,
   stagePlotInstrumentCatalogScales,
 } from "./stagePlotConstants";
-import { stagePlotTarimaDimensionsCm } from "./stagePlotOrganico";
+import {
+  computeStagePlotFurnitureSummary,
+  stagePlotFurniturePdfTableBody,
+  stagePlotTarimaDimensionsCm,
+} from "./stagePlotOrganico";
 import {
   computeFormationSlots,
   formationGuideLinePoints,
@@ -39,7 +43,6 @@ import {
   loadStagePlotIconImage,
 } from "./stagePlotIconAssets";
 import {
-  deriveStagePlotChannels,
   getStagePlotTextLayout,
   normalizeStagePlotFontStyle,
   normalizeStagePlotPayload,
@@ -100,11 +103,67 @@ function stagePlotExportTitle(gira, plotNombre) {
 }
 
 /**
- * PDF: hoja 1 = solo escenario (+ dims). Channel list en hoja 2 si hay canales.
+ * Parte filas en N columnas (relleno vertical: arriba→abajo, luego siguiente col).
+ * @template T
+ * @param {T[]} rows
+ * @param {number} columnCount
+ * @returns {T[][]}
  */
-export async function exportStagePlotPdf(gira, payloadRaw, plotNombre) {
+function chunkRowsIntoColumns(rows, columnCount) {
+  const list = Array.isArray(rows) ? rows : [];
+  if (list.length === 0) return [];
+  const n = Math.max(1, Math.min(Math.floor(columnCount) || 1, list.length));
+  const perCol = Math.ceil(list.length / n);
+  /** @type {T[][]} */
+  const chunks = [];
+  for (let i = 0; i < n; i += 1) {
+    const slice = list.slice(i * perCol, (i + 1) * perCol);
+    if (slice.length) chunks.push(slice);
+  }
+  return chunks;
+}
+
+/**
+ * Cuántas columnas para el desglose de atriles según filas y ancho útil.
+ * Portrait A4 (~210 mm): 2 cols cómodas; 3 solo con muchas filas.
+ * @param {number} rowCount
+ * @param {number} pageWidthMm
+ */
+function atrilBreakdownColumnCount(rowCount, pageWidthMm) {
+  const n = Number(rowCount) || 0;
+  if (n <= 3) return 1;
+  const w = Number(pageWidthMm) || 0;
+  if (n >= 10 && w >= 200) return 3;
+  if (n >= 4) return 2;
+  return 1;
+}
+
+/**
+ * PDF: hoja 1 landscape = solo escenario (+ dims). Hoja 2 **portrait** =
+ * mobiliario necesario (sillas / banquetas / atriles / podio / tarimas) +
+ * desglose de atriles en 1–3 columnas (`stagePlotFurniturePdfTableBody`).
+ * Sin channel list ni columnas Orgánico/Plano/Δ.
+ *
+ * @param {unknown} gira
+ * @param {unknown} payloadRaw
+ * @param {string} [plotNombre]
+ * @param {{ roster?: Array, groups?: Array }} [options]
+ */
+export async function exportStagePlotPdf(
+  gira,
+  payloadRaw,
+  plotNombre,
+  options = {},
+) {
   const payload = normalizeStagePlotPayload(payloadRaw);
-  const channels = deriveStagePlotChannels(payload);
+  const roster = Array.isArray(options.roster) ? options.roster : [];
+  const groups =
+    options.groups != null ? options.groups : payload.groups || [];
+  const furniture = computeStagePlotFurnitureSummary(
+    payload.items,
+    roster,
+    groups,
+  );
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
@@ -126,7 +185,7 @@ export async function exportStagePlotPdf(gira, payloadRaw, plotNombre) {
     align: "right",
   });
 
-  // Página 1: escenario a casi toda la hoja (sin tabla de canales).
+  // Página 1: escenario a casi toda la hoja (sin listado de mobiliario).
   const plotTop = 22;
   const footerReserve = 14;
   const plotH = pageH - plotTop - footerReserve;
@@ -187,24 +246,102 @@ export async function exportStagePlotPdf(gira, payloadRaw, plotNombre) {
   );
   doc.setTextColor(0);
 
-  if (channels.length > 0) {
-    doc.addPage();
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(12);
-    doc.text("Channel list", margin, 14);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(8);
-    doc.text(title, margin, 20);
-    autoTable(doc, {
-      startY: 24,
-      head: [["Ch", "Elemento", "Notas"]],
-      body: channels.map((c) => [String(c.ch), c.label, c.notes || ""]),
-      styles: { fontSize: 8, cellPadding: 1.5 },
-      headStyles: { fillColor: [51, 65, 85] },
-      margin: { left: margin, right: margin },
-      tableWidth: pageW - margin * 2,
-    });
+  // Hoja 2 portrait: mobiliario necesario + desglose atriles (1–3 cols) — sin Plano/Δ.
+  // jsPDF: addPage(format, orientation) — la forma objeto {orientation} NO rota la página.
+  doc.addPage("a4", "portrait");
+  const pageW2 = doc.internal.pageSize.getWidth();
+  const pageH2 = doc.internal.pageSize.getHeight();
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(12);
+  doc.text("Mobiliario / atriles", margin, 14);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.text(title, margin, 20);
+  if (nombre) {
+    doc.text(nombre, margin, 24);
   }
+  const { furnitureBody, atrilBreakdownBody } =
+    stagePlotFurniturePdfTableBody(furniture);
+  autoTable(doc, {
+    startY: nombre ? 28 : 24,
+    head: [["Ítem", "Necesario"]],
+    body: furnitureBody,
+    styles: { fontSize: 9, cellPadding: 2 },
+    headStyles: { fillColor: [51, 65, 85] },
+    columnStyles: {
+      0: { cellWidth: "auto" },
+      1: { halign: "right", cellWidth: 28 },
+    },
+    margin: { left: margin, right: margin },
+    tableWidth: pageW2 - margin * 2,
+    didParseCell: (data) => {
+      // «Tarimas» total row = section header; size rows underneath sum to it.
+      if (
+        data.section === "body" &&
+        data.column.index === 0 &&
+        String(data.cell.raw || "").trim() === "Tarimas"
+      ) {
+        data.cell.styles.fontStyle = "bold";
+        if (data.row.cells[1]) data.row.cells[1].styles.fontStyle = "bold";
+      }
+    },
+  });
+  let nextY = (doc.lastAutoTable?.finalY || 40) + 8;
+  if (atrilBreakdownBody.length > 0) {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.setTextColor(51, 65, 85);
+    doc.text("Desglose de atriles", margin, nextY);
+    doc.setTextColor(0);
+    const colCount = atrilBreakdownColumnCount(
+      atrilBreakdownBody.length,
+      pageW2,
+    );
+    const chunks = chunkRowsIntoColumns(atrilBreakdownBody, colCount);
+    const gap = 3.5;
+    const usableW = pageW2 - margin * 2;
+    const colW =
+      (usableW - gap * Math.max(0, chunks.length - 1)) /
+      Math.max(1, chunks.length);
+    const startY = nextY + 3;
+    const tight = chunks.length >= 3;
+    const numW = tight ? 12 : 16;
+    let maxFinalY = startY;
+    for (let i = 0; i < chunks.length; i += 1) {
+      const left = margin + i * (colW + gap);
+      autoTable(doc, {
+        startY,
+        head: [["Grupo", "Mús.", "Atr.", "Regla"]],
+        body: chunks[i],
+        styles: {
+          fontSize: tight ? 7 : 8,
+          cellPadding: tight ? 1.2 : 1.6,
+          overflow: "linebreak",
+        },
+        headStyles: { fillColor: [71, 85, 105], fontSize: tight ? 7 : 8 },
+        columnStyles: {
+          0: { cellWidth: "auto" },
+          1: { halign: "right", cellWidth: numW },
+          2: { halign: "right", cellWidth: numW },
+          3: { cellWidth: "auto" },
+        },
+        margin: { left, right: Math.max(margin, pageW2 - left - colW) },
+        tableWidth: colW,
+      });
+      maxFinalY = Math.max(maxFinalY, doc.lastAutoTable?.finalY || startY);
+    }
+    nextY = maxFinalY + 8;
+  }
+  const footY = Math.min(nextY, pageH2 - 14);
+  doc.setFontSize(7);
+  doc.setTextColor(100);
+  doc.text(
+    "Cantidades = lo necesario según roster convocado (no compara con el plano). Banquetas: contrabajo + percusionista. Resto: sillas. Director: 1 atril + 1 podio (sin silla). Atriles: ceil(n/2) cuerdas; 1× resto; 1× percusionista; +director. Tarimas: según plano (forma + dims).",
+    margin,
+    footY,
+    { maxWidth: pageW2 - margin * 2 },
+  );
+  doc.setTextColor(0);
 
   const safeName = stagePlotExportSafeName(gira);
   doc.save(`plano-escenario_${safeName}.pdf`);
@@ -331,7 +468,7 @@ export async function renderStagePlotToCanvas(payloadRaw, options = {}) {
 }
 
 /**
- * JPG: raster del escenario únicamente (sin channel list) + dims Ancho/Profundo.
+ * JPG: raster del escenario únicamente (sin hoja de mobiliario) + dims Ancho/Profundo.
  */
 export async function exportStagePlotJpg(gira, payloadRaw, plotNombre) {
   const canvas = await renderStagePlotToCanvas(payloadRaw, {

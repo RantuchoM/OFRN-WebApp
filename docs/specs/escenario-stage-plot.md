@@ -125,7 +125,7 @@ Hint del canvas cambia según la herramienta activa.
 
 | Archivo | Rol |
 |---------|-----|
-| `src/utils/stagePlotPdf.js` | Export PDF (hoja 1 escenario + dims; canales hoja 2) y JPG (solo escenario + dims); `renderStagePlotToCanvas` compartido con preview técnico |
+| `src/utils/stagePlotPdf.js` | Export PDF (hoja 1 landscape escenario + dims; hoja 2 portrait mobiliario + atriles multi-col) y JPG (solo escenario + dims); `renderStagePlotToCanvas` compartido con preview técnico |
 | `src/utils/stagePlotConstants.js` | Escala cm↔px, grid, offset director, clamps |
 | `src/utils/stagePlotPayload.js` | Normalización `widthCm`/`heightCm`, `stagePlotDownstageCenterResizeOffset`, `applyStagePlotStagePatch`, `translateStagePlotContent`, `pinStagePlotConductors` |
 | `src/utils/stagePlotGroups.js` | Geometría de alineación / distribución en formaciones |
@@ -190,6 +190,7 @@ Migraciones: `20260826162040_stage_plots` → `20260827095903_stage_plots_multi_
 - Editor: switcher multi-lienzo = label **Elegir lienzo** + `SearchableSelect` (lista de plots) + **lápiz** renombrar (`IconPencil`, input inline Enter/blur / Escape) **junto al dropdown** + botón **+ Lienzo**; eliminar (mín. 1), panel **Asociar**, dropdown desktop **Importar / Exportar** (PDF, JPG, Descargar JSON, Importar archivo/otra gira → `StagePlotImportModal`), botón **Plantillas** → `StagePlotTemplatesModal`. (No pills horizontales.)
 - Orgánico: `isConfirmedConvocadoForSeatingReports` + filtro por `bloque_ids`.
 - Agenda: botón «Ver escenario» en concierto/ensayo (técnico / editor / management) → `StagePlotViewerModal` (preview en vivo + opacidades locales + PDF/JPG).
+- **GiraCard** (menú ⋮, ítem top-level cerca del final, antes de Edición/Eliminar): «Ver escenario» (técnico / editor / management / admin; oculto para solo-difusión) → mismo `StagePlotViewerModal` con `gira` (sin evento). Multi-lienzo: pills en el modal; sin evento elige el primer plot (`sort_order`). Sin plots → mensaje vacío en el modal (igual que Agenda). «Escenario» bajo Repertorio sigue yendo al editor (Seating → Escenario).
 - **FIMBA Venues** (`/fimba/edicion/:id/venues`): listado por locación de conciertos (`id_tipo_evento = 1`) de la gira enlazada a la edición. Metadata operativa en `fimba_venue_info` (referente, rider, sillas, agua, observaciones); nombre/dirección/aforo numérico desde `locaciones`. Espectáculos: artistas taggeados, grupos OFRN, bloque repertorio, **observaciones aforo** (`eventos.observaciones_aforo`). Acciones: **Ver escenario** (`StagePlotViewerModal`); enlace al editor OFRN (Seating → Escenario) solo staff `isManagement`; edición de evento vía `FimbaEventoFormModal` (staff no RO). Link **Agenda** filtrada por locación. **Sin** estado de venue OFRN. Consulta / token `/c`: lectura + Ver escenario.
 - **FIMBA Backline** (`/fimba/edicion/:id/backline`): planilla una fila por concierto; `backline_descripcion` (HTML) / `backline_monto` / `planta_escenario_url` + `planta_escenario_nombre` (chip + preview modal; menú ⋮ con acciones Drive y RiderMaker: Elegir/Cambiar/Crear/Desvincular / Ver Escenario).
 
@@ -269,14 +270,14 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
 - [x] `resolveFormationFacingPoint` usa posición del director (o canónica si no hay ítem)
 - [x] Multi-lienzo por gira + `bloque_ids` + `stage_plot_eventos` + resolución técnico
 - [x] Export/import JSON + import desde otra gira
-- [x] «Ver escenario» técnico (agenda + FIMBA Espacios / Backline / Venues) con preview en vivo + 4 opacidades Lienzo + PDF/JPG
+- [x] «Ver escenario» técnico (agenda + GiraCard ⋮ + FIMBA Espacios / Backline / Venues) con preview en vivo + 4 opacidades Lienzo + PDF/JPG
 - [x] Preview técnico: `StagePlotLivePreview` vía `renderStagePlotToCanvas` (mismas guías/opacidades que export; desktop + móvil)
 - [x] Opacidad Lienzo (cuadrícula / radial / formaciones / recuadros) con deslizantes 0–100% y persistencia `*Opacity` + migración desde boolean legacy
 - [x] Orgánico filtrado por bloques asociados (roster confirmado)
 - [x] Montaje en Seating (sub-tabs Disposición | Escenario)
 - [x] Modo nocturno: Stage `.no-dark-invert` + piso `STAGE_PLOT_BG_FILL_NIGHT` + grilla/radial `*_STROKE_NIGHT` (contenido sin invertir)
 - [x] Migración `stage_plots` v1 + deploy linked
-- [x] Menú Gira: Seating + Escenario bajo Repertorio (label 2026-09-11: «Seating», no «Disposición»)
+- [x] Menú Gira: Seating + Escenario (editor) bajo Repertorio; «Ver escenario» (viewer) top-level cerca del final (antes de Edición/Eliminar; label 2026-09-11: «Seating», no «Disposición»)
 - [x] Exportar / Reportes unificado (dropdown en Disposición)
 - [x] Iconos cuerdas FreeSVG CC0 (colores de origen): `violin.svg` ([175059](https://freesvg.org/publicdomainq-0008893doscnq)), `viola.svg` ([179008](https://freesvg.org/publicdomainq-violin2)), `cello.svg` ([3882](https://freesvg.org/cello-vector-image) papapishu), `bass.svg` ([183100](https://freesvg.org/double-bass-3253216)).
 - [x] Maderas Gerald_G (Openclipart PD): `flute.svg` (colores de origen) y `oboe.svg` (silueta mono `currentColor`) — archivos distintos; `oboe` ya no reutiliza `flute.svg`.
@@ -291,7 +292,7 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
 - [x] Huella instrumento base 50×50 cm + icono contain; tamaño canónico desde DB; atril **opcional** (menú / paleta), no auto
 - [x] Instrumentos **no redimensionables** en el lienzo (Transformer solo rotación; barra = dims catálogo read-only; sin candado/HUD/± escala)
 - [x] Orientación default **rotation=0** (sin auto hacia director)
-- [x] Mobiliario orgánico: sillas / banquetas / atriles (`music_stand`) / tarimas por forma (rect|oval) + dims
+- [x] Mobiliario orgánico: sillas / banquetas / atriles (`music_stand`) / podio (director) / tarimas por forma (rect|oval) + dims
 - [x] Catálogo `banqueta` + `tarima_rect`/`tarima_oval` (gris oscuro) + atril paleta
 - [x] Menú contextual: Agregar atril / Agregar atril compartido / Agregar par y atril (vn/va/vc/bass)
 - [x] SVG + tamaño insert en `instrumentos` (Escenario panel izquierdo **Editor** + Datos → Instrumentos)
@@ -300,8 +301,8 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
 - [x] Recuadros (`stage.chairSquaresOpacity` — legacy boolean `hideChairSquares` sincronizado; huella de instrumento no depende de él)
 - [x] Fila de 4 deslizantes de opacidad Lienzo (Cuadrícula / Radial / Formaciones / Recuadros; 0–100%)
 - [x] Texto: solo tipografía (sin TT/notes) + formato enriquecido limitado (negrita, cursiva, tamaño, color, alineación; PDF)
-- [x] Export PDF: hoja 1 solo escenario + dims Ancho/Profundo; channel list en hoja 2 si hay canales
-- [x] Export JPG: escenario sin channels + dims Ancho/Profundo (`widthCm`/`heightCm`)
+- [x] Export PDF: hoja 1 **landscape** solo escenario + dims Ancho/Profundo; hoja 2 **portrait** mobiliario **necesario** (sillas / banquetas / atriles / podio) + desglose atriles en **1–3 columnas** + tarimas cabecera/hijos — **sin** Orgánico/Plano/Δ ni channel list
+- [x] Export JPG: escenario sin hoja de mobiliario + dims Ancho/Profundo (`widthCm`/`heightCm`)
 - [x] Editor: modal de opciones PDF/JPG (`StagePlotExportOptionsModal`) con mismas 4 opacidades que técnico (override solo descarga)
 - [x] Toolbar desktop: dropdown **Importar / Exportar** (PDF, JPG, JSON, Importar archivo/otra gira); sin botones PDF/JPG sueltos
 - [x] **Plantillas globales** (`stage_plot_templates`): crear / aplicar (reemplaza disposición) / renombrar / guardar encima / eliminar; UI muestra cantidad de músicos
@@ -412,20 +413,25 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
 - **Transformer / asas:** `Group.getClientRect` override devuelve el AABB local centrado del fill (`{-w/2,-h/2,w,h}`), no la unión de hijos. Motivo: Konva Transformer pide `skipTransform: true` y aplica luego el transform del Group; delegar al hit `Rect` con ese config ignoraba `offsetX/Y` (Rect no es `_centroid`) y dejaba el box desfasado; sin override, los Text de dims (`listening={false}`) también expandían el AABB. Asas en el borde real (AABB del oval / rect); números **fuera** del recuadro de selección. Válido con `scaleX≠scaleY` y rotación (el transform del Group aplica sobre ese local rect).
 - **Legibilidad editor (zoom):** `fontSizeLocal = max(TARGET, MIN / viewport.scale) / itemScale` con `TARGET=14`, `MIN=12` px pantalla → `screenPx ≈ max(14 × zoom, 12)`. Compensa `scaleX/Y` del ítem y zoom del viewport; al zoom out no bajan de ~12 px. PDF/JPG siguen con tamaño absoluto (sin compensación de viewport).
 - Solo visual: sin snap a plazas; instrumentos/formaciones encima libremente.
-- Orgánico / mobiliario: tras sillas/banquetas/atriles → secciones **Tarimas rect.** / **Tarimas oval** (conteo por forma; `riser` legacy cuenta como rect) + filas agrupadas por tamaño bajo cada forma (`· W × D cm`).
+- Orgánico / mobiliario: tras sillas/banquetas/atriles/podio → cabecera **Tarimas** (total) + hijos forma×dims (`· Rect./Oval W × D cm`) que suman al total (sin fila intermedia «Tarimas rect./oval»).
 
 
-## Mobiliario: sillas / banquetas / atriles / tarimas (panel Orgánico)
+## Mobiliario: sillas / banquetas / atriles / podio / tarimas (panel Orgánico)
 
-- **Sillas / Banquetas:** sin cambio de reglas needed/drawn.
+- **Sillas:** 1 × instrumentista convocado que no es contrabajo ni percusión (**ni director**).
+- **Banquetas needed:** 1 × contrabajo + 1 × percusionista (`classifyStagePlotMusicianSeat`).
+- **Banquetas drawn:** ítems `bass` (auto) + ítems `banqueta` (manual).
 - **Atriles needed** (roster convocado, sin ausentes):
   - Cuerdas vn/va/vc/bass → `ceil(n/2)`.
   - Resto (vientos, teclado, etc.) → 1 × músico.
   - **Percusión** → **1 × percusionista** (`classifyStagePlotMusicianSeat === "perc"` / familia percusión), **no** 1 × ícono ni 1 × tipo (timpani/marimba/…). Un músico con varios instrumentos dibujados sigue pidiendo un solo atril.
+  - **Director** → **1 × director** (`countStagePlotDirectorsNeeded`: max roster `rol_gira=director` no ausente vs ítems `conductor` en el plano).
 - **Atriles drawn:** solo `music_stand` explícitos (`countStagePlotDrawnAtriles`).
-- **Detalle:** bajo el conteo de atriles, **Ver detalle de atriles** abre modal (`StagePlotAtrilDetailModal`, portal `document.body`, `z-[100]` / overlay immersive) con desglose por grupo (músicos → atriles + regla), lista de percusionistas y comparación vs íconos de perc. en el plano (informativo; no suman atriles).
-- **Tarimas:** solo drawn (sin needed); resumen **por forma** (rect vs oval) + dims (`summarizeStagePlotTarimas` → `stagePlotTarimaShape`).
-- **Inventario stock:** columna **Inv.** (stock global) junto a Plano / Org. / Δ. Ámbar si stock &lt; orgánico.
+- **Podio:** needed = mismos directores; drawn = ítems `conductor` (proxy; no hay tipo `podio` en catálogo). Director **no** cuenta como silla.
+- **Detalle:** bajo el conteo de atriles, **Ver detalle de atriles** abre modal (`StagePlotAtrilDetailModal`, portal `document.body`, `z-[100]` / overlay immersive) con desglose por grupo (músicos → atriles + regla), lista de percusionistas, fila Director y comparación vs íconos de perc. en el plano (informativo; no suman atriles).
+- **Tarimas:** solo drawn (sin needed); cabecera **Tarimas** (total N) + hijos `· Rect./Oval W × D cm` que **suman** a N (`summarizeStagePlotTarimas` → `stagePlotTarimaShape`; `riser` legacy = rect). Sin filas intermedias «Tarimas rect.» / «Tarimas oval».
+- **Fuente única:** `computeStagePlotFurnitureSummary` (UI Orgánico + hoja 2 del PDF). Helper `stagePlotFurniturePdfTableBody` → `{ furnitureBody, atrilBreakdownBody }` (solo necesarios + desglose atriles).
+- **Inventario stock:** columna **Inv.** (stock global) junto a Plano / Org. / Δ. Ámbar si stock &lt; orgánico (silla/banqueta/atril; podio/tarimas sin stock simple).
 
 
 ## Inventario global de escenario (2026-08)
@@ -496,7 +502,7 @@ Seed: silla / banqueta / atril qty 0; tarima rect 200×100 qty 0. Unique parcial
 - [x] Instrumentos no resizables en lienzo; escalas viejas del ítem ignoradas / limpiadas al normalizar
 - [x] Editor Instrumentos en Escenario (panel izquierdo) con preview SVG + confirm de reemplazo
 - [x] Pestaña izquierda renombrada **Editor**; todas las filas `instrumentos` + sección **Instrumentos sin ícono** (Paleta y Editor)
-- [x] Tarimas rect/oval gris oscuro, dims fuera (ancho arriba / profundo izq. −90°, negro), z detrás, resumen orgánico **por forma** (Tarimas rect. / Tarimas oval + dims)
+- [x] Tarimas rect/oval gris oscuro, dims fuera (ancho arriba / profundo izq. −90°, negro), z detrás, resumen orgánico/PDF: cabecera **Tarimas** + hijos forma×dims (sin «Tarimas rect./oval» intermedio)
 - [x] Tarima Transformer: asas en borde exacto — `getClientRect` local centrado `{-w/2,-h/2,w,h}` (no hit+skipTransform ni unión con labels); labels min ~12 px pantalla vía `max(14, 12/zoom)/itemScale`
 - [x] Paleta Escenario → tarimas abren **modal tamaño inicial** (Ancho×Profundo; default 200×100); sin bloque duplicado en Paleta izq.
 - [x] Migración size deploy linked
@@ -507,6 +513,8 @@ Seed: silla / banqueta / atril qty 0; tarima rect 200×100 qty 0. Unique parcial
 - [x] Percusión `13a`–`13h` (Timbales…Campanas) + SVG OFRN + catálogo/orgánico (`20260829020843`, linked)
 - [x] Renombrar lienzo: botón lápiz (`IconPencil`) **inmediatamente a la derecha del dropdown** Elegir lienzo → input inline; Enter/blur guarda, Escape cancela (ya no input siempre visible; no entre + Lienzo y Asociar)
 - [x] Atriles needed: percusión = 1 × percusionista convocado (no por ícono); modal **Ver detalle de atriles** (desglose + lista perc.)
+- [x] Director: 1 atril + 1 podio (sin silla); PDF hoja 2 **portrait** = necesarios + desglose atriles multi-col (como modal) + tarimas cabecera/hijos; sin Orgánico/Plano/Δ
+- [x] PDF hoja 2 portrait + atriles en 1–3 columnas; mobiliario necesario (sin channel list); director atril+podio; tarimas drawn como cabecera + breakdown; misma compute que UI Orgánico
 
 
 ## Presets de locación (ancho × profundo)
@@ -658,13 +666,13 @@ Parámetros en **px de escenario** (`cm × STAGE_PLOT_CM_TO_PX`). Defaults (íte
 - **Admin / editor**: Escenario panel izquierdo **Editor** (familia, **tamaño de huella** Ancho×Profundo cm → DB, SVG, clave demoted; **Crear instrumento**), Datos → Instrumentos (**Clave de ícono (plano)** + Ancho/Profundo huella cm, placeholder **50**; SVG) e Inventario → elementos (`elementos_escenario.svg_icon`). Todo pasa por `sanitizeStagePlotSvgMarkup` (`stagePlotSvgSanitize.js`).
 - **Pipeline de sanitizado (app)**:
   1. **Entrada usuario**: Escenario → Editor (upload SVG), Crear instrumento (upload), Datos → Instrumentos (`SvgIconField`: upload + paste), Inventario → Nuevo elemento (upload + paste).
-  2. **Antes de guardar**: `prepareInstrumentSvgIconForSave` / `sanitizeStagePlotSvgMarkup` / `upsertElementoEscenario` compactan (DOCTYPE AI, foreignObject, switch, metadata Inkscape/Adobe) y rechazan XSS (`script`, eventos, `use`, URLs peligrosas). Límite `STAGE_PLOT_SVG_MAX_CHARS` (500.000). Si se limpió metadata, toast/hint «SVG limpiado…».
+  2. **Antes de guardar**: `prepareInstrumentSvgIconForSave` / `sanitizeStagePlotSvgMarkup` / `upsertElementoEscenario` compactan (DOCTYPE AI, foreignObject, switch, metadata Inkscape/Adobe, elementos `a:`/`i:`/`graph:`) y rechazan XSS (`script`, eventos, `use`, URLs peligrosas) + markup que no parsea como SVG (DOMParser en browser). Límite `STAGE_PLOT_SVG_MAX_CHARS` (500.000). Si se limpió metadata, toast/hint «SVG limpiado…».
   3. **Al cargar al lienzo**: `buildStagePlotSvgByType` y `applyElementosEscenarioToStagePlot` **vuelven a sanitizar** filas de DB (defensa en profundidad).
   4. **Seed scripts** (`scripts/seed-instrumentos-stage-plot-svg.mjs`, `force-seed-string-svgs.mjs`): assets trustados de `public/stage-plot/icons/`; no son upload de usuario. Al usarse en runtime igual pasan por el paso 3.
 - **Render Escenario / PDF**: `stagePlotInstrumentCatalogScales(type)` desde `width_cm`/`height_cm` (**50×50 → scale 1**). Ítems ya insertados adoptan el tamaño actual del catálogo sin reinsertar; con el editor abierto el cambio es inmediato en **todas** las instancias del tipo (evento de catálogo + sync Konva en lote + force `scaleX/Y`).
 - **Colores**: Uploads conservan fills; sanitize sin rewrite a `currentColor`.
 - [x] **Repo / git**: íconos canónicos solo en `public/stage-plot/icons/`; regenerar seed con `node scripts/seed-instrumentos-stage-plot-svg.mjs` (no commitear `temp_freesvg/` ni `temp_*` — ignorados en `.gitignore`).
-- **Seguridad / tamaño**: sanitizado liviano (sin script/eventos/`use`; Blob→Image). Límite **app-imposed** `STAGE_PLOT_SVG_MAX_CHARS = 500_000` (antes 100k; no es tope de Postgres `text`). Clipart detallado (p. ej. bandoneón ~68k compactado; SVGs más ricos suelen superar 100k) es normal. Antes de guardar se compacta (metadata Inkscape/Adobe, whitespace, precisión decimal). **Adobe Illustrator SVG 1.0** (OpenClipArt, etc.): se acepta tras normalizar — strip de `<!DOCTYPE … [ENTITY…]>` completo, quita `<foreignObject>` (PGF), unwrap `<switch>`, expande `&ns_svg;` / `&ns_xlink;` y limpia attrs `i:`/`graph:`. Sin eso el toast era «etiquetas no permitidas» (`foreignObject`) y el XML quedaba inválido. Solo accept SVG (PNG/JPG → error claro). Toasts muestran el máx. formateado (`500.000`). Errores de sanitize explican qué falló; si el markup se compactó, UI indica que se limpió.
+- **Seguridad / tamaño**: sanitizado liviano (sin script/eventos/`use`; Blob→Image). Límite **app-imposed** `STAGE_PLOT_SVG_MAX_CHARS = 500_000` (antes 100k; no es tope de Postgres `text`). Clipart detallado (p. ej. bandoneón ~68k compactado; SVGs más ricos suelen superar 100k) es normal. Antes de guardar se compacta (metadata Inkscape/Adobe, whitespace, precisión decimal). **Adobe Illustrator SVG 1.0** (OpenClipArt / ArtFavor, p. ej. timpanni, Bass_drum): se acepta tras normalizar — strip de `<!DOCTYPE … [ENTITY…]>` completo, quita `<foreignObject>` (PGF), unwrap `<switch>`, expande `&ns_svg;` / `&ns_xlink;`, limpia attrs `i:`/`graph:`/`a:` y **elimina elementos con prefijo Adobe** (`<a:midPointStop/>`, `i:*`, …). Si solo se quitaba `xmlns:a` y quedaban esos tags, sanitize devolvía `ok` pero el preview NUEVO en el confirm modal mostraba imagen rota (`<img>` / Blob→Image no parsea prefijos XML no declarados). Tras compactar, en browser se valida con `DOMParser` (`image/svg+xml`) para rechazar markup que no cargaría en preview. Modal Actual/Nuevo: `SvgCompareThumb` usa `onError` → «Sin preview» en vez de ícono roto del browser. Solo accept SVG (PNG/JPG → error claro). Toasts muestran el máx. formateado (`500.000`). Errores de sanitize explican qué falló; si el markup se compactó, UI indica que se limpió.
 
 ## Export PDF / JPG (plano de escenario)
 
@@ -680,8 +688,9 @@ Parámetros en **px de escenario** (`cm × STAGE_PLOT_CM_TO_PX`). Defaults (íte
   - **Recuadros** de silla si `chairSquaresOpacity > 0`.
   - Orden de dibujo: fondo → guías → ítems (como en Konva).
 - **PDF**:
-  - **Hoja 1**: solo el escenario (guías según opacidades, ítems, sillas según `chairSquaresOpacity`, tipografía texto, labels FONDO/PÚBLICO, dimensiones). Sin channel list en página 1.
-  - **Hoja 2+**: `Channel list` (autoTable Ch / Elemento / Notas) **solo si** `deriveStagePlotChannels` tiene filas; si no hay canales, el PDF es de una sola hoja.
-  - Título / nombre del plano / fecha en cabecera; atribución de iconos al pie.
-- **JPG**: raster del escenario únicamente (mismas guías + ítems/sillas/texto). **No** incluye channel list. Incluye título, dims Ancho/Profundo en bordes + resumen. Calidad JPEG ~0.92; nombre `plano-escenario_{nomenclador}.jpg`.
-- **Fuera de alcance del export**: channel list nunca en JPG ni en hoja 1 del PDF; asas de resize / snap preview / ejes de centrado temporales del editor.
+  - **Hoja 1 (landscape A4)**: solo el escenario (guías según opacidades, ítems, sillas según `chairSquaresOpacity`, tipografía texto, labels FONDO/PÚBLICO, dimensiones). Sin listados en página 1.
+  - **Hoja 2 (portrait A4)**: `doc.addPage("a4", "portrait")` — **no** usar la forma objeto `{ orientation }` (jsPDF 3.x la ignora y deja landscape). Cabecera **Mobiliario / atriles** + cantidades **necesarias** (roster/orgánico): tabla `Ítem | Necesario` (sillas, banquetas, atriles, podio) + tarimas del plano como cabecera **Tarimas** (total) con hijos forma×dims indentados. **Desglose de atriles** en **1–3 columnas** lado a lado (`Grupo | Mús. | Atr. | Regla`): 1 col si ≤3 filas; 2 si ≥4; 3 si ≥10 (tipografía más apretada). Chunk vertical (`chunkRowsIntoColumns`). Datos desde `atrilDetail.breakdown` (mismo criterio que el modal). **Sin** columnas Orgánico/Plano/Δ. `stagePlotFurniturePdfTableBody` → `{ furnitureBody, atrilBreakdownBody }` (API estable; layout multi-col solo en `stagePlotPdf.js`). Callers pasan `roster` y `groups` en `options`.
+  - Título / nombre del plano / fecha en cabecera; atribución de iconos al pie (hoja 1).
+- **JPG**: raster del escenario únicamente (mismas guías + ítems/sillas/texto). **No** incluye hoja de mobiliario ni channel list. Incluye título, dims Ancho/Profundo en bordes + resumen. Calidad JPEG ~0.92; nombre `plano-escenario_{nomenclador}.jpg`.
+- **Fuera de alcance del export**: channel list (retirado del PDF); asas de resize / snap preview / ejes de centrado temporales del editor.
+- [x] PDF hoja 2 **portrait** + desglose atriles multi-columna (1–3); mobiliario necesario (sin Orgánico/Plano/Δ ni channel list); tarimas cabecera + hijos forma×dims; misma compute que UI Orgánico

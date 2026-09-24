@@ -8,6 +8,7 @@ import {
   IconPhoto,
   IconX,
 } from "../../components/ui/Icons";
+import { useGiraRoster } from "../../hooks/useGiraRoster";
 import {
   resolveStagePlotForEvent,
   listStagePlotsByPrograma,
@@ -20,6 +21,7 @@ import {
   exportStagePlotJpg,
   exportStagePlotPdf,
 } from "../../utils/stagePlotPdf";
+import { isConfirmedConvocadoForSeatingReports } from "../../utils/seatingRosterGate";
 import StagePlotOpacityControls, {
   opacitiesToStagePatch,
   readStagePlotOpacities,
@@ -48,6 +50,12 @@ export default function StagePlotViewerModal({
 
   const programId =
     evento?.id_gira ?? gira?.id ?? evento?.programas?.id ?? null;
+  const giraRefForRoster = gira || evento?.programas || { id: programId };
+  const { roster } = useGiraRoster(supabase, open ? giraRefForRoster : null);
+  const pdfRoster = useMemo(
+    () => (roster || []).filter(isConfirmedConvocadoForSeatingReports),
+    [roster],
+  );
 
   useEffect(() => {
     if (!open || !supabase || !programId) return undefined;
@@ -116,7 +124,10 @@ export default function StagePlotViewerModal({
     try {
       const giraRef = gira || evento?.programas || { id: programId };
       if (kind === "pdf") {
-        await exportStagePlotPdf(giraRef, payload, activeNombre);
+        await exportStagePlotPdf(giraRef, payload, activeNombre, {
+          roster: pdfRoster,
+          groups: payload.groups,
+        });
       } else {
         await exportStagePlotJpg(giraRef, payload, activeNombre);
       }

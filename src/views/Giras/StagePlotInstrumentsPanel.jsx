@@ -133,20 +133,27 @@ function InstrumentSvgThumb({ type, svgIcon, className = "h-10 w-10" }) {
 }
 
 function SvgCompareThumb({ label, src, emptyLabel }) {
+  const [broken, setBroken] = useState(false);
+  useEffect(() => {
+    setBroken(false);
+  }, [src]);
+
+  const showImg = Boolean(src) && !broken;
   return (
     <div className="flex flex-1 flex-col items-center gap-1.5">
       <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
         {label}
       </span>
-      {src ? (
+      {showImg ? (
         <img
           src={src}
           alt={label}
+          onError={() => setBroken(true)}
           className="h-16 w-16 object-contain rounded-lg border border-slate-200 bg-slate-50 p-1"
         />
       ) : (
         <div className="flex h-16 w-16 items-center justify-center rounded-lg border border-dashed border-slate-200 bg-slate-50 px-1 text-center text-[10px] text-slate-400">
-          {emptyLabel}
+          {src && broken ? "Sin preview" : emptyLabel}
         </div>
       )}
     </div>

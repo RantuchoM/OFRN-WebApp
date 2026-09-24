@@ -1728,7 +1728,7 @@ function StagePlotAtrilDetailModal({ open, detail, onClose, overlayZ = 100 }) {
             </h3>
             <p className="mt-0.5 text-[10px] leading-snug text-slate-400">
               Orgánico (roster) vs plano. Percusión: 1 atril × percusionista
-              convocado, no por ícono dibujado.
+              convocado, no por ícono. Director: 1 atril (+ 1 podio; sin silla).
             </p>
           </div>
           <button
@@ -3048,7 +3048,7 @@ function PaletteIcon({ type, color }) {
 }
 
 /**
- * Escenario por programa (stage plot + channel list).
+ * Escenario por programa (stage plot + orgánico / mobiliario).
  */
 export default function ProgramStagePlot({
   supabase,
@@ -6972,7 +6972,10 @@ export default function ProgramStagePlot({
     const exportPayload = applyStagePlotStagePatch(payload, stagePatch);
     try {
       if (exportModal?.kind === "pdf") {
-        await exportStagePlotPdf(program, exportPayload, nombre || undefined);
+        await exportStagePlotPdf(program, exportPayload, nombre || undefined, {
+          roster: organicoRoster,
+          groups: exportPayload.groups,
+        });
       } else {
         await exportStagePlotJpg(program, exportPayload, nombre || undefined);
       }
@@ -7243,7 +7246,7 @@ export default function ProgramStagePlot({
                     handleExportJpg();
                   }}
                   className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50"
-                  title="Exportar plano (solo escenario, sin channel list)"
+                  title="Exportar plano (solo escenario; sin hoja de mobiliario)"
                 >
                   <IconPhoto size={14} className="text-slate-500" />
                   Exportar JPG
@@ -9120,7 +9123,7 @@ export default function ProgramStagePlot({
               </p>
               <div className="mt-3 border-t border-slate-100 pt-2">
                 <p className="mb-1 px-1 text-[10px] font-bold uppercase tracking-wide text-slate-400">
-                  Mobiliario / atriles
+                  Mobiliario / atriles / podio
                 </p>
                 <table className="w-full text-left text-[11px]">
                   <thead>
@@ -9140,12 +9143,16 @@ export default function ProgramStagePlot({
                   </thead>
                   <tbody>
                     {(furnitureSummary.rows || []).map((row) => {
+                      const isTarimasTotal = row.kind === "tarimas_total";
+                      const isTarimaSize = row.kind === "tarima_size";
                       const deltaLabel =
-                        row.delta === 0
-                          ? "="
-                          : row.delta > 0
-                            ? `+${row.delta}`
-                            : String(row.delta);
+                        isTarimasTotal || isTarimaSize
+                          ? ""
+                          : row.delta === 0
+                            ? "="
+                            : row.delta > 0
+                              ? `+${row.delta}`
+                              : String(row.delta);
                       const deltaClass =
                         row.status === "ok"
                           ? "text-emerald-600"
@@ -9167,32 +9174,52 @@ export default function ProgramStagePlot({
                       return (
                         <tr
                           key={row.key}
-                          className="border-t border-slate-100"
+                          className={`border-t border-slate-100 ${
+                            isTarimasTotal ? "bg-slate-50/80" : ""
+                          }`}
                           title={
                             row.key === "sillas"
-                              ? "1 silla × instrumentista (sin contrabajo ni percusión)"
+                              ? "1 silla × instrumentista (sin contrabajo, percusión ni director)"
                               : row.key === "banquetas"
                                 ? "Needed: contrabajos + percusionistas. Drawn: bass auto + banquetas manuales"
-                                : row.key === "atriles" || row.key.startsWith("atril")
-                                  ? "Needed: ceil(n/2) cuerdas; 1× resto; 1× percusionista (no por ícono). Drawn: music_stand"
-                                  : row.key === "tarimas" ||
-                                      row.key.startsWith("tarima")
-                                    ? row.shape === "oval"
-                                      ? "Tarimas ovales en el plano (visual; dims Ancho × Profundo)"
-                                      : row.shape === "rect"
-                                        ? "Tarimas rectangulares en el plano (visual; dims Ancho × Profundo)"
-                                        : "Tarimas en el plano (visual; dims Ancho × Profundo)"
-                                    : ""
+                                : row.key === "atriles" ||
+                                    row.key.startsWith("atril")
+                                  ? "Needed: ceil(n/2) cuerdas; 1× resto; 1× percusionista; +1× director. Drawn: music_stand"
+                                  : row.key === "podios"
+                                    ? "Needed: 1 × director. Drawn: ítems conductor (proxy de podio)"
+                                    : isTarimasTotal
+                                      ? "Total de tarimas en el plano; filas de abajo suman a este total (forma × Ancho × Profundo)"
+                                      : isTarimaSize
+                                        ? row.shape === "oval"
+                                          ? "Tarima oval en el plano (Ancho × Profundo)"
+                                          : "Tarima rectangular en el plano (Ancho × Profundo)"
+                                        : ""
                           }
                         >
-                          <td className="py-1 pr-1 font-medium text-slate-700">
+                          <td
+                            className={`py-1 pr-1 ${
+                              isTarimasTotal
+                                ? "font-semibold text-slate-800"
+                                : isTarimaSize
+                                  ? "pl-3 font-medium text-slate-600"
+                                  : "font-medium text-slate-700"
+                            }`}
+                          >
                             {row.label}
                           </td>
-                          <td className="py-1 pr-1 text-right font-mono text-slate-700">
+                          <td
+                            className={`py-1 pr-1 text-right font-mono ${
+                              isTarimasTotal
+                                ? "font-semibold text-slate-800"
+                                : "text-slate-700"
+                            }`}
+                          >
                             {row.drawn}
                           </td>
                           <td className="py-1 pr-1 text-right font-mono text-slate-500">
-                            {row.required}
+                            {isTarimasTotal || isTarimaSize
+                              ? "—"
+                              : row.required}
                           </td>
                           <td
                             className={`py-1 pr-1 text-right font-mono ${
@@ -9204,9 +9231,13 @@ export default function ProgramStagePlot({
                             {stock != null ? stock : "—"}
                           </td>
                           <td
-                            className={`py-1 text-right font-mono font-semibold ${deltaClass}`}
+                            className={`py-1 text-right font-mono font-semibold ${
+                              isTarimasTotal || isTarimaSize
+                                ? "text-slate-300"
+                                : deltaClass
+                            }`}
                           >
-                            {deltaLabel}
+                            {deltaLabel || "—"}
                           </td>
                         </tr>
                       );
@@ -9224,8 +9255,10 @@ export default function ProgramStagePlot({
                 <p className="mt-1.5 px-1 text-[9px] leading-snug text-slate-400">
                   Plano vs Orgánico (roster) + Inv. (stock global). Ámbar en
                   Inv. = stock &lt; orgánico. Dibujar no descuenta inventario;
-                  toast si tarimas/elementos exceden stock. Percusión: 1 atril
-                  × percusionista (íconos del plano no suman).
+                  toast si tarimas/elementos exceden stock. Banquetas:
+                  contrabajo + percusionista; resto sillas. Director: 1 atril +
+                  1 podio (sin silla). Percusión: 1 atril × percusionista
+                  (íconos del plano no suman).
                 </p>
               </div>
             </>

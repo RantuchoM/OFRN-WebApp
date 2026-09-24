@@ -393,13 +393,35 @@ export function summarizeStagePlotTarimas(items = []) {
 }
 
 /**
+ * Directores para mobiliario: max(roster `rol_gira=director` no ausente,
+ * ítems `conductor` en el plano). Sin silla; cada uno pide 1 atril + 1 podio.
+ * @param {Array} [roster]
+ * @param {Array} [items]
+ */
+export function countStagePlotDirectorsNeeded(roster = [], items = []) {
+  let fromRoster = 0;
+  for (const m of roster || []) {
+    if (!m || m.estado_gira === "ausente") continue;
+    const rol = String(m.rol_gira || m.rol || "")
+      .toLowerCase()
+      .trim();
+    if (rol === "director") fromRoster += 1;
+  }
+  const conductorsDrawn = (items || []).filter(
+    (it) => it?.type === "conductor",
+  ).length;
+  return Math.max(fromRoster, conductorsDrawn);
+}
+
+/**
  * Mobiliario + atriles: needed (roster) vs drawn (plano).
- * - Sillas: 1 × instrumentista que no es contrabajo ni percusión.
+ * - Sillas: 1 × instrumentista que no es contrabajo ni percusión (ni director).
  * - Banquetas needed: #contrabajo + #percusionistas.
  * - Banquetas drawn: ítems `bass` (auto) + ítems `banqueta` (manual perc).
  * - Atriles needed: ceil(n/2) cuerdas; 1:1 resto no-perc; **1 × percusionista**
- *   convocado (familia/seat perc — no por ícono de instrumento en el plano).
+ *   convocado (familia/seat perc — no por ícono); **+1 × director**.
  * - Atriles drawn: solo ítems `music_stand` explícitos.
+ * - Podio needed: 1 × director; drawn: ítems `conductor` (proxy; no hay tipo podio).
  * - Tarimas: conteo por forma (rect/oval) + dims (solo visual; sin «needed»).
  *
  * @param {Array} items
@@ -495,9 +517,14 @@ export function computeStagePlotFurnitureSummary(items = [], roster = [], groups
   let sillasDrawn = 0;
   let banquetasDrawnBass = 0;
   let banquetasDrawnManual = 0;
+  let podiosDrawn = 0;
 
   for (const it of items) {
     const type = it?.type;
+    if (type === "conductor") {
+      podiosDrawn += 1;
+      continue;
+    }
     if (type === "banqueta") {
       banquetasDrawnManual += 1;
       continue;
@@ -508,12 +535,14 @@ export function computeStagePlotFurnitureSummary(items = [], roster = [], groups
     if (!stagePlotItemUsesBanqueta(type)) sillasDrawn += 1;
   }
 
+  const directorsNeeded = countStagePlotDirectorsNeeded(roster, items);
   const banquetasDrawn = banquetasDrawnBass + banquetasDrawnManual;
   const atrilesNeededNonPerc = atrilesFromOrganicoCounts(
     atrilBuckets,
     atrilExtraNeeded,
   );
-  const atrilesNeeded = atrilesNeededNonPerc + percusionistasNeeded;
+  const atrilesNeeded =
+    atrilesNeededNonPerc + percusionistasNeeded + directorsNeeded;
   const atrilesDrawn = countStagePlotDrawnAtriles(items, groups);
   const tarimas = summarizeStagePlotTarimas(items);
   const atrilDetail = buildStagePlotAtrilDetail({
@@ -521,6 +550,7 @@ export function computeStagePlotFurnitureSummary(items = [], roster = [], groups
     atrilExtraNeeded,
     percusionistasNeeded,
     percussionists,
+    directorsNeeded,
     atrilesNeeded,
     atrilesDrawn,
     items,
@@ -542,32 +572,27 @@ export function computeStagePlotFurnitureSummary(items = [], roster = [], groups
     row("sillas", "Sillas", sillasDrawn, sillasNeeded),
     row("banquetas", "Banquetas", banquetasDrawn, banquetasNeeded),
     row("atriles", "Atriles", atrilesDrawn, atrilesNeeded),
+    row("podios", "Podio", podiosDrawn, directorsNeeded),
   ];
 
-  // Tarimas: after sillas/banquetas/atriles; no «needed» — headers por forma + dims.
-  /** @type {Array<{ shape: 'rect'|'oval', label: string, count: number }>} */
-  const tarimaShapeSections = [
-    { shape: "rect", label: "Tarimas rect.", count: tarimas.rectCount },
-    { shape: "oval", label: "Tarimas oval", count: tarimas.ovalCount },
-  ];
+  // Tarimas: cabecera «Tarimas» (total) + hijos forma×dims que suman al total.
+  // Sin filas intermedias «Tarimas rect.» / «Tarimas oval» (redundantes con el total).
   const tarimaRows = [];
-  for (const sec of tarimaShapeSections) {
-    if (sec.count <= 0) continue;
+  if (tarimas.count > 0) {
     tarimaRows.push({
-      key: `tarimas-${sec.shape}`,
-      label: sec.label,
-      drawn: sec.count,
+      key: "tarimas",
+      label: "Tarimas",
+      drawn: tarimas.count,
       required: "—",
       delta: 0,
       status: "ok",
-      kind: "tarimas_header",
-      shape: sec.shape,
+      kind: "tarimas_total",
     });
     for (const g of tarimas.groups) {
-      if (g.shape !== sec.shape) continue;
+      const shapeTag = g.shape === "oval" ? "Oval" : "Rect.";
       tarimaRows.push({
         key: `tarima-${g.key}`,
-        label: `  · ${g.label}`,
+        label: `· ${shapeTag} ${g.label}`,
         drawn: g.count,
         required: "—",
         delta: 0,
@@ -584,10 +609,61 @@ export function computeStagePlotFurnitureSummary(items = [], roster = [], groups
     sillas: row("sillas", "Sillas", sillasDrawn, sillasNeeded),
     banquetas: row("banquetas", "Banquetas", banquetasDrawn, banquetasNeeded),
     atriles: row("atriles", "Atriles", atrilesDrawn, atrilesNeeded),
+    podios: row("podios", "Podio", podiosDrawn, directorsNeeded),
     atrilDetail,
     tarimas,
+    directorsNeeded,
     rows: [...furnitureRows, ...tarimaRows],
   };
+}
+
+/**
+ * Filas para autoTable PDF hoja 2: solo cantidades **necesarias** (orgánico).
+ * Sin columnas Orgánico/Plano/Δ. Atriles incluyen desglose como el modal de detalle.
+ * Tarimas: drawn del plano (lo que hay que llevar), solo si hay alguna.
+ *
+ * @param {ReturnType<typeof computeStagePlotFurnitureSummary>} summary
+ * @returns {{
+ *   furnitureBody: string[][],
+ *   atrilBreakdownBody: string[][],
+ * }}
+ */
+export function stagePlotFurniturePdfTableBody(summary) {
+  /** @type {string[][]} */
+  const furnitureBody = [];
+  for (const key of ["sillas", "banquetas", "atriles", "podios"]) {
+    const r = summary?.[key];
+    if (!r) continue;
+    furnitureBody.push([
+      String(r.label || ""),
+      String(r.required ?? 0),
+    ]);
+  }
+  for (const r of summary?.rows || []) {
+    if (r.kind === "tarimas_total") {
+      furnitureBody.push([String(r.label || "Tarimas"), String(r.drawn ?? 0)]);
+      continue;
+    }
+    if (r.kind === "tarima_size") {
+      // Indent under the Tarimas header so the size rows read as a sum breakdown.
+      furnitureBody.push([
+        `  ${String(r.label || "").trimStart()}`,
+        String(r.drawn ?? 0),
+      ]);
+    }
+  }
+
+  /** @type {string[][]} */
+  const atrilBreakdownBody = (summary?.atrilDetail?.breakdown || []).map(
+    (row) => [
+      String(row.label || ""),
+      String(row.musicians ?? 0),
+      String(row.atriles ?? 0),
+      String(row.ruleLabel || ""),
+    ],
+  );
+
+  return { furnitureBody, atrilBreakdownBody };
 }
 
 /**
@@ -597,6 +673,7 @@ export function computeStagePlotFurnitureSummary(items = [], roster = [], groups
  *   atrilExtraNeeded: number,
  *   percusionistasNeeded: number,
  *   percussionists: Array<{ id: string|number, name: string, instrument: string }>,
+ *   directorsNeeded?: number,
  *   atrilesNeeded: number,
  *   atrilesDrawn: number,
  *   items: Array,
@@ -607,6 +684,7 @@ export function buildStagePlotAtrilDetail({
   atrilExtraNeeded = 0,
   percusionistasNeeded = 0,
   percussionists = [],
+  directorsNeeded = 0,
   atrilesNeeded = 0,
   atrilesDrawn = 0,
   items = [],
@@ -649,6 +727,17 @@ export function buildStagePlotAtrilDetail({
       atriles: percusionistasNeeded,
       rule: "one_per_percussionist",
       ruleLabel: "1 × percusionista (no por ícono)",
+    });
+  }
+
+  if (directorsNeeded > 0) {
+    breakdown.push({
+      key: "director",
+      label: "Director",
+      musicians: directorsNeeded,
+      atriles: directorsNeeded,
+      rule: "one_per_director",
+      ruleLabel: "1 × director (+ 1 podio; sin silla)",
     });
   }
 

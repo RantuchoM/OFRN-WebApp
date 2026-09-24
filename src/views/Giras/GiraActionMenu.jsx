@@ -19,6 +19,7 @@ import {
   IconArrowRight,
   IconCopy,
   IconLayout,
+  IconEye,
 } from "../../components/ui/Icons";
 import AppNavLink from "../../components/ui/AppNavLink";
 
@@ -38,6 +39,7 @@ const GiraActionMenu = ({
   onToggle,
   onClose,
   onMyRooming,
+  onViewStagePlot,
 }) => {
   const [expandedCategory, setExpandedCategory] = useState(null);
   const menuRef = useRef(null);
@@ -272,56 +274,73 @@ const GiraActionMenu = ({
             )}
 
             {isEditor && (
-              <>
-                <CategoryItem
-                  label="Personal"
+              <CategoryItem
+                label="Personal"
+                icon={IconUsers}
+                categoryKey="personal"
+              >
+                <SubMenuItem
                   icon={IconUsers}
-                  categoryKey="personal"
-                >
-                  <SubMenuItem
-                    icon={IconUsers}
-                    label="Gestión de Roster"
-                    view="ROSTER"
-                  />
-                </CategoryItem>
+                  label="Gestión de Roster"
+                  view="ROSTER"
+                />
+              </CategoryItem>
+            )}
 
-                <CategoryItem
-                  label="Edición"
-                  icon={IconEdit}
-                  categoryKey="edicion"
+            {onViewStagePlot && !isOnlyDifusion && (
+              <div className="border-b border-slate-50">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onClose();
+                    onViewStagePlot();
+                  }}
+                  className="w-full text-left px-4 py-3 text-sm font-medium flex items-center gap-2 text-slate-700 hover:bg-slate-50 transition-colors"
                 >
-                  <SubMenuItem
-                    icon={IconMessageCircle}
-                    label="Gestión de Pendientes"
-                    onClick={onGlobalComments}
-                  />
-                  <SubMenuItem
-                    icon={IconEdit}
-                    label="Editar Programa"
-                    onClick={onEdit}
-                  />
-                  <div className="my-1 border-t border-slate-100"></div>
-                  <SubMenuItem
-                    icon={IconArrowRight}
-                    label="Trasladar Fechas"
-                    onClick={onMove}
-                    className="text-orange-600 hover:text-orange-700"
-                  />
-                  <SubMenuItem
-                    icon={IconCopy}
-                    label="Duplicar Gira"
-                    onClick={onDuplicate}
-                    className="text-indigo-600 hover:text-indigo-700"
-                  />
-                  <div className="my-1 border-t border-slate-100"></div>
-                  <SubMenuItem
-                    icon={IconTrash}
-                    label="Eliminar Programa"
-                    onClick={onDelete}
-                    className="text-red-600 hover:text-red-700"
-                  />
-                </CategoryItem>
-              </>
+                  <IconEye size={16} className="text-slate-400" />
+                  <span>Ver escenario</span>
+                </button>
+              </div>
+            )}
+
+            {isEditor && (
+              <CategoryItem
+                label="Edición"
+                icon={IconEdit}
+                categoryKey="edicion"
+              >
+                <SubMenuItem
+                  icon={IconMessageCircle}
+                  label="Gestión de Pendientes"
+                  onClick={onGlobalComments}
+                />
+                <SubMenuItem
+                  icon={IconEdit}
+                  label="Editar Programa"
+                  onClick={onEdit}
+                />
+                <div className="my-1 border-t border-slate-100"></div>
+                <SubMenuItem
+                  icon={IconArrowRight}
+                  label="Trasladar Fechas"
+                  onClick={onMove}
+                  className="text-orange-600 hover:text-orange-700"
+                />
+                <SubMenuItem
+                  icon={IconCopy}
+                  label="Duplicar Gira"
+                  onClick={onDuplicate}
+                  className="text-indigo-600 hover:text-indigo-700"
+                />
+                <div className="my-1 border-t border-slate-100"></div>
+                <SubMenuItem
+                  icon={IconTrash}
+                  label="Eliminar Programa"
+                  onClick={onDelete}
+                  className="text-red-600 hover:text-red-700"
+                />
+              </CategoryItem>
             )}
           </div>
         </div>

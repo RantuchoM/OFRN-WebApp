@@ -26,8 +26,10 @@ export function formatStagePlotSvgMaxChars() {
  * - `<!DOCTYPE … [ <!ENTITY …> ]>` (el `>` interno rompe un strip naive)
  * - `<switch><foreignObject>…</foreignObject><g>…</g></switch>` (AI PGF)
  * - `xmlns="&ns_svg;"` vía entidades — sin DOCTYPE el XML queda inválido
+ * - `<a:midPointStop/>` + attrs `i:` — si se quita `xmlns:a` y quedan los
+ *   elementos, Blob→Image / `<img>` falla (prefijo XML no declarado)
  *
- * Se normaliza a un SVG plano usable (sin foreignObject) antes del check XSS.
+ * Se normaliza a un SVG plano usable (sin foreignObject / a:* / i:*) antes del check XSS.
  * @param {string} svg
  */
 function compactStagePlotSvg(svg) {
@@ -55,6 +57,13 @@ function compactStagePlotSvg(svg) {
   // Prefijos Adobe Illustrator (i:, graph:, a:, x:)
   out = out.replace(/\s(?:i|graph|a|x):[\w.-]+(?:="[^"]*")?/gi, "");
   out = out.replace(/\sxmlns:(?:i|graph|a|x|v)="[^"]*"/gi, "");
+  // Elementos con prefijo Adobe (p. ej. <a:midPointStop/>). Si quedan tras
+  // quitar xmlns:a, Blob→Image / <img> falla (XML con prefijo no declarado).
+  out = out.replace(/<(?:a|i|graph|x|v):[\w.-]+\b[^>]*\/>/gi, "");
+  out = out.replace(
+    /<(?:a|i|graph|x|v):[\w.-]+\b[^>]*>[\s\S]*?<\/(?:a|i|graph|x|v):[\w.-]+>/gi,
+    "",
+  );
   out = out.replace(/\s{2,}/g, " ");
   out = out.replace(/>\s+</g, "><");
   // Acortar floats en path/d y coordenadas numéricas sueltas (sin tocar ids)
@@ -63,6 +72,39 @@ function compactStagePlotSvg(svg) {
     (m) => String(Math.round(Number(m) * 1000) / 1000),
   );
   return out.trim();
+}
+
+/**
+ * En browser: DOMParser detecta SVG que pasaría sanitize pero no carga en <img>.
+ * @param {string} svg
+ * @returns {{ ok: true } | { ok: false, error: string }}
+ */
+function assertSvgParsesForImage(svg) {
+  if (typeof DOMParser === "undefined") return { ok: true };
+  try {
+    const doc = new DOMParser().parseFromString(svg, "image/svg+xml");
+    const errNode = doc.querySelector("parsererror");
+    if (errNode) {
+      return {
+        ok: false,
+        error:
+          "El SVG quedó inválido tras limpiar (XML roto / prefijos Adobe). Probá exportar SVG plano desde Illustrator o Inkscape.",
+      };
+    }
+    const root = doc.documentElement;
+    if (!root || String(root.nodeName).toLowerCase() !== "svg") {
+      return {
+        ok: false,
+        error: "Tras limpiar no quedó un elemento <svg> usable.",
+      };
+    }
+    return { ok: true };
+  } catch {
+    return {
+      ok: false,
+      error: "No se pudo validar el SVG limpio.",
+    };
+  }
 }
 
 /**
@@ -149,6 +191,9 @@ export function sanitizeStagePlotSvgMarkup(raw) {
   // Conservar paints del autor (fill/stroke/gradients). No reescribir a
   // currentColor. El tint de tema solo aplica si el markup ya usa currentColor
   // (siluetas mono / game-icons).
+
+  const parseCheck = assertSvgParsesForImage(svg);
+  if (!parseCheck.ok) return parseCheck;
 
   return {
     ok: true,
