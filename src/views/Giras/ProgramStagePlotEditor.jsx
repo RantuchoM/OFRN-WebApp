@@ -527,6 +527,22 @@ function computeStagePlotViewportFit({
   };
 }
 
+/**
+ * Pan para fijar el centro geométrico del rectángulo del escenario en pantalla
+ * cuando cambian width/height a escala constante (crece/encoge desde el centro).
+ */
+function panViewportForStageCenterResize(viewport, dWidth, dHeight) {
+  const s = Number(viewport?.scale) || 1;
+  const dW = Number(dWidth) || 0;
+  const dH = Number(dHeight) || 0;
+  if (dW === 0 && dH === 0) return viewport;
+  return {
+    ...viewport,
+    x: viewport.x - (dW / 2) * s,
+    y: viewport.y - (dH / 2) * s,
+  };
+}
+
 const ARROW_KEY_DELTA = {
   ArrowUp: { dx: 0, dy: -1 },
   ArrowDown: { dx: 0, dy: 1 },
@@ -2744,6 +2760,10 @@ export default function ProgramStagePlot({
   const stageWrapRef = useRef(null);
   const labelEditorRef = useRef(null);
   const viewportRef = useRef({ scale: 1, x: 40, y: 40 });
+  /** Último tamaño de escenario visto; pan de centro al cambiar Ancho/Alto (y undo). */
+  const stageSizeForCenterPanRef = useRef(null);
+  /** Evita pan de centro al cargar/cambiar de lienzo o plantilla (fit aparte). */
+  const skipStageCenterPanRef = useRef(true);
   const [canvasSize, setCanvasSize] = useState({ w: 640, h: 420 });
   const [viewport, setViewport] = useState({ scale: 1, x: 40, y: 40 });
   /** Ghost al arrastrar desde paleta: ítem `{ mode:"item", type, name, color, x, y }` o formación `{ mode:"formation", kind, name, x, y }`. */
@@ -3571,7 +3591,7 @@ export default function ProgramStagePlot({
         patch.width != null ||
         patch.height != null;
       if (sizePatch) {
-        // Keep current zoom/pan so Ancho/Alto changes are visible on screen.
+        // Conservar zoom; el pan se corrige al centro vía stageSizeForCenterPanRef.
         userZoomedRef.current = true;
       }
       commitPayload((prev) => applyStagePlotStagePatch(prev, patch));
@@ -3849,6 +3869,7 @@ export default function ProgramStagePlot({
     (template) => {
       if (!canEdit || !template?.payload) return;
       const next = cloneStagePlotPayload(template.payload);
+      skipStageCenterPanRef.current = true;
       commitPayload(() => next);
       setSelectedIds([]);
       setSelectedFormationId(null);
@@ -3868,6 +3889,11 @@ export default function ProgramStagePlot({
     (plotRow, { resetHistory = true } = {}) => {
       const p = normalizeStagePlotPayload(plotRow?.payload);
       if (resetHistory) historyRef.current = { past: [], future: [] };
+      skipStageCenterPanRef.current = true;
+      stageSizeForCenterPanRef.current = {
+        w: p.stage.width,
+        h: p.stage.height,
+      };
       payloadRef.current = p;
       setPayload(p);
       setNombre(plotRow?.nombre || "");
@@ -4207,6 +4233,28 @@ export default function ProgramStagePlot({
       window.clearTimeout(t2);
     };
   }, [loading, fitViewport, activePlotId, mobileUi, immersive]);
+
+  // Al cambiar Ancho/Alto (o undo/redo de ese cambio), fijar el centro del
+  // rectángulo en pantalla; el contenido ya se traslada en applyStagePlotStagePatch.
+  useEffect(() => {
+    const w = payload.stage?.width;
+    const h = payload.stage?.height;
+    if (!Number.isFinite(w) || !Number.isFinite(h)) return;
+
+    const prev = stageSizeForCenterPanRef.current;
+    if (skipStageCenterPanRef.current || !prev) {
+      stageSizeForCenterPanRef.current = { w, h };
+      skipStageCenterPanRef.current = false;
+      return;
+    }
+
+    const dW = w - prev.w;
+    const dH = h - prev.h;
+    stageSizeForCenterPanRef.current = { w, h };
+    if (dW === 0 && dH === 0) return;
+
+    setViewport((v) => panViewportForStageCenterResize(v, dW, dH));
+  }, [payload.stage?.width, payload.stage?.height]);
 
   // Evitar scroll de página sobre el lienzo (wheel debe ser non-passive).
   useEffect(() => {
@@ -5660,6 +5708,43 @@ export default function ProgramStagePlot({
       if (typeof el.select === "function") el.select();
     });
   }, [canEdit]);
+
+  /**
+   * Doble clic / doble tap en ítem:
+   * - texto → foco en editor de etiqueta (existente);
+   * - magnetizado (`slotId` → formación existente) → selección primaria = formación,
+   *   limpia `selectedIds` (no usa `handleSelectFormation` para no conservar mixta);
+   * - sin asociación → no-op silencioso.
+   */
+  const handleItemDblClick = useCallback(
+    (id) => {
+      if (!id) return;
+      const item = payloadRef.current.items.find((i) => i.id === id);
+      if (!item) return;
+
+      if (item.type === "text") {
+        focusLabelEditor(id);
+        return;
+      }
+
+      const slotParsed = parseSlotId(item.slotId);
+      if (!slotParsed) return;
+      const exists = (payloadRef.current.formations || []).some(
+        (f) => String(f.id) === String(slotParsed.formationId),
+      );
+      if (!exists) return;
+
+      const fid = slotParsed.formationId;
+      setSelectedFormationId(fid);
+      selectedFormationIdRef.current = fid;
+      setSelectedIds([]);
+      selectedIdsRef.current = [];
+      setItemContextMenu(null);
+      setFormationContextMenu(null);
+      setFormationCopyMenuOpen(false);
+    },
+    [focusLabelEditor],
+  );
 
   const rotateSelected = (delta) => {
     if (!selectedItems.length || !canEdit) return;
@@ -7353,7 +7438,7 @@ export default function ProgramStagePlot({
                     }}
                     onSelect={handleSelectItem}
                     onContextMenu={handleItemContextMenu}
-                    onDblClick={focusLabelEditor}
+                    onDblClick={handleItemDblClick}
                     onMouseEnter={showItemHoverTooltip}
                     onMouseLeave={hideItemHoverTooltip}
                     onMouseMove={moveItemHoverTooltip}
@@ -7429,7 +7514,7 @@ export default function ProgramStagePlot({
                     }}
                     onSelect={handleSelectItem}
                     onContextMenu={handleItemContextMenu}
-                    onDblClick={focusLabelEditor}
+                    onDblClick={handleItemDblClick}
                     onMouseEnter={showItemHoverTooltip}
                     onMouseLeave={hideItemHoverTooltip}
                     onMouseMove={moveItemHoverTooltip}

@@ -17,7 +17,8 @@
   - **Commit final**: blur, Enter o `flushAllDrafts()` clampea (vacío → valor actual/fallback; OOB → min/max + toast) y sincroniza el string del input.
   - Al cerrar (click afuera / Escape / botón Lienzo) se llama `flushAllDrafts()` **antes** de desmontar — no confiar solo en `blur()`. Inputs `type="text"` + `inputMode="numeric"`.
   - Si el payload **ya** está en el máximo y el usuario escribe lo mismo, no hay cambio visual (esperado); si escribe por encima, sí hay toast.
-- **Resize visible**: `patchStage` con `widthCm`/`heightCm` marca `userZoomedRef` para **no** re-encajar el viewport (conserva `viewport.scale` → un lienzo más grande se ve más grande y puede salir de pantalla; pan/zoom manual). `fitViewport` lee tamaño desde `payloadRef` (callback estable). Rect Konva y etiqueta bajo “FONDO / UPSTAGE” leen `payload.stage.width` / `height` / `widthCm` / `heightCm`.
+- **Resize desde el centro**: al cambiar `widthCm`/`heightCm` (inputs Lienzo o preset locación con medidas), el origen del lienzo sigue siendo upstage-left `(0,0)`, pero el **contenido** (ítems + formaciones) se traslada `Δwidth/2`, `Δheight/2` (`translateStagePlotContent` dentro de `applyStagePlotStagePatch`) para que el **centro geométrico** del rectángulo quede fijo respecto a la orquesta. El director se **re-ancla** después al downstage (`pinStagePlotConductors`); no se traslada con el resto. Sin cambio real de px → no traslada ni pinean.
+- **Resize visible (viewport)**: `patchStage` / preset con tamaño marca `userZoomedRef` para **no** re-encajar (conserva `viewport.scale` → un lienzo más grande se ve más grande). Además, un efecto pannea `viewport.x/y` con `panViewportForStageCenterResize` para fijar el centro del rectángulo en pantalla (también en undo/redo de ese cambio). Carga / cambio de lienzo / plantilla marcan `skipStageCenterPanRef` y usan `fitViewport`. `fitViewport` lee tamaño desde `payloadRef` (callback estable). Rect Konva y etiqueta bajo “FONDO / UPSTAGE” leen `payload.stage.width` / `height` / `widthCm` / `heightCm`.
 
 ## Cuadrícula
 
@@ -101,7 +102,7 @@ Hint del canvas cambia según la herramienta activa.
 - **Arrastrable**: en edición, el director se mueve como cualquier ítem **en Mover** o **en Seleccionar si ya está seleccionado** (`itemIsDraggable`); clic sin selección previa solo selecciona. Clamp dentro del lienzo, margen 8 px. **No** magnetiza a plazas de formación.
 - **Selección**: mismo path que otros ítems (`handleSelectItem` / marquee AABB); etiquetas decorativas del lienzo no escuchan eventos para no tapar el hit cerca de downstage.
 - **Persistencia**: `normalizeStagePlotPayload` **conserva** `x,y` del conductor (no re-pinea). Así sobrevive load / undo / autosave / export.
-- **Al cambiar tamaño del lienzo** (`patchStage` / `applyStagePlotStagePatch` / preset locación): el director se re-ancla con `pinStagePlotConductors` (undo/redo coherente). Después el usuario puede volver a moverlo.
+- **Al cambiar tamaño del lienzo** (`patchStage` / `applyStagePlotStagePatch` / preset locación): el contenido (ítems no-conductor + formaciones) se traslada para crecer/encoger **desde el centro**; el director se re-ancla con `pinStagePlotConductors` al downstage (undo/redo coherente). Después el usuario puede volver a moverlo.
 - **+ Director**: coloca en la posición canónica si no existe (misma fórmula con escala default).
 - **Viewport inicial / reset zoom** (`computeStagePlotViewportFit`): ancla el **borde inferior** del director (pies), no el centro del ítem, abajo-centro del viewport.
 - **Radial / formaciones**: `resolveFormationFacingPoint` usa el **centro** del conductor (o posición canónica si no hay ítem) como punto de mira y origen del abanico radial (lienzo + PDF/JPG). Durante el drag del director, el radial usa un override en vivo (`conductorDragOrigin`) hasta el commit.
@@ -112,7 +113,7 @@ Hint del canvas cambia según la herramienta activa.
 |---------|-----|
 | `src/utils/stagePlotPdf.js` | Export PDF (hoja 1 escenario + dims; canales hoja 2) y JPG (solo escenario + dims); `renderStagePlotToCanvas` compartido con preview técnico |
 | `src/utils/stagePlotConstants.js` | Escala cm↔px, grid, offset director, clamps |
-| `src/utils/stagePlotPayload.js` | Normalización `widthCm`/`heightCm`, `applyStagePlotStagePatch`, `pinStagePlotConductors` |
+| `src/utils/stagePlotPayload.js` | Normalización `widthCm`/`heightCm`, `applyStagePlotStagePatch`, `translateStagePlotContent`, `pinStagePlotConductors` |
 | `src/utils/stagePlotGroups.js` | Geometría de alineación / distribución en formaciones |
 | `src/utils/stagePlotViewportGestures.js` | Distingue pan (scroll trackpad / rueda) vs zoom (pinch / Ctrl+rueda) |
 | `src/views/Giras/ProgramStagePlot.jsx` | Re-export → `ProgramStagePlotEditor.jsx` |
@@ -245,6 +246,7 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
 - [x] Flush imperativo de drafts Lienzo al cerrar popover (fix: tamaño no se aplicaba)
 - [x] Live apply Ancho/Alto/Líneas mientras el popover está abierto (debounce ~220 ms, solo si draft ∈ [min, max])
 - [x] Director re-anclado al **resize** de lienzo / preset locación (`pinStagePlotConductors`); posición libre persistida al normalizar
+- [x] Resize de lienzo **desde el centro**: `translateStagePlotContent` (Δw/2, Δh/2) + pan de viewport al centro; fit (“Ajustar vista”) sigue anclando pies del director
 - [x] Director **arrastrable**; radial (lienzo + PDF/JPG) origen = `resolveFormationFacingPoint` (centro del conductor), con override en vivo durante el drag
 - [x] Viewport encaja con pies del director abajo-centro (`computeStagePlotViewportFit`)
 - [x] Backward compat payloads sin cm
@@ -294,6 +296,7 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
 - [x] Modos de plaza **fijo / libre / simétrico** (`slotMode` + `slotTs`; UI barra inferior)
 - [x] Flechas mueven formación seleccionada con reanchor (mismo path que drag; no demagnetiza `slotId`)
 - [x] Menú contextual de ítem: «Seleccionar formación» si magnetizado (`slotId` → formación existente)
+- [x] Doble clic / doble tap en ítem magnetizado: selecciona su formación (limpia ítems); texto sigue abriendo editor de etiqueta; sin asociación = no-op
 - [x] SVG en `instrumentos` (`svg_icon` + `stage_plot_type`) + seed 21 filas + guitarra papapishu (`21` / `guitar`) + bandoneón FreeSVG (`22b` / `bandoneon`) + percusión OFRN (`13` / `13a`–`13h`)
 - [x] Clic derecho en vacío del lienzo: abre menú de la selección actual (formación o ítems) sin deseleccionar
 - [x] Undo/redo de movimiento grupal = **una** entrada: multi-selección / grupo explícito / formación+reanchor / selección mixta ítems+formación; rafaga de flechas coalescida
@@ -490,7 +493,7 @@ Seed: silla / banqueta / atril qty 0; tarima rect 200×100 qty 0. Unique parcial
 - Editables en Datos → Locaciones (`DataView.jsx`).
 - Payload: `stage.id_locacion` opcional (recordatorio del preset aplicado).
 - **UI picker** (`SearchableSelect`): searchable por nombre y ciudad (`localidades.localidad` en subLabel). Con medidas: label `Nombre · Ancho × Profundo cm`. Sin medidas: label = nombre; subLabel sutil «sin medidas guardadas» (ciudad · hint). **Todas las opciones son seleccionables** (no `disabled` por falta de dims).
-- **Al elegir:** si hay `escenario_ancho_cm` + `escenario_profundo_cm` válidos → aplicar a `widthCm`/`heightCm` vía `applyStagePlotStagePatch` (director recentrado). Si faltan → solo setear `id_locacion` y **mantener** Ancho/Alto actuales (editables en el mismo panel).
+- **Al elegir:** si hay `escenario_ancho_cm` + `escenario_profundo_cm` válidos → aplicar a `widthCm`/`heightCm` vía `applyStagePlotStagePatch` (contenido centrado + director re-anclado downstage). Si faltan → solo setear `id_locacion` y **mantener** Ancho/Alto actuales (editables en el mismo panel).
 - **+ Lienzo:** diálogo nombre + combobox de locación → con medidas crea payload con tamaño + pin director; sin medidas asocia `id_locacion` y usa default 1100×700 cm (11×7 m). Opción vacía = mismo default sin locación.
 - **Lienzo popover:** combobox «Seleccionar escenario» (misma lógica apply-dims-only-when-present). El click-outside del popover ignora `.searchable-portal` para no cerrar al elegir.
 
@@ -569,6 +572,11 @@ Parámetros en **px de escenario** (`cm × STAGE_PLOT_CM_TO_PX`). Defaults (íte
   - Multi-selección: usa siempre la formación del **ítem bajo el clic** (no exige que todos compartan la misma).
   - Al elegir: `handleSelectFormation` — selecciona esa formación, limpia `selectedIds`, cierra menús; aparecen asas y barra inferior de formación (igual que clic en el path).
   - Solo en modo edición (`canEdit`); el menú de ítem ya no abre en read-only.
+- **Doble clic / doble tap en ítem** (`handleItemDblClick` → `ItemShape.onDblClick` / `onDblTap`):
+  - **Texto** (`type === "text"`): sin cambio — foco en el editor de etiqueta (`focusLabelEditor`).
+  - **Magnetizado**: mismo criterio que «Seleccionar formación» (`parseSlotId(item.slotId)` + formación existente). Selección primaria = esa formación; **limpia** `selectedIds` (no conserva mixta; distinto de `handleSelectFormation` en mousedown, que sí preserva mixta para drag grupal). Cierra menús contextuales.
+  - Sin `slotId` / formación ausente: **no-op silencioso** (no toast).
+  - No altera el mousedown de selección mixta.
 - **Clic derecho en vacío (selección actual)** (`handleStageContextMenu` en `Stage`):
   - Clic derecho sobre **otro** ítem/formación seleccionable: comportamiento estándar — selecciona ese objeto y abre **su** menú (handlers de ítem/formación con `cancelBubble`).
   - Clic derecho en **vacío** / fondo (`!interactive` vía `classifyStagePlotPointerTarget`):

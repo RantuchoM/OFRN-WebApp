@@ -399,7 +399,47 @@ export function pinStagePlotConductors(items, stageWidth, stageHeight) {
 }
 
 /**
- * Aplica patch al `stage` y ancla el director si cambió el tamaño del lienzo.
+ * Traslada ítems y formaciones para que un resize de lienzo crezca/encoja
+ * desde el centro geométrico (origen upstage-left se “abre” por ambos lados).
+ * Los conductores se omiten: se re-pinean después al borde downstage.
+ * @param {unknown[]} items
+ * @param {unknown[]} formations
+ * @param {number} dx
+ * @param {number} dy
+ */
+export function translateStagePlotContent(items, formations, dx, dy) {
+  const tx = Number.isFinite(dx) ? dx : 0;
+  const ty = Number.isFinite(dy) ? dy : 0;
+  if (tx === 0 && ty === 0) {
+    return { items, formations };
+  }
+  const nextItems = (Array.isArray(items) ? items : []).map((it) => {
+    if (!it || typeof it !== "object") return it;
+    const o = /** @type {Record<string, unknown>} */ (it);
+    if (o.type === "conductor") return it;
+    return {
+      ...o,
+      x: (Number(o.x) || 0) + tx,
+      y: (Number(o.y) || 0) + ty,
+    };
+  });
+  const nextFormations = (Array.isArray(formations) ? formations : []).map(
+    (f) => {
+      if (!f || typeof f !== "object") return f;
+      const o = /** @type {Record<string, unknown>} */ (f);
+      return {
+        ...o,
+        x: (Number(o.x) || 0) + tx,
+        y: (Number(o.y) || 0) + ty,
+      };
+    },
+  );
+  return { items: nextItems, formations: nextFormations };
+}
+
+/**
+ * Aplica patch al `stage`. Si cambian Ancho/Alto (px), traslada el contenido
+ * para crecer/encoger desde el centro y re-ancla el director downstage.
  * @param {ReturnType<typeof normalizeStagePlotPayload>} prev
  * @param {Record<string, unknown>} patch
  */
@@ -429,19 +469,33 @@ export function applyStagePlotStagePatch(prev, patch) {
   };
 
   const prevDims = normalizeStagePlotStageDimensions(prev.stage);
-  const sizeChanged =
-    patch.widthCm != null ||
-    patch.heightCm != null ||
-    patch.width != null ||
-    patch.height != null ||
-    dims.width !== prevDims.width ||
-    dims.height !== prevDims.height;
+  const dimsChanged =
+    dims.width !== prevDims.width || dims.height !== prevDims.height;
 
-  const items = sizeChanged
-    ? pinStagePlotConductors(prev.items, newStage.width, newStage.height)
-    : prev.items;
+  if (!dimsChanged) {
+    return { ...prev, stage: newStage };
+  }
 
-  return { ...prev, stage: newStage, items };
+  const dx = (dims.width - prevDims.width) / 2;
+  const dy = (dims.height - prevDims.height) / 2;
+  const translated = translateStagePlotContent(
+    prev.items,
+    prev.formations,
+    dx,
+    dy,
+  );
+  const items = pinStagePlotConductors(
+    translated.items,
+    newStage.width,
+    newStage.height,
+  );
+
+  return {
+    ...prev,
+    stage: newStage,
+    items,
+    formations: translated.formations,
+  };
 }
 
 export function createEmptyStagePlotPayload() {
