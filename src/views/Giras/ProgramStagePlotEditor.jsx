@@ -172,6 +172,7 @@ import {
   formationSlotMarkerSize,
   getFormationBounds,
   isFormationCenteredOnConductor,
+  normalizeRotationDeg,
   normalizeStagePlotSlotMode,
   parseSlotId,
   projectWorldPointToFormationT,
@@ -4751,6 +4752,18 @@ export default function ProgramStagePlot({
     );
   };
 
+  /** ±15° (or any delta) for the selected formation; reanchors magnetized slots. */
+  const rotateSelectedFormation = (delta) => {
+    if (!canEdit || !selectedFormationId) return;
+    const fm = (payloadRef.current.formations || []).find(
+      (f) => f.id === selectedFormationId,
+    );
+    if (!fm) return;
+    updateSelectedFormation({
+      rotation: normalizeRotationDeg((Number(fm.rotation) || 0) + delta),
+    });
+  };
+
   const setSelectedFormationSlotMode = (mode) => {
     if (!canEdit || !selectedFormationId) return;
     patchFormationsAndReanchor((formations) =>
@@ -7535,6 +7548,22 @@ export default function ProgramStagePlot({
                 >
                   <button
                     type="button"
+                    title="Rotar −15°"
+                    onClick={() => rotateSelectedFormation(-15)}
+                    className="flex h-10 min-w-10 items-center justify-center rounded-full px-2 text-xs font-medium text-slate-600 active:bg-indigo-50 active:text-indigo-700"
+                  >
+                    −15°
+                  </button>
+                  <button
+                    type="button"
+                    title="Rotar +15°"
+                    onClick={() => rotateSelectedFormation(15)}
+                    className="flex h-10 min-w-10 items-center justify-center rounded-full px-2 text-xs font-medium text-slate-600 active:bg-indigo-50 active:text-indigo-700"
+                  >
+                    +15°
+                  </button>
+                  <button
+                    type="button"
                     title="Copiar formación"
                     onClick={() => duplicateSelectedFormation(false)}
                     className="flex h-10 w-10 items-center justify-center rounded-full text-slate-600 active:bg-indigo-50 active:text-indigo-700"
@@ -7913,6 +7942,22 @@ export default function ProgramStagePlot({
                     </label>
                   </>
                 )}
+                <button
+                  type="button"
+                  onClick={() => rotateSelectedFormation(-15)}
+                  className="shrink-0 rounded border border-slate-200 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50"
+                  title="Rotar formación −15°"
+                >
+                  −15°
+                </button>
+                <button
+                  type="button"
+                  onClick={() => rotateSelectedFormation(15)}
+                  className="shrink-0 rounded border border-slate-200 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50"
+                  title="Rotar formación +15°"
+                >
+                  +15°
+                </button>
                 <label className="flex shrink-0 items-center gap-1 text-[11px] text-slate-600">
                   Rot °
                   <input
@@ -7920,10 +7965,13 @@ export default function ProgramStagePlot({
                     value={Math.round(selectedFormation.rotation || 0)}
                     onChange={(e) =>
                       updateSelectedFormation({
-                        rotation: Number(e.target.value) || 0,
+                        rotation: normalizeRotationDeg(
+                          Number(e.target.value) || 0,
+                        ),
                       })
                     }
                     className="w-14 rounded border border-slate-200 px-1.5 py-0.5 text-xs"
+                    title="Rotación exacta de la formación (grados)"
                   />
                 </label>
                 {STAGE_PLOT_CENTERABLE_FORMATION_KINDS.includes(
@@ -7960,10 +8008,14 @@ export default function ProgramStagePlot({
                     anchorRef={formationCopyMenuRef}
                     overlayZ={portalMenuZ}
                     onClose={() => setFormationCopyMenuOpen(false)}
-                    onCopyFormation={() => duplicateSelectedFormation(false)}
-                    onCopyFormationWithInstruments={() =>
-                      duplicateSelectedFormation(true)
-                    }
+                    onCopyFormation={() => {
+                      duplicateSelectedFormation(false);
+                      setFormationCopyMenuOpen(false);
+                    }}
+                    onCopyFormationWithInstruments={() => {
+                      duplicateSelectedFormation(true);
+                      setFormationCopyMenuOpen(false);
+                    }}
                   />
                 </div>
                 <button
