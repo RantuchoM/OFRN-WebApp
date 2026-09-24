@@ -48,13 +48,17 @@ import {
   buildArtistaTrasladoAgendaBlocks,
   buildFimbaRidesForVehicle,
   collectVehicleRideEndpointIds,
+  cloneOfrnRouteRuleGrain,
+  collectOfrnCollectiveRideMemberIds,
   extractOfrnRidesForVehicle,
+  formatOfrnCollectiveRideLabel,
   indexOfEvent,
   isFimbaRideAboardAtStop,
+  isOfrnCollectiveOpenRideAtStop,
   isOpenFimbaRide,
-  isPresentAtStop,
   isVehicleBoardingSequenceEvent,
   listOfrnPeopleAboardAtStop,
+  ofrnWinningSubidaIsPersona,
   sumRidesOccupyingWindow,
 } from "../utils/fimbaTransportBoarding";
 import { normalize } from "../utils/giraUtils";
@@ -6099,6 +6103,102 @@ export async function alightAllFimbaAboardAtStop(opts = {}) {
 }
 
 /**
+ * Rides colectivos OFRN (Localidad / Región / Categoría / Grupo / General / Ensamble)
+ * con ↑ y sin ↓ que todavía cubren la parada. No expande a N Persona.
+ *
+ * @param {{
+ *   giraId: number|string,
+ *   id_transporte_fisico: number|string,
+ *   id_evento: number|string,
+ *   sortedEvents?: Array<{ id?: unknown }>,
+ *   giraGrupos?: Array<object>,
+ *   passengers?: Array<object>,
+ *   localities?: Array<object>,
+ *   regions?: Array<object>,
+ * }} opts
+ */
+export async function listOpenOfrnCollectiveRidesAtStop(opts = {}) {
+  const giraId = Number(opts.giraId);
+  const tid = Number(opts.id_transporte_fisico);
+  const idEvento = opts.id_evento;
+  const sorted = Array.isArray(opts.sortedEvents) ? opts.sortedEvents : [];
+  const passengers = Array.isArray(opts.passengers) ? opts.passengers : [];
+  const localities = Array.isArray(opts.localities) ? opts.localities : [];
+  const regions = Array.isArray(opts.regions) ? opts.regions : [];
+  let giraGrupos = Array.isArray(opts.giraGrupos) ? opts.giraGrupos : [];
+  if (
+    !Number.isFinite(giraId) ||
+    !Number.isFinite(tid) ||
+    idEvento == null ||
+    idEvento === ""
+  ) {
+    return { data: [], error: null };
+  }
+
+  const { data: rows, error } = await supabase
+    .from("giras_logistica_rutas")
+    .select("*")
+    .eq("id_gira", giraId)
+    .eq("id_transporte_fisico", tid);
+  if (error) return { data: [], error };
+
+  const openRows = (rows || []).filter((r) =>
+    isOfrnCollectiveOpenRideAtStop(r, sorted, idEvento),
+  );
+
+  const needMembers =
+    giraGrupos.length === 0 &&
+    openRows.some((r) => normalize(r.alcance) === "grupo");
+  if (needMembers) {
+    const { grupos } = await fetchGiraGrupos(supabase, giraId);
+    giraGrupos = grupos || [];
+  }
+
+  const catalogs = { regions, localities, giraGrupos, passengers };
+  const out = [];
+  for (const rule of openRows) {
+    const scopeNorm = normalize(rule.alcance);
+    const grupoId =
+      scopeNorm === "grupo" ? String((rule.target_ids || [])[0] ?? "") : "";
+    let memberIds = [];
+    if (scopeNorm === "grupo" && grupoId) {
+      memberIds = integranteIdsInGrupos(giraGrupos, [grupoId]).map(String);
+    } else {
+      memberIds = collectOfrnCollectiveRideMemberIds(
+        rule,
+        passengers,
+        localities,
+      );
+    }
+    out.push({
+      rule,
+      alcance: rule.alcance,
+      grupoId: grupoId || null,
+      label: formatOfrnCollectiveRideLabel(rule, catalogs),
+      memberIds,
+      memberCount: memberIds.length,
+    });
+  }
+
+  const alcanceRank = (alcance) => {
+    const n = normalize(alcance);
+    if (n === "grupo" || n === "categoria" || n === "ensamble") return 0;
+    if (n === "localidad") return 1;
+    if (n === "region") return 2;
+    if (n === "general") return 3;
+    return 4;
+  };
+  out.sort((a, b) => {
+    const d = alcanceRank(a.alcance) - alcanceRank(b.alcance);
+    if (d !== 0) return d;
+    return String(a.label).localeCompare(String(b.label), "es", {
+      sensitivity: "base",
+    });
+  });
+  return { data: out, error: null };
+}
+
+/**
  * Reglas Grupo OFRN con ↑ y sin ↓ que todavía cubren la parada
  * (presentes vía `isPresentAtStop`). Fuente: `giras_logistica_rutas`.
  *
@@ -6121,71 +6221,12 @@ export async function alightAllFimbaAboardAtStop(opts = {}) {
  * }>}
  */
 export async function listOpenOfrnGrupoRidesAtStop(opts = {}) {
-  const giraId = Number(opts.giraId);
-  const tid = Number(opts.id_transporte_fisico);
-  const idEvento = opts.id_evento;
-  const sorted = Array.isArray(opts.sortedEvents) ? opts.sortedEvents : [];
-  let giraGrupos = Array.isArray(opts.giraGrupos) ? opts.giraGrupos : [];
-  if (
-    !Number.isFinite(giraId) ||
-    !Number.isFinite(tid) ||
-    idEvento == null ||
-    idEvento === ""
-  ) {
-    return { data: [], error: null };
-  }
-
-  const { data: rows, error } = await supabase
-    .from("giras_logistica_rutas")
-    .select("*")
-    .eq("id_gira", giraId)
-    .eq("id_transporte_fisico", tid)
-    .eq("alcance", "Grupo");
-  if (error) return { data: [], error };
-
-  const needMembers =
-    giraGrupos.length === 0 &&
-    (rows || []).some(
-      (r) =>
-        r.id_evento_subida != null &&
-        r.id_evento_subida !== "" &&
-        (r.id_evento_bajada == null || r.id_evento_bajada === ""),
-    );
-  if (needMembers) {
-    const { grupos } = await fetchGiraGrupos(supabase, giraId);
-    giraGrupos = grupos || [];
-  }
-
-  const currentIdx = sorted.length ? indexOfEvent(sorted, idEvento) : -1;
-  const out = [];
-  for (const rule of rows || []) {
-    if (rule.id_evento_subida == null || rule.id_evento_subida === "") continue;
-    if (rule.id_evento_bajada != null && rule.id_evento_bajada !== "") continue;
-
-    if (currentIdx >= 0) {
-      const upIdx = indexOfEvent(sorted, rule.id_evento_subida);
-      if (!isPresentAtStop(upIdx, null, currentIdx)) continue;
-    }
-
-    const grupoId = String((rule.target_ids || [])[0] ?? "");
-    if (!grupoId) continue;
-    const g = giraGrupos.find((x) => String(x.id) === grupoId);
-    const memberIds = integranteIdsInGrupos(giraGrupos, [grupoId]).map(String);
-    out.push({
-      rule,
-      grupoId,
-      label: g?.nombre || `Grupo #${grupoId}`,
-      memberIds,
-      memberCount: memberIds.length,
-    });
-  }
-
-  out.sort((a, b) =>
-    String(a.label).localeCompare(String(b.label), "es", {
-      sensitivity: "base",
-    }),
-  );
-  return { data: out, error: null };
+  const res = await listOpenOfrnCollectiveRidesAtStop(opts);
+  if (res.error) return res;
+  return {
+    data: (res.data || []).filter((row) => normalize(row.alcance) === "grupo"),
+    error: null,
+  };
 }
 
 /**
@@ -6210,6 +6251,109 @@ export async function alightOfrnGrupoAtStop(opts = {}) {
     giraGrupos: opts.giraGrupos,
     allowMultiple: Boolean(opts.allowMultiple),
   });
+}
+
+/**
+ * Cierra un ride colectivo abierto (mismo grano que la subida: Localidad,
+ * Región, Categoría, Grupo, General, Ensamble). UPDATE de la fila; no N Persona.
+ *
+ * @param {{
+ *   giraId: number|string,
+ *   id_transporte_fisico: number|string,
+ *   id_evento: number|string,
+ *   rule?: object,
+ *   ruleId?: number|string,
+ *   giraGrupos?: Array<object>,
+ *   allowMultiple?: boolean,
+ * }} opts
+ */
+export async function alightOfrnCollectiveRuleAtStop(opts = {}) {
+  const giraId = Number(opts.giraId);
+  const tid = Number(opts.id_transporte_fisico);
+  const idEvento = Number(opts.id_evento);
+  const allowMultiple = Boolean(opts.allowMultiple);
+  let rule = opts.rule || null;
+  const ruleId = Number(opts.ruleId ?? rule?.id);
+
+  if (
+    !Number.isFinite(giraId) ||
+    !Number.isFinite(tid) ||
+    !Number.isFinite(idEvento) ||
+    !Number.isFinite(ruleId)
+  ) {
+    return {
+      data: null,
+      error: new Error("gira, vehículo, evento y regla son requeridos"),
+    };
+  }
+
+  if (!rule) {
+    const { data, error } = await supabase
+      .from("giras_logistica_rutas")
+      .select("*")
+      .eq("id", ruleId)
+      .maybeSingle();
+    if (error) return { data: null, error };
+    rule = data;
+  }
+  if (!rule) {
+    return { data: null, error: new Error("Regla de ruta no encontrada") };
+  }
+
+  const scopeNorm = normalize(rule.alcance);
+  if (scopeNorm === "grupo") {
+    const grupoId = (rule.target_ids || [])[0];
+    if (grupoId == null || grupoId === "") {
+      return { data: null, error: new Error("La regla de grupo no tiene objetivo") };
+    }
+    return alightOfrnGrupoAtStop({
+      giraId,
+      id_transporte_fisico: tid,
+      id_grupo: grupoId,
+      id_evento: idEvento,
+      giraGrupos: opts.giraGrupos,
+      allowMultiple,
+    });
+  }
+
+  if (scopeNorm === "persona" || scopeNorm === "integrante") {
+    return {
+      data: null,
+      error: new Error("Usá alightOfrnPeopleAtStop para alcance Persona"),
+    };
+  }
+
+  const alreadyHere =
+    rule.id_evento_bajada != null &&
+    String(rule.id_evento_bajada) === String(idEvento);
+  if (alreadyHere && !allowMultiple) {
+    return { data: rule, error: null };
+  }
+
+  const openRide =
+    rule.id_evento_bajada == null || rule.id_evento_bajada === "";
+
+  if (openRide || !allowMultiple) {
+    const { data, error } = await supabase
+      .from("giras_logistica_rutas")
+      .update({ id_evento_bajada: idEvento })
+      .eq("id", rule.id)
+      .select("*")
+      .maybeSingle();
+    return { data: data || null, error };
+  }
+
+  const payload = cloneOfrnRouteRuleGrain(rule, {
+    id_gira: giraId,
+    id_transporte_fisico: tid,
+    id_evento_bajada: idEvento,
+  });
+  const { data, error } = await supabase
+    .from("giras_logistica_rutas")
+    .insert([payload])
+    .select("*")
+    .maybeSingle();
+  return { data: data || null, error };
 }
 
 /**
@@ -6349,9 +6493,10 @@ export async function alightOfrnPeopleAtStop(opts = {}) {
 }
 
 /**
- * «Bajar todo» OFRN: primero cierra rides **Grupo** abiertos a bordo
- * (alcance Grupo, mismo target_ids); luego Persona solo para quienes
- * siguen con ride abierto y no quedaron cubiertos por esos grupos.
+ * «Bajar todo» OFRN: primero cierra rides **colectivos** abiertos
+ * (Localidad / Región / Categoría / Grupo / General / Ensamble — mismo grano
+ * que la subida); luego Persona **solo** para quienes subieron con regla
+ * personal y siguen con ride abierto.
  *
  * @param {{
  *   giraId: number|string,
@@ -6362,33 +6507,52 @@ export async function alightOfrnPeopleAtStop(opts = {}) {
  *   giraGrupos?: Array<object>,
  *   allowMultiple?: boolean,
  *   preferGrupo?: boolean,
+ *   preferCollective?: boolean,
  *   routeRules?: Array<object>|null,
  *   localities?: Array<object>,
+ *   regions?: Array<object>,
  *   expandAllHops?: boolean,
  * }} opts
  */
 export async function alightAllOfrnAboardAtStop(opts = {}) {
-  const preferGrupo = opts.preferGrupo !== false;
+  const preferCollective =
+    opts.preferCollective !== false && opts.preferGrupo !== false;
   const giraGrupos = opts.giraGrupos || [];
+  const passengers = opts.passengers || [];
+  const localities = opts.localities || [];
+  let colectivosClosed = 0;
   let gruposClosed = 0;
-  const coveredByGrupo = new Set();
+  const coveredByCollective = new Set();
+  const collectiveRules = [];
 
-  if (preferGrupo) {
-    const { data: openGrupos, error: gErr } = await listOpenOfrnGrupoRidesAtStop({
-      giraId: opts.giraId,
-      id_transporte_fisico: opts.id_transporte_fisico,
-      id_evento: opts.id_evento,
-      sortedEvents: opts.sortedEvents || [],
-      giraGrupos,
-    });
-    if (gErr) return { closed: 0, rules: [], gruposClosed: 0, error: gErr };
-
-    for (const row of openGrupos || []) {
-      const res = await alightOfrnGrupoAtStop({
+  if (preferCollective) {
+    const { data: openCollective, error: cErr } =
+      await listOpenOfrnCollectiveRidesAtStop({
         giraId: opts.giraId,
         id_transporte_fisico: opts.id_transporte_fisico,
-        id_grupo: row.grupoId,
         id_evento: opts.id_evento,
+        sortedEvents: opts.sortedEvents || [],
+        giraGrupos,
+        passengers,
+        localities,
+        regions: opts.regions || [],
+      });
+    if (cErr) {
+      return {
+        closed: 0,
+        rules: [],
+        gruposClosed: 0,
+        colectivosClosed: 0,
+        error: cErr,
+      };
+    }
+
+    for (const row of openCollective || []) {
+      const res = await alightOfrnCollectiveRuleAtStop({
+        giraId: opts.giraId,
+        id_transporte_fisico: opts.id_transporte_fisico,
+        id_evento: opts.id_evento,
+        rule: row.rule,
         giraGrupos,
         allowMultiple: Boolean(opts.allowMultiple),
       });
@@ -6397,28 +6561,35 @@ export async function alightAllOfrnAboardAtStop(opts = {}) {
           closed: 0,
           rules: [],
           gruposClosed,
+          colectivosClosed,
           error: res.error,
         };
       }
-      gruposClosed += 1;
-      (row.memberIds || []).forEach((id) => coveredByGrupo.add(String(id)));
+      colectivosClosed += 1;
+      if (normalize(row.alcance) === "grupo") gruposClosed += 1;
+      if (res.data) collectiveRules.push(res.data);
+      (row.memberIds || []).forEach((id) => coveredByCollective.add(String(id)));
     }
   }
 
   const aboard = listOfrnPeopleAboardAtStop({
-    passengers: opts.passengers || [],
+    passengers,
     transportId: opts.id_transporte_fisico,
     eventId: opts.id_evento,
     sortedEvents: opts.sortedEvents || [],
     routeRules: opts.routeRules,
-    localities: opts.localities || [],
+    localities,
     expandAllHops: Boolean(opts.expandAllHops),
-  }).filter(
-    (row) =>
-      row.openRide &&
-      !row.alreadyAlightingHere &&
-      !coveredByGrupo.has(String(row.id)),
-  );
+  }).filter((row) => {
+    if (!row.openRide || row.alreadyAlightingHere) return false;
+    const id = String(row.id);
+    if (coveredByCollective.has(id)) return false;
+    if (ofrnWinningSubidaIsPersona(row.person, opts.id_transporte_fisico)) {
+      return true;
+    }
+    // Subida colectiva (o sin scope): no explotar a Persona.
+    return false;
+  });
 
   const personaRes = await alightOfrnPeopleAtStop({
     giraId: opts.giraId,
@@ -6429,9 +6600,10 @@ export async function alightAllOfrnAboardAtStop(opts = {}) {
   });
 
   return {
-    closed: (personaRes.closed || 0) + gruposClosed,
-    rules: personaRes.rules || [],
+    closed: (personaRes.closed || 0) + colectivosClosed,
+    rules: [...collectiveRules, ...(personaRes.rules || [])],
     gruposClosed,
+    colectivosClosed,
     personasClosed: personaRes.closed || 0,
     error: personaRes.error,
   };

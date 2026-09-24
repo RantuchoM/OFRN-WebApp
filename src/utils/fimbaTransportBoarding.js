@@ -51,7 +51,11 @@
 
 import { sortFimbaAgendaRows } from "./fimbaAgendaSort";
 import { sortEventsBySchedule } from "./giraTransportUtils";
-import { matchesRule, normalize } from "./giraUtils";
+import {
+  matchesRule,
+  normalize,
+  pickWinningLogisticsRule,
+} from "./giraUtils";
 
 /** Labels de categoría logística (alcance Categoria en `giras_logistica_rutas`). */
 const OFRN_CATEGORIA_CHIP_LABELS = {
@@ -2308,6 +2312,136 @@ export function listOfrnPeopleAboardAtStop(opts = {}) {
     String(a.label).localeCompare(String(b.label), "es", { sensitivity: "base" }),
   );
   return out;
+}
+
+/** Alcance de ruta que no es ID personal (Localidad / Región / Grupo / …). */
+export function isOfrnCollectiveAlcance(alcance) {
+  const n = normalize(alcance);
+  if (!n) return false;
+  return n !== "persona" && n !== "integrante";
+}
+
+/** ¿La subida ganadora de esta persona×unidad es una regla Persona? */
+export function ofrnWinningSubidaIsPersona(person, transportId) {
+  const tr = (person?.logistics?.transports || person?.transports || []).find(
+    (t) => String(t.id) === String(transportId),
+  );
+  const scope = normalize(tr?.subidaScope);
+  return scope === "persona" || scope === "integrante";
+}
+
+/**
+ * Ride colectivo abierto en la parada: tiene ↑, no tiene ↓, y sigue presente.
+ * No incluye reglas que ya bajan más adelante (esas no deben explotarse a Persona).
+ */
+export function isOfrnCollectiveOpenRideAtStop(rule, sortedEvents, eventId) {
+  if (!rule || !isOfrnCollectiveAlcance(rule.alcance)) return false;
+  if (rule.id_evento_subida == null || rule.id_evento_subida === "") return false;
+  if (rule.id_evento_bajada != null && rule.id_evento_bajada !== "") return false;
+  const sorted = Array.isArray(sortedEvents) ? sortedEvents : [];
+  const currentIdx = sorted.length ? indexOfEvent(sorted, eventId) : -1;
+  if (currentIdx < 0) return true;
+  const upIdx = indexOfEvent(sorted, rule.id_evento_subida);
+  return isPresentAtStop(upIdx, null, currentIdx);
+}
+
+export function formatOfrnCollectiveRideLabel(rule, catalogs = {}) {
+  const n = normalize(rule?.alcance);
+  if (n === "general") return "Todos";
+  if (n === "region") {
+    const reg = (catalogs.regions || []).find(
+      (r) => String(r.id) === String(rule.id_region),
+    );
+    return reg?.region || (rule.id_region != null ? `Región #${rule.id_region}` : "Región");
+  }
+  if (n === "localidad") {
+    const loc = (catalogs.localities || []).find(
+      (l) => String(l.id) === String(rule.id_localidad),
+    );
+    return (
+      loc?.localidad ||
+      loc?.nombre ||
+      (rule.id_localidad != null ? `Localidad #${rule.id_localidad}` : "Localidad")
+    );
+  }
+  if (n === "categoria") {
+    const raw = rule.target_ids?.[0];
+    if (!raw) return "Categoría";
+    return OFRN_CATEGORIA_CHIP_LABELS[raw] || raw;
+  }
+  if (n === "grupo") {
+    const raw = String(rule.target_ids?.[0] ?? "");
+    if (!raw) return "Grupo";
+    const g = (catalogs.giraGrupos || []).find((x) => String(x.id) === raw);
+    return g?.nombre || `Grupo #${raw}`;
+  }
+  if (n === "ensamble") {
+    const raw = String(rule.target_ids?.[0] ?? "");
+    return raw ? `Ensamble #${raw}` : "Ensamble";
+  }
+  return rule?.alcance || "Regla";
+}
+
+export function collectOfrnCollectiveRideMemberIds(
+  rule,
+  passengers,
+  localities = [],
+) {
+  const ids = [];
+  for (const p of passengers || []) {
+    if (normalize(p?.estado_gira) === "ausente") continue;
+    if (!matchesRule(rule, p, localities)) continue;
+    const id = p.id ?? p.id_integrante;
+    if (id == null || id === "") continue;
+    ids.push(String(id));
+  }
+  return ids;
+}
+
+/**
+ * Entre rides colectivos abiertos, la regla de subida que gana para esta persona.
+ */
+export function findWinningOpenCollectiveRideForPerson(
+  person,
+  openRides,
+  localities = [],
+) {
+  if (!person) return null;
+  const matching = (openRides || []).filter(
+    (row) => row?.rule && matchesRule(row.rule, person, localities),
+  );
+  if (matching.length === 0) return null;
+  const win = pickWinningLogisticsRule(
+    person,
+    matching.map((row) => row.rule),
+    localities,
+  );
+  if (!win || !isOfrnCollectiveAlcance(win.alcance)) return null;
+  return (
+    matching.find((row) => Number(row.rule.id) === Number(win.id)) ||
+    matching[0]
+  );
+}
+
+/** Campos de grano para INSERT espejo ↓ (mismo alcance/objetivo, sin N Persona). */
+export function cloneOfrnRouteRuleGrain(rule, opts = {}) {
+  const targetIds = Array.isArray(rule?.target_ids)
+    ? rule.target_ids.map(String)
+    : [];
+  return {
+    id_gira: opts.id_gira,
+    id_transporte_fisico: opts.id_transporte_fisico,
+    alcance: rule.alcance,
+    prioridad: rule.prioridad ?? 1,
+    id_region: rule.id_region ?? null,
+    id_localidad: rule.id_localidad ?? null,
+    id_integrante: null,
+    instrumento_familia: rule.instrumento_familia ?? null,
+    target_ids: targetIds,
+    es_chofer: false,
+    id_evento_subida: opts.id_evento_subida ?? null,
+    id_evento_bajada: opts.id_evento_bajada ?? null,
+  };
 }
 
 /**
