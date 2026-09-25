@@ -11,7 +11,7 @@ import {
   isViaticoPorcentajeCero,
   resolveAnticipoParaPdfViatico,
   RENUNCIA_VIATICOS_TEXTO,
-  sumGastosViaticoRow,
+  resolveExportedTotalFinal,
 } from "./viaticosAnticipo";
 import {
   resolveCheckPatenteOficial,
@@ -294,9 +294,7 @@ export const exportViaticosToPDFForm = async (
                   useHistorical,
                   !!configData?.renuncia_viaticos,
                 );
-            const gastos = sumGastosViaticoRow(rawData);
-            const totalFinal =
-              Math.round((subNum + gastos + Number.EPSILON) * 100) / 100;
+            const totalFinal = resolveExportedTotalFinal(rawData, subNum);
             return { ...rawData, subtotal: sub, totalFinal };
           })();
     const franjasPdf =
@@ -364,10 +362,8 @@ export const exportViaticosToPDFForm = async (
         f("dia_llegada", formatDdMmYyyy(data.fecha_llegada));
         f("hora_llegada", fmtTime(data.hora_llegada));
         fillDiasValorDiarioPdfFields(f, money, data, franjasPdf);
-        f(
-          "porcentaje_temporada",
-          configData.factor_temporada > 0 ? "ALTA" : "BAJA"
-        );
+        // La plantilla de rendición tiene `check_temporada` (no `porcentaje_temporada`).
+        f("check_temporada", configData.factor_temporada > 0 ? "X" : "");
 
         // Tabla Rendición
         f("viaticos_ant", money(data.subtotal));

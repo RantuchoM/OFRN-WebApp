@@ -259,6 +259,34 @@ export function formatSegmentosValorDiario(segmentos, fmtMoney) {
     .join(" + ");
 }
 
+/** Segmentos con monto y días, en orden de fecha (lo que ve la pantalla y el PDF dual). */
+export function segmentosParaVista(segmentos) {
+  return [...(Array.isArray(segmentos) ? segmentos : [])]
+    .filter((s) => Number(s.montoBase) > 0 && Number(s.dias) > 0)
+    .sort((a, b) => String(a.fechaDesde).localeCompare(String(b.fechaDesde)));
+}
+
+export function tituloSegmentoRango(index, total) {
+  if (total <= 1) return "Valor diario";
+  if (index === 0) return "Rango anterior";
+  if (index === total - 1) return "Rango vigente";
+  return `Rango ${index + 1}`;
+}
+
+export function fechasSegmentoRango(segmento) {
+  const desde = formatFechaViaticos(segmento?.fechaDesde);
+  const hasta = formatFechaViaticos(segmento?.fechaHasta);
+  if (!segmento?.fechaDesde) return "";
+  if (
+    !segmento?.fechaHasta ||
+    segmento.fechaDesde === segmento.fechaHasta
+  ) {
+    return desde === "—" ? "" : desde;
+  }
+  if (desde === "—" || hasta === "—") return "";
+  return `${desde}–${hasta}`;
+}
+
 export function formatSegmentosMontoBase(segmentos, fmtMoney) {
   if (!Array.isArray(segmentos) || segmentos.length === 0) return "";
   return segmentos

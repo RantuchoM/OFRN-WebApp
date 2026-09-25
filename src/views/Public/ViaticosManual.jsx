@@ -26,8 +26,9 @@ import ValorDiarioBaseHistoricoField, {
 import { canAdminValorDiario } from "../../utils/viaticosValorDiarioAdmin";
 import {
   calcValorDiarioProporcional,
-  formatSegmentosValorDiario,
+  segmentosParaVista,
 } from "../../utils/viaticosValorDiarioProporcional";
+import RangosValorDiario from "../../components/viaticos/RangosValorDiario";
 import ManualClearChoiceModal from "../../components/public/ManualClearChoiceModal";
 import {
   baseFieldClass,
@@ -131,7 +132,15 @@ const parseCsv = (text) => {
   return rows;
 };
 
-const MiniCalcBox = ({ valorDiarioCalc, dias, subtotal, className = "" }) => {
+const MiniCalcBox = ({
+  valorDiarioCalc,
+  dias,
+  subtotal,
+  segmentos,
+  className = "",
+}) => {
+  const rangos = segmentosParaVista(segmentos);
+  const multiple = rangos.length > 1;
   return (
     <div
       className={`mt-3 md:mt-0 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 ${className}`}
@@ -139,39 +148,40 @@ const MiniCalcBox = ({ valorDiarioCalc, dias, subtotal, className = "" }) => {
       <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">
         Cálculo en vivo
       </div>
-      <div className="mt-2 grid grid-cols-3 gap-2">
-        <div>
-          <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-            Valor diario
+      {multiple ? (
+        <div className="mt-2">
+          <RangosValorDiario
+            segmentos={rangos}
+            valorDiarioCalc={valorDiarioCalc}
+            dias={dias}
+            subtotal={subtotal}
+            fmtMoney={fmtMoneyPreview}
+          />
+        </div>
+      ) : (
+        <div className="mt-2 grid grid-cols-3 gap-2">
+          <div>
+            <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+              Valor diario
+            </div>
+            <div className="text-sm font-black text-slate-800">
+              {fmtMoneyPreview(valorDiarioCalc)}
+            </div>
           </div>
-          <div className="text-sm font-black text-slate-800">
-            {fmtMoneyPreview(valorDiarioCalc)}
+          <div>
+            <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+              Días
+            </div>
+            <div className="text-sm font-black text-slate-800">{String(dias || 0)}</div>
+          </div>
+          <div>
+            <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+              Anticipo
+            </div>
+            <div className="text-sm font-black text-slate-800">{fmtMoneyPreview(subtotal)}</div>
           </div>
         </div>
-        <div>
-          <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-            Días
-          </div>
-          <div className="text-sm font-black text-slate-800">{String(dias || 0)}</div>
-        </div>
-        <div>
-          <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-            Anticipo
-          </div>
-          <div className="text-sm font-black text-slate-800">{fmtMoneyPreview(subtotal)}</div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-const MiniValueBox = ({ label, value, className = "" }) => {
-  return (
-    <div className={`rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 ${className}`}>
-      <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-        {label}
-      </div>
-      <div className="mt-1 text-sm font-black text-slate-800">{value}</div>
+      )}
     </div>
   );
 };
@@ -355,13 +365,7 @@ export default function ViaticosManual() {
 
   const valorDiarioCalc = calcFinanciero.valorDiarioCalc;
   const subtotal = calcFinanciero.subtotal;
-  const desgloseValorDiario = useMemo(() => {
-    if (!calcFinanciero.usaProporcional) return "";
-    return formatSegmentosValorDiario(
-      calcFinanciero.segmentos,
-      fmtMoneyPreview,
-    );
-  }, [calcFinanciero]);
+  const segmentosValor = calcFinanciero.segmentos;
 
   const totalGastos = useMemo(() => {
     return round2(
@@ -675,7 +679,7 @@ export default function ViaticosManual() {
       porcentaje: toNumber(form.porcentaje),
       valorDiarioCalc,
       subtotal,
-      segmentosValorDiario: calcFinanciero.segmentos,
+      segmentosValorDiario: segmentosValor,
       usaProporcional: calcFinanciero.usaProporcional,
 
       check_aereo: !!form.check_aereo,
@@ -689,7 +693,6 @@ export default function ViaticosManual() {
 
       gasto_alojamiento: toNumber(form.gasto_alojamiento),
       gasto_pasajes: toNumber(form.gasto_pasajes),
-      gastos_movilidad: toNumber(form.gasto_pasajes), // compatibilidad (PDF usa gasto_pasajes || gastos_movilidad)
       gasto_combustible: toNumber(form.gasto_combustible),
       gasto_otros: toNumber(form.gasto_otros),
       gastos_capacit: toNumber(form.gastos_capacit),
@@ -984,6 +987,7 @@ export default function ViaticosManual() {
                   valorDiarioCalc={valorDiarioCalc}
                   dias={dias_computables}
                   subtotal={subtotal}
+                  segmentos={segmentosValor}
                 />
 
                 <label className="text-xs font-bold text-slate-600 md:row-start-3 md:col-start-1">
@@ -1075,11 +1079,21 @@ export default function ViaticosManual() {
                     className="h-5 w-5 accent-indigo-600"
                   />
                 </label>
-                <MiniValueBox
-                  label="Valor diario calculado"
-                  value={fmtMoneyPreview(valorDiarioCalc)}
-                  className="md:self-stretch"
-                />
+                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 md:self-stretch">
+                  <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                    Valor diario calculado
+                  </div>
+                  <div className="mt-1">
+                    <RangosValorDiario
+                      segmentos={segmentosValor}
+                      valorDiarioCalc={valorDiarioCalc}
+                      dias={dias_computables}
+                      subtotal={subtotal}
+                      fmtMoney={fmtMoneyPreview}
+                      showTotal={segmentosParaVista(segmentosValor).length > 1}
+                    />
+                  </div>
+                </div>
               </div>
             </section>
 
@@ -1295,15 +1309,19 @@ export default function ViaticosManual() {
                 <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">
                   Valor diario (cálculo)
                 </div>
-                <div className="text-2xl font-black text-slate-800 mt-1">
-                  {fmtMoneyPreview(valorDiarioCalc)}
+                <div className="mt-1">
+                  <RangosValorDiario
+                    segmentos={segmentosValor}
+                    valorDiarioCalc={valorDiarioCalc}
+                    dias={dias_computables}
+                    subtotal={subtotal}
+                    fmtMoney={fmtMoneyPreview}
+                    showTramoSubtotal={false}
+                    showTotal={false}
+                    valueClassName="text-lg font-black text-slate-800"
+                  />
                 </div>
                 <div className="text-[11px] text-slate-500 mt-1">
-                  {desgloseValorDiario ? (
-                    <span className="block text-indigo-600 font-semibold">
-                      Prorrateo: {desgloseValorDiario}
-                    </span>
-                  ) : null}
                   Base:{" "}
                   <span className="font-bold">
                     {valorDiarioBaseInfo.estado === "unico"
