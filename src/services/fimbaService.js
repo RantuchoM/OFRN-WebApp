@@ -9350,7 +9350,7 @@ export function resolveFimbaEstadoActor(opts = {}) {
 }
 
 const CONTRATACION_SELECT =
-  "id, id_edicion, orden, numero_expediente, id_propuesta, nombre, monto, tipo_contratacion, envio_firma_mfm_nota, nota_firmada, falta_documentacion, enviado_adm, ultimo_estado_conocido, carpeta_documentacion, created_at, updated_at, fimba_propuestas:id_propuesta ( id, nombre, color )";
+  "id, id_edicion, orden, numero_expediente, id_propuesta, nombre, monto, tipo_contratacion, envio_firma_mfm_nota, nota_firmada, falta_documentacion, enviado_adm, ultimo_estado_conocido, ultimo_estado_at, carpeta_documentacion, created_at, updated_at, fimba_propuestas:id_propuesta ( id, nombre, color )";
 
 const ESTADO_LOG_SELECT =
   "id, id_contratacion, estado, created_at, created_by_label, created_by_integrante_id, created_by_fimba_usuario_id";
@@ -9544,10 +9544,14 @@ export async function appendFimbaContratacionEstado(contratacionId, opts = {}) {
     entry = inserted;
   }
 
+  // Fecha del último cambio: log.created_at si hubo insert; now() al limpiar.
+  const ultimo_estado_at = entry?.created_at || new Date().toISOString();
+
   const { data: updated, error: updErr } = await supabase
     .from("fimba_contrataciones")
     .update({
       ultimo_estado_conocido: estado,
+      ultimo_estado_at,
       updated_at: new Date().toISOString(),
     })
     .eq("id", contratacionId)

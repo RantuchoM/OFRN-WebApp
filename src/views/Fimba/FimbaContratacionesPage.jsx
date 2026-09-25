@@ -435,12 +435,15 @@ const SORT_TYPES = {
   nota_firmada: "bool",
   falta_documentacion: "bool",
   enviado_adm: "bool",
-  ultimo_estado_conocido: "text",
+  // Ordena por fecha del último cambio (`ultimo_estado_at`), no por texto.
+  ultimo_estado_conocido: "date",
 };
 
 function sortValEmpty(type, v) {
   if (type === "bool") return false;
-  if (type === "number") return v == null || Number.isNaN(v);
+  if (type === "number" || type === "date") {
+    return v == null || Number.isNaN(v);
+  }
   return v == null || String(v).trim() === "";
 }
 
@@ -472,8 +475,13 @@ function getRowSortValue(key, draft, row, propuestasById) {
     case "falta_documentacion":
     case "enviado_adm":
       return asBool(draft?.[key]) ? 1 : 0;
-    case "ultimo_estado_conocido":
-      return String(draft?.ultimo_estado_conocido || "").trim();
+    case "ultimo_estado_conocido": {
+      // Sort key = denorm `ultimo_estado_at` (log.created_at / clear time).
+      const raw = row?.ultimo_estado_at;
+      if (raw == null || raw === "") return null;
+      const ms = Date.parse(raw);
+      return Number.isFinite(ms) ? ms : null;
+    }
     default:
       return "";
   }
@@ -488,7 +496,7 @@ function compareSortValues(type, a, b, dir) {
   if (bEmpty) return -1;
 
   let cmp = 0;
-  if (type === "number" || type === "bool") {
+  if (type === "number" || type === "bool" || type === "date") {
     cmp = Number(a) - Number(b);
   } else {
     cmp = ES_COLLATOR.compare(String(a), String(b));
