@@ -22,7 +22,7 @@ Se ha reemplazado el campo booleano `es_tipo_alternativo` por `categoria_logisti
   2. matchea al menos una regla de subida y una de bajada de ese `giras_transportes` (incluye inf. viáticos ≠ residencia, misma semántica que chips SUBEN/BAJAN).
 - Fórmula de butacas igual: personas + `plaza_extra`. Vacantes (`es_simulacion`) cuentan si tienen boarding. IDs numéricos. El ranker de admisión **no** cambia.
 - Cuadro de firmas (PDF/DOCX) usa la misma lista.
-- PDF/DOCX: márgenes de hoja **12 mm** (cuatro lados) y **tres renglones pautados** (8 mm + 4 mm de hueco) encima del bloque de firmas para notas a mano. Detalle en `viaticos_destaques_custom_location.md`.
+- PDF/DOCX: márgenes de hoja **12 mm** (cuatro lados); **tres Enters** (párrafos vacíos, sin renglones pautados) encima del bloque de firmas; menores (`fecha_nac`, edad &lt; 18, misma regla CNRT) sin recuadro de firma. Detalle en `viaticos_destaques_custom_location.md`.
 - `pasajeros_ids` no se usa aquí (en INTERNO inflaría al roster). CNRT / hoja de ruta siguen el path anterior (deuda).
 
 - [x] Chip de ocupación INTERNO = riders con ↑ y ↓ (no toda la orquesta)

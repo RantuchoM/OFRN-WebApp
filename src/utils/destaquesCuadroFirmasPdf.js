@@ -13,6 +13,7 @@ import {
   Document,
   HeightRule,
   ImageRun,
+  LineRuleType,
   Packer,
   PageOrientation,
   Paragraph,
@@ -20,6 +21,7 @@ import {
   TableCell,
   TableLayoutType,
   TableRow,
+  TextRun,
   WidthType,
 } from "docx";
 
@@ -30,12 +32,16 @@ const PAGE_MARGIN_MM = 12;
 const PDF_GRID_MARGIN_MM = PAGE_MARGIN_MM;
 /** Word standalone usa márgenes de página; la grilla no suma otro inset. Word+nota: 0 extra (márgenes del host). */
 const DOCX_GRID_MARGIN_MM = 0;
-/** Tres renglones pautados encima del bloque de firmas (notas a mano de UX/producción). */
-const NOTES_LINE_COUNT = 3;
-const NOTES_LINE_HEIGHT_MM = 8;
-const NOTES_GAP_AFTER_MM = 4;
-const NOTES_HEADER_HEIGHT_MM =
-  NOTES_LINE_COUNT * NOTES_LINE_HEIGHT_MM + NOTES_GAP_AFTER_MM;
+/**
+ * Tres Enters (párrafos vacíos) encima del bloque de firmas.
+ * Sin renglones dibujados ni filas con borde: solo espacio vertical.
+ * 8 mm ≈ un renglón de escritura a mano (mismo alto que los pautados anteriores).
+ */
+const NOTES_BLANK_COUNT = 3;
+const NOTES_PARAGRAPH_HEIGHT_MM = 8;
+const NOTES_HEADER_HEIGHT_MM = NOTES_BLANK_COUNT * NOTES_PARAGRAPH_HEIGHT_MM;
+/** CNRT / lista de pasajeros: menor si fecha_nac implica edad < 18. */
+const MENOR_EDAD_MAX = 17;
 const MM_TO_PT = 72 / 25.4;
 const MM_TO_PX = 96 / 25.4;
 const mmPt = (v) => v * MM_TO_PT;
@@ -46,16 +52,53 @@ const MAX_SIGNATURE_CELL_HEIGHT_RATIO = 1 / 6;
 /** Encargado: siempre primera firma del cuadro (aunque no esté en el lote de destaques). */
 export const CUADRO_FIRMAS_ENCARGADO_INTEGRANTE_ID = 1458710;
 
+function parseFechaNacDate(value) {
+  if (!value) return null;
+  const iso = String(value).trim().slice(0, 10);
+  const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (parts) {
+    return new Date(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3]));
+  }
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+/**
+ * Misma regla que la columna MENOR de transporte (CNRT / transportExport):
+ * `fecha_nac` en `integrantes` y edad < 18. No hay `es_menor` ni plaza infantil.
+ * Sin fecha de nacimiento no se asume menor (a diferencia del Excel CNRT, que
+ * trata fecha vacía como hoy y marcaría a todos).
+ */
+export function isCuadroFirmasMenor(person, now = new Date()) {
+  const birth = parseFechaNacDate(person?.fecha_nac);
+  if (!birth) return false;
+  let age = now.getFullYear() - birth.getFullYear();
+  const monthDiff = now.getMonth() - birth.getMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && now.getDate() < birth.getDate())) {
+    age -= 1;
+  }
+  return age >= 0 && age <= MENOR_EDAD_MAX;
+}
+
 export function toCuadroFirmasPerson(row) {
   if (!row) return null;
   const dni = row.dni != null ? String(row.dni).trim() : "";
   const firmaRaw = row.firma != null ? String(row.firma).trim() : "";
-  return {
+  const fechaNacRaw =
+    row.fecha_nac != null ? String(row.fecha_nac).trim().slice(0, 10) : "";
+  const person = {
     id: row.id,
     nombre: row.nombre,
     apellido: row.apellido,
     dni: dni || null,
+    fecha_nac: fechaNacRaw || null,
     firma: firmaRaw && firmaRaw !== "NULL" ? firmaRaw : null,
+  };
+  const esMenor = isCuadroFirmasMenor(person);
+  return {
+    ...person,
+    esMenor,
+    firma: esMenor ? null : person.firma,
   };
 }
 
@@ -63,7 +106,7 @@ export async function fetchEncargadoCuadroFirmas(supabase) {
   if (!supabase) return null;
   const { data, error } = await supabase
     .from("integrantes")
-    .select("id, nombre, apellido, dni, firma")
+    .select("id, nombre, apellido, dni, firma, fecha_nac")
     .eq("id", CUADRO_FIRMAS_ENCARGADO_INTEGRANTE_ID)
     .maybeSingle();
   if (error) {
@@ -131,7 +174,12 @@ export async function hydrateCuadroFirmasPeopleFirma(supabase, people) {
   if (!supabase?.from) return people || [];
   const list = (people || []).map(toCuadroFirmasPerson).filter(Boolean);
   const ids = [
-    ...new Set(list.map((person) => Number(person.id)).filter(Number.isFinite)),
+    ...new Set(
+      list
+        .filter((person) => !person.esMenor)
+        .map((person) => Number(person.id))
+        .filter(Number.isFinite),
+    ),
   ];
   if (ids.length === 0) return list;
 
@@ -156,15 +204,72 @@ export async function hydrateCuadroFirmasPeopleFirma(supabase, people) {
 
   return list.map((person) => ({
     ...person,
-    firma: firmaById.get(Number(person.id)) ?? person.firma ?? null,
+    firma: person.esMenor
+      ? null
+      : (firmaById.get(Number(person.id)) ?? person.firma ?? null),
   }));
+}
+
+export async function hydrateCuadroFirmasPeopleFechaNac(supabase, people) {
+  if (!supabase?.from) return people || [];
+  const list = (people || []).map(toCuadroFirmasPerson).filter(Boolean);
+  const missingIds = [
+    ...new Set(
+      list
+        .filter((person) => !person.fecha_nac)
+        .map((person) => Number(person.id))
+        .filter(Number.isFinite),
+    ),
+  ];
+  if (missingIds.length === 0) return list;
+
+  const { data, error } = await supabase
+    .from("integrantes")
+    .select("id, fecha_nac")
+    .in("id", missingIds);
+  if (error) {
+    console.warn("Cuadro de firmas: fechas de nacimiento no cargadas", error);
+    return list;
+  }
+
+  const fechaById = new Map(
+    (data || []).map((row) => [
+      Number(row.id),
+      row.fecha_nac != null ? String(row.fecha_nac).trim().slice(0, 10) : "",
+    ]),
+  );
+
+  return list.map((person) => {
+    if (person.fecha_nac) return person;
+    const fecha_nac = fechaById.get(Number(person.id)) || null;
+    const next = { ...person, fecha_nac: fecha_nac || null };
+    const esMenor = isCuadroFirmasMenor(next);
+    return {
+      ...next,
+      esMenor,
+      firma: esMenor ? null : next.firma,
+    };
+  });
+}
+
+function withMenorFlags(people) {
+  return (people || []).map((person) => {
+    const esMenor = isCuadroFirmasMenor(person);
+    return {
+      ...person,
+      esMenor,
+      firma: esMenor ? null : person.firma,
+    };
+  });
 }
 
 async function prepareCuadroFirmasPeople(people, encargado, supabase) {
   const sorted = buildCuadroFirmasPeopleList(people, encargado);
-  if (!supabase) return sorted;
-  const withFirma = await hydrateCuadroFirmasPeopleFirma(supabase, sorted);
-  return hydrateCuadroFirmasPeopleDni(supabase, withFirma);
+  if (!supabase) return withMenorFlags(sorted);
+  const withFecha = await hydrateCuadroFirmasPeopleFechaNac(supabase, sorted);
+  const withFirma = await hydrateCuadroFirmasPeopleFirma(supabase, withFecha);
+  const withDni = await hydrateCuadroFirmasPeopleDni(supabase, withFirma);
+  return withMenorFlags(withDni);
 }
 
 /** Máximo píxeles al rasterizar cada firma (reduce mucho el peso del PDF). */
@@ -424,6 +529,7 @@ async function buildSignatureImageDataCache(people) {
   const urls = [
     ...new Set(
       (people || [])
+        .filter((person) => !person.esMenor)
         .map((person) => person.firma)
         .filter((url) => url && url !== "NULL")
         .map((url) => String(url).trim()),
@@ -473,20 +579,18 @@ function buildStandaloneDocxLayoutOpts() {
   };
 }
 
-function drawPdfNotesLines(page, layout, lineColor) {
-  const { marginMm, contentWidthMm, pageHeightMm = PAGE_H } = layout;
-  const pageHPt = mmPt(pageHeightMm);
-  const x1 = mmPt(marginMm);
-  const x2 = mmPt(marginMm + (contentWidthMm || PAGE_W - marginMm * 2));
-  for (let i = 1; i <= NOTES_LINE_COUNT; i += 1) {
-    const y = pageHPt - mmPt(marginMm + i * NOTES_LINE_HEIGHT_MM);
-    page.drawLine({
-      start: { x: x1, y },
-      end: { x: x2, y },
-      thickness: 0.45,
-      color: lineColor,
-    });
-  }
+function createDocxBlankEnters() {
+  return Array.from({ length: NOTES_BLANK_COUNT }, () =>
+    new Paragraph({
+      spacing: {
+        before: 0,
+        after: 0,
+        line: mmTwip(NOTES_PARAGRAPH_HEIGHT_MM),
+        lineRule: LineRuleType.EXACT,
+      },
+      children: [new TextRun("")],
+    }),
+  );
 }
 
 function ptToPx(pt) {
@@ -741,67 +845,76 @@ async function renderSignatureCellToJpeg(person, signatureImageData, layout) {
   canvas.width = widthPx;
   canvas.height = heightPx;
   const ctx = canvas.getContext("2d");
+  const esMenor = Boolean(person.esMenor);
 
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, widthPx, heightPx);
-
-  const borderPx = Math.max(1, widthPx * 0.005);
-  const insetPx = mmPx(edgeInsetMm);
-  ctx.strokeStyle = "#CCD6E0";
-  ctx.lineWidth = borderPx;
-  ctx.strokeRect(
-    insetPx,
-    insetPx,
-    widthPx - insetPx * 2,
-    heightPx - insetPx * 2,
-  );
 
   const sigPadMm = 0.8;
   const sigWmm = cellWidthMm - sigPadMm * 2;
   const sigHmm = signatureBoxHeightMm - sigPadMm;
   let signatureDrawn = false;
 
-  if (signatureImageData?.bytes) {
-    try {
-      const img = await loadImageFromBytes(
-        signatureImageData.bytes,
-        signatureImageData.mime || "image/jpeg",
-      );
-      const maxWPx = mmPx(sigWmm);
-      const maxHPx = mmPx(sigHmm);
-      const scale = Math.min(maxWPx / img.width, maxHPx / img.height);
-      const w = img.width * scale;
-      const h = img.height * scale;
-      const x = (widthPx - w) / 2;
-      const y = mmPx(sigPadMm) + (mmPx(sigHmm) - h) / 2;
-      ctx.drawImage(img, x, y, w, h);
-      signatureDrawn = true;
-    } catch (error) {
-      console.warn("Cuadro de firmas: firma no dibujada en celda Word", {
+  if (!esMenor) {
+    const borderPx = Math.max(1, widthPx * 0.005);
+    const insetPx = mmPx(edgeInsetMm);
+    ctx.strokeStyle = "#CCD6E0";
+    ctx.lineWidth = borderPx;
+    ctx.strokeRect(
+      insetPx,
+      insetPx,
+      widthPx - insetPx * 2,
+      heightPx - insetPx * 2,
+    );
+
+    if (signatureImageData?.bytes) {
+      try {
+        const img = await loadImageFromBytes(
+          signatureImageData.bytes,
+          signatureImageData.mime || "image/jpeg",
+        );
+        const maxWPx = mmPx(sigWmm);
+        const maxHPx = mmPx(sigHmm);
+        const scale = Math.min(maxWPx / img.width, maxHPx / img.height);
+        const w = img.width * scale;
+        const h = img.height * scale;
+        const x = (widthPx - w) / 2;
+        const y = mmPx(sigPadMm) + (mmPx(sigHmm) - h) / 2;
+        ctx.drawImage(img, x, y, w, h);
+        signatureDrawn = true;
+      } catch (error) {
+        console.warn("Cuadro de firmas: firma no dibujada en celda Word", {
+          personId: person.id,
+          nombre: formatPersonFullName(person),
+          url: person.firma,
+          mime: signatureImageData.mime,
+          error,
+        });
+        signatureDrawn = false;
+      }
+    } else if (person.firma) {
+      console.warn("Cuadro de firmas: sin datos de firma en caché", {
         personId: person.id,
         nombre: formatPersonFullName(person),
         url: person.firma,
-        mime: signatureImageData.mime,
-        error,
       });
-      signatureDrawn = false;
     }
-  } else if (person.firma) {
-    console.warn("Cuadro de firmas: sin datos de firma en caché", {
-      personId: person.id,
-      nombre: formatPersonFullName(person),
-      url: person.firma,
-    });
   }
 
   if (!signatureDrawn) {
     const fontSizePx = ptToPx(Math.min(7, cellWidthMm * 0.32));
     const sigCenterY = mmPx(sigPadMm) + mmPx(sigHmm) / 2;
-    drawCenteredCanvasText(ctx, "Sin firma", widthPx / 2, sigCenterY, {
-      font: `${fontSizePx}px Arial, Helvetica, sans-serif`,
-      color: "#94A3B8",
-      baseline: "middle",
-    });
+    drawCenteredCanvasText(
+      ctx,
+      esMenor ? "Menor" : "Sin firma",
+      widthPx / 2,
+      sigCenterY,
+      {
+        font: `${fontSizePx}px Arial, Helvetica, sans-serif`,
+        color: "#94A3B8",
+        baseline: "middle",
+      },
+    );
   }
 
   drawSignatureCellTextBlock(ctx, person, layout, widthPx, heightPx);
@@ -867,8 +980,6 @@ export async function exportDestaquesCuadroFirmasPdf({
   const nameColor = rgb(0.12, 0.16, 0.22);
   const mutedColor = rgb(0.58, 0.64, 0.72);
 
-  drawPdfNotesLines(page, layout, borderColor);
-
   const imageCache = await buildSignatureImageDataCache(sorted);
   const embedCache = new Map();
 
@@ -905,40 +1016,51 @@ export async function exportDestaquesCuadroFirmasPdf({
     const cellW = mmPt(cellWidthMm);
     const cellH = mmPt(cellHeightMm);
     const y = pageHPt - mmPt(yTopMm) - cellH;
+    const esMenor = Boolean(person.esMenor);
 
-    page.drawRectangle({
-      x,
-      y,
-      width: cellW,
-      height: cellH,
-      borderColor,
-      borderWidth: 0.4,
-      color: rgb(1, 1, 1),
-    });
+    if (!esMenor) {
+      page.drawRectangle({
+        x,
+        y,
+        width: cellW,
+        height: cellH,
+        borderColor,
+        borderWidth: 0.4,
+        color: rgb(1, 1, 1),
+      });
+    }
 
     const sigPadMm = 0.8;
     const sigWmm = cellWidthMm - sigPadMm * 2;
     const sigHmm = signatureBoxHeightMm - sigPadMm;
     const sigX = mmPt(xMm + sigPadMm);
-    const sigY =
-      pageHPt - mmPt(yTopMm + sigPadMm) - mmPt(sigHmm);
+    const sigY = pageHPt - mmPt(yTopMm + sigPadMm) - mmPt(sigHmm);
 
-    const embedded = await getEmbedded(person.firma);
-    if (embedded) {
-      const scaled = embedded.scaleToFit(mmPt(sigWmm), mmPt(sigHmm));
-      page.drawImage(embedded, {
-        x: sigX + (mmPt(sigWmm) - scaled.width) / 2,
-        y: sigY + (mmPt(sigHmm) - scaled.height) / 2,
-        width: scaled.width,
-        height: scaled.height,
-      });
-    } else {
+    if (esMenor) {
       const fontSize = Math.min(7, cellWidthMm * 0.32);
-      drawCenteredText(page, "Sin firma", x + cellW / 2, y + cellH / 2, {
+      drawCenteredText(page, "Menor", x + cellW / 2, y + cellH / 2, {
         font,
         size: fontSize,
         color: mutedColor,
       });
+    } else {
+      const embedded = await getEmbedded(person.firma);
+      if (embedded) {
+        const scaled = embedded.scaleToFit(mmPt(sigWmm), mmPt(sigHmm));
+        page.drawImage(embedded, {
+          x: sigX + (mmPt(sigWmm) - scaled.width) / 2,
+          y: sigY + (mmPt(sigHmm) - scaled.height) / 2,
+          width: scaled.width,
+          height: scaled.height,
+        });
+      } else {
+        const fontSize = Math.min(7, cellWidthMm * 0.32);
+        drawCenteredText(page, "Sin firma", x + cellW / 2, y + cellH / 2, {
+          font,
+          size: fontSize,
+          color: mutedColor,
+        });
+      }
     }
 
     const fullName = formatPersonFullName(person);
@@ -1004,53 +1126,6 @@ const emptyDocxParagraph = () =>
     spacing: { before: 0, after: 0 },
     children: [],
   });
-
-const NOTES_LINE_BORDER = {
-  style: BorderStyle.SINGLE,
-  size: 6,
-  color: "CCD6E0",
-  space: 1,
-};
-
-function createDocxNotesBlock(contentWidthMm) {
-  const widthTwip = mmTwip(contentWidthMm);
-  const rowHeight = mmTwip(NOTES_LINE_HEIGHT_MM);
-  const rows = Array.from({ length: NOTES_LINE_COUNT }, () =>
-    new TableRow({
-      height: {
-        value: rowHeight,
-        rule: HeightRule.EXACT,
-      },
-      children: [
-        new TableCell({
-          width: { size: widthTwip, type: WidthType.DXA },
-          borders: {
-            top: DOCX_NO_BORDER,
-            left: DOCX_NO_BORDER,
-            right: DOCX_NO_BORDER,
-            bottom: NOTES_LINE_BORDER,
-          },
-          children: [emptyDocxParagraph()],
-        }),
-      ],
-    }),
-  );
-
-  return [
-    new Table({
-      rows,
-      width: { size: widthTwip, type: WidthType.DXA },
-      columnWidths: [widthTwip],
-      layout: TableLayoutType.FIXED,
-      alignment: AlignmentType.LEFT,
-      borders: DOCX_NO_BORDERS,
-    }),
-    new Paragraph({
-      spacing: { before: 0, after: mmTwip(NOTES_GAP_AFTER_MM) },
-      children: [],
-    }),
-  ];
-}
 
 function createDocxSignatureCell(flatCellImage, layout, isEmpty) {
   const { cellWidthMm, cellHeightMm } = layout;
@@ -1168,9 +1243,7 @@ async function buildCuadroFirmasDocxBuffer({
           },
         },
         children: [
-          ...createDocxNotesBlock(
-            layout.contentWidthMm || tableWidthMm,
-          ),
+          ...createDocxBlankEnters(),
           new Table({
             rows: tableRows,
             width: {
