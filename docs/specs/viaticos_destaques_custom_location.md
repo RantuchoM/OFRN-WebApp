@@ -52,7 +52,8 @@ Permitir que el usuario defina un "Lugar de Comisión" específico para el proce
 - [x] Un único botón **Cuadro de firmas** ofrece elegir **PDF** o **Word** (destaques y transportes).
 - [x] **Word + nota:** una sola opción para subir un `.docx`; las firmas se insertan al final del contenido (antes del `sectPr` del documento), con 2 líneas en blanco y sin salto de página forzado. Si Word repagina solo porque no entra el cuadro, queda en la hoja siguiente.
 - [x] Carga de firmas para Word/PDF: timeout 25 s, hasta 3 reintentos, descargas en paralelo, acepta `application/octet-stream` (Storage) y log en consola si una firma falla (`Cuadro de firmas: …`).
-- [x] Word sin margen extra: la grilla usa ancho **100%** del área útil (sin los 10 mm del PDF). En **Word + nota**, el layout se calcula con el ancho real entre márgenes del `.docx` host para que no desborde hacia la derecha.
+- [x] **Márgenes de hoja (2026-09-25):** PDF y Word standalone usan **12 mm** en los cuatro lados (rango de impresión 10–15 mm). La grilla se calcula sobre el área útil para no achicar nombres. **Word + nota** no suma margen extra de grilla: usa los márgenes del `.docx` host.
+- [x] **Notas a mano (2026-09-25):** tres renglones pautados (8 mm de alto cada uno + 4 mm de separación) **encima** del bloque de firmas, en PDF y Word. No reemplazan nombres; son espacio para que UX/producción escriba antes de firmar. **Word + nota** conserva las 2 líneas en blanco del merge (después del contenido host) y además incluye esos 3 renglones pautados antes de la grilla.
 - [x] Firmas **PNG** (p. ej. con transparencia) se conservan como PNG al rasterizar; el cuadro rehidrata `firma` desde `integrantes` antes de exportar.
 - [x] **Word + nota:** al fusionar, solo se copian relaciones de imagen, se registran PNG/JPEG en `[Content_Types].xml` del host y la tabla usa ancho fijo en DXA (no `100%`).
 

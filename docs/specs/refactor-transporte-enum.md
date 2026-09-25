@@ -8,7 +8,25 @@ Se ha reemplazado el campo booleano `es_tipo_alternativo` por `categoria_logisti
 
 - **`PASAJEROS`**: Transporte estándar. Las paradas usan el tipo de evento **11**. Requiere asignación manual de pasajeros.
 - **`LOGISTICO`**: Transporte de carga o staff técnico. Las paradas usan el tipo de evento **12**.
-- **`INTERNO`**: Traslado interno general. Las paradas usan el tipo de evento **35**. **Es visible para todos los integrantes activos de la gira (isMyTransport = true automático).**
+- **`INTERNO`**: Traslado interno general. Las paradas usan el tipo de evento **35**. **Es visible para todos los integrantes activos de la gira (isMyTransport = true automático).** La **ocupación** (chip de butacas) y el **cuadro de firmas** no usan esa admisión automática: solo cuentan quienes tienen **subida y bajada** en ese vehículo.
+
+## Ocupación INTERNO (chip + firmas)
+
+**Antes:** el header `N + M ins = T butacas / cap` y el cuadro de firmas tomaban `logistics.transports` (todos los no ausentes admitidos al INTERNO). Resultado: la orquesta completa (p. ej. `71 + 13 ins = 84 butacas`) aunque el charter solo moviera a Regina/Roca.
+
+**Ahora:** `src/utils/transportOccupancy.js` → `getTransportOccupancyPassengers`.
+
+- **PASAJEROS / LOGISTICO:** sin cambio — admitidos al vehículo.
+- **INTERNO:** persona no ausente/baja, admitida (no vetada) **y** con ↑ **y** ↓ en este viaje:
+  1. ride logístico con `subidaId` + `bajadaId`, **o**
+  2. matchea al menos una regla de subida y una de bajada de ese `giras_transportes` (incluye inf. viáticos ≠ residencia, misma semántica que chips SUBEN/BAJAN).
+- Fórmula de butacas igual: personas + `plaza_extra`. Vacantes (`es_simulacion`) cuentan si tienen boarding. IDs numéricos. El ranker de admisión **no** cambia.
+- Cuadro de firmas (PDF/DOCX) usa la misma lista.
+- PDF/DOCX: márgenes de hoja **12 mm** (cuatro lados) y **tres renglones pautados** (8 mm + 4 mm de hueco) encima del bloque de firmas para notas a mano. Detalle en `viaticos_destaques_custom_location.md`.
+- `pasajeros_ids` no se usa aquí (en INTERNO inflaría al roster). CNRT / hoja de ruta siguen el path anterior (deuda).
+
+- [x] Chip de ocupación INTERNO = riders con ↑ y ↓ (no toda la orquesta)
+- [x] Cuadro de firmas del mismo vehículo filtrado igual
 
 ## Regla de Oro
 

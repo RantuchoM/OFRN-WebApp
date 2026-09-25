@@ -85,6 +85,12 @@ import {
   extractStoragePathFromUrl,
 } from "../../utils/giraTransportUtils";
 import {
+  countTransportOccupancySeats,
+  formatTransportOccupancyLabel,
+  getTransportOccupancyPassengers,
+  isInternalTransportCategoria,
+} from "../../utils/transportOccupancy";
+import {
   personWithViaticosAsResidence,
   viaticosDiffersFromResidencia,
 } from "../../utils/integranteDomicilioViaticos";
@@ -1648,24 +1654,16 @@ export default function GirasTransportesManager({
     setCnrtModal({ isOpen: false, transportId: null });
   };
 
+  // INTERNO: misma lista que el chip de butacas (↑ y ↓), no pasajeros_ids ni toda la orquesta.
   const getTransportPassengers = useCallback(
-    (transport) => {
-      if (!transport) return [];
-      const transportPassengerIds = Array.isArray(transport.pasajeros_ids)
-        ? transport.pasajeros_ids.map((id) => Number(id))
-        : [];
-      if (transportPassengerIds.length > 0) {
-        return passengerList.filter((p) =>
-          transportPassengerIds.includes(Number(p.id)),
-        );
-      }
-      return passengerList.filter((p) =>
-        p.logistics?.transports?.some(
-          (tr) => String(tr.id) === String(transport.id),
-        ),
-      );
-    },
-    [passengerList],
+    (transport) =>
+      getTransportOccupancyPassengers({
+        passengerList,
+        transport,
+        routeRules,
+        localities: localitiesList,
+      }),
+    [passengerList, routeRules, localitiesList],
   );
 
   const handleExportCuadroFirmasTransport = async (
@@ -2397,16 +2395,14 @@ export default function GirasTransportesManager({
           const vehicleGrupoIds = transportGruposMap.get(Number(t.id)) || [];
           const isMediosPropios = String(t.id_transporte) === "9";
 
-          const tPax = passengerList.filter((p) =>
+          const admittedPax = passengerList.filter((p) =>
             p.logistics?.transports?.some(
               (tr) => String(tr.id) === String(t.id),
             ),
           );
-          const tPassengerCount = tPax.length;
-          const tInstrumentSeats = tPax.filter(
-            (p) => p.instrumentos?.plaza_extra,
-          ).length;
-          const totalOccupied = tPassengerCount + tInstrumentSeats;
+          const tPax = getTransportPassengers(t);
+          const { people: tPassengerCount, instruments: tInstrumentSeats, butacas: totalOccupied } =
+            countTransportOccupancySeats(tPax);
           const maxCap = t.capacidad_maxima || 0;
 
           const isOverbooked = maxCap > 0 && totalOccupied > maxCap;
@@ -2419,7 +2415,7 @@ export default function GirasTransportesManager({
           );
 
           // 1) Pasajeros admitidos al transporte pero con faltantes de subbida/bajada
-          const incompletePaxFromRoutes = tPax.filter((p) => {
+          const incompletePaxFromRoutes = admittedPax.filter((p) => {
             const tr = p.logistics?.transports?.find(
               (x) => String(x.id) === String(t.id),
             );
@@ -2471,17 +2467,24 @@ export default function GirasTransportesManager({
           const scheduleBounds = getTransportScheduleBounds(myEvents);
           const choferDocsStatus =
             t.id_chofer && t.chofer ? getChoferDocumentationStatus(t.chofer) : null;
-          const occupancyLabelDesktop = `${tPassengerCount}${
-            tInstrumentSeats > 0 ? ` + ${tInstrumentSeats} ins = ${totalOccupied}` : ""
-          } butacas${maxCap > 0 ? ` / ${maxCap}` : ""}`;
-          const occupancyLabelMobile =
-            tInstrumentSeats > 0
-              ? `${tPassengerCount}+${tInstrumentSeats}=${totalOccupied}${
-                  maxCap > 0 ? `/${maxCap}` : ""
-                }`
-              : `${tPassengerCount}${maxCap > 0 ? `/${maxCap}` : ""} pax`;
+          const occupancySeats = {
+            people: tPassengerCount,
+            instruments: tInstrumentSeats,
+            butacas: totalOccupied,
+          };
+          const occupancyLabelDesktop = formatTransportOccupancyLabel(
+            occupancySeats,
+            { maxCap },
+          );
+          const occupancyLabelMobile = formatTransportOccupancyLabel(
+            occupancySeats,
+            { maxCap, compact: true },
+          );
+          const occupancyTitle = isInternalTransportCategoria(categoria)
+            ? `Traslado interno: solo quienes suben y bajan en este vehículo (${occupancyLabelDesktop})`
+            : occupancyLabelDesktop;
           const cardTintClass =
-            categoria === "INTERNO"
+            isInternalTransportCategoria(categoria)
               ? "bg-sky-50/40"
               : categoria === "LOGISTICO"
                 ? "bg-amber-50/40"
@@ -2693,7 +2696,7 @@ export default function GirasTransportesManager({
                           <div className="flex flex-wrap items-center gap-1 min-w-0 w-full sm:w-auto">
                             <span
                               className={`inline-flex items-center min-h-5 px-2 py-0.5 rounded-md border text-[10px] font-bold tabular-nums leading-tight max-w-full sm:max-w-none ${occupancyColor}`}
-                              title={occupancyLabelDesktop}
+                              title={occupancyTitle}
                             >
                               <span className="sm:hidden truncate">
                                 {occupancyLabelMobile}

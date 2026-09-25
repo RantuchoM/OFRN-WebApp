@@ -190,6 +190,48 @@ export const sumRendicion = (data) => {
   return fields.reduce((acc, f) => acc + parseFloat(data[f] || 0), 0);
 };
 
+const isRendicionPdfMode = (mode) =>
+  mode === "rendicion" || mode === "rendición";
+
+/**
+ * Cabecera de días / valor diario. Con ≥2 franjas: n × tarifa vieja + m × nueva.
+ * `valor_diario` / `valor_diario1` van ponderados por el % de la fila (misma
+ * convención que la plantilla simple: `valorDiarioCalc`, no el oficial bruto).
+ * Si la plantilla no tiene `dias_computados_total`, `porcentaje` o `porcentaje1`,
+ * `f` los ignora.
+ */
+const fillDiasValorDiarioPdfFields = (f, money, data, franjasPdf) => {
+  const pctTxt = String(data.porcentaje || 0);
+  if (!franjasPdf) {
+    f("dias_computados", String(data.dias_computables || 0));
+    f("valor_diario", money(data.valorDiarioCalc));
+    f("porcentaje_viatico", pctTxt);
+    f("porcentaje", pctTxt);
+    return { pctTxt };
+  }
+  const vdViejaPdf = valorDiarioPdfPonderado(
+    franjasPdf.vieja,
+    data.porcentaje,
+  );
+  const vdNuevaPdf = valorDiarioPdfPonderado(
+    franjasPdf.nueva,
+    data.porcentaje,
+  );
+  f("dias_computados", fmtDiasPdf(franjasPdf.vieja.dias));
+  f("valor_diario", money(vdViejaPdf));
+  f("dias_computados1", fmtDiasPdf(franjasPdf.nueva.dias));
+  f("valor_diario1", money(vdNuevaPdf));
+  f("porcentaje_viatico", pctTxt);
+  f("porcentaje", pctTxt);
+  f("porcentaje1", pctTxt);
+  const diasTotal =
+    data.dias_computables != null && data.dias_computables !== ""
+      ? data.dias_computables
+      : franjasPdf.diasTotal;
+  f("dias_computados_total", fmtDiasPdf(diasTotal));
+  return { pctTxt, vdViejaPdf, vdNuevaPdf };
+};
+
 export const exportViaticosToPDFForm = async (
   giraData,
   viaticosData,
@@ -197,8 +239,10 @@ export const exportViaticosToPDFForm = async (
   mode = "viatico"
 ) => {
   const keepEditable = !!configData?.keep_editable;
-  const defaultTemplateName =
-    mode === "rendicion" ? "plantilla_rendicion.pdf" : "plantilla_viaticos.pdf";
+  const isRendicion = isRendicionPdfMode(mode);
+  const defaultTemplateName = isRendicion
+    ? "plantilla_rendicion.pdf"
+    : "plantilla_viaticos.pdf";
   const templateBuffer = await fetchFileBuffer(
     `/plantillas/${defaultTemplateName}`,
   );
@@ -210,10 +254,15 @@ export const exportViaticosToPDFForm = async (
     throw new Error("Plantilla no encontrada");
   }
 
-  const multiplesBuffer =
+  const multiplesUrl =
     mode === "viatico"
-      ? await fetchFileBuffer("/plantillas/plantilla_viaticos_multiples.pdf")
-      : null;
+      ? "/plantillas/plantilla_viaticos_multiples.pdf"
+      : isRendicion
+        ? "/plantillas/plantilla_rendicion_multiples.pdf"
+        : null;
+  const multiplesBuffer = multiplesUrl
+    ? await fetchFileBuffer(multiplesUrl)
+    : null;
 
   const finalPdf = await PDFDocument.create();
 
@@ -237,21 +286,20 @@ export const exportViaticosToPDFForm = async (
           }
         : (() => {
             const subNum = getAnticipoSubtotalForExport(rawData, useHistorical);
-            const sub =
-              mode === "rendicion"
-                ? subNum
-                : resolveAnticipoParaPdfViatico(
-                    rawData,
-                    useHistorical,
-                    !!configData?.renuncia_viaticos,
-                  );
+            const sub = isRendicion
+              ? subNum
+              : resolveAnticipoParaPdfViatico(
+                  rawData,
+                  useHistorical,
+                  !!configData?.renuncia_viaticos,
+                );
             const gastos = sumGastosViaticoRow(rawData);
             const totalFinal =
               Math.round((subNum + gastos + Number.EPSILON) * 100) / 100;
             return { ...rawData, subtotal: sub, totalFinal };
           })();
     const franjasPdf =
-      mode === "viatico" && !isViaticoPorcentajeCero(data)
+      (mode === "viatico" || isRendicion) && !isViaticoPorcentajeCero(data)
         ? splitSegmentosPdfFranjas(
             data.segmentosValorDiario || data.segmentos,
           )
@@ -289,8 +337,7 @@ export const exportViaticosToPDFForm = async (
     };
 
     try {
-      if (mode === "rendicion") {
-        // ... (Lógica de Rendición se mantiene IDÉNTICA) ...
+      if (isRendicion) {
         const f = (name, val) => {
           try {
             form.getTextField(name).setText(String(val || ""));
@@ -315,9 +362,7 @@ export const exportViaticosToPDFForm = async (
         f("hora_salida", fmtTime(data.hora_salida));
         f("dia_llegada", formatDdMmYyyy(data.fecha_llegada));
         f("hora_llegada", fmtTime(data.hora_llegada));
-        f("dias_computados", data.dias_computables);
-        f("valor_diario", money(data.valorDiarioCalc));
-        f("porcentaje_viatico", String(data.porcentaje || 0));
+        fillDiasValorDiarioPdfFields(f, money, data, franjasPdf);
         f(
           "porcentaje_temporada",
           configData.factor_temporada > 0 ? "ALTA" : "BAJA"
@@ -452,34 +497,7 @@ export const exportViaticosToPDFForm = async (
         f("dia_llegada", formatDdMmYy(data.fecha_llegada));
         f("hora_llegada", fmtTime(data.hora_llegada));
 
-        const pctTxt = String(data.porcentaje || 0);
-        if (franjasPdf) {
-          const vdViejaPdf = valorDiarioPdfPonderado(
-            franjasPdf.vieja,
-            data.porcentaje,
-          );
-          const vdNuevaPdf = valorDiarioPdfPonderado(
-            franjasPdf.nueva,
-            data.porcentaje,
-          );
-          f("dias_computados", fmtDiasPdf(franjasPdf.vieja.dias));
-          f("valor_diario", money(vdViejaPdf));
-          f("porcentaje", pctTxt);
-          f("porcentaje_viatico", pctTxt);
-          f("dias_computados1", fmtDiasPdf(franjasPdf.nueva.dias));
-          f("valor_diario1", money(vdNuevaPdf));
-          f("porcentaje1", pctTxt);
-          const diasTotal =
-            data.dias_computables != null && data.dias_computables !== ""
-              ? data.dias_computables
-              : franjasPdf.diasTotal;
-          f("dias_computados_total", fmtDiasPdf(diasTotal));
-        } else {
-          f("dias_computados", String(data.dias_computables || 0));
-          f("valor_diario", money(data.valorDiarioCalc));
-          f("porcentaje", pctTxt);
-          f("porcentaje_viatico", pctTxt);
-        }
+        fillDiasValorDiarioPdfFields(f, money, data, franjasPdf);
 // ANTES: chk("check_temporada", data.es_temporada_alta);
 chk("check_temporada", configData.factor_temporada > 0);
             f("gasto_alojamiento", money(data.gasto_alojamiento));

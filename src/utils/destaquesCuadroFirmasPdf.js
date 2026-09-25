@@ -25,8 +25,17 @@ import {
 
 const PAGE_W = 210;
 const PAGE_H = 297;
-const PDF_GRID_MARGIN_MM = 10;
+/** Márgenes A4 de impresión (típico 10–15 mm). Suficientes para corte/impresora sin achicar nombres. */
+const PAGE_MARGIN_MM = 12;
+const PDF_GRID_MARGIN_MM = PAGE_MARGIN_MM;
+/** Word standalone usa márgenes de página; la grilla no suma otro inset. Word+nota: 0 extra (márgenes del host). */
 const DOCX_GRID_MARGIN_MM = 0;
+/** Tres renglones pautados encima del bloque de firmas (notas a mano de UX/producción). */
+const NOTES_LINE_COUNT = 3;
+const NOTES_LINE_HEIGHT_MM = 8;
+const NOTES_GAP_AFTER_MM = 4;
+const NOTES_HEADER_HEIGHT_MM =
+  NOTES_LINE_COUNT * NOTES_LINE_HEIGHT_MM + NOTES_GAP_AFTER_MM;
 const MM_TO_PT = 72 / 25.4;
 const MM_TO_PX = 96 / 25.4;
 const mmPt = (v) => v * MM_TO_PT;
@@ -224,7 +233,7 @@ export function computeSignatureGridLayout(count, opts = {}) {
   const {
     pageWidthMm = PAGE_W,
     pageHeightMm = PAGE_H,
-    marginMm = 10,
+    marginMm = PAGE_MARGIN_MM,
     headerHeightMm = 0,
     gapMm = 2,
     nameBandMm = 6,
@@ -449,9 +458,35 @@ function resolveCuadroFirmasLayout(people, opts = {}) {
     marginMm: opts.marginMm ?? PDF_GRID_MARGIN_MM,
     pageWidthMm: opts.pageWidthMm ?? PAGE_W,
     pageHeightMm: opts.pageHeightMm ?? PAGE_H,
+    headerHeightMm: opts.headerHeightMm ?? NOTES_HEADER_HEIGHT_MM,
     nameBandMm: hasAnyDni ? 13 : 6,
     nameOverlapMm: hasAnyDni ? 4 : 5,
   });
+}
+
+function buildStandaloneDocxLayoutOpts() {
+  return {
+    marginMm: DOCX_GRID_MARGIN_MM,
+    pageWidthMm: PAGE_W - PAGE_MARGIN_MM * 2,
+    pageHeightMm: PAGE_H - PAGE_MARGIN_MM * 2,
+    headerHeightMm: NOTES_HEADER_HEIGHT_MM,
+  };
+}
+
+function drawPdfNotesLines(page, layout, lineColor) {
+  const { marginMm, contentWidthMm, pageHeightMm = PAGE_H } = layout;
+  const pageHPt = mmPt(pageHeightMm);
+  const x1 = mmPt(marginMm);
+  const x2 = mmPt(marginMm + (contentWidthMm || PAGE_W - marginMm * 2));
+  for (let i = 1; i <= NOTES_LINE_COUNT; i += 1) {
+    const y = pageHPt - mmPt(marginMm + i * NOTES_LINE_HEIGHT_MM);
+    page.drawLine({
+      start: { x: x1, y },
+      end: { x: x2, y },
+      thickness: 0.45,
+      color: lineColor,
+    });
+  }
 }
 
 function ptToPx(pt) {
@@ -832,6 +867,8 @@ export async function exportDestaquesCuadroFirmasPdf({
   const nameColor = rgb(0.12, 0.16, 0.22);
   const mutedColor = rgb(0.58, 0.64, 0.72);
 
+  drawPdfNotesLines(page, layout, borderColor);
+
   const imageCache = await buildSignatureImageDataCache(sorted);
   const embedCache = new Map();
 
@@ -968,6 +1005,53 @@ const emptyDocxParagraph = () =>
     children: [],
   });
 
+const NOTES_LINE_BORDER = {
+  style: BorderStyle.SINGLE,
+  size: 6,
+  color: "CCD6E0",
+  space: 1,
+};
+
+function createDocxNotesBlock(contentWidthMm) {
+  const widthTwip = mmTwip(contentWidthMm);
+  const rowHeight = mmTwip(NOTES_LINE_HEIGHT_MM);
+  const rows = Array.from({ length: NOTES_LINE_COUNT }, () =>
+    new TableRow({
+      height: {
+        value: rowHeight,
+        rule: HeightRule.EXACT,
+      },
+      children: [
+        new TableCell({
+          width: { size: widthTwip, type: WidthType.DXA },
+          borders: {
+            top: DOCX_NO_BORDER,
+            left: DOCX_NO_BORDER,
+            right: DOCX_NO_BORDER,
+            bottom: NOTES_LINE_BORDER,
+          },
+          children: [emptyDocxParagraph()],
+        }),
+      ],
+    }),
+  );
+
+  return [
+    new Table({
+      rows,
+      width: { size: widthTwip, type: WidthType.DXA },
+      columnWidths: [widthTwip],
+      layout: TableLayoutType.FIXED,
+      alignment: AlignmentType.LEFT,
+      borders: DOCX_NO_BORDERS,
+    }),
+    new Paragraph({
+      spacing: { before: 0, after: mmTwip(NOTES_GAP_AFTER_MM) },
+      children: [],
+    }),
+  ];
+}
+
 function createDocxSignatureCell(flatCellImage, layout, isEmpty) {
   const { cellWidthMm, cellHeightMm } = layout;
 
@@ -1015,8 +1099,7 @@ async function buildCuadroFirmasDocxBuffer({
   }
 
   const layout = resolveCuadroFirmasLayout(sorted, {
-    marginMm: DOCX_GRID_MARGIN_MM,
-    pageWidthMm: PAGE_W,
+    ...buildStandaloneDocxLayoutOpts(),
     ...layoutOpts,
   });
   const {
@@ -1077,14 +1160,17 @@ async function buildCuadroFirmasDocxBuffer({
               height: mmTwip(PAGE_H),
             },
             margin: {
-              top: 0,
-              right: 0,
-              bottom: 0,
-              left: 0,
+              top: mmTwip(PAGE_MARGIN_MM),
+              right: mmTwip(PAGE_MARGIN_MM),
+              bottom: mmTwip(PAGE_MARGIN_MM),
+              left: mmTwip(PAGE_MARGIN_MM),
             },
           },
         },
         children: [
+          ...createDocxNotesBlock(
+            layout.contentWidthMm || tableWidthMm,
+          ),
           new Table({
             rows: tableRows,
             width: {
@@ -1132,10 +1218,7 @@ export async function exportDestaquesCuadroFirmasDocx({
   supabase = null,
   hostDocxFile = null,
 }) {
-  let layoutOpts = {
-    marginMm: DOCX_GRID_MARGIN_MM,
-    pageWidthMm: PAGE_W,
-  };
+  let layoutOpts = buildStandaloneDocxLayoutOpts();
   let hostBuffer = null;
 
   if (hostDocxFile) {
@@ -1147,6 +1230,11 @@ export async function exportDestaquesCuadroFirmasDocx({
         80,
         PAGE_W - hostMargins.left - hostMargins.right,
       ),
+      pageHeightMm: Math.max(
+        80,
+        PAGE_H - hostMargins.top - hostMargins.bottom,
+      ),
+      headerHeightMm: NOTES_HEADER_HEIGHT_MM,
     };
   }
 

@@ -957,6 +957,8 @@ export default function RendicionesManual() {
       dias_computables,
       porcentaje: porcentajeNum || 100,
       valorDiarioCalc,
+      segmentosValorDiario: calcFinanciero.segmentos,
+      usaProporcional: calcFinanciero.usaProporcional,
 
       // Anticipados editables
       subtotal: toNumber(ant.rendicion_viaticos),
