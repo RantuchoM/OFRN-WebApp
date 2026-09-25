@@ -76,3 +76,21 @@ export function sumGastosViaticoRow(row) {
   if (!row) return 0;
   return GASTOS_VIATICO_KEYS.reduce((acc, k) => acc + safeMoney(row[k]), 0);
 }
+
+/**
+ * Total del PDF = el total que ya muestra la pantalla, si vino informado.
+ * Si no, se reconstruye con la suma de la tabla (gira).
+ * Evita que el exportador vuelva a sumar pasajes + movilidad (el manual manda
+ * el mismo importe en los dos campos) y deje afuera ceremonial.
+ */
+export function resolveExportedTotalFinal(rawData, subNum) {
+  const passedRaw = rawData?.totalFinal;
+  const passed = Number(passedRaw);
+  if (passedRaw != null && passedRaw !== "" && Number.isFinite(passed)) {
+    return Math.round((passed + Number.EPSILON) * 100) / 100;
+  }
+  const gastos = sumGastosViaticoRow(rawData);
+  const base = Number(subNum);
+  const safeBase = Number.isFinite(base) ? base : 0;
+  return Math.round((safeBase + gastos + Number.EPSILON) * 100) / 100;
+}

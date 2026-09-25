@@ -24,8 +24,10 @@ import ValorDiarioBaseHistoricoField, {
 import { canAdminValorDiario } from "../../utils/viaticosValorDiarioAdmin";
 import {
   calcValorDiarioProporcional,
-  formatSegmentosValorDiario,
+  segmentosParaVista,
+  tieneFechasViatico,
 } from "../../utils/viaticosValorDiarioProporcional";
+import RangosValorDiario from "../../components/viaticos/RangosValorDiario";
 import {
   baseFieldClass,
   buildPersonaLabel,
@@ -218,6 +220,7 @@ export default function RendicionesManual() {
 
   const {
     vigencias,
+    loading: vigenciasLoading,
     refresh: refreshVigencias,
   } = useValorDiarioVigente(base?.fecha_salida || "", {
     client: viaticosValorDiarioManualClient,
@@ -231,8 +234,9 @@ export default function RendicionesManual() {
     const dias = toNumber(b?.dias_computables);
     const vd = toNumber(b?.valorDiarioCalc || b?.valor_diario_base);
     return {
-      // Viáticos anticipados: días * valor diario
-      rendicion_viaticos: dias * vd,
+      // Viáticos anticipados: el subtotal calculado (no se edita).
+      rendicion_viaticos:
+        b?.subtotal != null && b.subtotal !== "" ? toNumber(b.subtotal) : dias * vd,
       rendicion_gasto_alojamiento: toNumber(b?.gasto_alojamiento),
       rendicion_transporte_otros: toNumber(
         b?.gasto_pasajes || b?.gastos_movilidad,
@@ -244,8 +248,6 @@ export default function RendicionesManual() {
       rendicion_gasto_otros: toNumber(b?.gasto_otros),
     };
   };
-
-  const autoAntViaticosRef = useRef(0);
 
   const [ant, setAnt] = useState(() => {
     try {
@@ -315,13 +317,7 @@ export default function RendicionesManual() {
 
   const valorDiarioCalc = calcFinanciero.valorDiarioCalc;
   const subtotal = calcFinanciero.subtotal;
-  const desgloseValorDiario = useMemo(() => {
-    if (!calcFinanciero.usaProporcional) return "";
-    return formatSegmentosValorDiario(
-      calcFinanciero.segmentos,
-      fmtMoneyPreview,
-    );
-  }, [calcFinanciero]);
+  const segmentosValor = calcFinanciero.segmentos;
 
   // Guardar derivados en base para export/PDF y sincronización con Viáticos.
   useEffect(() => {
@@ -342,23 +338,31 @@ export default function RendicionesManual() {
     });
   }, [dias_computables, valorDiarioCalc, subtotal, factor_temporada]);
 
-  // Mantener actualizado el anticipo de viáticos (días * valor diario),
-  // sin pisar si el usuario lo editó manualmente.
+  // El anticipo de viáticos no se edita: siempre es el subtotal de los datos cargados.
   useEffect(() => {
-    const computed = toNumber(dias_computables) * toNumber(valorDiarioCalc);
-    const prevAuto = toNumber(autoAntViaticosRef.current);
-    autoAntViaticosRef.current = computed;
+    const computed = round2(toNumber(subtotal));
+    const waitingHistorial =
+      vigenciasLoading &&
+      computed <= 0 &&
+      tieneFechasViatico(base?.fecha_salida, base?.fecha_llegada);
+    if (waitingHistorial) return;
 
     setAnt((prev) => {
-      const current = toNumber(prev?.rendicion_viaticos);
-      const rawCurrent = String(prev?.rendicion_viaticos ?? "").trim();
-      const isEmpty = rawCurrent === "";
-      const isStillAuto = Math.abs(current - prevAuto) < 0.000001;
-      if (!isEmpty && !isStillAuto) return prev; // el usuario lo tocó
-      if (Math.abs(current - computed) < 0.000001) return prev;
-      return { ...prev, rendicion_viaticos: computed };
+      const { viaticos_manual: _manual, ...rest } = prev || {};
+      if (
+        !_manual &&
+        round2(toNumber(rest.rendicion_viaticos)) === computed
+      ) {
+        return prev;
+      }
+      return { ...rest, rendicion_viaticos: computed };
     });
-  }, [dias_computables, valorDiarioCalc]);
+  }, [
+    base?.fecha_llegada,
+    base?.fecha_salida,
+    subtotal,
+    vigenciasLoading,
+  ]);
 
   const personaOptions = useMemo(() => {
     return (personas || []).map((p) => ({
@@ -478,15 +482,21 @@ export default function RendicionesManual() {
     ];
   }, []);
 
+  const viaticosAnticipo = round2(toNumber(subtotal));
+
   const totals = useMemo(() => {
-    const totalAnt = Object.keys(ant || {}).reduce(
-      (acc, k) => acc + toNumber(ant[k]),
-      0,
-    );
+    const totalAnt =
+      viaticosAnticipo +
+      Object.entries(ant || {}).reduce((acc, [k, v]) => {
+        if (!String(k).startsWith("rendicion_") || k === "rendicion_viaticos") {
+          return acc;
+        }
+        return acc + toNumber(v);
+      }, 0);
     const totalRend = sumRendicion({ ...rend });
     const { dev, reint } = calcDevolucionReintegro(totalAnt, totalRend);
     return { totalAnt, totalRend, dev, reint };
-  }, [ant, rend]);
+  }, [ant, rend, viaticosAnticipo]);
 
   const buildRendicionDatos = useCallback(
     () => ({
@@ -679,7 +689,14 @@ export default function RendicionesManual() {
     ({ record, mode = "edit" }) => {
       const datos = record?.datos || {};
       const nextBase = { ...DEFAULT_BASE, ...datos };
-      const nextAnt = datos?.manual_rendicion?.ant || computeDefaultAnt(nextBase);
+      const nextAnt = {
+        ...(datos?.manual_rendicion?.ant || computeDefaultAnt(nextBase)),
+        rendicion_viaticos:
+          nextBase.subtotal != null && nextBase.subtotal !== ""
+            ? toNumber(nextBase.subtotal)
+            : computeDefaultAnt(nextBase).rendicion_viaticos,
+      };
+      delete nextAnt.viaticos_manual;
       const nextRend = datos?.manual_rendicion?.rend || { ...ZERO_REND };
       const prevDescriptive = String(record?.etiqueta || "").trim();
       setBase(nextBase);
@@ -717,6 +734,7 @@ export default function RendicionesManual() {
   };
 
   const updateAnt = (key) => (e) => {
+    if (key === "rendicion_viaticos") return;
     setAnt((prev) => ({ ...prev, [key]: e.target.value }));
     notifyFieldChange(`ant:${key}`);
   };
@@ -791,7 +809,7 @@ export default function RendicionesManual() {
     setBase(merged);
     const nextAnt = has("ant_rendicion_viaticos")
       ? {
-          rendicion_viaticos: get("ant_rendicion_viaticos"),
+          rendicion_viaticos: round2(toNumber(subtotal)),
           rendicion_gasto_alojamiento: get("ant_rendicion_gasto_alojamiento"),
           rendicion_transporte_otros: get("ant_rendicion_transporte_otros"),
           rendicion_gasto_combustible: get("ant_rendicion_gasto_combustible"),
@@ -960,8 +978,7 @@ export default function RendicionesManual() {
       segmentosValorDiario: calcFinanciero.segmentos,
       usaProporcional: calcFinanciero.usaProporcional,
 
-      // Anticipados editables
-      subtotal: toNumber(ant.rendicion_viaticos),
+      subtotal: viaticosAnticipo,
       gasto_alojamiento: toNumber(ant.rendicion_gasto_alojamiento),
       gastos_movilidad: toNumber(ant.rendicion_transporte_otros),
       gasto_combustible: toNumber(ant.rendicion_gasto_combustible),
@@ -1151,23 +1168,36 @@ export default function RendicionesManual() {
                   <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">
                     Resumen (anticipo)
                   </div>
-                  <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] text-slate-600">
-                    <div className="flex justify-between">
-                      <span>Días</span>
-                      <span className="font-black">
-                        {toNumber(dias_computables) || 0}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Valor diario</span>
-                      <span className="font-black">
-                        {fmtMoneyPreview(valorDiarioCalc)}
-                      </span>
-                    </div>
-                    <div className="col-span-2 flex justify-between pt-2 border-t border-slate-200 text-slate-700">
+                  <div className="mt-2">
+                    {segmentosParaVista(segmentosValor).length > 1 ? (
+                      <RangosValorDiario
+                        segmentos={segmentosValor}
+                        valorDiarioCalc={valorDiarioCalc}
+                        dias={dias_computables}
+                        subtotal={subtotal}
+                        fmtMoney={fmtMoneyPreview}
+                        showTotal={false}
+                      />
+                    ) : (
+                      <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-600">
+                        <div className="flex justify-between">
+                          <span>Días</span>
+                          <span className="font-black">
+                            {toNumber(dias_computables) || 0}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Valor diario</span>
+                          <span className="font-black">
+                            {fmtMoneyPreview(valorDiarioCalc)}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                    <div className="mt-2 flex justify-between border-t border-slate-200 pt-2 text-[11px] text-slate-700">
                       <span className="font-black">Viáticos anticipados</span>
                       <span className="font-black">
-                        {fmtMoneyPreview(ant.rendicion_viaticos)}
+                        {fmtMoneyPreview(viaticosAnticipo)}
                       </span>
                     </div>
                   </div>
@@ -1270,14 +1300,16 @@ export default function RendicionesManual() {
                   <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">
                     Valor diario calculado
                   </div>
-                  <div className="mt-1 text-sm font-black text-slate-800">
-                    {fmtMoneyPreview(valorDiarioCalc)}
+                  <div className="mt-1">
+                    <RangosValorDiario
+                      segmentos={segmentosValor}
+                      valorDiarioCalc={valorDiarioCalc}
+                      dias={dias_computables}
+                      subtotal={subtotal}
+                      fmtMoney={fmtMoneyPreview}
+                      showTotal={segmentosParaVista(segmentosValor).length > 1}
+                    />
                   </div>
-                  {desgloseValorDiario ? (
-                    <p className="mt-1 text-[10px] text-indigo-600 font-semibold">
-                      Prorrateo: {desgloseValorDiario}
-                    </p>
-                  ) : null}
                 </div>
               </div>
             </section>
@@ -1305,7 +1337,10 @@ export default function RendicionesManual() {
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {concepts.map((c) => {
-                    const antVal = toNumber(ant[c.key]);
+                    const antVal =
+                      c.key === "rendicion_viaticos"
+                        ? viaticosAnticipo
+                        : toNumber(ant[c.key]);
                     const rendVal = toNumber(rend[c.key]);
                     const { dev, reint } = calcDevolucionReintegro(
                       antVal,
@@ -1317,17 +1352,26 @@ export default function RendicionesManual() {
                           {c.label}
                         </td>
                         <td className="px-4 py-3 text-right">
-                          <input
-                            inputMode="decimal"
-                            className={rendicionInputClass(`ant:${c.key}`, ant[c.key])}
-                            value={ant[c.key]}
-                            onChange={updateAnt(c.key)}
-                            onFocus={() => {
-                              if (String(ant[c.key] ?? "").trim() === "0")
-                                setAnt((p) => ({ ...p, [c.key]: "" }));
-                            }}
-                            placeholder="0"
-                          />
+                          {c.key === "rendicion_viaticos" ? (
+                            <span
+                              className="inline-block min-w-32 font-mono font-black text-slate-800"
+                              title="Calculado con las fechas, el porcentaje y la temporada"
+                            >
+                              {fmtMoneyPreview(viaticosAnticipo)}
+                            </span>
+                          ) : (
+                            <input
+                              inputMode="decimal"
+                              className={rendicionInputClass(`ant:${c.key}`, ant[c.key])}
+                              value={ant[c.key]}
+                              onChange={updateAnt(c.key)}
+                              onFocus={() => {
+                                if (String(ant[c.key] ?? "").trim() === "0")
+                                  setAnt((p) => ({ ...p, [c.key]: "" }));
+                              }}
+                              placeholder="0"
+                            />
+                          )}
                         </td>
                         <td className="px-4 py-3 text-right">
                           <input
