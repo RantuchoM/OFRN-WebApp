@@ -21,6 +21,11 @@ import { useLogistics } from "../../../hooks/useLogistics";
 import ViaticosForm from "./ViaticosForm";
 import ViaticosBulkEditPanel from "./ViaticosBulkEditPanel";
 import { exportViaticosToPDFForm } from "../../../utils/pdfFormExporter";
+import {
+  PDF_LOAD_DOCS_BG_SAFE,
+  PDF_SAVE_BG_SAFE,
+  yieldExportLoop,
+} from "../../../utils/pdfLibBackgroundSafe";
 import RendicionForm from "./RendicionForm";
 import DestaquesLocationPanel from "./DestaquesLocationPanel";
 import ViaticosTable from "./ViaticosTable";
@@ -890,7 +895,7 @@ const collectTransportSupportDocs = (personData) => {
             ? await bytesSource
             : bytesSource;
         if (!bytes) return;
-        const srcDoc = await PDFDocument.load(bytes);
+        const srcDoc = await PDFDocument.load(bytes, PDF_LOAD_DOCS_BG_SAFE);
         const copiedPages = await targetDoc.copyPages(
           srcDoc,
           srcDoc.getPageIndices(),
@@ -905,11 +910,15 @@ const collectTransportSupportDocs = (personData) => {
     };
 
     const single = [personData];
+    const paintDetail = async (msg) => {
+      if (setDetail) setDetail(msg);
+      await yieldExportLoop();
+    };
 
     if (options.destaque) {
       const destaqueData = zeroDestaqueMonetaryFields(personData);
       const singleDestaque = [destaqueData];
-      if (setDetail) setDetail(`Generando Destaque (${shortName})...`);
+      await paintDetail(`Generando Destaque (${shortName})...`);
       await mergeBytes(
         exportViaticosToPDFForm(
           giraData,
@@ -921,7 +930,7 @@ const collectTransportSupportDocs = (personData) => {
       );
     }
     if (options.viatico) {
-      if (setDetail) setDetail(`Generando Viático (${shortName})...`);
+      await paintDetail(`Generando Viático (${shortName})...`);
       await mergeBytes(
         exportViaticosToPDFForm(
           giraData,
@@ -933,7 +942,7 @@ const collectTransportSupportDocs = (personData) => {
       );
     }
     if (options.rendicion) {
-      if (setDetail) setDetail(`Generando Rendición (${shortName})...`);
+      await paintDetail(`Generando Rendición (${shortName})...`);
       await mergeBytes(
         exportViaticosToPDFForm(
           giraData,
@@ -946,7 +955,7 @@ const collectTransportSupportDocs = (personData) => {
     }
 
     if (options.docComun && personData.documentacion) {
-      if (setDetail) setDetail(`Descargando Documentación (${shortName})...`);
+      await paintDetail(`Descargando Documentación (${shortName})...`);
       const bytes = await fetchPdfFromDrive(personData.documentacion);
       if (bytes) await mergeBytes(bytes, "Documentación");
       else
@@ -958,7 +967,7 @@ const collectTransportSupportDocs = (personData) => {
     if (options.docReducida && options.addDj) {
       const djUrl = getDjUrl(personData);
       if (djUrl) {
-        if (setDetail) setDetail(`Descargando DJ (${shortName})...`);
+        await paintDetail(`Descargando DJ (${shortName})...`);
         const bytes = await fetchPdfFromDrive(djUrl);
         if (bytes) await mergeBytes(bytes, "DJ");
         else
@@ -974,7 +983,7 @@ const collectTransportSupportDocs = (personData) => {
       }
     }
     if (options.docReducida && personData.docred) {
-      if (setDetail) setDetail(`Descargando Doc. Reducida (${shortName})...`);
+      await paintDetail(`Descargando Doc. Reducida (${shortName})...`);
       const bytes = await fetchPdfFromDrive(personData.docred);
       if (bytes) await mergeBytes(bytes, "Doc. Reducida");
       else
@@ -994,7 +1003,7 @@ const collectTransportSupportDocs = (personData) => {
           );
           continue;
         }
-        if (setDetail) setDetail(`Descargando ${doc.label} (${shortName})...`);
+        await paintDetail(`Descargando ${doc.label} (${shortName})...`);
         const bytes = await fetchPdfFromDrive(doc.url);
         if (bytes) await mergeBytes(bytes, doc.label);
         else
@@ -1138,6 +1147,7 @@ const collectTransportSupportDocs = (personData) => {
         count++;
         const name = `${personData.apellido}, ${personData.nombre}`;
         setExportStatus(`[${count}/${total}] Unificando: ${name}`);
+        await yieldExportLoop();
 
         await appendPersonToDoc(
           masterDoc,
@@ -1153,7 +1163,8 @@ const collectTransportSupportDocs = (personData) => {
       if (pagesAdded > 0) {
         setExportStatus("Subiendo a Drive...");
         setExportDetail("Guardando archivo maestro...");
-        const masterBytes = await masterDoc.save();
+        await yieldExportLoop();
+        const masterBytes = await masterDoc.save(PDF_SAVE_BG_SAFE);
         await uploadPdfToDrive(
           masterBytes,
           `Exportación Master - ${giraName} - ${dateStr}.pdf`,
@@ -1195,6 +1206,7 @@ const collectTransportSupportDocs = (personData) => {
           setExportStatus(
             `[${groupIdx}/${groupKeys.length}] ${groupName}: ${pCount}/${groupData.length}`,
           );
+          await yieldExportLoop();
 
           await appendPersonToDoc(
             locDoc,
@@ -1210,7 +1222,8 @@ const collectTransportSupportDocs = (personData) => {
         if (pagesInLoc > 0) {
           setExportStatus(`Subiendo PDF: ${groupName}...`);
           setExportDetail(`Guardando en carpeta de la gira...`);
-          const locBytes = await locDoc.save();
+          await yieldExportLoop();
+          const locBytes = await locDoc.save(PDF_SAVE_BG_SAFE);
           await uploadPdfToDrive(
             locBytes,
             `${groupName} - ${dateStr}.pdf`,
@@ -1235,6 +1248,7 @@ const collectTransportSupportDocs = (personData) => {
         const nameSafe = `${personData.apellido}, ${personData.nombre}${tramoSuffix}`;
         const prefix = `[${attempt}/${total}]`;
         setExportStatus(`${prefix} ${nameSafe}`);
+        await yieldExportLoop();
 
         try {
           const shouldBuildMergedPacket =
@@ -1246,6 +1260,7 @@ const collectTransportSupportDocs = (personData) => {
               !options.rendicion);
           if (shouldBuildMergedPacket) {
             setExportDetail("Generando PDF integrado...");
+            await yieldExportLoop();
             const personDoc = await PDFDocument.create();
             await appendPersonToDoc(
               personDoc,
@@ -1255,7 +1270,7 @@ const collectTransportSupportDocs = (personData) => {
               pdfExportConfig,
               setExportDetail,
             );
-            const mergedBytes = await personDoc.save();
+            const mergedBytes = await personDoc.save(PDF_SAVE_BG_SAFE);
             setExportDetail("Subiendo PDF integrado...");
             await uploadPdfToDrive(
               mergedBytes,

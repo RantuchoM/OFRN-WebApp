@@ -1,5 +1,9 @@
 import { PDFArray, PDFBool, PDFDocument, PDFName, PDFNumber, PDFString } from "pdf-lib";
 import { saveAs } from "file-saver";
+import {
+  PDF_LOAD_BG_SAFE,
+  PDF_SAVE_FORM_BG_SAFE,
+} from "./pdfLibBackgroundSafe";
 import { firstMondayAfter, formatDdMmYy, formatDdMmYyyy } from "./dates";
 import { calcDevolucionReintegroForExport } from "./rendicionDiff";
 import {
@@ -22,21 +26,18 @@ import {
 
 /**
  * Lectura de plantillas (suelen salir de Acrobat): limita números raros que a veces rompen parsers.
+ * `parseSpeed: Fastest` evita setTimeout interno de pdf-lib (throttling de pestaña oculta).
  * @type {import("pdf-lib").LoadOptions}
  */
-const PDF_LOAD_TEMPLATE_OPTIONS = {
-  capNumbers: true,
-};
+const PDF_LOAD_TEMPLATE_OPTIONS = PDF_LOAD_BG_SAFE;
 
 /**
  * Guardado más compatible: sin object streams (PDF un poco más grande; mejor con lectores antiguos o políticas estrictas).
  * `updateFieldAppearances` al serializar refuerza /AP de AcroForm.
+ * `objectsPerTick: Infinity` evita setTimeout interno de pdf-lib (throttling de pestaña oculta).
  * @type {import("pdf-lib").SaveOptions}
  */
-const PDF_SAVE_OPTIONS = {
-  useObjectStreams: false,
-  updateFieldAppearances: true,
-};
+const PDF_SAVE_OPTIONS = PDF_SAVE_FORM_BG_SAFE;
 
 // --- HELPERS ---
 const fetchFileBuffer = async (url) => {
