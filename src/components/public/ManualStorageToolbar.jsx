@@ -45,7 +45,7 @@ export default function ManualStorageToolbar({
   return (
     <div className="inline-flex items-center gap-2 shrink-0">
       <div
-        className="inline-flex items-stretch rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden"
+        className="inline-flex items-stretch overflow-hidden border border-[#c5d0dc] bg-white"
         title={
           isGuest
             ? "Iniciá sesión para guardado automático en la nube"
@@ -55,20 +55,20 @@ export default function ManualStorageToolbar({
         <GroupBadge
           icon={IconCloud}
           label="Nube"
-          className="bg-indigo-50 text-indigo-600"
+          className="bg-[#e8f1fa] text-[#0054a6]"
           busy={isCloudSaving}
         />
         <ActionButton
           onClick={handleOpen}
           title={isGuest ? "Iniciá sesión para abrir guardados" : "Abrir guardados en la nube"}
-          className="text-indigo-700 hover:bg-indigo-50 active:bg-indigo-100"
+          className="text-[#0054a6] hover:bg-[#e8f1fa] active:bg-[#e8f1fa]"
         >
           Abrir
         </ActionButton>
       </div>
 
       <div
-        className="inline-flex items-stretch rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden"
+        className="inline-flex items-stretch overflow-hidden border border-[#c5d0dc] bg-white"
         title="Importar y exportar en esta computadora"
       >
         <GroupBadge icon={IconMonitor} label="Computadora" className="bg-slate-100 text-slate-600" />

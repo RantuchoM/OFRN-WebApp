@@ -1,10 +1,9 @@
 import React, { useMemo, useState } from "react";
 import {
   ensureOficinaExternaProfile,
-  requestOficinaExternaEmailCode,
-  verifyOficinaExternaEmailCode,
   SCRN_APP,
 } from "../../../services/oficinaExternaAuthService";
+import OficinaExternaAccessForm from "../../../components/public/OficinaExternaAccessForm";
 import "./scrnTransporteLayout.css";
 
 const initialProfileForm = {
@@ -15,19 +14,12 @@ const initialProfileForm = {
   cargo: "",
   genero: "-",
 };
-const OTP_RESEND_COOLDOWN_SECONDS = 60;
 
 export default function LoginSCRN({ user, profile, onProfileSaved, bootError = "" }) {
-  const [email, setEmail] = useState("");
-  const [otpCode, setOtpCode] = useState("");
-  const [otpSent, setOtpSent] = useState(false);
-  const [sendingOtp, setSendingOtp] = useState(false);
-  const [verifyingOtp, setVerifyingOtp] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [formData, setFormData] = useState(initialProfileForm);
   const [savingProfile, setSavingProfile] = useState(false);
-  const [nextOtpAllowedAt, setNextOtpAllowedAt] = useState(0);
 
   /** Solo falta completar la fila en scrn_perfiles: sesión OTP ya creada pero sin perfil en base. */
   const faltaCrearPerfilEnBase = useMemo(
@@ -44,56 +36,6 @@ export default function LoginSCRN({ user, profile, onProfileSaved, bootError = "
       return "Ese DNI ya existe en otro perfil.";
     }
     return rawMessage;
-  };
-
-  const handleSendOtp = async (event) => {
-    event.preventDefault();
-    const now = Date.now();
-    const secondsRemaining = Math.ceil((nextOtpAllowedAt - now) / 1000);
-    if (secondsRemaining > 0) {
-      setError(`Esperá ${secondsRemaining}s antes de pedir otro código.`);
-      return;
-    }
-    setError("");
-    setMessage("");
-    setSendingOtp(true);
-
-    const normalizedEmail = email.trim().toLowerCase();
-    try {
-      await requestOficinaExternaEmailCode(normalizedEmail, SCRN_APP);
-    } catch (otpError) {
-      setError(otpError?.message || "No se pudo enviar el código.");
-      return;
-    } finally {
-      setSendingOtp(false);
-    }
-
-    setEmail(normalizedEmail);
-    setOtpSent(true);
-    setNextOtpAllowedAt(Date.now() + OTP_RESEND_COOLDOWN_SECONDS * 1000);
-    setMessage("Te enviamos un código de 8 dígitos por email.");
-  };
-
-  const handleVerifyOtp = async (event) => {
-    event.preventDefault();
-    setError("");
-    setMessage("");
-    setVerifyingOtp(true);
-
-    try {
-      await verifyOficinaExternaEmailCode({
-        email: email.trim().toLowerCase(),
-        code: otpCode.trim(),
-        app: SCRN_APP,
-      });
-    } catch (verifyError) {
-      setError(verifyError?.message || "No se pudo validar el código.");
-      return;
-    } finally {
-      setVerifyingOtp(false);
-    }
-
-    setMessage("Acceso validado correctamente.");
   };
 
   const handleProfileInput = (field) => (event) => {
@@ -148,75 +90,12 @@ export default function LoginSCRN({ user, profile, onProfileSaved, bootError = "
             Transporte SCRN
           </h1>
           <p className="text-sm leading-relaxed text-slate-500">
-            Acceso por código de 8 dígitos a tu correo. La misma cuenta sirve para viáticos
-            manual.
+            Elegí contraseña o código único. La misma cuenta sirve para viáticos manual.
           </p>
         </div>
 
         {/* Acceso por mail: solo si aún no hay sesión. Si ya hay sesión y perfil en DB, esta pantalla no se usa. */}
-        {!user && (
-          <>
-            <form className="space-y-3" onSubmit={handleSendOtp}>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-500">
-                Email
-              </label>
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                className="w-full rounded-none border border-[#c5d0dc] px-3 py-2.5 text-sm focus:border-[#0054a6] focus:outline-none focus:ring-1 focus:ring-[#0054a6]"
-                placeholder="tu.mail@dominio.com"
-              />
-              <button
-                type="submit"
-                disabled={sendingOtp || !email.trim() || Date.now() < nextOtpAllowedAt}
-                className="w-full rounded-none bg-[#0054a6] py-2.5 text-sm font-bold uppercase tracking-wide text-white transition-colors hover:bg-[#003d7a] disabled:bg-slate-300"
-              >
-                {sendingOtp
-                  ? "Enviando..."
-                  : Date.now() < nextOtpAllowedAt
-                  ? "Esperá para reenviar"
-                  : "Enviar código"}
-              </button>
-            </form>
-
-            {otpSent && (
-              <form className="space-y-3" onSubmit={handleVerifyOtp}>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-500">
-                  Código (8 dígitos)
-                </label>
-                <input
-                  type="text"
-                  required
-                  inputMode="numeric"
-                  autoComplete="one-time-code"
-                  value={otpCode}
-                  onChange={(event) =>
-                    setOtpCode(event.target.value.replace(/\D/g, "").slice(0, 8))
-                  }
-                  maxLength={8}
-                  className="w-full rounded-none border border-[#c5d0dc] px-3 py-2.5 text-center text-sm tracking-[0.3em] focus:border-[#0054a6] focus:outline-none focus:ring-1 focus:ring-[#0054a6]"
-                  placeholder="12345678"
-                />
-                <button
-                  type="submit"
-                  disabled={
-                    verifyingOtp ||
-                    otpCode.trim().length < 8 ||
-                    otpCode.trim().length > 8
-                  }
-                  className="w-full rounded-none bg-slate-900 py-2.5 text-sm font-bold uppercase tracking-wide text-white transition-colors hover:bg-slate-800 disabled:bg-slate-300"
-                >
-                  {verifyingOtp ? "Validando..." : "Verificar código"}
-                </button>
-                <p className="text-[11px] text-slate-500">
-                  Ingresá los 8 dígitos del email, o usá el enlace «Accedé sin contraseña».
-                </p>
-              </form>
-            )}
-          </>
-        )}
+        {!user && <OficinaExternaAccessForm app={SCRN_APP} onSignedIn={onProfileSaved} />}
 
         {faltaCrearPerfilEnBase && (
           <form className="space-y-3" onSubmit={handleSaveProfile}>

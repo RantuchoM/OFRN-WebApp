@@ -452,6 +452,13 @@ Permitir que el músico descargue de una vez todas sus partes disponibles desde 
 - [x] Descarga autenticada de archivos Drive.
 - [x] ZIP comprimido con todas las partes disponibles.
 - [x] Progreso y aviso de errores parciales.
+- [x] **ZIP en pestaña oculta (2026-09-25):** el loop de **Descargar todo** cede con `yieldExportLoop` (Worker, mismo helper que viáticos). No usa pdf-lib; solo fetch + PizZip.
+
+### Completado (2026-09-25) — Descargar Particellas: pestaña oculta + PDF consolidado
+- **No** tenía el fix de viáticos: `docMerger.mergeSequential` cargaba/guardaba con `waitForTick`/`ParseSpeeds.Slow`.
+- [x] Load/save background-safe + `yieldExportLoop` en merge, modal Por obra, Por músico y portada.
+- [x] Por obra: selector **1 PDF por obra** (default) / **1 PDF consolidado** (marcador por obra → particellas). No toca overrides individuales ni seating.
+- Spec viva: `docs/particella-download-manager.md`.
 
 ### Completado (2026-08-12) — Agrupación por bloque de repertorio
 - [x] **MyPartsViewer:** divisor por bloque (`programas_repertorios`) con nombre y enlace **Carpeta Gral.** del bloque (`google_drive_folder_id`).

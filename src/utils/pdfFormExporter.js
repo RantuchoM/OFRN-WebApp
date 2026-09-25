@@ -328,11 +328,19 @@ export const exportViaticosToPDFForm = async (
 
     const money = (val) => {
       if (val === RENUNCIA_VIATICOS_TEXTO) return RENUNCIA_VIATICOS_TEXTO;
-      if (!keepEditable) return fmtMoney(val);
       const num = Number(val);
-      if (!Number.isFinite(num)) return "";
-      // Exportación editable: número visible, sin formato moneda.
-      return String(num);
+      const safe = Number.isFinite(num) ? num : 0;
+      if (!keepEditable) return fmtMoney(safe);
+      // Exportación editable: número visible, sin formato moneda. Vacío, null o no numérico → 0.
+      return String(safe);
+    };
+    const firstAmount = (...vals) => {
+      for (const v of vals) {
+        if (v === undefined || v === null || v === "") continue;
+        const n = Number(v);
+        if (Number.isFinite(n)) return n;
+      }
+      return 0;
     };
 
     try {
@@ -577,9 +585,18 @@ chk("check_temporada", configData.factor_temporada > 0);
         // Gastos con helper money()
         f(
           "gasto_movilidad",
-          money(data.gasto_pasajes || data.gastos_movilidad)
+          money(firstAmount(data.gasto_pasajes, data.gastos_movilidad)),
         );
-        f("gasto_otro", money(data.transporte_otros));
+        f(
+          "gasto_otro",
+          money(
+            firstAmount(
+              data.gasto_otro,
+              data.transporte_otros_monto,
+              data.transporte_otros,
+            ),
+          ),
+        );
         f("gasto_combustible", money(data.gasto_combustible));
         f("gasto_otros", money(data.gasto_otros));
         f("gasto_capacitacion", money(data.gastos_capacit));

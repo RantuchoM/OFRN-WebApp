@@ -1,4 +1,5 @@
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import { PDF_SAVE_BG_SAFE } from "./pdfLibBackgroundSafe";
 
 const A4 = [595.28, 841.89];
 
@@ -68,5 +69,6 @@ export async function buildMusicianCoverPdf({
   }
 
   // Sin object streams: coherente con mergeSequential / marcadores.
-  return pdf.save({ useObjectStreams: false });
+  // objectsPerTick Infinity: mismo patrón que viáticos (pestaña oculta).
+  return pdf.save({ useObjectStreams: false, ...PDF_SAVE_BG_SAFE });
 }

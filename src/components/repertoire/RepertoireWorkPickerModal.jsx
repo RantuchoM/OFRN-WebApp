@@ -395,7 +395,7 @@ export default function RepertoireWorkPickerModal({
       <button
         type="button"
         onClick={() => handleRowAction(w.id)}
-        className={`bg-white border px-2 py-1 rounded font-bold hover:text-white shadow-sm transition-colors text-[10px] min-h-9 ${accent === "violet" ? "border-violet-200 text-violet-700 hover:bg-violet-700" : "border-fixed-indigo-200 text-fixed-indigo-600 hover:bg-fixed-indigo-600"}`}
+        className={`bg-white border px-2 py-1 rounded font-bold hover:text-white shadow-sm transition-colors text-[10px] min-h-9 max-w-full whitespace-normal ${accent === "violet" ? "border-violet-200 text-violet-700 hover:bg-violet-700" : "border-fixed-indigo-200 text-fixed-indigo-600 hover:bg-fixed-indigo-600"}`}
       >
         Seleccionar
       </button>
@@ -559,7 +559,7 @@ export default function RepertoireWorkPickerModal({
     const emptyPad = "p-4 md:p-8";
     const emptyText = "text-xs md:text-sm";
 
-    if (loadingLibrary) {
+    if (loadingLibrary && worksLibrary.length === 0) {
       return (
         <div className={`${emptyPad} text-center text-fixed-indigo-600`}>
           <IconLoader className="animate-spin inline" />
@@ -688,17 +688,17 @@ export default function RepertoireWorkPickerModal({
             );
           })}
         </div>
-        <table className="hidden md:table w-full table-fixed text-left text-xs">
+        <table className="hidden md:table w-full max-w-full table-fixed text-left text-xs [&_td]:overflow-hidden">
           <colgroup>
-            <col style={{ width: "18%" }} />
-            <col style={{ width: "26%" }} />
-            <col style={{ width: "10%" }} />
-            <col style={{ width: "4.25rem" }} />
+            <col style={{ width: "16%" }} />
             <col style={{ width: "22%" }} />
-            <col style={{ width: "3rem" }} />
-            <col style={{ width: "2.75rem" }} />
-            <col style={{ width: "2.75rem" }} />
-            <col style={{ width: "5.5rem" }} />
+            <col style={{ width: "12%" }} />
+            <col style={{ width: "8%" }} />
+            <col style={{ width: "18%" }} />
+            <col style={{ width: "6%" }} />
+            <col style={{ width: "5%" }} />
+            <col style={{ width: "5%" }} />
+            <col style={{ width: "8%" }} />
           </colgroup>
           <thead className="bg-slate-50 text-slate-500 uppercase sticky top-0 font-bold shadow-sm">
             <tr>
@@ -815,13 +815,13 @@ export default function RepertoireWorkPickerModal({
   return createPortal(
     <>
       <div
-        className={`fixed inset-0 ${overlayClassName} flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200`}
+        className={`fixed inset-0 ${overlayClassName} flex items-center justify-center overflow-hidden bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200`}
         onMouseDown={(e) => {
           if (e.target === e.currentTarget) onClose();
         }}
       >
         <div
-          className="bg-white w-full max-w-5xl h-[85vh] md:h-[80vh] rounded-xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95"
+          className="bg-white w-full min-w-0 max-w-5xl h-[85vh] md:h-[80vh] rounded-xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95"
           onMouseDown={(e) => e.stopPropagation()}
         >
           <div className="p-3 border-b flex justify-between items-center bg-slate-50 gap-2 shrink-0">
@@ -957,7 +957,7 @@ export default function RepertoireWorkPickerModal({
             )}
           </div>
 
-          <div className="hidden md:grid p-2 border-b grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,9rem)_minmax(14rem,2.75fr)_auto] gap-4 bg-white items-end shrink-0">
+          <div className="hidden md:grid min-w-0 p-2 border-b grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,9rem)_minmax(0,1.4fr)_auto] gap-4 bg-white items-end shrink-0">
             {renderFilterFields(instrFilterAnchorRef)}
             {showCreateRequest && onCreateRequest && (
               <div className="flex justify-end pb-0.5">
@@ -972,7 +972,7 @@ export default function RepertoireWorkPickerModal({
             )}
           </div>
 
-          <div className="flex-1 overflow-y-auto min-h-0">
+          <div className="relative min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable]">
             {renderResultsBody()}
           </div>
 

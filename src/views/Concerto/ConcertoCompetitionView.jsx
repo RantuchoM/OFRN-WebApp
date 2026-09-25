@@ -785,7 +785,7 @@ export default function ConcertoCompetitionView({ supabase }) {
     : instancias.filter((instancia) => instancia.esElectorado);
 
   return (
-    <div className="flex h-full flex-col overflow-auto bg-slate-50 p-4 md:p-6">
+    <div className="flex h-full min-w-0 flex-col overflow-x-hidden overflow-y-auto bg-slate-50 p-4 md:p-6">
       {leaveDialog}
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-4">
         <div className="flex flex-wrap items-center justify-between gap-3">

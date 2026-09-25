@@ -1,5 +1,9 @@
 import { supabaseOficinaExterna } from "./supabase";
 import {
+  buildScrnViaticoPrefill,
+  puedeAbrirViaticoDesdeReserva,
+} from "../utils/scrnViaticoPrefill";
+import {
   ensureOficinaExternaProfile,
   getOficinaExternaSessionProfile,
   logoutOficinaExterna,
@@ -102,6 +106,130 @@ export async function listViaticosScrnGenerados() {
       scrn_origen: row?.datos?.scrn_origen || null,
     }))
     .filter((row) => row.scrn_origen && typeof row.scrn_origen === "object");
+}
+
+function labelRecorridoViatico(viaje, rolLabel) {
+  const cuando = viaje?.fecha_salida
+    ? new Date(viaje.fecha_salida).toLocaleString("es-AR", {
+        dateStyle: "short",
+        timeStyle: "short",
+      })
+    : "sin fecha";
+  const ruta = [viaje?.origen, viaje?.destino_final].filter(Boolean).join(" → ") || "Recorrido";
+  const motivo = viaje?.motivo ? ` · ${viaje.motivo}` : "";
+  return `${cuando} · ${ruta}${motivo} (${rolLabel})`;
+}
+
+/**
+ * Recorridos propios (titular o pasajero con perfil) elegibles para armar y exportar un viático.
+ * Solo filas del usuario autenticado.
+ */
+export async function listMisRecorridosParaExportar() {
+  const {
+    data: { session },
+  } = await supabaseOficinaExterna.auth.getSession();
+  if (!session?.user) return [];
+  const uid = session.user.id;
+
+  const { data: reservas, error } = await supabaseOficinaExterna
+    .from("scrn_reservas")
+    .select(
+      "id, id_viaje, estado, tramo, localidad_subida, localidad_bajada, obs_subida, obs_bajada, viaticos_opciones",
+    )
+    .eq("id_usuario", uid)
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+
+  const { data: paxRows, error: paxErr } = await supabaseOficinaExterna
+    .from("scrn_reserva_pasajeros")
+    .select(
+      "id, id_reserva, id_perfil, estado, tramo, localidad_subida, localidad_bajada, obs_subida, obs_bajada, viaticos_opciones, nombre, apellido",
+    )
+    .eq("id_perfil", uid)
+    .neq("estado", "cancelada");
+  if (paxErr) throw paxErr;
+
+  const titularIds = new Set((reservas || []).map((row) => row.id));
+  const extraIds = [
+    ...new Set(
+      (paxRows || [])
+        .map((row) => row.id_reserva)
+        .filter((id) => id != null && !titularIds.has(id)),
+    ),
+  ];
+
+  let extraReservas = [];
+  if (extraIds.length) {
+    const { data, error: extraErr } = await supabaseOficinaExterna
+      .from("scrn_reservas")
+      .select(
+        "id, id_viaje, estado, tramo, localidad_subida, localidad_bajada, obs_subida, obs_bajada, viaticos_opciones",
+      )
+      .in("id", extraIds);
+    if (extraErr) throw extraErr;
+    extraReservas = data || [];
+  }
+
+  const allReservas = [...(reservas || []), ...extraReservas];
+  const viajeIds = [...new Set(allReservas.map((row) => row.id_viaje).filter(Boolean))];
+  let viajes = [];
+  if (viajeIds.length) {
+    const { data, error: viajesErr } = await supabaseOficinaExterna
+      .from("scrn_viajes")
+      .select("*, scrn_transportes(*)")
+      .in("id", viajeIds);
+    if (viajesErr) throw viajesErr;
+    viajes = data || [];
+  }
+  const viajeMap = Object.fromEntries(viajes.map((viaje) => [viaje.id, viaje]));
+
+  const { data: perfil } = await supabaseOficinaExterna
+    .from("scrn_perfiles")
+    .select("id, nombre, apellido, dni, cargo")
+    .eq("id", uid)
+    .maybeSingle();
+
+  const options = [];
+  for (const reserva of reservas || []) {
+    const viaje = viajeMap[reserva.id_viaje];
+    if (!viaje || !puedeAbrirViaticoDesdeReserva({ reserva, viaje })) continue;
+    options.push({
+      key: `t-${reserva.id}`,
+      label: labelRecorridoViatico(viaje, "titular"),
+      prefill: buildScrnViaticoPrefill({
+        viaje,
+        transporte: viaje.scrn_transportes,
+        reserva,
+        perfil,
+        viaticosOpciones: reserva.viaticos_opciones,
+        rol: "titular",
+      }),
+    });
+  }
+
+  const extraById = Object.fromEntries(extraReservas.map((row) => [row.id, row]));
+  for (const pax of paxRows || []) {
+    if (titularIds.has(pax.id_reserva)) continue;
+    const reserva = extraById[pax.id_reserva];
+    const viaje = reserva ? viajeMap[reserva.id_viaje] : null;
+    if (!reserva || !viaje) continue;
+    if (!puedeAbrirViaticoDesdeReserva({ reserva, viaje, estadoPasajero: pax.estado })) continue;
+    options.push({
+      key: `p-${pax.id}`,
+      label: labelRecorridoViatico(viaje, "pasajero"),
+      prefill: buildScrnViaticoPrefill({
+        viaje,
+        transporte: viaje.scrn_transportes,
+        reserva,
+        pax,
+        perfil,
+        viaticosOpciones: pax.viaticos_opciones,
+        rol: "pasajero",
+      }),
+    });
+  }
+
+  return options;
 }
 
 export async function deleteViaticoGuardado(id) {

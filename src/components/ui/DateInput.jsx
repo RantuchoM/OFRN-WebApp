@@ -111,11 +111,12 @@ const inputBaseClass = 'border-0 bg-transparent outline-none p-0 text-center tex
  * - En blur solo se emite onChange cuando día/mes/año están completos (no guardar "01" si solo
  *   se escribió "1" en el día). Ver docs/specs/ui-dateinput-v2.md.
  */
-export default function DateInput({ value, onChange, label, className, showCalendarPicker = true, showDayName = true }) {
+export default function DateInput({ value, onChange, label, className, showCalendarPicker = true, showDayName = true, confirmPicker = false }) {
     const [day, setDay] = useState('');
     const [month, setMonth] = useState('');
     const [year, setYear] = useState('');
     const [calendarOpen, setCalendarOpen] = useState(false);
+    const [pickerDraft, setPickerDraft] = useState('');
     const containerRef = useRef(null);
     const calendarPortalRef = useRef(null);
     const dayRef = useRef(null);
@@ -278,12 +279,44 @@ export default function DateInput({ value, onChange, label, className, showCalen
         }
     };
 
+    const applyIso = (iso) => {
+        const next = iso || '';
+        onChange(next);
+        lastValueRef.current = next;
+        if (next) {
+            const [y, m, d] = next.split('-');
+            setDay(d || '');
+            setMonth(m || '');
+            setYear(y || '');
+        } else {
+            setDay('');
+            setMonth('');
+            setYear('');
+        }
+    };
+
+    const openCalendar = () => {
+        setPickerDraft(value || '');
+        setCalendarOpen(true);
+    };
+
     const handleCalendarSelect = (iso) => {
-        onChange(iso);
-        const [y, m, d] = iso.split('-');
-        setDay(d);
-        setMonth(m);
-        setYear(y);
+        if (confirmPicker) {
+            setPickerDraft(iso);
+            return;
+        }
+        applyIso(iso);
+        setCalendarOpen(false);
+    };
+
+    const acceptCalendar = () => {
+        applyIso(pickerDraft || '');
+        setCalendarOpen(false);
+    };
+
+    const clearCalendar = () => {
+        setPickerDraft('');
+        applyIso('');
         setCalendarOpen(false);
     };
 
@@ -306,8 +339,10 @@ export default function DateInput({ value, onChange, label, className, showCalen
                     <>
                         <button
                             type="button"
-                            onClick={() => setCalendarOpen((o) => !o)}
-                            className="absolute left-2 top-1/2 -translate-y-1/2 p-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity z-10 text-slate-400 hover:text-indigo-600"
+                            onClick={() => (calendarOpen ? setCalendarOpen(false) : openCalendar())}
+                            className={`absolute left-2 top-1/2 -translate-y-1/2 p-0.5 rounded transition-opacity z-10 text-slate-400 hover:text-indigo-600 ${
+                                confirmPicker ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                            }`}
                             title="Abrir calendario"
                         >
                             <IconCalendar size={14} />
@@ -329,7 +364,28 @@ export default function DateInput({ value, onChange, label, className, showCalen
                                     className="relative z-10 bg-white border border-slate-200 rounded-xl shadow-xl p-3"
                                     onClick={(e) => e.stopPropagation()}
                                 >
-                                    <MiniCalendar value={value} onSelect={handleCalendarSelect} />
+                                    <MiniCalendar
+                                        value={confirmPicker ? pickerDraft : value}
+                                        onSelect={handleCalendarSelect}
+                                    />
+                                    {confirmPicker && (
+                                        <div className="mt-3 flex justify-end gap-2 border-t border-slate-100 pt-2">
+                                            <button
+                                                type="button"
+                                                onClick={clearCalendar}
+                                                className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-bold uppercase text-slate-600 hover:bg-slate-50"
+                                            >
+                                                Limpiar
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={acceptCalendar}
+                                                className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-bold uppercase text-white hover:bg-indigo-700"
+                                            >
+                                                Aceptar
+                                            </button>
+                                        </div>
+                                    )}
                                 </div>
                             </div>,
                             document.body

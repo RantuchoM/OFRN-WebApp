@@ -11,6 +11,7 @@ import {
   REFERENCIA_DIAS_SALIDA,
 } from "../../../utils/viaticosDiasComputables";
 import {
+  explainCalendarioDiasViatico,
   formatSegmentosProrrateoHelp,
   fmtMoneyArs,
 } from "../../../utils/viaticosValorDiarioProporcional";
@@ -112,6 +113,14 @@ function DiasComputablesExplainModal({
   if (!breakdown) return null;
 
   const prorrateoTxt = formatSegmentosProrrateoHelp(segmentos, fmtMoneyArs);
+  const calendarioTxt = explainCalendarioDiasViatico({
+    fechaSalida: breakdown.fechaSalida,
+    horaSalida: breakdown.horaSalida,
+    fechaLlegada: breakdown.fechaLlegada,
+    horaLlegada: breakdown.horaLlegada,
+    segmentos,
+    fmtMoney: fmtMoneyArs,
+  });
   const pctNum = parseFloat(String(porcentaje ?? "").replace("%", ""));
   const showPct = Number.isFinite(pctNum) && pctNum !== 100;
   const usaProrrateo = Array.isArray(segmentos) && segmentos.length > 1;
@@ -234,6 +243,9 @@ function DiasComputablesExplainModal({
                   </li>
                 ))}
               </ol>
+              {calendarioTxt ? (
+                <p className="text-xs text-slate-700 leading-snug">{calendarioTxt}</p>
+              ) : null}
               {breakdown.formulaSummary && (
                 <div className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-center">
                   <span className="text-[10px] font-bold uppercase text-indigo-600 block mb-0.5">

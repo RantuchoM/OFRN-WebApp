@@ -1,19 +1,16 @@
 import React, { useMemo, useState } from "react";
-import {
-  ensureViaticosManualProfile,
-  requestViaticosManualEmailCode,
-  verifyViaticosManualEmailCode,
-} from "../../../services/viaticosManualService";
+import { ensureViaticosManualProfile } from "../../../services/viaticosManualService";
+import { VIATICOS_APP } from "../../../services/oficinaExternaAuthService";
+import OficinaExternaAccessForm from "../../../components/public/OficinaExternaAccessForm";
 import { IconCalculator, IconCloud, IconCloudUpload, IconFileDownload } from "../../../components/ui/Icons";
 
 const initialProfile = { nombre: "", apellido: "" };
-const OTP_RESEND_COOLDOWN_SECONDS = 60;
 
 const HOW_IT_WORKS = [
   {
     step: "1",
     title: "Iniciá sesión con tu email",
-    detail: "Te enviamos un código de 8 dígitos o un enlace seguro. Sin contraseñas nuevas.",
+    detail: "Elegí contraseña o un código único de un solo uso al mail. La misma cuenta sirve para Transporte.",
     icon: IconCloud,
   },
   {
@@ -40,23 +37,14 @@ function LoginFormBlock({
   user,
   profile,
   needsProfile,
-  email,
-  setEmail,
-  otpCode,
-  setOtpCode,
-  otpSent,
   form,
   setForm,
   error,
   message,
-  sending,
-  verifying,
   savingProfile,
-  nextOtpAllowedAt,
   bootError,
-  onSendOtp,
-  onVerifyOtp,
   onSaveProfile,
+  onSignedIn,
   isGate,
   onClose,
   onContinueAsGuest,
@@ -72,7 +60,7 @@ function LoginFormBlock({
             {isGate ? "Ingresá a tu cuenta" : "Iniciar sesión"}
           </h2>
           <p className="text-xs text-slate-500 mt-1">
-            Acceso con código por email. La misma cuenta sirve para transporte SCRN y viáticos manual.
+            Elegí contraseña o código único. La misma cuenta sirve para transporte SCRN y viáticos manual.
           </p>
         </div>
         {!isGate && onClose && (
@@ -88,61 +76,7 @@ function LoginFormBlock({
       </div>
 
       {!user && (
-        <>
-          <form className="space-y-2" onSubmit={onSendOtp}>
-            <label className="text-xs font-bold text-slate-600 uppercase tracking-wide">Email</label>
-            <input
-              type="email"
-              required
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-500/30"
-              placeholder="tu.mail@dominio.com"
-            />
-            <button
-              type="submit"
-              disabled={sending || !email.trim() || Date.now() < nextOtpAllowedAt}
-              className="w-full bg-indigo-600 text-white text-sm font-black py-2.5 rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition"
-            >
-              {sending
-                ? "Enviando..."
-                : Date.now() < nextOtpAllowedAt
-                  ? "Esperá para reenviar"
-                  : "Enviar código"}
-            </button>
-          </form>
-
-          {otpSent && (
-            <form className="space-y-2" onSubmit={onVerifyOtp}>
-              <label className="text-xs font-bold text-slate-600 uppercase tracking-wide">
-                Código (8 dígitos)
-              </label>
-              <input
-                type="text"
-                required
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                value={otpCode}
-                onChange={(event) =>
-                  setOtpCode(event.target.value.replace(/\D/g, "").slice(0, 8))
-                }
-                maxLength={8}
-                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm text-center tracking-[0.3em] outline-none focus:ring-2 focus:ring-indigo-500/30"
-                placeholder="12345678"
-              />
-              <button
-                type="submit"
-                disabled={verifying || otpCode.trim().length !== 8}
-                className="w-full bg-slate-800 text-white text-sm font-black py-2.5 rounded-lg hover:bg-slate-900 disabled:opacity-50 transition"
-              >
-                {verifying ? "Validando..." : "Validar e ingresar"}
-              </button>
-              <p className="text-[11px] text-slate-500">
-                Ingresá los 8 dígitos del email, o usá el enlace «Accedé sin contraseña».
-              </p>
-            </form>
-          )}
-        </>
+        <OficinaExternaAccessForm app={VIATICOS_APP} onSignedIn={onSignedIn} />
       )}
 
       {needsProfile && (
@@ -243,65 +177,12 @@ export default function LoginViaticosManual({
   onContinueAsGuest,
 }) {
   const isGate = mode === "gate";
-  const [email, setEmail] = useState("");
-  const [otpCode, setOtpCode] = useState("");
-  const [otpSent, setOtpSent] = useState(false);
   const [form, setForm] = useState(initialProfile);
   const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
-  const [sending, setSending] = useState(false);
-  const [verifying, setVerifying] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
-  const [nextOtpAllowedAt, setNextOtpAllowedAt] = useState(0);
   const [guestConfirmOpen, setGuestConfirmOpen] = useState(false);
 
   const needsProfile = useMemo(() => Boolean(user) && !profile, [user, profile]);
-
-  const sendOtp = async (event) => {
-    event.preventDefault();
-    const now = Date.now();
-    const secondsRemaining = Math.ceil((nextOtpAllowedAt - now) / 1000);
-    if (secondsRemaining > 0) {
-      setError(`Esperá ${secondsRemaining}s antes de pedir otro código.`);
-      return;
-    }
-    setError("");
-    setMessage("");
-    setSending(true);
-    const normalizedEmail = email.trim().toLowerCase();
-    try {
-      await requestViaticosManualEmailCode(normalizedEmail);
-    } catch (otpError) {
-      setError(otpError?.message || "No se pudo enviar el código.");
-      return;
-    } finally {
-      setSending(false);
-    }
-    setOtpSent(true);
-    setEmail(normalizedEmail);
-    setNextOtpAllowedAt(Date.now() + OTP_RESEND_COOLDOWN_SECONDS * 1000);
-    setMessage("Te enviamos un código de acceso por email.");
-  };
-
-  const verifyOtp = async (event) => {
-    event.preventDefault();
-    setError("");
-    setMessage("");
-    setVerifying(true);
-    try {
-      await verifyViaticosManualEmailCode({
-        email: email.trim().toLowerCase(),
-        code: otpCode.trim(),
-      });
-    } catch (verifyError) {
-      setError(verifyError?.message || "No se pudo validar el código.");
-      return;
-    } finally {
-      setVerifying(false);
-    }
-    setMessage("Código validado correctamente.");
-    onProfileSaved?.();
-  };
 
   const saveProfile = async (event) => {
     event.preventDefault();
@@ -322,23 +203,14 @@ export default function LoginViaticosManual({
     user,
     profile,
     needsProfile,
-    email,
-    setEmail,
-    otpCode,
-    setOtpCode,
-    otpSent,
     form,
     setForm,
     error,
-    message,
-    sending,
-    verifying,
+    message: "",
     savingProfile,
-    nextOtpAllowedAt,
     bootError,
-    onSendOtp: sendOtp,
-    onVerifyOtp: verifyOtp,
     onSaveProfile: saveProfile,
+    onSignedIn: () => onProfileSaved?.(),
     isGate,
     onClose,
     onContinueAsGuest: () => setGuestConfirmOpen(true),
@@ -362,9 +234,9 @@ export default function LoginViaticosManual({
     <div className="w-full max-w-5xl mx-auto">
       <div className="grid grid-cols-1 lg:grid-cols-[1.1fr_0.9fr] gap-8 items-start">
         <div className="space-y-6 lg:pt-4">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-100 text-indigo-800 text-[11px] font-black uppercase tracking-wider">
-            <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
-            Nuevo
+          <div className="inline-flex items-center gap-2 border border-[#c5d0dc] bg-[#e8f1fa] px-3 py-1 text-[11px] font-black uppercase tracking-wider text-[#003d7a]">
+            <span className="h-1.5 w-1.5 animate-pulse bg-[#0054a6]" />
+            Oficina
           </div>
 
           <div className="space-y-3">
@@ -377,14 +249,14 @@ export default function LoginViaticosManual({
             </p>
           </div>
 
-          <div className="rounded-2xl border border-indigo-100 bg-white/80 backdrop-blur p-5 space-y-4 shadow-sm">
-            <p className="text-xs font-black uppercase tracking-wider text-indigo-700">¿Cómo funciona?</p>
+          <div className="space-y-4 border border-[#c5d0dc] border-t-4 border-t-[#0054a6] bg-white p-5">
+            <p className="text-xs font-black uppercase tracking-wider text-[#0054a6]">¿Cómo funciona?</p>
             <ol className="space-y-4">
               {HOW_IT_WORKS.map((item) => {
                 const Icon = item.icon;
                 return (
                   <li key={item.step} className="flex gap-3">
-                    <div className="shrink-0 w-9 h-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center bg-[#e8f1fa] text-[#0054a6]">
                       <Icon size={18} />
                     </div>
                     <div>

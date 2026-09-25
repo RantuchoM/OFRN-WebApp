@@ -1,5 +1,6 @@
 import React, { useEffect } from "react";
 import { Outlet } from "react-router-dom";
+import "../TransporteSCRN/scrnTransporteLayout.css";
 import { ViaticosManualAuthProvider, useViaticosManualAuth } from "../../../context/ViaticosManualAuthContext";
 import ManualSavedPanel from "../../../components/public/ManualSavedPanel";
 import LoginViaticosManual from "./LoginViaticosManual";
@@ -25,7 +26,7 @@ function LayoutShell() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+      <div className="scrn-shell flex min-h-screen items-center justify-center">
         <span className="text-sm font-semibold text-slate-500 uppercase tracking-wide">
           Cargando…
         </span>
@@ -37,7 +38,7 @@ function LayoutShell() {
 
   if (showAccessGate) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-slate-100 flex items-center justify-center px-4 py-10 sm:py-14">
+      <div className="scrn-shell flex min-h-screen items-center justify-center px-4 py-10 sm:py-14">
         <LoginViaticosManual
           mode="gate"
           user={session?.user || null}
@@ -54,7 +55,7 @@ function LayoutShell() {
     <>
       <Outlet />
       {loginOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
+        <div className="scrn-square fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm">
           <LoginViaticosManual
             mode="modal"
             user={session?.user || null}

@@ -2,6 +2,7 @@
 
 ## 1. Navegación y Header
 - Implementar un **Header de Utilidades** en ambas vistas (`/viaticos-manual` y `/rendiciones-manual`).
+- [x] Tabs visibles **Transporte · Viáticos · Rendiciones** (`OficinaExternaNav`), también en `/transporte-scrn`.
 - Botón conmutador (tabs) para alternar entre **Viáticos** y **Rendiciones**.
 - El Header debe mostrar un indicador de **"Datos sincronizados"** si existe información en el storage.
 
@@ -38,3 +39,5 @@
 - [x] **Anticipo de viáticos calculado, no editable (2026-09-25):** en `/viaticos-manual` y en Rendiciones el anticipo de viáticos sale de los datos cargados (fechas, % , temporada e historial de vigencias). La celda Anticipado de Viáticos no es un input. No se conserva un importe escrito a mano.
 - [x] **Temporada en el PDF (2026-09-25):** el tilde de temporada alta escribe `X` en `check_temporada` de la plantilla de rendición (el campo `porcentaje_temporada` no existe).
 - [x] **Total del PDF = total de la tabla (2026-09-25):** `totales_ant` usa el `totalFinal` de la pantalla (incluye ceremonial). No se recalcula con la suma de la grilla de giras, que omite ceremonial.
+- [x] **Montos en pesos (2026-09-25):** los inputs de gastos (viáticos) y de anticipado/rendido (rendiciones, salvo el anticipo de viáticos calculado) usan `ArsAmountInput` (`$ 1.234,56`). El cálculo del anticipo manual no cambia.
+- [x] **Panel único a la derecha (2026-09-25):** en `/viaticos-manual` y `/rendiciones-manual`, Resumen (anticipo) y Valor diario calculado comparten **un** recuadro (`bg-slate-50`, un borde). La grilla es de 2 columnas: Motivo / fechas / cálculo a la izquierda; Lugar comisión y el panel a la derecha (el panel ocupa las filas de fechas y de cálculo, sin el hueco de dos secciones). Dentro del panel, primero **Valor diario calculado** (días × tarifa) y debajo **Resumen / Viáticos anticipados**. En la fila de cálculo, Valor diario base, % viático y Temporada alta comparten alto: solo título + control (sin «Definido automáticamente…» ni «+30% (factor 0,30)»). Vigencias sigue en la columna izquierda. No cambia el cálculo.

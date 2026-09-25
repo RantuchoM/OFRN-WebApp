@@ -25,6 +25,7 @@ import {
   repertorioGrupoIdsFromBlock,
   repertorioGruposMetaFromBlock,
 } from "../../services/giraGruposService";
+import { yieldExportLoop } from "../../utils/pdfLibBackgroundSafe";
 
 const initialDownloadAllState = {
   isRunning: false,
@@ -625,6 +626,7 @@ export default function MyPartsViewer({
             }`,
           );
         }
+        await yieldExportLoop();
       }
 
       if (!successfulDownloads) {

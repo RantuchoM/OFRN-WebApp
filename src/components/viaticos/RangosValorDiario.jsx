@@ -20,9 +20,30 @@ export default function RangosValorDiario({
   showTotal = true,
   valueClassName = "text-sm font-black text-slate-800",
   className = "",
+  /** "completo" repite días × tarifa y plata. "tarifa" solo cómo se arma el día. "dinero" solo el anticipo. */
+  presentacion = "completo",
 }) {
   const rangos = segmentosParaVista(segmentos);
+  const soloDinero = presentacion === "dinero";
+  const soloTarifa = presentacion === "tarifa";
   if (rangos.length < 2) {
+    if (soloDinero) {
+      return (
+        <div className={`flex items-center justify-between gap-3 ${className}`}>
+          <span className="text-[11px] font-bold text-slate-600">Viáticos anticipados</span>
+          <span className={valueClassName}>{fmtMoney(subtotal)}</span>
+        </div>
+      );
+    }
+    if (soloTarifa) {
+      return (
+        <div className={className}>
+          <div className={valueClassName}>
+            {fmtDiasPdf(dias)} días × {fmtMoney(valorDiarioCalc)}
+          </div>
+        </div>
+      );
+    }
     return (
       <div className={className}>
         <div className={valueClassName}>{fmtMoney(valorDiarioCalc)}</div>
@@ -37,31 +58,37 @@ export default function RangosValorDiario({
         return (
           <div
             key={`${s.fechaDesde || ""}-${s.montoBase}-${i}`}
-            className="flex items-start justify-between gap-3"
+            className={`flex justify-between gap-3 ${soloDinero ? "items-center" : "items-start"}`}
           >
             <div className="min-w-0">
               <div className="text-[10px] font-black uppercase tracking-widest text-indigo-500">
                 {tituloSegmentoRango(i, rangos.length)}
                 {fechas ? ` · ${fechas}` : ""}
               </div>
-              <div className={valueClassName}>
-                {fmtDiasPdf(s.dias)} días × {fmtMoney(s.valorDiarioCalc)}
-              </div>
+              {soloDinero ? null : (
+                <div className={valueClassName}>
+                  {fmtDiasPdf(s.dias)} días × {fmtMoney(s.valorDiarioCalc)}
+                </div>
+              )}
             </div>
-            {showTramoSubtotal ? (
-              <div className="shrink-0 pt-3 text-xs font-black text-slate-700">
+            {soloDinero || (showTramoSubtotal && !soloTarifa) ? (
+              <div className={`shrink-0 text-xs font-black text-slate-700 ${soloDinero ? "" : "pt-3"}`}>
                 {fmtMoney(s.subtotalTramo)}
               </div>
             ) : null}
           </div>
         );
       })}
-      {showTotal ? (
+      {soloDinero || (showTotal && !soloTarifa) ? (
         <div className="flex items-center justify-between gap-3 border-t border-slate-200 pt-2 text-[11px] text-slate-600">
-          <span>
-            Total{" "}
-            <span className="font-black text-slate-800">{fmtDiasPdf(dias)}</span>{" "}
-            días
+          <span className="font-bold text-slate-700">
+            {soloDinero ? "Viáticos anticipados" : (
+              <>
+                Total{" "}
+                <span className="font-black text-slate-800">{fmtDiasPdf(dias)}</span>{" "}
+                días
+              </>
+            )}
           </span>
           <span className="font-black text-slate-800">{fmtMoney(subtotal)}</span>
         </div>

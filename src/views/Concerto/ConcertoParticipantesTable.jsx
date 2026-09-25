@@ -110,8 +110,16 @@ export default function ConcertoParticipantesTable({
   };
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[880px] border-collapse text-sm">
+    <div className="max-w-full min-w-0 overflow-x-auto">
+      <table className="w-full min-w-[880px] table-fixed border-collapse text-sm">
+        <colgroup>
+          <col className="w-[18%]" />
+          <col className="w-[22%]" />
+          <col className="w-[22%]" />
+          <col className="w-[8%]" />
+          <col className="w-[18%]" />
+          <col className="w-[12%]" />
+        </colgroup>
         <thead>
           <tr className="border-b border-slate-200 text-left text-[10px] font-bold uppercase tracking-wide text-slate-500">
             <th className="px-2 py-2">Participantes</th>
@@ -198,9 +206,9 @@ export default function ConcertoParticipantesTable({
                     </a>
                   ) : null}
                 </td>
-                <td className="max-w-[16rem] px-2 py-2">
+                <td className="overflow-hidden px-2 py-2">
                   {organico ? (
-                    <span className="font-mono text-[11px] text-slate-600">{organico}</span>
+                    <span className="block break-words font-mono text-[11px] text-slate-600">{organico}</span>
                   ) : null}
                 </td>
                 <td className="px-2 py-2">

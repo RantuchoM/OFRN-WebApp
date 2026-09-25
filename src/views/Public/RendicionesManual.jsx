@@ -28,6 +28,7 @@ import {
   tieneFechasViatico,
 } from "../../utils/viaticosValorDiarioProporcional";
 import RangosValorDiario from "../../components/viaticos/RangosValorDiario";
+import ArsAmountInput from "../../components/viaticos/ArsAmountInput";
 import {
   baseFieldClass,
   buildPersonaLabel,
@@ -680,7 +681,7 @@ export default function RendicionesManual() {
     (key, val) =>
       getCloudFieldClass(
         key,
-        "w-32 text-right border border-slate-300 rounded-lg px-2 py-1 bg-white outline-none focus:ring-2 focus:ring-indigo-500/30",
+        "w-32 text-right border border-slate-300 rounded-lg px-2 py-1 bg-white outline-none focus:ring-2 focus:ring-[#0054a6]/30",
       ),
     [getCloudFieldClass],
   );
@@ -728,14 +729,14 @@ export default function RendicionesManual() {
     return registerLoadHandlers({ onLoadRendicion: handleLoadSavedRendicion });
   }, [registerLoadHandlers, handleLoadSavedRendicion]);
 
-  const updateRend = (key) => (e) => {
-    setRend((prev) => ({ ...prev, [key]: e.target.value }));
+  const updateRend = (key) => (amount) => {
+    setRend((prev) => ({ ...prev, [key]: amount }));
     notifyFieldChange(`rend:${key}`);
   };
 
-  const updateAnt = (key) => (e) => {
+  const updateAnt = (key) => (amount) => {
     if (key === "rendicion_viaticos") return;
-    setAnt((prev) => ({ ...prev, [key]: e.target.value }));
+    setAnt((prev) => ({ ...prev, [key]: amount }));
     notifyFieldChange(`ant:${key}`);
   };
 
@@ -1015,7 +1016,7 @@ export default function RendicionesManual() {
   );
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900">
+    <div className="scrn-shell min-h-screen text-slate-900">
       <div className="max-w-5xl mx-auto px-4 py-8">
         <ManualHeader
           session={session}
@@ -1041,7 +1042,7 @@ export default function RendicionesManual() {
             />
           }
           trailingActions={
-            <div className="inline-flex items-stretch rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden shrink-0">
+            <div className="inline-flex shrink-0 items-stretch overflow-hidden border border-[#c5d0dc] bg-white">
               <button
                 type="button"
                 onClick={handleClear}
@@ -1055,7 +1056,7 @@ export default function RendicionesManual() {
               <button
                 type="button"
                 onClick={handleDownload}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-indigo-600 text-white text-xs font-black hover:bg-indigo-700 transition whitespace-nowrap"
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-[#0054a6] text-white text-xs font-black hover:bg-[#003d7a] transition whitespace-nowrap"
                 title="Descargar PDF"
               >
                 <IconFileDownload size={14} />
@@ -1065,7 +1066,7 @@ export default function RendicionesManual() {
           }
         />
 
-        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+        <div className="overflow-hidden border border-[#c5d0dc] border-t-4 border-t-[#0054a6] bg-white">
           <div className="px-6 pt-5">
             <h1 className="text-xl font-black text-slate-800">
               Rendiciones Manual (Secretaría)
@@ -1110,8 +1111,8 @@ export default function RendicionesManual() {
               <div className="text-[11px] font-black uppercase tracking-widest text-slate-500">
                 Comisión
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <label className="text-xs font-bold text-slate-600 md:col-span-2">
+              <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-2 md:items-stretch">
+                <label className="text-xs font-bold text-slate-600 md:col-start-1 md:row-start-1">
                   Motivo
                   <input
                     className={`mt-1 w-full ${inputClass(base.motivo)}`}
@@ -1120,7 +1121,7 @@ export default function RendicionesManual() {
                     placeholder="Motivo"
                   />
                 </label>
-                <label className="text-xs font-bold text-slate-600 md:col-span-2">
+                <label className="text-xs font-bold text-slate-600 md:col-start-2 md:row-start-1">
                   Lugar comisión
                   <input
                     type="text"
@@ -1133,182 +1134,187 @@ export default function RendicionesManual() {
                   />
                 </label>
 
-                <label className="text-xs font-bold text-slate-600 md:row-start-2 md:col-start-1">
-                  Fecha salida
-                  <div className="mt-1">
-                    <DateInput
-                      value={base.fecha_salida || ""}
-                      onChange={(v) => setBaseValue("fecha_salida", v)}
-                      showDayName={false}
-                      className={`!py-1.5 !pl-8 !pr-2 !rounded-lg text-xs ${
-                        base.fecha_salida
-                          ? occupiedDateInputClass
-                          : ""
-                      }`}
-                    />
-                  </div>
-                </label>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:col-start-1 md:row-start-2">
+                  <label className="text-xs font-bold text-slate-600">
+                    Fecha salida
+                    <div className="mt-1">
+                      <DateInput
+                        value={base.fecha_salida || ""}
+                        onChange={(v) => setBaseValue("fecha_salida", v)}
+                        confirmPicker
+                        showDayName={false}
+                        className={`!py-1.5 !pl-8 !pr-2 !rounded-lg text-xs ${
+                          base.fecha_salida
+                            ? occupiedDateInputClass
+                            : ""
+                        }`}
+                      />
+                    </div>
+                  </label>
 
-                <label className="text-xs font-bold text-slate-600 md:row-start-2 md:col-start-2">
-                  Hora salida
-                  <div className="mt-1">
-                    <TimeInput
-                      value={base.hora_salida || ""}
-                      onChange={(v) => setBaseValue("hora_salida", v || "")}
-                      className={`border border-slate-300 rounded-lg outline-none px-2 py-1.5 text-xs focus:ring-2 focus:ring-indigo-500/30 ${
-                        String(base.hora_salida || "").trim()
-                          ? occupiedTimeInputClass
-                          : "bg-white"
-                      }`}
-                    />
-                  </div>
-                </label>
+                  <label className="text-xs font-bold text-slate-600">
+                    Hora salida
+                    <div className="mt-1">
+                      <TimeInput
+                        value={base.hora_salida || ""}
+                        allowEmpty
+                        showClear
+                        onChange={(v) => setBaseValue("hora_salida", v || "")}
+                        className={`border border-slate-300 rounded-lg outline-none px-2 py-1.5 text-xs focus:ring-2 focus:ring-[#0054a6]/30 ${
+                          String(base.hora_salida || "").trim()
+                            ? occupiedTimeInputClass
+                            : "bg-white"
+                        }`}
+                      />
+                    </div>
+                  </label>
 
-                <div className="rounded-xl border border-slate-200 bg-slate-50 px-5 py-4 md:row-start-2 md:col-start-3 md:col-span-2 md:row-span-2 md:self-stretch">
-                  <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-                    Resumen (anticipo)
+                  <label className="text-xs font-bold text-slate-600">
+                    Fecha llegada
+                    <div className="mt-1">
+                      <DateInput
+                        value={base.fecha_llegada || ""}
+                        onChange={(v) => setBaseValue("fecha_llegada", v)}
+                        confirmPicker
+                        showDayName={false}
+                        className={`!py-1.5 !pl-8 !pr-2 !rounded-lg text-xs ${
+                          base.fecha_llegada
+                            ? occupiedDateInputClass
+                            : ""
+                        }`}
+                      />
+                    </div>
+                  </label>
+
+                  <label className="text-xs font-bold text-slate-600">
+                    Hora llegada
+                    <div className="mt-1">
+                      <TimeInput
+                        value={base.hora_llegada || ""}
+                        allowEmpty
+                        showClear
+                        onChange={(v) => setBaseValue("hora_llegada", v || "")}
+                        className={`border border-slate-300 rounded-lg outline-none px-2 py-1.5 text-xs focus:ring-2 focus:ring-[#0054a6]/30 ${
+                          String(base.hora_llegada || "").trim()
+                            ? occupiedTimeInputClass
+                            : "bg-white"
+                        }`}
+                      />
+                    </div>
+                  </label>
+                </div>
+
+                <div className="flex flex-col gap-3 md:col-start-1 md:row-start-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-[11px] font-black uppercase tracking-widest text-slate-500">
+                      Financieros
+                    </div>
+                    {canAdminVd ? (
+                      <button
+                        type="button"
+                        onClick={() => setVigenciaAdminOpen(true)}
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-bold text-[#0054a6] hover:bg-[#e8f1fa] transition"
+                        title="Administrar vigencias del valor diario"
+                      >
+                        <IconHistory size={13} />
+                        Vigencias
+                      </button>
+                    ) : null}
                   </div>
-                  <div className="mt-2">
-                    {segmentosParaVista(segmentosValor).length > 1 ? (
+                  <div className="grid grid-cols-2 items-stretch gap-3 lg:grid-cols-[minmax(0,1.2fr)_minmax(6.5rem,0.7fr)_minmax(0,1fr)]">
+                    <div className="col-span-2 flex h-full min-w-0 flex-col text-xs font-bold text-slate-600 lg:col-span-1">
+                      <span className="flex min-h-8 items-end">Valor diario base</span>
+                      <ValorDiarioBaseHistoricoField
+                        fechaSalida={base?.fecha_salida || ""}
+                        horaSalida={base?.hora_salida || ""}
+                        fechaLlegada={base?.fecha_llegada || ""}
+                        horaLlegada={base?.hora_llegada || ""}
+                        vigencias={vigencias}
+                        fmtMoney={fmtMoneyPreview}
+                      />
+                    </div>
+                    <label className="flex h-full min-w-0 flex-col text-xs font-bold text-slate-600">
+                      <span className="flex min-h-8 items-end">% viático</span>
+                      <select
+                        className={`mt-1 min-h-[38px] w-full flex-1 ${getCloudFieldClass(
+                          "porcentaje",
+                          `${baseFieldClass} bg-sky-50 border-sky-300`,
+                        )}`}
+                        value={String(base?.porcentaje ?? 100)}
+                        onChange={updateBase("porcentaje")}
+                      >
+                        <option value="100">100%</option>
+                        <option value="80">80%</option>
+                        <option value="0">0%</option>
+                      </select>
+                    </label>
+                    <label className="flex h-full min-w-0 flex-col text-xs font-bold text-slate-600">
+                      <span className="flex min-h-8 items-end">Temporada alta</span>
+                      <span className="mt-1 flex min-h-[38px] flex-1 items-center justify-end rounded-lg border border-slate-200 bg-slate-50 px-3">
+                        <input
+                          type="checkbox"
+                          checked={!!base?.temporada_alta}
+                          onChange={updateBase("temporada_alta")}
+                          className="h-5 w-5 accent-[#0054a6]"
+                        />
+                      </span>
+                    </label>
+                  </div>
+                </div>
+
+                <div className="flex h-full min-h-0 flex-col rounded-xl border border-slate-200 bg-slate-50 px-5 py-4 md:col-start-2 md:row-start-2 md:row-span-2">
+                  <div>
+                    <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                      Valor diario calculado
+                    </div>
+                    <div className="mt-1">
                       <RangosValorDiario
                         segmentos={segmentosValor}
                         valorDiarioCalc={valorDiarioCalc}
                         dias={dias_computables}
                         subtotal={subtotal}
                         fmtMoney={fmtMoneyPreview}
-                        showTotal={false}
+                        showTotal={segmentosParaVista(segmentosValor).length > 1}
                       />
-                    ) : (
-                      <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-600">
-                        <div className="flex justify-between">
-                          <span>Días</span>
-                          <span className="font-black">
-                            {toNumber(dias_computables) || 0}
-                          </span>
+                    </div>
+                  </div>
+                  <div className="mt-4 border-t border-slate-200 pt-3">
+                    <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                      Resumen (anticipo)
+                    </div>
+                    <div className="mt-2">
+                      {segmentosParaVista(segmentosValor).length > 1 ? (
+                        <RangosValorDiario
+                          segmentos={segmentosValor}
+                          valorDiarioCalc={valorDiarioCalc}
+                          dias={dias_computables}
+                          subtotal={subtotal}
+                          fmtMoney={fmtMoneyPreview}
+                          showTotal={false}
+                        />
+                      ) : (
+                        <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-600">
+                          <div className="flex justify-between">
+                            <span>Días</span>
+                            <span className="font-black">
+                              {toNumber(dias_computables) || 0}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Valor diario</span>
+                            <span className="font-black">
+                              {fmtMoneyPreview(valorDiarioCalc)}
+                            </span>
+                          </div>
                         </div>
-                        <div className="flex justify-between">
-                          <span>Valor diario</span>
-                          <span className="font-black">
-                            {fmtMoneyPreview(valorDiarioCalc)}
-                          </span>
-                        </div>
+                      )}
+                      <div className="mt-2 flex justify-between border-t border-slate-200 pt-2 text-[11px] text-slate-700">
+                        <span className="font-black">Viáticos anticipados</span>
+                        <span className="font-black">
+                          {fmtMoneyPreview(viaticosAnticipo)}
+                        </span>
                       </div>
-                    )}
-                    <div className="mt-2 flex justify-between border-t border-slate-200 pt-2 text-[11px] text-slate-700">
-                      <span className="font-black">Viáticos anticipados</span>
-                      <span className="font-black">
-                        {fmtMoneyPreview(viaticosAnticipo)}
-                      </span>
                     </div>
-                  </div>
-                </div>
-
-                <label className="text-xs font-bold text-slate-600 md:row-start-3 md:col-start-1">
-                  Fecha llegada
-                  <div className="mt-1">
-                    <DateInput
-                      value={base.fecha_llegada || ""}
-                      onChange={(v) => setBaseValue("fecha_llegada", v)}
-                      showDayName={false}
-                      className={`!py-1.5 !pl-8 !pr-2 !rounded-lg text-xs ${
-                        base.fecha_llegada
-                          ? occupiedDateInputClass
-                          : ""
-                      }`}
-                    />
-                  </div>
-                </label>
-
-                <label className="text-xs font-bold text-slate-600 md:row-start-3 md:col-start-2">
-                  Hora llegada
-                  <div className="mt-1">
-                    <TimeInput
-                      value={base.hora_llegada || ""}
-                      onChange={(v) => setBaseValue("hora_llegada", v || "")}
-                      className={`border border-slate-300 rounded-lg outline-none px-2 py-1.5 text-xs focus:ring-2 focus:ring-indigo-500/30 ${
-                        String(base.hora_llegada || "").trim()
-                          ? occupiedTimeInputClass
-                          : "bg-white"
-                      }`}
-                    />
-                  </div>
-                </label>
-              </div>
-            </section>
-
-            <section className="space-y-3">
-              <div className="flex items-center justify-between gap-2">
-                <div className="text-[11px] font-black uppercase tracking-widest text-slate-500">
-                  Financieros
-                </div>
-                {canAdminVd ? (
-                  <button
-                    type="button"
-                    onClick={() => setVigenciaAdminOpen(true)}
-                    className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-bold text-indigo-700 hover:bg-indigo-50 transition"
-                    title="Administrar vigencias del valor diario"
-                  >
-                    <IconHistory size={13} />
-                    Vigencias
-                  </button>
-                ) : null}
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
-                <div className="text-xs font-bold text-slate-600">
-                  Valor diario base
-                  <ValorDiarioBaseHistoricoField
-                    fechaSalida={base?.fecha_salida || ""}
-                    horaSalida={base?.hora_salida || ""}
-                    fechaLlegada={base?.fecha_llegada || ""}
-                    horaLlegada={base?.hora_llegada || ""}
-                    vigencias={vigencias}
-                    fmtMoney={fmtMoneyPreview}
-                  />
-                </div>
-                <label className="text-xs font-bold text-slate-600">
-                  % viático
-                  <select
-                    className={`mt-1 w-full ${getCloudFieldClass(
-                      "porcentaje",
-                      `${baseFieldClass} bg-sky-50 border-sky-300`,
-                    )}`}
-                    value={String(base?.porcentaje ?? 100)}
-                    onChange={updateBase("porcentaje")}
-                  >
-                    <option value="100">100%</option>
-                    <option value="80">80%</option>
-                    <option value="0">0%</option>
-                  </select>
-                </label>
-                <label className="flex items-center justify-between gap-3 border border-slate-200 rounded-xl px-4 py-3 bg-slate-50">
-                  <div>
-                    <div className="text-xs font-black text-slate-700">
-                      Temporada alta
-                    </div>
-                    <div className="text-[11px] text-slate-500">
-                      +30% (factor 0,30)
-                    </div>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={!!base?.temporada_alta}
-                    onChange={updateBase("temporada_alta")}
-                    className="h-5 w-5 accent-indigo-600"
-                  />
-                </label>
-                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 md:self-stretch">
-                  <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-                    Valor diario calculado
-                  </div>
-                  <div className="mt-1">
-                    <RangosValorDiario
-                      segmentos={segmentosValor}
-                      valorDiarioCalc={valorDiarioCalc}
-                      dias={dias_computables}
-                      subtotal={subtotal}
-                      fmtMoney={fmtMoneyPreview}
-                      showTotal={segmentosParaVista(segmentosValor).length > 1}
-                    />
                   </div>
                 </div>
               </div>
@@ -1360,30 +1366,18 @@ export default function RendicionesManual() {
                               {fmtMoneyPreview(viaticosAnticipo)}
                             </span>
                           ) : (
-                            <input
-                              inputMode="decimal"
+                            <ArsAmountInput
                               className={rendicionInputClass(`ant:${c.key}`, ant[c.key])}
                               value={ant[c.key]}
-                              onChange={updateAnt(c.key)}
-                              onFocus={() => {
-                                if (String(ant[c.key] ?? "").trim() === "0")
-                                  setAnt((p) => ({ ...p, [c.key]: "" }));
-                              }}
-                              placeholder="0"
+                              onValueChange={updateAnt(c.key)}
                             />
                           )}
                         </td>
                         <td className="px-4 py-3 text-right">
-                          <input
-                            inputMode="decimal"
+                          <ArsAmountInput
                             className={rendicionInputClass(`rend:${c.key}`, rend[c.key])}
                             value={rend[c.key]}
-                            onChange={updateRend(c.key)}
-                            onFocus={() => {
-                              if (String(rend[c.key] ?? "").trim() === "0")
-                                setRend((p) => ({ ...p, [c.key]: "" }));
-                            }}
-                            placeholder="0"
+                            onValueChange={updateRend(c.key)}
                           />
                         </td>
                         <td className="px-4 py-3 text-right font-mono text-slate-700">

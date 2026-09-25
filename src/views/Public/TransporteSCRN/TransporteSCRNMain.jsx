@@ -33,6 +33,7 @@ import MisEnvios from "./MisEnvios";
 import EnviarPaqueteModal from "./EnviarPaqueteModal";
 import ScrnNotificacionesDropdown from "./ScrnNotificacionesDropdown";
 import ManagementSectionCard from "../../Management/ManagementSectionCard";
+import OficinaExternaNav from "../../../components/public/OficinaExternaNav";
 import {
   IconSearch,
   IconCar,
@@ -149,7 +150,7 @@ function emojiVacantes(plazasDisponibles) {
 
 const VIEW_MODES = ["calendario", "agenda", "gestion"];
 const USER_AREAS = ["inicio", "explorar", "viajes", "envios"];
-const ADMIN_VIEWS = ["pendientes", "recorridos", "datos_generales"];
+const ADMIN_VIEWS = ["pendientes", "recorridos", "usuarios", "datos_generales"];
 const PENDIENTE_SECCION = ["viajes", "pasajeros", "paquetes"];
 
 function scrnPendienteBadgeClass(count, selected = false) {
@@ -877,6 +878,53 @@ export default function TransporteSCRNMain({
           </div>
         </div>
 
+        <div className="border-t border-slate-200/80 bg-white">
+          <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-2 px-3 py-2 sm:px-4">
+            <OficinaExternaNav tone="scrn" />
+            {viewMode !== "gestion" && (
+              <div
+                className="hidden flex-wrap gap-1 md:inline-flex"
+                aria-label="Secciones de transporte"
+              >
+                {[
+                  { id: "inicio", label: "Inicio", onClick: goHome, active: userArea === "inicio" },
+                  {
+                    id: "explorar",
+                    label: "Explorar",
+                    onClick: goExplorar,
+                    active: userArea === "explorar",
+                  },
+                  {
+                    id: "viajes",
+                    label: "Mis viajes",
+                    onClick: goViajes,
+                    active: userArea === "viajes",
+                  },
+                  {
+                    id: "envios",
+                    label: "Mis paquetes",
+                    onClick: goEnvios,
+                    active: userArea === "envios",
+                  },
+                ].map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={item.onClick}
+                    className={`rounded-lg px-2.5 py-1.5 text-[11px] font-bold uppercase tracking-wide ${
+                      item.active
+                        ? "bg-[#e8f1fa] text-[#003d7a]"
+                        : "text-slate-600 hover:bg-slate-50"
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
         {isAdmin && viewMode === "gestion" && !gestionLandingOpen && (
           <div className="border-t border-slate-200/80 bg-slate-50/90">
             <div className="mx-auto max-w-7xl space-y-2 px-3 py-2.5 sm:px-4">
@@ -892,6 +940,7 @@ export default function TransporteSCRNMain({
                 >
                   <option value="pendientes">Pendientes ({totalPendientes})</option>
                   <option value="recorridos">Recorridos</option>
+                  <option value="usuarios">Usuarios</option>
                   <option value="datos_generales">Datos generales</option>
                 </select>
               </div>
@@ -899,6 +948,7 @@ export default function TransporteSCRNMain({
                 {[
                   { id: "pendientes", label: "Pendientes", badge: totalPendientes },
                   { id: "recorridos", label: "Recorridos" },
+                  { id: "usuarios", label: "Usuarios" },
                   { id: "datos_generales", label: "Datos generales" },
                 ].map((tab) => (
                   <button
@@ -984,8 +1034,21 @@ export default function TransporteSCRNMain({
               />
               <ManagementSectionCard
                   square
+                title="Usuarios"
+                subtitle="Ver perfiles y cambiar rol"
+                icon={IconUser}
+                cardClasses="border-violet-100 hover:border-violet-300 hover:shadow-md focus-visible:ring-violet-300"
+                iconClasses="bg-violet-50 text-violet-700 group-hover:bg-violet-600 group-hover:text-white"
+                titleClasses="text-violet-950 group-hover:text-violet-800"
+                onClick={() => {
+                  setGestionLandingOpen(false);
+                  setAdminView("usuarios");
+                }}
+              />
+              <ManagementSectionCard
+                  square
                 title="Datos Generales"
-                subtitle="Transportes, localidades y usuarios"
+                subtitle="Transportes y localidades"
                 icon={IconManagement}
                 cardClasses="border-sky-100 hover:border-sky-300 hover:shadow-md focus-visible:ring-sky-300"
                 iconClasses="bg-sky-50 text-sky-700 group-hover:bg-sky-600 group-hover:text-white"
@@ -1012,8 +1075,8 @@ export default function TransporteSCRNMain({
                       Hola, {profile.nombre}
                     </h2>
                     <p className="max-w-2xl text-sm leading-relaxed text-slate-600">
-                      Reservá plazas, enviá paquetes o proponé un recorrido. Tus pendientes y la
-                      agenda de flota están en un solo lugar.
+                      Usá las pestañas de arriba para ir a Transporte, Viáticos o Rendiciones, y
+                      Inicio, Explorar, Mis viajes o Mis paquetes para moverte dentro de la flota.
                     </p>
                   </div>
                 </section>
@@ -1048,7 +1111,7 @@ export default function TransporteSCRNMain({
                   <ManagementSectionCard
                   square
                     title="Mis viajes"
-                    subtitle="Reservas y plazas"
+                    subtitle="Reservas y exportar viático"
                     icon={IconCar}
                     cardClasses="border-emerald-100 hover:border-emerald-300 hover:shadow-md focus-visible:ring-emerald-300"
                     iconClasses="bg-emerald-50 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white"

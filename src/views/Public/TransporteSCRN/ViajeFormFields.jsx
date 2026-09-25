@@ -3,6 +3,7 @@ import SearchableSelect from "../../../components/ui/SearchableSelect";
 import { localidadesToSearchableOptions } from "./localidadesSearchable";
 import { scrnTransporteColorFromEntity } from "./scrnTransporteColor";
 import { topeTransportePasajeros } from "./scrnPlazasCapacidad";
+import ScrnDateTimeField from "./ScrnDateTimeField";
 
 export const initialViajeForm = {
   id_transporte: "",
@@ -225,13 +226,11 @@ export function ViajeFormFields({
           <label htmlFor={`${fieldIdPrefix}-fecha_salida`} className={labelClass}>
             Fecha y hora de salida
           </label>
-          <input
+          <ScrnDateTimeField
             id={`${fieldIdPrefix}-fecha_salida`}
-            type="datetime-local"
             required
             value={values.fecha_salida || ""}
-            onChange={v("fecha_salida")}
-            className={inputClass}
+            onChange={(next) => onFieldChange("fecha_salida", next)}
           />
         </div>
       </div>
@@ -253,13 +252,11 @@ export function ViajeFormFields({
           <label htmlFor={`${fieldIdPrefix}-fecha_llegada_estimada`} className={labelClass}>
             Fecha y hora de llegada a origen
           </label>
-          <input
+          <ScrnDateTimeField
             id={`${fieldIdPrefix}-fecha_llegada_estimada`}
-            type="datetime-local"
             required
             value={values.fecha_llegada_estimada || ""}
-            onChange={v("fecha_llegada_estimada")}
-            className={inputClass}
+            onChange={(next) => onFieldChange("fecha_llegada_estimada", next)}
           />
           <p className="text-[10px] text-slate-500 leading-snug">
             Cuando el vehículo vuelve al origen y queda libre.
@@ -270,12 +267,10 @@ export function ViajeFormFields({
             Fecha y hora de retorno
             <span className="font-normal text-slate-400 normal-case"> (opcional)</span>
           </label>
-          <input
+          <ScrnDateTimeField
             id={`${fieldIdPrefix}-fecha_retorno`}
-            type="datetime-local"
             value={values.fecha_retorno || ""}
-            onChange={v("fecha_retorno")}
-            className={inputClass}
+            onChange={(next) => onFieldChange("fecha_retorno", next)}
           />
           <p className="text-[10px] text-slate-500 leading-snug">
             Tramo de vuelta para quien solo toma la ida y vuelta.

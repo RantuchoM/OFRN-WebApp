@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { IconX } from "../../components/ui/Icons";
 import SearchableSelect from "../../components/ui/SearchableSelect";
+import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 
 const fieldClass =
   "w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500";
@@ -159,6 +160,10 @@ export function InstanciaModal({ programas, onClose, onSubmit, saving }) {
   );
 }
 
+function mismoId(left, right) {
+  return String(left ?? "") === String(right ?? "");
+}
+
 export function ParticipanteModal({
   title,
   personas,
@@ -171,6 +176,14 @@ export function ParticipanteModal({
   const [idDos, setIdDos] = useState(initial?.idDos ?? null);
   const [observaciones, setObservaciones] = useState(initial?.observaciones || "");
   const [error, setError] = useState("");
+  const [pending, setPending] = useState(false);
+  const confirmingRef = useRef(false);
+  const { confirm, dialog } = useConfirmDialog();
+  const busy = pending || saving;
+  const dirty =
+    !mismoId(idUno, initial?.idUno ?? null) ||
+    !mismoId(idDos, initial?.idDos ?? null) ||
+    String(observaciones) !== String(initial?.observaciones || "");
 
   const optionsUno = personas.map((persona) => ({
     ...persona,
@@ -181,15 +194,53 @@ export function ParticipanteModal({
     disabled: idUno != null && String(persona.id) === String(idUno),
   }));
 
+  const persist = async () => {
+    setError("");
+    setPending(true);
+    try {
+      const message = await onSubmit({ idUno, idDos, observaciones });
+      if (message) {
+        setError(message);
+        return false;
+      }
+      return true;
+    } finally {
+      setPending(false);
+    }
+  };
+
   const submit = async (event) => {
     event.preventDefault();
-    setError("");
-    const message = await onSubmit({ idUno, idDos, observaciones });
-    if (message) setError(message);
+    if (busy) return;
+    await persist();
+  };
+
+  const requestClose = async () => {
+    if (busy || confirmingRef.current) return;
+    if (!dirty) {
+      onClose();
+      return;
+    }
+    confirmingRef.current = true;
+    const guardar = await confirm({
+      title: "Cambios sin guardar",
+      message: "Hay cambios sin guardar.",
+      confirmText: "Guardar",
+      cancelText: "Cancelar",
+      overlayClassName: "z-[110]",
+    });
+    confirmingRef.current = false;
+    if (guardar) {
+      await persist();
+      return;
+    }
+    onClose();
   };
 
   return (
-    <ConcertoModal title={title} onClose={onClose}>
+    <>
+    {dialog}
+    <ConcertoModal title={title} onClose={requestClose}>
       <form onSubmit={submit} className="space-y-3">
         <div>
           <p className="mb-1 text-xs font-bold uppercase text-slate-500">Integrante</p>
@@ -220,8 +271,9 @@ export function ParticipanteModal({
           />
         </label>
         <ModalError message={error} />
-        <PrimaryButton disabled={saving}>{saving ? "Guardando…" : "Guardar"}</PrimaryButton>
+        <PrimaryButton disabled={busy}>{busy ? "Guardando" : "Guardar"}</PrimaryButton>
       </form>
     </ConcertoModal>
+    </>
   );
 }

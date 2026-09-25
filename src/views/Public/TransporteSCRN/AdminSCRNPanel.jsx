@@ -284,6 +284,10 @@ export default function AdminSCRNPanel({
   });
 
   useEffect(() => {
+    if (adminView === "usuarios") setDatosGeneralesTab("ux");
+  }, [adminView]);
+
+  useEffect(() => {
     const transportId = focusTransportRequest?.id;
     if (!transportId) return;
     if (adminView !== "datos_generales") return;
@@ -590,11 +594,32 @@ export default function AdminSCRNPanel({
         const sample = profiles[0];
         const hasCol = (key) =>
           !sample || Object.prototype.hasOwnProperty.call(sample, key);
+        const emailById = {};
+        const { data: mailRows, error: mailError } = await supabase.rpc(
+          "scrn_admin_list_user_emails",
+        );
+        if (mailError) {
+          console.error("Error cargando mails SCRN:", mailError);
+        } else {
+          (mailRows || []).forEach((row) => {
+            if (row?.id) emailById[row.id] = row.email || "";
+          });
+        }
         setUxColumnsAvailable({
           fecha_nacimiento: hasCol("fecha_nacimiento"),
-          email: hasCol("email"),
+          email: hasCol("email") || hasCol("mail") || hasCol("correo"),
         });
-        setUxProfiles(profiles);
+        setUxProfiles(
+          profiles.map((item) => ({
+            ...item,
+            email:
+              item.email ||
+              item.mail ||
+              item.correo ||
+              emailById[item.id] ||
+              "",
+          })),
+        );
         const mappedUx = {};
         profiles.forEach((item) => {
           mappedUx[item.id] = {
@@ -604,7 +629,12 @@ export default function AdminSCRNPanel({
             fecha_nacimiento: item.fecha_nacimiento
               ? String(item.fecha_nacimiento).slice(0, 10)
               : "",
-            email: item.email || "",
+            email:
+              item.email ||
+              item.mail ||
+              item.correo ||
+              emailById[item.id] ||
+              "",
             cargo: item.cargo || "",
             genero: item.genero || "-",
             es_admin: Boolean(item.es_admin),
@@ -720,7 +750,7 @@ export default function AdminSCRNPanel({
         [f.email, d.email],
         [f.cargo, d.cargo],
         [f.genero, d.genero],
-        [f.admin, d.es_admin ? "sí admin" : "no"],
+        [f.admin, d.es_admin ? "admin sí" : "usuario no"],
       ];
       for (const [q, hay] of pairs) {
         if (String(q || "").trim() && !matchesMultiTokenSearch([hay], q)) {
@@ -1912,8 +1942,18 @@ export default function AdminSCRNPanel({
         </section>
       )}
 
-      {adminView === "datos_generales" && (
+      {(adminView === "datos_generales" || adminView === "usuarios") && (
         <section className="space-y-3">
+          {adminView === "usuarios" && (
+            <div className="rounded-xl border border-slate-200 bg-white px-3 py-2.5">
+              <h2 className="text-sm font-black uppercase tracking-wide text-slate-800">Usuarios</h2>
+              <p className="mt-1 text-xs text-slate-600">
+                Ver perfiles, editar datos y cambiar el rol. El único rol con permisos de gestión es Admin.
+              </p>
+            </div>
+          )}
+
+          {adminView === "datos_generales" && (
           <div className="md:hidden bg-white rounded-2xl border border-slate-200 p-3">
             <label className="text-[11px] font-bold uppercase tracking-wide text-slate-500 block mb-1">
               Sección de datos generales
@@ -1929,7 +1969,9 @@ export default function AdminSCRNPanel({
               <option value="ux">Usuarios SCRN</option>
             </select>
           </div>
+          )}
 
+          {adminView === "datos_generales" && (
           <div className="hidden md:grid grid-cols-1 md:grid-cols-2 gap-3">
             {[
               { id: "transportes", label: "Transportes", subtitle: "Flota y capacidad" },
@@ -1952,8 +1994,9 @@ export default function AdminSCRNPanel({
               </button>
             ))}
           </div>
+          )}
 
-          {datosGeneralesTab === "transportes" && (
+          {adminView !== "usuarios" && datosGeneralesTab === "transportes" && (
             <section className="space-y-4">
               <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
                 <div className="flex items-center justify-between gap-2">
@@ -2380,7 +2423,7 @@ export default function AdminSCRNPanel({
             </section>
           )}
 
-          {datosGeneralesTab === "localidades" && (
+          {adminView !== "usuarios" && datosGeneralesTab === "localidades" && (
             <div className="bg-white rounded-2xl border border-slate-200 shadow-sm flex flex-col min-h-0 overflow-hidden">
               <div className="px-2 py-1.5 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
                 <h3 className="font-bold text-slate-800 uppercase text-xs tracking-wide">Localidades</h3>
@@ -2520,7 +2563,7 @@ export default function AdminSCRNPanel({
             </div>
           )}
 
-          {datosGeneralesTab === "tipos" && (
+          {adminView !== "usuarios" && datosGeneralesTab === "tipos" && (
             <div className="bg-white rounded-2xl border border-slate-200 shadow-sm flex flex-col min-h-0 overflow-hidden">
               <div className="px-2 py-1.5 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
                 <h3 className="font-bold text-slate-800 uppercase text-xs tracking-wide">Tipos de transporte</h3>
@@ -2695,7 +2738,7 @@ export default function AdminSCRNPanel({
             </div>
           )}
 
-          {datosGeneralesTab === "ux" && (
+          {(adminView === "usuarios" || datosGeneralesTab === "ux") && (
             <div className="bg-white rounded-2xl border border-slate-200 shadow-sm flex flex-col min-h-0 overflow-hidden">
               <div className="px-2 py-1.5 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
                 <h3 className="font-bold text-slate-800 uppercase text-xs tracking-wide">Usuarios SCRN</h3>
@@ -2726,7 +2769,7 @@ export default function AdminSCRNPanel({
                         "Mail",
                         "Cargo",
                         "Género",
-                        "Admin",
+                        "Rol",
                         "Acciones",
                       ].map(
                         (h) => (
@@ -2842,7 +2885,7 @@ export default function AdminSCRNPanel({
                             )}
                           </td>
                           <td className={DG_COMPACT_TD}>
-                            {uxEditing ? (
+                            {uxEditing && uxColumnsAvailable.email ? (
                               <input
                                 type="email"
                                 value={draft.email || ""}
@@ -2850,7 +2893,12 @@ export default function AdminSCRNPanel({
                                 className={DG_COMPACT_INP}
                               />
                             ) : (
-                              ro(item.email)
+                              <span
+                                className="block min-w-[11rem] max-w-[18rem] break-all text-slate-800"
+                                title={item.email || undefined}
+                              >
+                                {item.email || "—"}
+                              </span>
                             )}
                           </td>
                           <td className={DG_COMPACT_TD}>
@@ -2886,13 +2934,13 @@ export default function AdminSCRNPanel({
                                 onChange={(event) =>
                                   updateUxEdit(item.id, "es_admin", event.target.value === "1")
                                 }
-                                className={`${DG_COMPACT_INP} max-w-[4rem] bg-white pr-1`}
+                                className={`${DG_COMPACT_INP} max-w-[6.5rem] bg-white pr-1`}
                               >
-                                <option value="0">No</option>
-                                <option value="1">Sí</option>
+                                <option value="0">Usuario</option>
+                                <option value="1">Admin</option>
                               </select>
                             ) : (
-                              <span className="text-slate-600">{item.es_admin ? "Sí" : "No"}</span>
+                              <span className="text-slate-600">{item.es_admin ? "Admin" : "Usuario"}</span>
                             )}
                           </td>
                           <td className={`${DG_COMPACT_TD} text-right`}>
@@ -3159,7 +3207,7 @@ export default function AdminSCRNPanel({
                         </select>
                       </div>
                       <div className="space-y-0.5">
-                        <label className="text-[10px] font-bold uppercase text-slate-500">Admin</label>
+                        <label className="text-[10px] font-bold uppercase text-slate-500">Rol</label>
                         <select
                           value={dgNuevoPerfil.es_admin ? "1" : "0"}
                           onChange={(e) =>
@@ -3167,8 +3215,8 @@ export default function AdminSCRNPanel({
                           }
                           className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm bg-white"
                         >
-                          <option value="0">No</option>
-                          <option value="1">Sí</option>
+                          <option value="0">Usuario</option>
+                          <option value="1">Admin</option>
                         </select>
                       </div>
                     </div>

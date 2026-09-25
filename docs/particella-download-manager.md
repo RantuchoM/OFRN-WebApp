@@ -8,12 +8,13 @@ Módulo para la descarga masiva y unificación de particellas de un programa, in
    - **Cuerdas**: Basado en `seating_contenedores`. Toggle **1 por atril** (default ON): `ceil(n/2)` copias por contenedor (ej. 9 músicos → 5). Si se desactiva: 1 copia por músico (`n`).  
    - **Vientos/Percusión/Director**: 1 copia por asignación en `musicianAssignments` (no el mapa de contenedores). Incluye roles director/solista del roster confirmado.  
    - **Ajuste manual**: el cálculo es tope; se puede restar por fila (tablets) hasta 0.
+   - **Salida PDF (2026-09-25):** selector **1 PDF por obra** (default, comportamiento previo) o **1 PDF consolidado** (todas las obras tildadas en un solo archivo). El consolidado no cambia copias, seating individual ni overrides; solo empaqueta. Marcadores: obra → particellas (con `Nombre (i/n)` si hay varias copias). Nombre Drive/local: `SetParticellas_{nomenclador}_Consolidado.pdf`.
 2. **Modo «Toda la gira por músico»**  
    - Binder por persona: portada + particellas de todas las obras tildadas donde tiene asignación.  
    - Portada: nombre, `mes_letra`, `nomenclador`, `nombre_gira`, ensambles activos. Con Doble faz ON → portada de 2 páginas (reverso en blanco).  
    - 1 PDF de la parte por obra (cuerdas vía contenedor; no multiplica atriles).  
    - Obras y músicos: todos ON por defecto, destildables. La sync de selección solo reacciona a cambios de IDs (no a nueva referencia del array `obras`/`allBundles`), para no re-tildar lo destildado a mano.
-   - Durante exportación: overlay a pantalla del modal + aviso «no cierres la pestaña»; `beforeunload` pide confirmación del navegador al cerrar/recargar.  
+   - Overlay: «no cierres la pestaña»; si se oculta, el trabajo sigue (el spinner CSS puede verse quieto). `beforeunload` pide confirmación al cerrar/recargar.  
    - Orden: alfabético / `id_instr` / ensamble regional (`isRegionalConvocatoriaEnsamble`); desempate apellido.  
    - Salida: un PDF único, o un PDF por músico (ZIP local / subcarpeta Drive con timestamp si el nombre base ya existe).  
    - **Marcadores**: PDF por músico → Portada + obra; PDF unificado → músico (hijos: Portada + obras).  
@@ -33,7 +34,8 @@ Módulo para la descarga masiva y unificación de particellas de un programa, in
 - `src/utils/particellaMusicianCover.js`: portada/separador.
 - `src/utils/buildMusicianParticellaBundles.js`: mapa músico→partes + orden.
 - `supabase/functions/manage-drive/index.ts`: `upload_particella_set`, `create_particella_musician_folder`.
-- `src/utils/docMerger.js`: unión de buffers + `padOddPages` + marcadores PDF (`attachPdfBookmarks`).
+- `src/utils/docMerger.js`: unión de buffers + `padOddPages` + marcadores PDF (`attachPdfBookmarks`). Load/save con `pdfLibBackgroundSafe` (`parseSpeed: Fastest`, `objectsPerTick: Infinity`) y `yieldExportLoop` entre ítems para no trabarse en pestaña oculta.
+- `src/utils/pdfLibBackgroundSafe.js`: helper compartido con viáticos (no duplicar el Worker).
 
 ## Notas de Implementación
 
@@ -100,9 +102,11 @@ En la generación del PDF, el buffer de cada particella seleccionada se duplica 
 - Se usa `mergeSequential` de `src/utils/docMerger.js`:
   - Se construye un arreglo de objetos `{ buffer, title? }` (uno por copia).
   - `mergeSequential` detecta tipo (PDF/imagen) y unifica todo en un único PDF.
-  - Se genera **un PDF por obra**, que contiene todas las particellas seleccionadas y repetidas según el conteo de copias.
+  - Se genera **un PDF por obra** (opción default **1 PDF por obra**) con todas las particellas tildadas, repetidas según copias. **1 PDF consolidado** une esos sets en un archivo (`SetParticellas_{nomenclador}_Consolidado.pdf`).
+  - **Pestaña oculta (2026-09-25):** el merge **no** tenía el fix de viáticos: `PDFDocument.load` default (`ParseSpeeds.Slow` / `waitForTick` = `setTimeout(0)`) y `save` cada 50 objetos. Ahora `mergeSequential` usa `PDF_LOAD_DOCS_BG_SAFE` + `PDF_SAVE_BG_SAFE` y cede el hilo con `yieldExportLoop` (Worker, no rAF/`setTimeout`). Mismo yield en Descargar/Subir (`ParticellaDownloadModal` / `ParticellaByMusicianExport`) y en el ZIP de **Mis Partes**. Portada por músico guarda con `objectsPerTick: Infinity`.
   - **Marcadores PDF (bookmarks/outline)**:
-    - **Por obra**: un marcador por particella (si hay varias copias: `Nombre (i/n)`).
+    - **Por obra · 1 PDF por obra**: un marcador por particella (si hay varias copias: `Nombre (i/n)`).
+    - **Por obra · 1 PDF consolidado**: un marcador por obra, con particellas anidadas.
     - **Por músico · PDF por músico**: Portada + un marcador por obra (con part name si hay más de una parte en la misma obra).
     - **Por músico · PDF unificado**: un marcador por músico, con obras (y portada) anidadas.
     - Implementación: `attachPdfBookmarks` escribe el árbol `/Outlines` (UTF-16 vía `PDFHexString`, dest `/Fit`) y abre el panel con `PageMode /UseOutlines`.
@@ -111,7 +115,7 @@ En la generación del PDF, el buffer de cada particella seleccionada se duplica 
 
 #### UI del modal (actualizado)
 - Portal a `document.body`, `z-[100]`, overlay con blur; Escape / clic fuera cierra (si no está corriendo).
-- Toolbar: Seleccionar todo / Limpiar, resumen de selección, toggles **1 por atril** (cuerdas) y **Doble faz**.
+- Toolbar: selector **Salida** (1 PDF por obra / 1 PDF consolidado), Seleccionar todo / Limpiar, resumen de selección, toggles **1 por atril** (cuerdas) y **Doble faz**.
 - Árbol de obras con checkbox indeterminado, badge de selección y filas en grilla (particella / asignado / **copias −/+** / archivo / copiar).
 - Footer con hint de seating + estado de doble faz y CTA deshabilitado si no hay selección.
 
@@ -124,8 +128,8 @@ En la generación del PDF, el buffer de cada particella seleccionada se duplica 
 - Acciones por fila:
   - **Bajar**: descarga el PDF suelto al navegador.
   - **A Drive**: copia el archivo suelto a la carpeta de sets (`copy_file`), sin bajarlo al PC.
-- Footer: **Descargar PDF** (sets unificados locales) y **Subir a Drive**.
-- Al finalizar se muestra un listado de resultados por obra con:
+- Footer: **Descargar PDF** / **Descargar PDF consolidado** (local) y **Subir a Drive** / **Subir consolidado**.
+- Al finalizar se muestra un listado de resultados por obra (o una sola fila «PDF consolidado») con:
   - Enlace clicable a Drive (`webViewLink`) cuando la subida/copia fue exitosa.
   - “Descargado” si fue local.
   - Mensaje de error por obra si falló.

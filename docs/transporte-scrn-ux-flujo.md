@@ -134,6 +134,15 @@ fechas/horas según `tramo` (`resolveFechasComision`), `%`/temporada/7 gastos de
 (guardado con `scrnPrefillHandledRef`). El viático completado **no** se escribe de vuelta en
 la reserva SCRN.
 
+## 4b. Navegación, export y usuarios (2026-09-25)
+
+- Tabs **Transporte · Viáticos · Rendiciones** en el header de las tres rutas (`OficinaExternaNav`).
+- En desktop, `/transporte-scrn` muestra además Inicio · Explorar · Mis viajes · Mis paquetes (en móvil sigue la barra inferior).
+- Fecha y hora de recorridos y del turno de limpieza: `DateInput` + `TimeInput` (`ScrnDateTimeField`), con **Limpiar** y **Aceptar**. El valor guardado sigue siendo `YYYY-MM-DDTHH:mm`.
+- **Mis viajes** tiene **Exportar viático** junto a Completar viático. Abre `/viaticos-manual?prefill=scrn&export=1`.
+- En Viáticos, el selector **Elegir un viaje propio para exportar** lista recorridos del usuario (titular o pasajero) y carga la planilla. El PDF se baja con el botón PDF.
+- Admin: pestaña **Usuarios** (Gestión). Lista `scrn_perfiles`, edición con el lápiz existente, rol solo **Usuario** o **Admin** (`es_admin`).
+
 ## 5. Deuda técnica y propuestas de mejora
 
 ### Deuda técnica detectada

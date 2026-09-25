@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import ArsAmountInput from "../../../components/viaticos/ArsAmountInput";
 import {
   EMPTY_VIATICOS_OPCIONES,
   normalizeViaticosOpciones,
@@ -33,12 +34,6 @@ export default function ScrnViaticosOpcionesFields({
 
   const patch = (partial) => {
     onChange?.(normalizeViaticosOpciones({ ...opts, ...partial }));
-  };
-
-  const setGasto = (key) => (event) => {
-    const raw = event.target.value;
-    const n = raw === "" ? 0 : parseFloat(String(raw).replace(",", "."));
-    patch({ [key]: Number.isFinite(n) ? n : 0 });
   };
 
   return (
@@ -111,14 +106,10 @@ export default function ScrnViaticosOpcionesFields({
                 <label className={lbl} htmlFor={`scrn-viatico-${key}`}>
                   {label}
                 </label>
-                <input
+                <ArsAmountInput
                   id={`scrn-viatico-${key}`}
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={opts[key] === 0 ? "" : opts[key]}
-                  onChange={setGasto(key)}
-                  placeholder="0"
+                  value={opts[key]}
+                  onValueChange={(n) => patch({ [key]: n })}
                   className={inp}
                 />
               </div>

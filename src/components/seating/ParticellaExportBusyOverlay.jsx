@@ -53,7 +53,9 @@ export default function ParticellaExportBusyOverlay({
 
         {showWarning ? (
           <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-center text-[11px] font-semibold leading-snug text-amber-900">
-            No cierres esta pestaña ni este modal hasta que termine.
+            No cierres esta pestaña ni este modal hasta que termine. Si
+            cambiás de pestaña el trabajo sigue (el spinner puede verse
+            quieto).
           </p>
         ) : null}
       </div>

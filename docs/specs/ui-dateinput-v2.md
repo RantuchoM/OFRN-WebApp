@@ -56,3 +56,7 @@ Cuando el campo ya tenía un valor (p. ej. la fecha de hoy en UnifiedAgenda “D
 ### Calendario sobre modales anidados (2026-09-12)
 
 El overlay del MiniCalendar (portal a `document.body`) usa `z-[10100]` para quedar por encima de `WorkForm` (`z-[9999]`) y de acciones anidadas como **Encargar arreglo** (`z-[10050]`).
+
+### Selector con Limpiar y Aceptar (2026-09-25)
+
+Prop opcional `confirmPicker` (default `false`). Con `true`, el día elegido queda en borrador hasta **Aceptar**; **Limpiar** vacía el valor y cierra. El clic fuera descarta el borrador. El tipeo dd/mm/aaaa no cambia. `TimeInput` acepta `showClear` para el botón **Limpiar** del reloj; **Confirmar hora** sigue siendo el aceptar.

@@ -4,11 +4,17 @@ import {
   PDFName,
   PDFNumber,
 } from "pdf-lib";
+import {
+  PDF_LOAD_DOCS_BG_SAFE,
+  PDF_SAVE_BG_SAFE,
+  yieldExportLoop,
+} from "./pdfLibBackgroundSafe";
 
 /** Guardado sin object streams: el árbol /Outlines queda en claro.
  *  Visores ligeros (p. ej. editores online tipo Smallpdf) a menudo no
- *  resuelven Outlines comprimidos en object streams y muestran "No Bookmarks". */
-const PDF_SAVE_OPTS = { useObjectStreams: false };
+ *  resuelven Outlines comprimidos en object streams y muestran "No Bookmarks".
+ *  `objectsPerTick: Infinity` evita waitForTick/setTimeout de pdf-lib (pestaña oculta). */
+const PDF_SAVE_OPTS = { useObjectStreams: false, ...PDF_SAVE_BG_SAFE };
 
 const detectType = (buffer) => {
   const bytes = new Uint8Array(buffer);
@@ -153,7 +159,10 @@ export const mergeSequential = async (items, options = {}) => {
     try {
       const type = detectType(item.buffer);
       if (type === "pdf") {
-        const srcDoc = await PDFDocument.load(item.buffer);
+        const srcDoc = await PDFDocument.load(
+          item.buffer,
+          PDF_LOAD_DOCS_BG_SAFE,
+        );
         const pageCount = srcDoc.getPageCount();
         const copiedPages = await mergedPdf.copyPages(
           srcDoc,
@@ -203,6 +212,7 @@ export const mergeSequential = async (items, options = {}) => {
     } catch (e) {
       console.error("Error item secuencial:", e);
     }
+    await yieldExportLoop();
   }
 
   if (outlineNodes.length && mergedPdf.getPageCount() > 0) {
@@ -233,7 +243,10 @@ export const createMosaicFromCanvas = async (items) => {
       const pdfY = A4[1] - (item.y / 100) * A4[1] - pdfH;
 
       if (type === "pdf") {
-        const srcDoc = await PDFDocument.load(item.buffer);
+        const srcDoc = await PDFDocument.load(
+          item.buffer,
+          PDF_LOAD_DOCS_BG_SAFE,
+        );
         // IMPORTANTE: El contexto srcDoc debe estar vivo aquí
         const [embeddedPage] = await pdfDoc.embedPages(srcDoc, [0]);
         page.drawPage(embeddedPage, {
@@ -257,6 +270,7 @@ export const createMosaicFromCanvas = async (items) => {
     } catch (e) {
       console.error("Error incrustando item visual:", item.id, e);
     }
+    await yieldExportLoop();
   }
-  return await pdfDoc.save();
+  return await pdfDoc.save(PDF_SAVE_OPTS);
 };

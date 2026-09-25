@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { saveAs } from "file-saver";
 import PizZip from "pizzip";
 import { mergeSequential } from "../../utils/docMerger";
+import { yieldExportLoop } from "../../utils/pdfLibBackgroundSafe";
 import { buildMusicianCoverPdf } from "../../utils/particellaMusicianCover";
 import {
   buildMembershipIndex,
@@ -369,6 +370,7 @@ export default function ParticellaByMusicianExport({
           total: stepRef.total,
           label: `Sin URL: ${part.displayName}`,
         });
+        await yieldExportLoop();
         continue;
       }
       try {
@@ -385,6 +387,7 @@ export default function ParticellaByMusicianExport({
           total: stepRef.total,
           label: `${bundle.displayName}: ${part.displayName}`,
         });
+        await yieldExportLoop();
       } catch (e) {
         console.error("[ParticellaByMusician] part fail", part, e);
         stepRef.current += 1;
@@ -393,6 +396,7 @@ export default function ParticellaByMusicianExport({
           total: stepRef.total,
           label: `Error: ${part.displayName}`,
         });
+        await yieldExportLoop();
       }
     }
 
@@ -400,6 +404,7 @@ export default function ParticellaByMusicianExport({
       padOddPages: false,
       returnOutlines: true,
     });
+    await yieldExportLoop();
     return { bytes: new Uint8Array(bytes), outlines };
   };
 
@@ -439,6 +444,7 @@ export default function ParticellaByMusicianExport({
             total: totalSteps,
             label: `Portada: ${bundle.displayName}`,
           });
+          await yieldExportLoop();
           const { bytes, outlines } = await buildMusicianPdfBuffers(
             bundle,
             stepRef,
@@ -451,6 +457,7 @@ export default function ParticellaByMusicianExport({
           });
         }
         const merged = await mergeSequential(allItems, { padOddPages: false });
+        await yieldExportLoop();
         const blob = new Blob([merged], { type: "application/pdf" });
         const fileName = `GiraPorMusico_${nom}.pdf`;
 
@@ -480,6 +487,7 @@ export default function ParticellaByMusicianExport({
             total: totalSteps,
             label: `Armando: ${bundle.displayName}`,
           });
+          await yieldExportLoop();
           const { bytes } = await buildMusicianPdfBuffers(bundle, stepRef);
           const fileName = `${safeFileToken(bundle.sortName, "Musico")}_${nom}.pdf`;
           pdfs.push({
@@ -521,6 +529,7 @@ export default function ParticellaByMusicianExport({
           const token = await ensureGoogleAccessToken();
           for (const f of pdfs) {
             const blob = new Blob([f.bytes], { type: "application/pdf" });
+            await yieldExportLoop();
             const up = await uploadPdfToFolder(
               blob,
               f.fileName,

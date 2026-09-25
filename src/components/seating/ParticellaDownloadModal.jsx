@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { saveAs } from "file-saver";
 import { mergeSequential } from "../../utils/docMerger";
+import { yieldExportLoop } from "../../utils/pdfLibBackgroundSafe";
 import {
   IconChevronRight,
   IconCopy,
@@ -10,6 +11,7 @@ import {
   IconFolder,
   IconLayers,
   IconLoader,
+  IconMerge,
   IconPlus,
   IconPrinter,
   IconUsers,
@@ -135,6 +137,8 @@ export default function ParticellaDownloadModal({
   const [copyOverrides, setCopyOverrides] = useState({});
   /** 'obra' | 'musico' */
   const [exportMode, setExportMode] = useState("obra");
+  /** 'per_obra' | 'single' — 1 PDF por obra vs un PDF con todas las obras. */
+  const [obraOutputMode, setObraOutputMode] = useState("per_obra");
   const [musicianBusy, setMusicianBusy] = useState(false);
   const [musicianProgress, setMusicianProgress] = useState({
     current: 0,
@@ -646,6 +650,52 @@ export default function ParticellaDownloadModal({
     return new Uint8Array(await res.arrayBuffer());
   };
 
+  const paintProgress = async (next) => {
+    setProgress(next);
+    await yieldExportLoop();
+  };
+
+  const uploadPdfBlob = async (blob, fileName) => {
+    const token = await ensureGoogleAccessToken();
+    const metadata = {
+      name: fileName,
+      parents: [PARTICELLA_SETS_ROOT_ID],
+    };
+    const form = new FormData();
+    form.append(
+      "metadata",
+      new Blob([JSON.stringify(metadata)], { type: "application/json" }),
+    );
+    form.append("file", blob);
+    const uploadRes = await fetch(
+      "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink",
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: form,
+      },
+    );
+    if (!uploadRes.ok) {
+      const errText = await uploadRes.text();
+      throw new Error(
+        `Error al subir set de particellas: ${uploadRes.status} ${errText}`,
+      );
+    }
+    return uploadRes.json();
+  };
+
+  const buildObraSetFileName = (obraSel, obraTitleClean) => {
+    const safeComposer = (obraSel.obra.composer || "Comp").replace(
+      /[^a-zA-Z0-9-_]+/g,
+      "_",
+    );
+    const safeTitle = (obraTitleClean || "Obra").replace(
+      /[^a-zA-Z0-9-_]+/g,
+      "_",
+    );
+    return `SetParticellas_${program?.nomenclador || program?.id || "Prog"}_${safeComposer}_${safeTitle}.pdf`;
+  };
+
   const getChosenLink = (row) => {
     if (!row?.links?.length) return null;
     const chosenLinkIdx =
@@ -755,7 +805,7 @@ export default function ParticellaDownloadModal({
   };
 
   /**
-   * Genera sets unificados.
+   * Genera sets unificados (1 PDF por obra) o un PDF consolidado con todas las obras.
    * @param {'drive' | 'local'} destination
    */
   const handleGenerateSets = async (destination) => {
@@ -769,25 +819,87 @@ export default function ParticellaDownloadModal({
     setRunningMode(destination);
     setResults([]);
 
+    const isConsolidated = obraOutputMode === "single";
     const totalParts = selection.reduce(
       (acc, obraSel) => acc + obraSel.rows.length,
       0,
     );
-    const totalSteps = totalParts * 2 + selection.length;
+    const totalSteps = totalParts * 2 + selection.length + (isConsolidated ? 2 : 0);
     let currentStep = 0;
-    setProgress({ current: 0, total: totalSteps, label: "Preparando..." });
+    await paintProgress({
+      current: 0,
+      total: totalSteps,
+      label: "Preparando...",
+    });
 
     const globalResults = [];
+    const consolidatedItems = [];
+
+    const deliverObraPdf = async (obraSel, obraTitleClean, bytes) => {
+      const blob = new Blob([bytes], { type: "application/pdf" });
+      const fileName = buildObraSetFileName(obraSel, obraTitleClean);
+
+      if (destination === "local") {
+        currentStep += 1;
+        await paintProgress({
+          current: currentStep,
+          total: totalSteps,
+          label: `Descargando ${obraTitleClean}...`,
+        });
+        try {
+          saveAs(blob, fileName);
+          globalResults.push({
+            obraId: obraSel.obraId,
+            title: obraTitleClean,
+            downloadedLocal: true,
+          });
+        } catch (e) {
+          console.error("Error descargando set local", e);
+          globalResults.push({
+            obraId: obraSel.obraId,
+            title: obraTitleClean,
+            error: e.message || "Error al descargar",
+          });
+        }
+        return;
+      }
+
+      currentStep += 1;
+      await paintProgress({
+        current: currentStep,
+        total: totalSteps,
+        label: `Subiendo ${obraTitleClean}...`,
+      });
+      try {
+        const upData = await uploadPdfBlob(blob, fileName);
+        globalResults.push({
+          obraId: obraSel.obraId,
+          title: obraTitleClean,
+          link: upData.webViewLink || null,
+        });
+      } catch (e) {
+        console.error("Error subiendo set a Drive", e);
+        globalResults.push({
+          obraId: obraSel.obraId,
+          title: obraTitleClean,
+          error: e.message || "Error al subir a Drive",
+        });
+      }
+    };
 
     try {
       for (const obraSel of selection) {
         const buffersForObra = [];
         const obraTitleClean = stripHtml(obraSel.obra.title);
+        const composer = (obraSel.obra.composer || "").trim();
+        const obraBookmarkTitle = composer
+          ? `${composer} — ${obraTitleClean}`
+          : obraTitleClean;
 
         for (const row of obraSel.rows) {
           if (!row.links.length) {
             currentStep += 1;
-            setProgress({
+            await paintProgress({
               current: currentStep,
               total: totalSteps,
               label: `Saltando ${row.displayName} (sin links)`,
@@ -809,7 +921,7 @@ export default function ParticellaDownloadModal({
               error: "Sin URL de particella configurada",
             });
             currentStep += 1;
-            setProgress({
+            await paintProgress({
               current: currentStep,
               total: totalSteps,
               label: `Saltando ${row.displayName} (sin URL)`,
@@ -831,7 +943,7 @@ export default function ParticellaDownloadModal({
               e,
             );
             currentStep += 1;
-            setProgress({
+            await paintProgress({
               current: currentStep,
               total: totalSteps,
               label: `Error en ${row.displayName}`,
@@ -849,7 +961,7 @@ export default function ParticellaDownloadModal({
           }
 
           currentStep += 1;
-          setProgress({
+          await paintProgress({
             current: currentStep,
             total: totalSteps,
             label: `Descargado ${row.displayName}`,
@@ -860,15 +972,22 @@ export default function ParticellaDownloadModal({
           continue;
         }
 
-        let mergedBytes;
+        currentStep += 1;
+        await paintProgress({
+          current: currentStep,
+          total: totalSteps,
+          label: `Uniendo ${obraTitleClean}...`,
+        });
+
+        let mergeResult;
         try {
-          mergedBytes = await mergeSequential(buffersForObra, {
+          mergeResult = await mergeSequential(buffersForObra, {
             padOddPages: dobleFaz,
+            returnOutlines: isConsolidated,
           });
         } catch (e) {
           console.error("Error unificando PDFs", e);
-          currentStep += 1;
-          setProgress({
+          await paintProgress({
             current: currentStep,
             total: totalSteps,
             label: "Error al unir PDFs",
@@ -876,96 +995,79 @@ export default function ParticellaDownloadModal({
           continue;
         }
 
-        const bytes = new Uint8Array(mergedBytes);
-        const blob = new Blob([bytes], { type: "application/pdf" });
+        await yieldExportLoop();
 
-        const safeComposer = (obraSel.obra.composer || "Comp").replace(
-          /[^a-zA-Z0-9-_]+/g,
-          "_",
-        );
-        const safeTitle = (obraTitleClean || "Obra").replace(
-          /[^a-zA-Z0-9-_]+/g,
-          "_",
-        );
-        const fileName = `SetParticellas_${program?.nomenclador || program?.id || "Prog"}_${safeComposer}_${safeTitle}.pdf`;
-
-        if (destination === "local") {
-          currentStep += 1;
-          setProgress({
-            current: currentStep,
-            total: totalSteps,
-            label: `Descargando ${obraTitleClean}...`,
+        if (isConsolidated) {
+          const bytes = new Uint8Array(mergeResult.bytes || mergeResult);
+          consolidatedItems.push({
+            buffer: bytes,
+            title: obraBookmarkTitle || obraTitleClean || "Obra",
+            outlineChildren: mergeResult.outlines || [],
           });
-          try {
-            saveAs(blob, fileName);
-            globalResults.push({
-              obraId: obraSel.obraId,
-              title: obraTitleClean,
-              downloadedLocal: true,
-            });
-          } catch (e) {
-            console.error("Error descargando set local", e);
-            globalResults.push({
-              obraId: obraSel.obraId,
-              title: obraTitleClean,
-              error: e.message || "Error al descargar",
-            });
-          }
           continue;
         }
 
-        currentStep += 1;
-        setProgress({
-          current: currentStep,
-          total: totalSteps,
-          label: "Subiendo a Drive...",
-        });
+        await deliverObraPdf(
+          obraSel,
+          obraTitleClean,
+          new Uint8Array(mergeResult),
+        );
+      }
 
-        try {
-          const token = await ensureGoogleAccessToken();
-          const metadata = {
-            name: fileName,
-            parents: [PARTICELLA_SETS_ROOT_ID],
-          };
+      if (isConsolidated) {
+        if (!consolidatedItems.length) {
+          setError("No se pudo armar ningún PDF de las obras seleccionadas.");
+        } else {
+          currentStep += 1;
+          await paintProgress({
+            current: currentStep,
+            total: totalSteps,
+            label: "Armando PDF consolidado...",
+          });
+          try {
+            const merged = await mergeSequential(consolidatedItems, {
+              padOddPages: false,
+            });
+            await yieldExportLoop();
+            const bytes = new Uint8Array(merged);
+            const blob = new Blob([bytes], { type: "application/pdf" });
+            const nom = program?.nomenclador || program?.id || "Prog";
+            const fileName = `SetParticellas_${nom}_Consolidado.pdf`;
 
-          const form = new FormData();
-          form.append(
-            "metadata",
-            new Blob([JSON.stringify(metadata)], { type: "application/json" }),
-          );
-          form.append("file", blob);
-
-          const uploadRes = await fetch(
-            "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink",
-            {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${token}`,
-              },
-              body: form,
-            },
-          );
-
-          if (!uploadRes.ok) {
-            const errText = await uploadRes.text();
-            throw new Error(
-              `Error al subir set de particellas: ${uploadRes.status} ${errText}`,
-            );
+            currentStep += 1;
+            if (destination === "local") {
+              await paintProgress({
+                current: currentStep,
+                total: totalSteps,
+                label: "Descargando PDF consolidado...",
+              });
+              saveAs(blob, fileName);
+              globalResults.push({
+                obraId: "consolidado",
+                title: "PDF consolidado",
+                downloadedLocal: true,
+              });
+            } else {
+              await paintProgress({
+                current: currentStep,
+                total: totalSteps,
+                label: "Subiendo PDF consolidado...",
+              });
+              const upData = await uploadPdfBlob(blob, fileName);
+              globalResults.push({
+                obraId: "consolidado",
+                title: "PDF consolidado",
+                link: upData.webViewLink || null,
+              });
+            }
+          } catch (e) {
+            console.error("Error consolidando PDFs por obra", e);
+            globalResults.push({
+              obraId: "consolidado",
+              title: "PDF consolidado",
+              error: e.message || "Error al consolidar",
+            });
           }
-
-          const upData = await uploadRes.json();
-          globalResults.push({
-            obraId: obraSel.obraId,
-            title: obraTitleClean,
-            link: upData.webViewLink || null,
-          });
-        } catch (e) {
-          console.error("Error subiendo set a Drive", e);
-          globalResults.push({
-            obraId: obraSel.obraId,
-            title: obraTitleClean,
-            error: e.message || "Error al subir a Drive",
-          });
         }
       }
 
@@ -1026,7 +1128,9 @@ export default function ParticellaDownloadModal({
               <p className="mt-0.5 text-xs text-slate-500">
                 {exportMode === "musico"
                   ? "Binder por músico: portada + todas sus obras del programa."
-                  : "Sets por obra: unificá partes y subí a Drive o descargá."}
+                  : obraOutputMode === "single"
+                    ? "Sets por obra: un solo PDF con todas las obras seleccionadas."
+                    : "Sets por obra: un PDF por obra, a Drive o descarga."}
                 {program?.nomenclador ||
                 program?.nombre_gira ||
                 program?.nombre ? (
@@ -1138,6 +1242,22 @@ export default function ParticellaDownloadModal({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            <label className="flex items-center gap-1.5 text-[11px] text-slate-600">
+              <span className="font-bold uppercase tracking-wide text-slate-400">
+                Salida
+              </span>
+              <select
+                className="rounded border border-slate-300 bg-white px-2 py-1 text-xs font-medium"
+                value={obraOutputMode}
+                disabled={isRunning}
+                onChange={(e) => setObraOutputMode(e.target.value)}
+                aria-label="Formato de PDF por obras"
+              >
+                <option value="per_obra">1 PDF por obra</option>
+                <option value="single">1 PDF consolidado</option>
+              </select>
+            </label>
+
             <label
               className={`inline-flex cursor-pointer items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs transition-colors ${
                 copiasPorAtril
@@ -1580,6 +1700,19 @@ export default function ParticellaDownloadModal({
                 hoja en blanco si páginas impares.
               </>
             )}
+            {obraOutputMode === "single" ? (
+              <>
+                {" "}
+                <span className="font-medium text-indigo-600">Salida:</span>{" "}
+                un PDF con todas las obras (marcador por obra).
+              </>
+            ) : (
+              <>
+                {" "}
+                <span className="font-medium text-slate-600">Salida:</span> un
+                PDF por obra.
+              </>
+            )}
           </p>
           <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
             <button
@@ -1595,9 +1728,16 @@ export default function ParticellaDownloadModal({
                 </>
               ) : (
                 <>
-                  <IconDownload size={14} />
-                  Descargar PDF
-                  {selectionStats.obrasCount > 0
+                  {obraOutputMode === "single" ? (
+                    <IconMerge size={14} />
+                  ) : (
+                    <IconDownload size={14} />
+                  )}
+                  {obraOutputMode === "single"
+                    ? "Descargar PDF consolidado"
+                    : "Descargar PDF"}
+                  {obraOutputMode === "per_obra" &&
+                  selectionStats.obrasCount > 0
                     ? ` (${selectionStats.obrasCount})`
                     : ""}
                 </>
@@ -1617,8 +1757,11 @@ export default function ParticellaDownloadModal({
               ) : (
                 <>
                   <IconFolder size={14} />
-                  Subir a Drive
-                  {selectionStats.obrasCount > 0
+                  {obraOutputMode === "single"
+                    ? "Subir consolidado"
+                    : "Subir a Drive"}
+                  {obraOutputMode === "per_obra" &&
+                  selectionStats.obrasCount > 0
                     ? ` (${selectionStats.obrasCount})`
                     : ""}
                 </>

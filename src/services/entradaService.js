@@ -141,6 +141,46 @@ export async function signInEntradasWithPassword(email, password) {
   }
 }
 
+/** Contraseña en el cliente de oficina (scrn / viáticos), no en el de entradas. */
+export async function signInOficinaExternaAuthWithPassword(email, password, app = "scrn") {
+  const normalizedEmail = String(email || "").trim().toLowerCase();
+  const plain = String(password || "");
+  if (!normalizedEmail || !plain) throw new Error("Completá email y contraseña.");
+  const client = entradasAuthClient(app);
+
+  const direct = await client.auth.signInWithPassword({
+    email: normalizedEmail,
+    password: plain,
+  });
+  if (!direct.error) return;
+
+  try {
+    const { data, error } = await supabase.functions.invoke("entradas-auth-email", {
+      body: { action: "sso_ofrn", email: normalizedEmail, password: plain },
+    });
+    const payload = await assertEntradasAuthInvokeResult({ data, error }, "password");
+    await signInAfterEntradasAuthPayload(payload, app);
+    return;
+  } catch {
+    /* la clave de integrante puede no estar copiada todavía en GoTrue */
+  }
+
+  try {
+    await supabase.functions.invoke("entradas-auth-email", {
+      body: { action: "bootstrap_ofrn_password", email: normalizedEmail },
+    });
+    const retry = await client.auth.signInWithPassword({
+      email: normalizedEmail,
+      password: plain,
+    });
+    if (!retry.error) return;
+  } catch {
+    /* el mensaje que importa es el del login */
+  }
+
+  throw new Error(formatEntradasAuthError(direct.error, { action: "password" }));
+}
+
 function ofrnIntegranteLoginEmail(integrante) {
   const mail = String(integrante?.mail || "").trim().toLowerCase();
   if (mail.includes("@")) return mail;

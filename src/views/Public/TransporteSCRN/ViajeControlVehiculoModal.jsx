@@ -2,6 +2,9 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import "./scrnTransporteLayout.css";
 import { exportControlVehiculoToPDF } from "../../../utils/pdfFormExporter";
 import { IconCheckCircle, IconClock, IconEdit, IconLoader } from "../../../components/ui/Icons";
+import DateInput from "../../../components/ui/DateInput";
+import TimeInput from "../../../components/ui/TimeInput";
+import ScrnDateTimeField from "./ScrnDateTimeField";
 
 const PRE_ITEMS = [
   "aceite",
@@ -715,13 +718,11 @@ export default function ViajeControlVehiculoModal({
                 <>
                   <div>
                     <label className="text-[11px] font-semibold text-slate-500">Turno</label>
-                    <input
-                      type="datetime-local"
+                    <ScrnDateTimeField
                       value={form.limpieza_turno_at}
-                      onChange={(e) =>
-                        setForm((prev) => ({ ...prev, limpieza_turno_at: e.target.value }))
+                      onChange={(next) =>
+                        setForm((prev) => ({ ...prev, limpieza_turno_at: next }))
                       }
-                      className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
                     />
                   </div>
                   <div>
@@ -836,33 +837,33 @@ export default function ViajeControlVehiculoModal({
                   <h4 className="text-xs font-black uppercase text-slate-700">Control previo</h4>
                 </div>
                 <div className="grid grid-cols-3 gap-2">
-                  <input
-                    type="date"
+                  <DateInput
+                    confirmPicker
+                    showDayName={false}
                     value={form.acroform_payload?.previo?.meta?.fecha_retiro || ""}
-                    onChange={(e) => updateBlockField("previo", "meta", {
+                    onChange={(next) => updateBlockField("previo", "meta", {
                       ...(form.acroform_payload?.previo?.meta || {}),
-                      fecha_retiro: e.target.value,
+                      fecha_retiro: next,
                     })}
                     className={`rounded border px-2 py-1 text-xs ${
                       form.acroform_payload?.previo?.meta?.fecha_retiro
-                        ? "border-slate-300"
+                        ? "border-slate-300 bg-white"
                         : "border-amber-400 bg-amber-50"
                     }`}
-                    title="Fecha retiro"
                   />
-                  <input
-                    type="time"
+                  <TimeInput
+                    allowEmpty
+                    showClear
                     value={form.acroform_payload?.previo?.meta?.hora_retiro || ""}
-                    onChange={(e) => updateBlockField("previo", "meta", {
+                    onChange={(next) => updateBlockField("previo", "meta", {
                       ...(form.acroform_payload?.previo?.meta || {}),
-                      hora_retiro: e.target.value,
+                      hora_retiro: next || "",
                     })}
                     className={`rounded border px-2 py-1 text-xs ${
                       form.acroform_payload?.previo?.meta?.hora_retiro
-                        ? "border-slate-300"
+                        ? "border-slate-300 bg-white"
                         : "border-amber-400 bg-amber-50"
                     }`}
-                    title="Hora retiro"
                   />
                   <input
                     type="number"
@@ -998,33 +999,33 @@ export default function ViajeControlVehiculoModal({
                   <h4 className="text-xs font-black uppercase text-slate-700">Control final</h4>
                 </div>
                 <div className="grid grid-cols-3 gap-2">
-                  <input
-                    type="date"
+                  <DateInput
+                    confirmPicker
+                    showDayName={false}
                     value={form.acroform_payload?.posterior?.meta?.fecha_entrega || ""}
-                    onChange={(e) => updateBlockField("posterior", "meta", {
+                    onChange={(next) => updateBlockField("posterior", "meta", {
                       ...(form.acroform_payload?.posterior?.meta || {}),
-                      fecha_entrega: e.target.value,
+                      fecha_entrega: next,
                     })}
                     className={`rounded border px-2 py-1 text-xs ${
                       form.acroform_payload?.posterior?.meta?.fecha_entrega
-                        ? "border-slate-300"
+                        ? "border-slate-300 bg-white"
                         : "border-amber-400 bg-amber-50"
                     }`}
-                    title="Fecha entrega"
                   />
-                  <input
-                    type="time"
+                  <TimeInput
+                    allowEmpty
+                    showClear
                     value={form.acroform_payload?.posterior?.meta?.hora_entrega || ""}
-                    onChange={(e) => updateBlockField("posterior", "meta", {
+                    onChange={(next) => updateBlockField("posterior", "meta", {
                       ...(form.acroform_payload?.posterior?.meta || {}),
-                      hora_entrega: e.target.value,
+                      hora_entrega: next || "",
                     })}
                     className={`rounded border px-2 py-1 text-xs ${
                       form.acroform_payload?.posterior?.meta?.hora_entrega
-                        ? "border-slate-300"
+                        ? "border-slate-300 bg-white"
                         : "border-amber-400 bg-amber-50"
                     }`}
-                    title="Hora entrega"
                   />
                   <input
                     type="number"

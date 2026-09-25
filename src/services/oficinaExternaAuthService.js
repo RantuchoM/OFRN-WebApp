@@ -1,6 +1,7 @@
 import { supabaseOficinaExterna } from "./supabase";
 import {
   requestEntradasEmailCode,
+  signInOficinaExternaAuthWithPassword,
   verifyEntradasEmailCode,
   verifyEntradasMagicLink,
 } from "./entradaService";
@@ -42,6 +43,10 @@ export async function ensureOficinaExternaProfile({
   });
   if (error) throw error;
   return data;
+}
+
+export async function signInOficinaExternaWithPassword(email, password, app = SCRN_APP) {
+  return signInOficinaExternaAuthWithPassword(email, password, app);
 }
 
 export async function requestOficinaExternaEmailCode(email, app = SCRN_APP) {

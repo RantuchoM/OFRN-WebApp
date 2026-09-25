@@ -159,7 +159,7 @@ export default function MisReservas({
   );
 
   const abrirViaticoDesdeRecorrido = useCallback(
-    ({ reserva, viaje, pax = null, rol = "titular" }) => {
+    ({ reserva, viaje, pax = null, rol = "titular", intent = "completar" }) => {
       if (!reserva || !viaje) return;
       const viaticosOpciones =
         rol === "pasajero"
@@ -177,8 +177,9 @@ export default function MisReservas({
       });
 
       writeScrnViaticoPrefill(prefill);
-      navigate("/viaticos-manual?prefill=scrn", {
-        state: { scrnViaticoPrefill: prefill },
+      const exportar = intent === "export";
+      navigate(`/viaticos-manual?prefill=scrn${exportar ? "&export=1" : ""}`, {
+        state: { scrnViaticoPrefill: prefill, scrnExport: exportar },
       });
     },
     [miPerfil, navigate],
@@ -600,6 +601,11 @@ export default function MisReservas({
             <span className="font-semibold">pendiente de revisión</span>. La{" "}
             <span className="font-semibold">X anula</span> solo si sos quien inscribió esa reserva.
           </p>
+          <p className="mt-2 text-xs leading-relaxed text-slate-700">
+            Para exportar el PDF del viático, en cada reserva usá{" "}
+            <span className="font-semibold">Exportar viático</span>. También podés elegir el viaje en la
+            pantalla Viáticos.
+          </p>
         </div>
         {hasData && (
           <button
@@ -744,6 +750,20 @@ export default function MisReservas({
                       className="inline-flex items-center rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-800 hover:bg-emerald-100"
                     >
                       Completar viático
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        abrirViaticoDesdeRecorrido({
+                          reserva,
+                          viaje,
+                          rol: "titular",
+                          intent: "export",
+                        })
+                      }
+                      className="inline-flex items-center rounded-lg border border-[#0054a6] bg-white px-3 py-1.5 text-xs font-bold text-[#0054a6] hover:bg-[#e8f1fa]"
+                    >
+                      Exportar viático
                     </button>
                     <ViaticoGeneradoBadge
                       record={viaticoTitularPorReserva[String(reserva.id)]}
@@ -988,6 +1008,21 @@ export default function MisReservas({
                         className="inline-flex items-center rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-800 hover:bg-emerald-100"
                       >
                         Completar viático
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          abrirViaticoDesdeRecorrido({
+                            reserva,
+                            viaje,
+                            pax,
+                            rol: "pasajero",
+                            intent: "export",
+                          })
+                        }
+                        className="inline-flex items-center rounded-lg border border-[#0054a6] bg-white px-3 py-1.5 text-xs font-bold text-[#0054a6] hover:bg-[#e8f1fa]"
+                      >
+                        Exportar viático
                       </button>
                       <ViaticoGeneradoBadge record={viaticoPorPax[String(pax.id)]} />
                     </div>

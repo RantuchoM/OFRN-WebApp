@@ -1131,8 +1131,8 @@ const ProtectedApp = ({ initialTab }) => {
         onMouseEnter={() => setIsSidebarHovered(true)}
         onMouseLeave={() => setIsSidebarHovered(false)}
         className={`
-            fixed inset-y-0 left-0 z-[100] bg-white border-r border-slate-200
-            transform transition-all duration-300 ease-in-out flex flex-col
+            fixed inset-y-0 left-0 z-[100] shrink-0 overflow-x-hidden bg-white border-r border-slate-200
+            transform transition-[transform,width] duration-300 ease-in-out flex flex-col
             ${isMobileMenuOpen ? "translate-x-0" : "-translate-x-full"} 
             lg:relative lg:translate-x-0 
             ${isDesktopExpanded ? "lg:w-64" : "lg:w-20"} 

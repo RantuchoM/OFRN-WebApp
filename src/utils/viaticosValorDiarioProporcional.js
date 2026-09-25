@@ -1,6 +1,8 @@
 import {
   explainViaticosDiasCalculation,
   formatFechaViaticos,
+  getArrivalFactor,
+  getDepartureFactor,
 } from "./viaticosDiasComputables";
 
 const round2 = (num) => Math.round((num + Number.EPSILON) * 100) / 100;
@@ -308,6 +310,79 @@ export function formatSegmentosProrrateoHelp(segmentos, fmtMoney = fmtMoneyArs) 
       return `${fmtDiasLabel(s.dias)} × ${fmtMoney(s.montoBase)}${rangoTxt}`;
     })
     .join(" + ");
+}
+
+function lineaDiaSalidaOLlegada(kind, fecha, hora, factor) {
+  const f = formatFechaViaticos(fecha);
+  const h = String(hora || "").slice(0, 5);
+  if (kind === "salida") {
+    if (factor.value === 0) {
+      return `${f}: 0 días, saliste a las ${h} (después de las 21:00).`;
+    }
+    if (factor.value === 0.75) {
+      return `${f}: 0,75 días, saliste a las ${h} (entre 15:01 y 21:00).`;
+    }
+    return `${f}: 1 día, saliste a las ${h} (hasta las 15:00).`;
+  }
+  if (factor.value === 0) {
+    return `${f}: 0 días, llegaste a las ${h} (hasta las 03:00).`;
+  }
+  if (factor.value === 0.75) {
+    return `${f}: 0,75 días, llegaste a las ${h} (entre 03:01 y 14:59).`;
+  }
+  return `${f}: 1 día, llegaste a las ${h} (desde las 15:00).`;
+}
+
+/**
+ * Texto del ? de días. Incluye fechas con factor 0 (no se ocultan).
+ * No altera el cálculo: solo describe explainViaticosDiasCalculation y los tramos ya armados.
+ */
+export function explainCalendarioDiasViatico({
+  fechaSalida,
+  horaSalida,
+  fechaLlegada,
+  horaLlegada,
+  segmentos = [],
+  fmtMoney = fmtMoneyArs,
+} = {}) {
+  const explained = explainViaticosDiasCalculation(
+    fechaSalida,
+    horaSalida,
+    fechaLlegada,
+    horaLlegada,
+  );
+  if (explained.incomplete) return explained.message || "";
+
+  const lineas = [];
+  if (explained.sameDay) {
+    lineas.push(explained.steps?.[0]?.detail || "");
+  } else {
+    const dep = getDepartureFactor(explained.horaSalida);
+    const arr = getArrivalFactor(explained.horaLlegada);
+    lineas.push(
+      lineaDiaSalidaOLlegada("salida", explained.fechaSalida, explained.horaSalida, dep),
+    );
+    for (let i = 1; i <= explained.middleDays; i += 1) {
+      const fecha = addDaysIso(explained.fechaSalida, i);
+      lineas.push(`${formatFechaViaticos(fecha)}: 1 día intermedio.`);
+    }
+    lineas.push(
+      lineaDiaSalidaOLlegada("llegada", explained.fechaLlegada, explained.horaLlegada, arr),
+    );
+    lineas.push(`Esos días suman ${fmtDiasLabel(explained.total)}.`);
+  }
+
+  const rangos = segmentosParaVista(segmentos);
+  if (rangos.length > 0) {
+    rangos.forEach((s, i) => {
+      const titulo = tituloSegmentoRango(i, rangos.length);
+      const fechas = fechasSegmentoRango(s);
+      lineas.push(
+        `${titulo}${fechas ? ` (${fechas})` : ""}: ${fmtDiasLabel(s.dias)} × ${fmtMoney(s.valorDiarioCalc)}.`,
+      );
+    });
+  }
+  return lineas.filter(Boolean).join(" ");
 }
 
 /**
