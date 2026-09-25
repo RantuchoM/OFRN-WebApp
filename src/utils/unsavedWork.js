@@ -44,6 +44,24 @@ export function subscribeUnsavedWork(listener) {
  * - `.fimba-row-dirty` / `.fimba-sync-pending`: planillas FIMBA en modo edición
  * - `[data-unsaved-work="true"]`: opt-in en modales / formularios
  */
+let leaveHandler = null;
+
+/**
+ * Misma forma que requestSeatingLeave: true = seguir ahora;
+ * false = el handler llama proceed después del diálogo.
+ */
+export function registerUnsavedLeaveGuard(handler) {
+  leaveHandler = typeof handler === "function" ? handler : null;
+  return () => {
+    if (leaveHandler === handler) leaveHandler = null;
+  };
+}
+
+export function requestUnsavedLeave(proceed) {
+  if (typeof leaveHandler !== "function") return true;
+  return leaveHandler(typeof proceed === "function" ? proceed : () => {});
+}
+
 export function hasUnsavedWork() {
   if (holders.size > 0) return true;
   if (typeof document === "undefined") return false;

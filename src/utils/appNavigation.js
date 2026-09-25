@@ -26,6 +26,7 @@ export const MODE_TO_TAB = {
   MANAGEMENT: "management",
   MUSIC_TRANSLATION: "music_translation",
   DIFUSION_GENERAL: "difusion",
+  CONCERTO: "competition",
 };
 
 /**

@@ -1088,4 +1088,97 @@ Fuente Drive [Orquesta particellas](https://drive.google.com/drive/folders/1HuUg
 - [ ] Christmas / Estonian: sin SCORE
 - [ ] Messiah: sin vientos ni coro; duración `NULL` (partes de oratorio, no excerpt de YouTube); Vc+Cb misma hoja → dos slots, misma URL
 
+---
+
+### Completado (2026-09-24) — Concerto Competition: catálogo de las 4 obras, sin programa
+
+Hoja [CONCERTO COMPETICION 2026](https://docs.google.com/spreadsheets/d/10LjW2acnb8EgNQZl1NEjKTf2Z1B0E3CvKGbx_jxE1TI/edit?gid=216549299) (gid `216549299`), 15 obras. Criterio de descarga: misma edición con full score **y** partes; entre esas, la de más descargas; solo dominio público o descarga libre (CC). `link_drive` = carpeta en Para acomodar.
+
+Seed ejecutado en el proyecto linked (`supabase/seed_concerto_competicion_sync.sql`). Solo `obras`, `obras_compositores` y `obras_particellas`. Cero filas en `repertorio_obras`, seating, placeholders ni otras tablas de programa/gira. No se asoció a ningún programa, bloque, playlist ni convocatoria.
+
+| Obra | id | Carpeta Drive | PDFs | Particellas | Solo |
+|------|---:|---------------|-----:|------------:|------|
+| Mendelssohn, violín op.64 | 3644 | `1UfwbHPaVmfK7YjttNj4YvPRrfEZ9mmqw` | 19 | 20 | Violín Solo, Carl Fischer 1917 / Leopold Auer, IMSLP #49678 (115611). El set Kalmus no traía solo. |
+| Wieniawski, violín n.º 2 op.22 | 3645 | `1H7PoDvDbnFNzun9YNo6XszmzsdqZlMsf` | 15 | 23 | Violín Solo, misma edición Jaworski. Trompetas: 2 sillas; Re y Sib son dos links de cada una. |
+| Mozart, oboe K.314 | 3646 | `1ufCQSQMST2n1gL0IA37aozIsBLg_l0To` | 9 | 11 | Oboe Solo, misma edición Gagarinov. |
+| Casadesus, viola en do menor | 3647 | `1UWlL42e2HqA6G0Ko4Q8Z7Mjlh-_rk3Tl` | 13 | 17 | Viola Solo, Senart/Peters #29902. Compositor **Bach, Johann Christian** (771); arreglador **Casadesus, Henri** (770), rol `arreglador`. Título sin cambio. Página 1 de cada PDF conservada. |
+
+Ya en archivo (no se re-descargó ni se tocó en esta carga): Bruch Kol Nidrei op.47; Haydn violoncello Hob.VIIb:1; Beethoven Romanza op.50; Mozart flauta K.313; Dvořák violoncello op.104; Haydn trompeta Hob.VIIe1 (**3592**); Bach suite BWV 1067 (**3593**). Weber fagot op.75 (**2337**) se corrigió aparte, en el apartado siguiente.
+
+- [x] PDFs canónicos en disco, tamaño > 0, incluido el violín solo de Mendelssohn
+- [x] Seed en Supabase linked; ids 3644–3647; cada particella con `url_archivo`
+- [x] Ninguna de las cuatro obras está en un programa
+- [x] `parseCombinedNumbers` expande `1y2y3` (trombones de Wieniawski = 1, 2 y 3)
+- [x] Wieniawski trompetas (obra 3645): misma silla + otra transposición = una fila y dos links. `Trompeta 1` y `Trompeta 2` llevan el PDF en Re (`1DsvWouRW9_WdksVs6B58kWeUS2Tob_Kw`) y el PDF en Sib (`17EQh7y4d1l9W2B1jlErIbkhXYkMZMYlQ`). Orgánico `… - 2.2.3.0 - …` (2 trompetas, no 4). El `1y2` de cada PDF sigue siendo dos sillas. Mendelssohn, Mozart, Casadesus y Lalo 3648 no tenían el mismo doble conteo (una sola afinación por silla, o un solo PDF `1y2`)
+- [x] Casadesus: página 1 restaurada en los 13 PDF (SCORE 57, flauta/oboe/fagot/corno 7, trompeta y timbal 2, violines y violoncello 6, viola y contrabajo 5, viola solo 7). Mismos nombres e ids de Drive; obra 3647 sin programa
+- [x] Obra 3647: compositor Johann Christian Bach (771, `obras_compositores.rol = compositor`); Henri Casadesus (770) pasó a `arreglador` y `obras.id_arreglador`. Cero filas en `repertorio_obras`. Patch `supabase/patch_casadesus_jc_bach_arreglador.sql`
+- [ ] Casadesus: la planilla dice «viola, strings»; Salabert incluye vientos y timbal (la 2.ª hoja de trompeta es TACET; la 1.ª tiene música). El solo Senart no es la misma edición que el score
+- [ ] No descargado: Koetsier (no está en IMSLP). Lalo op.21 y Glière op.91 se cargaron después.
+
+Scripts: `scripts/lib/concertoCompeticionCatalog.mjs`, `scripts/process-concerto-competicion-local.mjs`, `scripts/generate-concerto-competicion-sync.mjs`.
+
+**Transposición de la misma silla.** Varios PDFs de la misma silla en distinta afinación (Re/Sib, D/Bb, `in D`/`in B`, `en Re`/`en Sib`) son links de **una** particella (`url_archivo` es un arreglo). No crean slots. Un PDF `1y2` / `1y2y3` es al revés: una hoja, varias sillas. `collapseSameChairTranspositions` en `src/utils/drivePartMatcher.js` aplica eso al sugerir partes; el seed de conciertos ya no renombra `Trompeta 1 (D)` / `Trompeta 1 (Bb)`.
+
+---
+
+### Completado (2026-09-24) — Weber, Concierto para fagot, Op. 75 (obra 2337)
+
+Obra ya existente. No se creó otra ni se asoció a programa, gira, bloque ni playlist. Carpeta viva en ORQUESTA: [Concierto para Fagot en Fa mayor, Op. 75](https://drive.google.com/open?id=1gIwdo0CbGNe-vBT3p8OdmPnCPaX2lwU1). `link_drive` sigue siendo esa carpeta.
+
+El score de Descargas es `IMSLP799584-PMLP47593-00._WEBER_-_CONCERTO_FOR_BASSOON,_OP._75_(J.127)_-_Conductor_Score.pdf`: Breitkopf & Härtel, placa **O.B. 4867** ([#799584](https://imslp.org/wiki/Special:ReverseLookup/799584), 424 descargas). Las partes de esa misma placa (dominio público, uploader M.kowalski49, único set de la placa) son [#799585](https://imslp.org/wiki/Special:ReverseLookup/799585)–[#799595](https://imslp.org/wiki/Special:ReverseLookup/799595). El solo [#799585](https://imslp.org/wiki/Special:ReverseLookup/799585) (403) y el ripieno [#799588](https://imslp.org/wiki/Special:ReverseLookup/799588) (220) vienen en archivos distintos. No se bajó el urtext EU Wb. 1357 ni la placa Schlesinger 1246.
+
+Los pares no comparten hoja: el PDF trae la parte I y después la II, así que quedaron `Fagot 1` y `Fagot 2` (3 páginas cada uno), no `1y2`. El solo conserva las 8 páginas (la primera ya es música). Cornos y trompetas están solo en Fa: una silla, un PDF. Violoncello y contrabajo comparten un PDF y son dos filas. Se recortó la portada tipográfica suelta (y la hoja en blanco del score); la primera hoja grabada se conserva. **17 PDFs** → **18** filas (antes 12, sin fagot ni score en `obras_particellas`).
+
+El trigger dejó `instrumentacion` = `Fg - 2.2.0.2 - 2.2.0.0 - Perc - Str`. Cero filas en `repertorio_obras`, seating y arcos. Seed `supabase/seed_weber_fagot_op75_sync.sql`.
+
+- [x] Score de Descargas como SCORE canónico; fagot solo y fagotes 1 y 2 en la 2337
+- [x] PDFs `%PDF-` y tamaño > 0
+- [ ] El trigger SQL rotula un solo timbal como `Perc`; `calculateInstrumentation` diría `Timp`
+
+---
+
+### Completado (2026-09-24) — Lalo, Sinfonía española, Op. 21 (solo catálogo)
+
+Obra nueva **3648** (`Sinfonía española`, Lalo, Édouard). Allegro Appassionato op.27 (**3024**) no se tocó. Carpeta [Para acomodar](https://drive.google.com/open?id=1ctPxdJcuRxwuO75GZgExyQUWHWa3fBM3) `Lalo, E. - Sinfonía española, Op. 21` (mismo inicial que `Lalo, E. - Allegro Appasionato` en ORQUESTA). `link_drive` apunta ahí; no se copió a Archivo.
+
+No había un set con score y partes de la misma placa. Se bajó, en dominio público (V/V/V):
+
+| Pieza | Edición | IMSLP | Descargas (snapshot) |
+|-------|---------|-------|---------------------:|
+| Full score | Eulenburg / Kalmus cat. 267 | [#111388](https://imslp.org/wiki/Special:ReverseLookup/111388) | 16853 |
+| Partes de orquesta (una placa) | Breitkopf Orch.B. 2836, reimpresión Kalmus | #43358–43369 y #26566 | 62206 (suma de los 13 PDF) |
+| Violín solo (otra edición) | Durand placa D.S. & Cie. 2051 | [#239340](https://imslp.org/wiki/Special:ReverseLookup/239340) | 41164 |
+
+No se bajaron el score Durand (7402), los arreglos de piano, los cornos Gignoux (CC BY-NC-SA, `!N`) ni las trompetas en Sib de otra placa. Los 15 PDF elegidos bajaron; ninguno quedó bloqueado.
+
+**20 PDFs** canónicos (`1y2`, no `1-2`) → **29** filas en `obras_particellas`, incluido **Violín Solo** (`es_solista`). Las hojas compartidas se expanden (flauta, oboe, clarinete, fagot, corno, trompeta, trombón 1y2). Triángulo y tambor comparten un PDF y son dos filas. Página 1 de cada escaneo es música: no había portada IMSLP que recortar. Seed `supabase/seed_lalo_symphonie_sync.sql` aplicado en el proyecto linked. Cero filas en `repertorio_obras`, seating, arcos, ajustes y placeholders. No quedó en ningún programa, gira, bloque ni playlist.
+
+- [x] PDFs `%PDF-`, tamaño > 0, incluido el violín solo
+- [x] Obra 3648 solo en catálogo
+- [ ] Cornos: el PDF cambia de tudel (I/II en Re y Fa; III/IV en Sib y Fa); el nombre de archivo es `Corno F`
+- [ ] Clarinete: IMSLP marca Sib y La; el encabezado impreso empieza «in B»
+- [ ] Trompetas impresas en Re; el slot de BD es Trompeta 1 y 2
+- [ ] Duración `NULL` (IMSLP indica 30–35 min, sin segundos). El trigger de instrumentación dejó `Vn - 3.2.2.2 - 4.2.3.0 - Perc.x3 - Hp - Str`
+
+Scripts: `scripts/lib/laloSymphonieCatalog.mjs`, `scripts/process-lalo-symphonie-local.mjs`, `scripts/generate-lalo-symphonie-sync.mjs`.
+
+---
+
+### Completado (2026-09-25) — Glière, Concierto para corno, Op. 91 (obra 3649)
+
+Obra ya existente **3649** (`Concierto para Corno en Si bemol mayor`, Glière, Reinhold). No se creó otra. El participante de Jorge Fidel Montoya Vasquez en La Fuerza del Legado sigue en `repertorio_obras` **651** (bloque «Concerto Competition» de la gira 13). No se tocaron votos, ventanas ni otros participantes.
+
+El usuario declaró la obra de dominio público en esta jurisdicción (IMSLP la marca Non-PD US y EU). La edición vinculada es el manuscrito IMSLP #903959–#903985 (27 PDFs, una silla por archivo salvo percusión compartida). Página 1 de cada escaneo ya es música. No hay score ni corno solo en ese juego, así que el orgánico no lleva prefijo de solista. Triángulo/tambor y platillos/bombo siguen siendo un PDF y dos filas.
+
+Mitteldorf/Maximov (score, corno solo, `1y2`, pandereta y el resto de esa edición) quedó en [Versión alternativa](https://drive.google.com/open?id=1hzPmB4p9qQ2dv1z1J6jIh9kZvIEeb0dZ), dentro de la carpeta de la obra. Esos PDF no tienen fila en `obras_particellas`. Un reproceso no los vuelve a copiar a la raíz ni a sembrar.
+
+Carpeta [Para acomodar](https://drive.google.com/open?id=12BFnGYyChrYaLv7UEk3736mP4Nt9JUD8). **27 PDFs** de la raíz → **29** filas. `link_drive` sigue apuntando a esa carpeta, no a la subcarpeta. El trigger dejó `instrumentacion` = `3.2.2.2 - 3.2.3.1 - Perc.x5 - Hp - Str` (`calculateInstrumentation` diría `Timp.+4`). Seed `supabase/seed_gliere_corno_op91_sync.sql`.
+
+- [x] PDFs manuscritos `%PDF-`, tamaño > 0, sin score ni corno solo
+- [x] Obra 3649 revinculada solo al manuscrito; Montoya sigue en `repertorio_obras` 651
+- [x] Mitteldorf/Maximov en «Versión alternativa», sin filas
+- [ ] El trigger cuenta el timbal dentro de `Perc.x5`
+
+Scripts: `scripts/lib/gliereCornoCatalog.mjs`, `scripts/process-gliere-corno-local.mjs`, `scripts/generate-gliere-corno-sync.mjs`.
+
 

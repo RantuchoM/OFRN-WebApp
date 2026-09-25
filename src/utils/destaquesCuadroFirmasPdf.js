@@ -40,8 +40,8 @@ const DOCX_GRID_MARGIN_MM = 0;
 const NOTES_BLANK_COUNT = 3;
 const NOTES_PARAGRAPH_HEIGHT_MM = 8;
 const NOTES_HEADER_HEIGHT_MM = NOTES_BLANK_COUNT * NOTES_PARAGRAPH_HEIGHT_MM;
-/** CNRT / lista de pasajeros: menor si fecha_nac implica edad < 18. */
-const MENOR_EDAD_MAX = 17;
+/** Instrumento de ficha/gira cuyo nombre (tabla `instrumentos`) es Menor. */
+const MENOR_INSTRUMENTO_LABEL = "menor";
 const MM_TO_PT = 72 / 25.4;
 const MM_TO_PX = 96 / 25.4;
 const mmPt = (v) => v * MM_TO_PT;
@@ -52,46 +52,56 @@ const MAX_SIGNATURE_CELL_HEIGHT_RATIO = 1 / 6;
 /** Encargado: siempre primera firma del cuadro (aunque no esté en el lote de destaques). */
 export const CUADRO_FIRMAS_ENCARGADO_INTEGRANTE_ID = 1458710;
 
-function parseFechaNacDate(value) {
-  if (!value) return null;
-  const iso = String(value).trim().slice(0, 10);
-  const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
-  if (parts) {
-    return new Date(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3]));
+function getInstrumentRel(person) {
+  const rel = person?.instrumentos;
+  if (Array.isArray(rel)) return rel[0] ?? null;
+  return rel ?? null;
+}
+
+/** Nombre/label del instrumento (`instrumentos.instrumento`), no familia ni edad. */
+export function getCuadroFirmasInstrumentoLabel(person) {
+  const fromJoin = getInstrumentRel(person)?.instrumento;
+  if (fromJoin != null && String(fromJoin).trim() !== "") {
+    return String(fromJoin).trim();
   }
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
+  const fromField = person?.instrumento;
+  if (fromField != null && String(fromField).trim() !== "") {
+    return String(fromField).trim();
+  }
+  return "";
 }
 
 /**
- * Misma regla que la columna MENOR de transporte (CNRT / transportExport):
- * `fecha_nac` en `integrantes` y edad < 18. No hay `es_menor` ni plaza infantil.
- * Sin fecha de nacimiento no se asume menor (a diferencia del Excel CNRT, que
- * trata fecha vacía como hoy y marcaría a todos).
+ * Menor de firmas = instrumento **Menor** (`integrantes.id_instr` →
+ * `instrumentos.instrumento`). No usa `fecha_nac` ni la columna MENOR de CNRT
+ * (`transportExport.js` sigue con edad < 18).
  */
-export function isCuadroFirmasMenor(person, now = new Date()) {
-  const birth = parseFechaNacDate(person?.fecha_nac);
-  if (!birth) return false;
-  let age = now.getFullYear() - birth.getFullYear();
-  const monthDiff = now.getMonth() - birth.getMonth();
-  if (monthDiff < 0 || (monthDiff === 0 && now.getDate() < birth.getDate())) {
-    age -= 1;
-  }
-  return age >= 0 && age <= MENOR_EDAD_MAX;
+export function isCuadroFirmasMenor(person) {
+  return (
+    getCuadroFirmasInstrumentoLabel(person).toLowerCase() ===
+    MENOR_INSTRUMENTO_LABEL
+  );
+}
+
+function normalizeIdInstr(value) {
+  if (value == null || String(value).trim() === "") return null;
+  return String(value).trim();
 }
 
 export function toCuadroFirmasPerson(row) {
   if (!row) return null;
   const dni = row.dni != null ? String(row.dni).trim() : "";
   const firmaRaw = row.firma != null ? String(row.firma).trim() : "";
-  const fechaNacRaw =
-    row.fecha_nac != null ? String(row.fecha_nac).trim().slice(0, 10) : "";
+  const instrumentos = getInstrumentRel(row);
+  const instrumento = getCuadroFirmasInstrumentoLabel(row) || null;
   const person = {
     id: row.id,
     nombre: row.nombre,
     apellido: row.apellido,
     dni: dni || null,
-    fecha_nac: fechaNacRaw || null,
+    id_instr: normalizeIdInstr(row.id_instr),
+    instrumentos: instrumentos || (instrumento ? { instrumento } : null),
+    instrumento,
     firma: firmaRaw && firmaRaw !== "NULL" ? firmaRaw : null,
   };
   const esMenor = isCuadroFirmasMenor(person);
@@ -106,7 +116,9 @@ export async function fetchEncargadoCuadroFirmas(supabase) {
   if (!supabase) return null;
   const { data, error } = await supabase
     .from("integrantes")
-    .select("id, nombre, apellido, dni, firma, fecha_nac")
+    .select(
+      "id, nombre, apellido, dni, firma, id_instr, instrumentos(id, instrumento, familia)",
+    )
     .eq("id", CUADRO_FIRMAS_ENCARGADO_INTEGRANTE_ID)
     .maybeSingle();
   if (error) {
@@ -210,45 +222,87 @@ export async function hydrateCuadroFirmasPeopleFirma(supabase, people) {
   }));
 }
 
-export async function hydrateCuadroFirmasPeopleFechaNac(supabase, people) {
+function applyInstrumentoRow(person, row) {
+  if (!row) return person;
+  const next = {
+    ...person,
+    id_instr: normalizeIdInstr(row.id_instr) ?? person.id_instr,
+    instrumentos: getInstrumentRel(row) || person.instrumentos,
+    instrumento:
+      getCuadroFirmasInstrumentoLabel(row) || person.instrumento || null,
+  };
+  const esMenor = isCuadroFirmasMenor(next);
+  return {
+    ...next,
+    esMenor,
+    firma: esMenor ? null : next.firma,
+  };
+}
+
+export async function hydrateCuadroFirmasPeopleInstrumento(supabase, people) {
   if (!supabase?.from) return people || [];
   const list = (people || []).map(toCuadroFirmasPerson).filter(Boolean);
-  const missingIds = [
+  const needsLabel = list.filter(
+    (person) => !getCuadroFirmasInstrumentoLabel(person),
+  );
+  if (needsLabel.length === 0) return list;
+
+  const instrIds = [
+    ...new Set(needsLabel.map((person) => person.id_instr).filter(Boolean)),
+  ];
+  const personIds = [
     ...new Set(
-      list
-        .filter((person) => !person.fecha_nac)
+      needsLabel
         .map((person) => Number(person.id))
         .filter(Number.isFinite),
     ),
   ];
-  if (missingIds.length === 0) return list;
 
-  const { data, error } = await supabase
-    .from("integrantes")
-    .select("id, fecha_nac")
-    .in("id", missingIds);
-  if (error) {
-    console.warn("Cuadro de firmas: fechas de nacimiento no cargadas", error);
-    return list;
+  let catalogById = new Map();
+  if (instrIds.length > 0) {
+    const { data, error } = await supabase
+      .from("instrumentos")
+      .select("id, instrumento, familia")
+      .in("id", instrIds);
+    if (error) {
+      console.warn("Cuadro de firmas: catálogo de instrumentos no cargado", error);
+    } else {
+      catalogById = new Map(
+        (data || []).map((row) => [String(row.id), row]),
+      );
+    }
   }
 
-  const fechaById = new Map(
-    (data || []).map((row) => [
-      Number(row.id),
-      row.fecha_nac != null ? String(row.fecha_nac).trim().slice(0, 10) : "",
-    ]),
-  );
+  let integranteById = new Map();
+  if (personIds.length > 0) {
+    const { data, error } = await supabase
+      .from("integrantes")
+      .select("id, id_instr, instrumentos(id, instrumento, familia)")
+      .in("id", personIds);
+    if (error) {
+      console.warn("Cuadro de firmas: instrumentos no cargados", error);
+    } else {
+      integranteById = new Map(
+        (data || []).map((row) => [Number(row.id), row]),
+      );
+    }
+  }
 
   return list.map((person) => {
-    if (person.fecha_nac) return person;
-    const fecha_nac = fechaById.get(Number(person.id)) || null;
-    const next = { ...person, fecha_nac: fecha_nac || null };
-    const esMenor = isCuadroFirmasMenor(next);
-    return {
-      ...next,
-      esMenor,
-      firma: esMenor ? null : next.firma,
-    };
+    if (getCuadroFirmasInstrumentoLabel(person)) return person;
+    if (person.id_instr) {
+      const catalogRow = catalogById.get(String(person.id_instr));
+      if (catalogRow) {
+        return applyInstrumentoRow(person, {
+          id_instr: person.id_instr,
+          instrumentos: catalogRow,
+        });
+      }
+    }
+    return applyInstrumentoRow(
+      person,
+      integranteById.get(Number(person.id)),
+    );
   });
 }
 
@@ -266,8 +320,11 @@ function withMenorFlags(people) {
 async function prepareCuadroFirmasPeople(people, encargado, supabase) {
   const sorted = buildCuadroFirmasPeopleList(people, encargado);
   if (!supabase) return withMenorFlags(sorted);
-  const withFecha = await hydrateCuadroFirmasPeopleFechaNac(supabase, sorted);
-  const withFirma = await hydrateCuadroFirmasPeopleFirma(supabase, withFecha);
+  const withInstr = await hydrateCuadroFirmasPeopleInstrumento(
+    supabase,
+    sorted,
+  );
+  const withFirma = await hydrateCuadroFirmasPeopleFirma(supabase, withInstr);
   const withDni = await hydrateCuadroFirmasPeopleDni(supabase, withFirma);
   return withMenorFlags(withDni);
 }

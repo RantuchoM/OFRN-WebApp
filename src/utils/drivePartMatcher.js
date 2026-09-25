@@ -2,9 +2,19 @@
  * Motor de matching Drive ↔ particellas (modal, seeds futuros).
  * Soporta archivos combinados: "Corno 1y2", "1 y 2", "1&2", "1-2", "1/2".
  * También numeración romana de parte: "Corno F I y III", "Violín II", "Flauta I".
+ * Misma silla en distinta transposición (Re/Sib, D/Bb, in D/in B, en Re/en Sib):
+ * varios PDFs, una parte. Un PDF `1y2` / `1y2y3` sigue siendo varias partes.
  */
 
 const COMBINED_SUFFIX_PATTERNS = [
+  {
+    re: /(\d+)\s*y\s*(\d+)\s*y\s*(\d+)\s*y\s*(\d+)\s*$/i,
+    pick: (m) => [m[1], m[2], m[3], m[4]],
+  },
+  {
+    re: /(\d+)\s*y\s*(\d+)\s*y\s*(\d+)\s*$/i,
+    pick: (m) => [m[1], m[2], m[3]],
+  },
   { re: /(\d+)\s*y\s*(\d+)\s*$/i, pick: (m) => [m[1], m[2]] },
   { re: /(\d+)\s+y\s+(\d+)\s*$/i, pick: (m) => [m[1], m[2]] },
   { re: /(\d+)\s*&\s*(\d+)\s*$/i, pick: (m) => [m[1], m[2]] },
@@ -95,13 +105,76 @@ export const normalizeInstrumentString = (str) => {
     .trim();
 };
 
-/** Quita afinación/transposición (F, A, Bb…) para equiparar "Corno F 1" con "Corno 1". */
+/**
+ * Palabras de afinación (no letras sueltas). Más largas primero.
+ * B / in B / Bb / Sib = la misma trompeta en si bemol.
+ * D / in D / Re = la misma en re.
+ */
+const TRANSPOSITION_WORD_SRC =
+  "si\\s*bemol|mi\\s*bemol|la\\s*bemol|re\\s*bemol|sol\\s*bemol|do\\s*bemol|" +
+  "si\\s*b|mi\\s*b|la\\s*b|" +
+  "sib|mib|lab|reb|solb|dob|" +
+  "bb|eb|ab|db|gb|" +
+  "b\\s*♭|e\\s*♭|a\\s*♭|d\\s*♭|g\\s*♭|" +
+  "f\\s*#|c\\s*#|" +
+  "do|re|mi|fa|sol|la|si";
+
+const TRANSPOSITION_KEY_SRC = `${TRANSPOSITION_WORD_SRC}|[A-Ga-g]`;
+
+/** Quita afinación/transposición para equiparar "Corno F 1", "Trompeta D 1" y "Trompeta 1". */
 export const stripTranspositionKeys = (text = "") =>
   String(text)
-    .replace(/\b(bb|b\s*♭|eb|e\s*♭|si\s*b|mi\s*b)\b/gi, "")
-    .replace(/\b(in\s+)?([fac])\b/gi, "")
+    .replace(
+      new RegExp(
+        `\\(\\s*(?:in|en)?\\s*(?:${TRANSPOSITION_KEY_SRC})\\s*\\)`,
+        "gi",
+      ),
+      " ",
+    )
+    .replace(
+      new RegExp(`\\b(?:in|en)\\s+(?:${TRANSPOSITION_KEY_SRC})\\b`, "gi"),
+      " ",
+    )
+    .replace(new RegExp(`\\b(?:${TRANSPOSITION_WORD_SRC})\\b`, "gi"), " ")
+    .replace(/(?<![\w'])[A-Ga-g](?![\w'])/g, " ")
+    .replace(/\(\s*\)/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+
+const canonicalizeTranspositionToken = (hit) => {
+  const t = String(hit || "")
+    .toLowerCase()
+    .replace(/♭/g, "b")
+    .replace(/\s+/g, "");
+  if (!t) return null;
+  if (/^(bb|sib|sibemol|b)$/.test(t)) return "bb";
+  if (/^(eb|mib|mibemol)$/.test(t)) return "eb";
+  if (/^(ab|lab|labemol)$/.test(t)) return "ab";
+  if (/^(db|reb|rebemol)$/.test(t)) return "db";
+  if (/^(gb|solb|solbemol|f#|fa#)$/.test(t)) return "f#";
+  if (/^(c#|do#)$/.test(t)) return "c#";
+  if (/^(d|re)$/.test(t)) return "d";
+  if (/^(e|mi)$/.test(t)) return "e";
+  if (/^(f|fa)$/.test(t)) return "f";
+  if (/^(a|la)$/.test(t)) return "a";
+  if (/^(c|do)$/.test(t)) return "c";
+  if (/^(g|sol)$/.test(t)) return "g";
+  if (t === "si") return "b";
+  return t;
+};
+
+/** Token de transposición presente en un nombre, o null si no hay. */
+export const transpositionToken = (text = "") => {
+  const raw = String(text || "");
+  const m = raw.match(
+    new RegExp(
+      `\\(\\s*(?:in|en)?\\s*(${TRANSPOSITION_KEY_SRC})\\s*\\)|\\b(?:in|en)\\s+(${TRANSPOSITION_KEY_SRC})\\b|\\b(${TRANSPOSITION_WORD_SRC})\\b|(?<![\\w'])([A-Ga-g])(?![\\w'])`,
+      "i",
+    ),
+  );
+  if (!m) return null;
+  return canonicalizeTranspositionToken(m[1] || m[2] || m[3] || m[4]);
+};
 
 const normalizePartBase = (rawBase) =>
   applyPiccoloFlautaNorm(
@@ -193,7 +266,9 @@ export const parseCombinedNumbers = (text) => {
  * }}
  */
 export const parsePartSlot = (nombre_archivo) => {
-  const base = arabicizeRomanPartNumbers(instrumentSegmentFromName(nombre_archivo));
+  const base = stripTranspositionKeys(
+    arabicizeRomanPartNumbers(instrumentSegmentFromName(nombre_archivo)),
+  );
   const combined = parseCombinedNumbers(base);
 
   if (combined) {
@@ -712,10 +787,95 @@ export const expandDriveFileToParts = (file, catalogoInstrumentos, options = {})
 export const suggestPartsFromDriveFile = (file, catalogoInstrumentos, options = {}) =>
   expandDriveFileToParts(file, catalogoInstrumentos, options).map(toSeedPartShape);
 
+const linksFromPart = (part) => {
+  if (Array.isArray(part?.links) && part.links.length) return part.links;
+  if (part?.url_archivo != null && part.url_archivo !== "") {
+    try {
+      const parsed =
+        typeof part.url_archivo === "string"
+          ? JSON.parse(part.url_archivo)
+          : part.url_archivo;
+      if (Array.isArray(parsed)) return parsed;
+    } catch {
+      /* url_archivo no es JSON */
+    }
+  }
+  return Array.isArray(part?.links) ? part.links : [];
+};
+
+const partWithLinks = (part, links) => {
+  const next = { ...part };
+  if (Array.isArray(part.links) || !("url_archivo" in part)) next.links = links;
+  if ("url_archivo" in part) next.url_archivo = JSON.stringify(links);
+  return next;
+};
+
+const chairCollapseKey = (part) => {
+  const slot = parsePartSlot(part?.nombre_archivo || "");
+  if (slot.isCombined && (slot.slotNumbers?.length || 0) > 1) return null;
+  const numbers = slot.slotNumbers?.length
+    ? slot.slotNumbers.join(",")
+    : "";
+  return [
+    String(part?.id_instrumento ?? ""),
+    slot.baseNorm,
+    numbers,
+    part?.es_solista ? "1" : "0",
+  ].join("|");
+};
+
+/**
+ * Varios PDFs de la misma silla (distinta transposición) → una parte y varios links.
+ * Un PDF combinado `1y2` ya viene expandido en sillas distintas y no se fusiona.
+ */
+export const collapseSameChairTranspositions = (parts) => {
+  if (!Array.isArray(parts) || parts.length < 2) return parts ? [...parts] : [];
+  const groups = new Map();
+  const order = [];
+  parts.forEach((part, index) => {
+    const key = chairCollapseKey(part) ?? `multi|${index}`;
+    if (!groups.has(key)) {
+      groups.set(key, []);
+      order.push(key);
+    }
+    groups.get(key).push(part);
+  });
+
+  return order.map((key) => {
+    const group = groups.get(key);
+    if (group.length === 1) return group[0];
+
+    const names = [...new Set(group.map((p) => String(p.nombre_archivo || "")))];
+    let nombre = names[0];
+    if (names.length > 1) {
+      const stripped = stripTranspositionKeys(
+        arabicizeRomanPartNumbers(instrumentSegmentFromName(names[0])),
+      );
+      if (stripped) nombre = stripped;
+    }
+
+    const links = [];
+    const seen = new Set();
+    for (const part of group) {
+      for (const link of linksFromPart(part)) {
+        const url = link?.url || "";
+        if (!url || seen.has(url)) continue;
+        seen.add(url);
+        links.push(link);
+      }
+    }
+
+    const base = group.find((p) => p.nombre_archivo === nombre) || group[0];
+    return partWithLinks({ ...base, nombre_archivo: nombre }, links);
+  });
+};
+
 export const getSuggestedParts = (driveFiles, catalogoInstrumentos) => {
   if (!driveFiles?.length || !catalogoInstrumentos) return [];
-  return driveFiles.flatMap((file) =>
-    expandDriveFileToParts(file, catalogoInstrumentos),
+  return collapseSameChairTranspositions(
+    driveFiles.flatMap((file) =>
+      expandDriveFileToParts(file, catalogoInstrumentos),
+    ),
   );
 };
 
@@ -786,6 +946,33 @@ export const attachDriveLinksByFilename = (partsList, driveFilesSorted) => {
   linkPass(50, 50);
   linkPass(45, 45);
   linkPass(30, 30);
+
+  const singletonFamilyKeys = buildSingletonFamilyKeys(parts);
+  const variantContext = { singletonFamilyKeys };
+  parts = parts.map((part) => {
+    let next = part;
+    if (!(next.links || []).length) return next;
+    for (const file of usableFiles) {
+      if (!file?.webViewLink) continue;
+      if ((next.links || []).some((l) => l.url === file.webViewLink)) continue;
+      const score = getMatchScore(next, file, variantContext);
+      if (score !== 100 && score !== 50) continue;
+      const fileToken = transpositionToken(getDriveFilePrefix(file));
+      if (!fileToken) continue;
+      const existingTokens = (next.links || [])
+        .map((l) =>
+          transpositionToken(
+            instrumentSegmentFromName(
+              String(l.description || "").replace(/\.[^./\\]+$/, ""),
+            ),
+          ),
+        )
+        .filter(Boolean);
+      if (existingTokens.includes(fileToken)) continue;
+      next = addLinkToPart(next, file);
+    }
+    return next;
+  });
 
   return parts;
 };

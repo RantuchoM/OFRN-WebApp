@@ -6,6 +6,7 @@ import {
   isModifiedClick,
   requestSeatingLeave,
 } from "../../utils/seatingLateMailLeaveGuard";
+import { requestUnsavedLeave } from "../../utils/unsavedWork";
 
 /**
  * Link de navegación interna OFRN con href real (rueda / Ctrl+clic → nueva pestaña).
@@ -46,6 +47,10 @@ export default function AppNavLink({
       onClick={(e) => {
         onClick?.(e);
         if (e.defaultPrevented || isModifiedClick(e)) return;
+        if (!requestUnsavedLeave(() => navigate(resolvedTo))) {
+          e.preventDefault();
+          return;
+        }
         if (!destinationLeavesSeating(location, resolvedTo)) return;
         if (!requestSeatingLeave(() => navigate(resolvedTo))) {
           e.preventDefault();

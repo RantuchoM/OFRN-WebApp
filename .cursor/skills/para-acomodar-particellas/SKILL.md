@@ -25,7 +25,8 @@ description: >-
 | PDF (sin nº catálogo) | `Instrumento - Título - Compositor, I.pdf` — **no** incluir `S/N`, `S-N` ni placeholder |
 | Audio (mp3/wav) | `AUDIO - {resto del nombre}.mp3` / `.wav` — prefijo obligatorio. El matcher ignora archivos que empiezan con `AUDIO` (y `PORTADA`). No asociar audio a instrumentos. |
 | `workNumber` en catálogo | `null` u omitir cuando no hay op./catálogo; nunca `"S/N"` |
-| Combinados | **Un PDF, varias partes en la misma hoja** → sufijo `1y2`, `3y4`, `1y2y3` (nunca `1-2`) |
+| Combinados | **Un PDF, varias partes en la misma hoja** → sufijo `1y2`, `3y4`, `1y2y3` (nunca `1-2`). Son sillas distintas |
+| Transposición | **Misma silla, distinta afinación** (Re/Sib, D/Bb, `in D`/`in B`, `en Re`/`en Sib`) → **una** particella y varios links en `url_archivo`. No son slots distintos. El orgánico cuenta sillas, no PDFs |
 | Portadas | Página 1 IMSLP (título del grupo) se **excluye** al extraer |
 | `link_drive` | Carpeta original en Para acomodar; **no** `copiar_carpeta_a_archivo` |
 | Spec viva | Actualizar `docs/specs/repertoire-ux-evolution.md` al cerrar |
@@ -116,6 +117,8 @@ node scripts/generate-falla-sync.mjs
 - `src/utils/drivePartMatcher.js` acepta `1y2`, `1 y 2`, `1-2`, `1/2` al **leer** nombres.
 - Al **escribir** nombres de archivo y `nombre_archivo`, usar siempre `1y2`.
 - `calculateInstrumentation` + `suggestPartFromDriveFile` en seeds.
+- Misma silla + otra transposición: `collapseSameChairTranspositions` junta los PDFs en una fila (`url_archivo` con varios links). No renombrar a `Trompeta 1 (D)` y `Trompeta 1 (Bb)`.
+- `1y2` / `1y2y3` es al revés: un PDF, varias partes. No colapsar esos números.
 
 ## Ejemplo real: Falla (obra 3532)
 
@@ -133,3 +136,8 @@ node scripts/generate-falla-sync.mjs
 | Carpeta sin formato canónico | Renombrar antes de `split_and_rename_parts.py` |
 | Drive desactualizado | Esperar sync de Google Drive File Stream tras rename local |
 | PDF con `S-N.` o `S/N.` en el nombre | `workNumber: null` en catálogo; `normalizeWorkNumberForFilename` omite el segmento |
+| Trompetas en Re y en Sib contadas como 4 slots | Misma silla: dos links, una parte. Wieniawski op.22 (obra 3645): `Trompeta D 1y2` y `Trompeta Bb 1y2` son dos PDFs de **Trompeta 1** y de **Trompeta 2** (cada fila lleva el PDF en Re y el PDF en Sib). Orgánico: 2 trompetas, no 4. El `1y2` de cada PDF sí parte la hoja en silla 1 y silla 2 |
+
+## Atribución: concierto de viola en do menor (J. C. Bach / Casadesus)
+
+Aunque IMSLP liste el concierto para viola en do menor (estilo J. C. Bach) bajo Casadesus, en el catálogo OFRN el compositor es **Johann Christian Bach** y **Henri Casadesus** es arreglador (`obras.id_arreglador` y `obras_compositores.rol = 'arreglador'`). No usar a Johann Sebastian Bach. La carpeta y los PDF pueden seguir nombrados `Casadesus, H.`.

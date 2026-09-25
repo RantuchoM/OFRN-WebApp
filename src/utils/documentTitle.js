@@ -23,6 +23,7 @@ export const MODE_LABELS = {
   MANAGEMENT: "Gestión",
   MUSIC_TRANSLATION: "Traducción musical",
   DIFUSION_GENERAL: "Difusión",
+  CONCERTO: "Concerto Competition",
 };
 
 const GIRA_VIEW_LABELS = {

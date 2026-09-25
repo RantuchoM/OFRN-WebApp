@@ -171,6 +171,12 @@ export function normalizeInstrumentLabel(rawName) {
   if (/\bclarinete\s+a\s*1[\s-]?y?\s*2\b|\bclarinete\s+a\s*1-2\b|\bcl\s+a\s*1-2\b/i.test(name))
     return "Clarinete A 1y2";
   if (
+    /\bclarinete\s+bb\s*1y2\b|\bclarinete\s+bb\s*1[\s-]?y?\s*2\b|\bclarinete\s+sib\s*1y2\b/i.test(
+      name,
+    )
+  )
+    return "Clarinete Bb 1y2";
+  if (
     /\bclarinete\s*1y2\b|\bclarinete\s*1[\s-]?y?\s*2\b|\bclarinet(?:e|s)?\s*1-2\b|\bcl\s*1y2\b/i.test(
       name,
     )
@@ -190,6 +196,12 @@ export function normalizeInstrumentLabel(rawName) {
     )
   )
     return "Corno F 3y4";
+  if (
+    /\btrompeta\s+d\s*1y2\b|\btrompeta\s+d\s*1[\s-]?y?\s*2\b|\btrumpet\s+d\s*1-2\b/i.test(
+      name,
+    )
+  )
+    return "Trompeta D 1y2";
   if (/\btrompeta\s*1[\s-]?y?\s*2\b|\btrompeta\s*1-2\b|\btrumpet\s*1-2\b/i.test(name))
     return "Trompeta 1y2";
   if (
@@ -198,6 +210,10 @@ export function normalizeInstrumentLabel(rawName) {
     )
   )
     return "Trombón 1y2y3";
+  if (
+    /\btromb[oó]n\s*1y2\b|\btrombone\s*1-2\b|\btromb[oó]n\s*1\s*y\s*2\b/i.test(name)
+  )
+    return "Trombón 1y2";
   if (/\bcontrafagot\b/i.test(name)) return "Contrafagot";
   if (/\boboe\s*2\b/i.test(name) && !/\boboe\s*1\b/i.test(name)) return "Oboe 2";
   if (/\boboe\s*1\b/i.test(name)) return "Oboe 1";
@@ -226,6 +242,7 @@ export function normalizeInstrumentLabel(rawName) {
     return "Clarinete Bb 1";
   if (/\bclarinete\s+(en\s+)?sib\b|\bclarinete\s+bb\b|\bclarinet\b|\bclarinete\b/i.test(name))
     return "Clarinete Bb";
+  if (/\bfagot\s+solo\b|\bbassoon\s+solo\b/i.test(name)) return "Fagot Solo";
   if (/\bfagot\s*2\b|\bbassoon\s*2\b/i.test(name)) return "Fagot 2";
   if (/\bfagot\s*1\b|\bbassoon\s*1\b/i.test(name)) return "Fagot 1";
   if (/\bbassoons?\b|\bfagot\b/i.test(name)) return "Fagot";
@@ -256,6 +273,12 @@ export function normalizeInstrumentLabel(rawName) {
   if (/\btimpani\b|\btimbal\b|\btimbales\b|\bperc\s*timp\b/i.test(name))
     return "Perc Timbal";
   if (/\bbass\s*drum\b|\bbombo\b|\bgran\s+cassa\b/i.test(name)) return "Perc Bombo";
+  if (
+    /\b(?:tri[aá]ngulo|triangle)\b.*\b(?:tambor|snare)\b|\b(?:tambor|snare)\b.*\b(?:tri[aá]ngulo|triangle)\b/i.test(
+      name,
+    )
+  )
+    return "Perc Triángulo y Tambor";
   if (/\bsnare\b|\btambor\b/i.test(name)) return "Perc Tambor";
   if (/\btriangulo\b|\btriángulo\b|\btriangle\b/i.test(name)) return "Perc Triángulo";
   if (/\btam[- ]?tam\b|\bcymbals?\b|\bplatillos?\b|\bpiatti\b/i.test(name))
@@ -286,10 +309,13 @@ export function normalizeInstrumentLabel(rawName) {
     )
   )
     return "Violoncello Solo";
+  if (/\bviol[ií]n\s+solo\b|\bviolin\s+solo\b/i.test(name)) return "Violín Solo";
   if (/\bviolin\s*ii\b|\bviolín\s*2\b|\bviolins?\s*ii\b|\bviolin\s*2\b/i.test(name))
     return "Violín 2";
   if (/\bviolin\s*i\b|\bviolín\s*1\b|\bviolins?\s*i\b|\bviolin\s*1\b/i.test(name))
     return "Violín 1";
+  if (/\bflauta\s*1y2\b|\bflauta\s*1[\s-]?y?\s*2\b|\bflute\s*1-2\b/i.test(name))
+    return "Flauta 1y2";
   if (/\bflauta\s*2\b|\bflute\s*2\b/i.test(name)) return "Flauta 2";
   if (/\bflauta\s*1\b|\bflute\s*1\b/i.test(name)) return "Flauta 1";
   if (/\bflutes?\b|\bflauta\b/i.test(name)) return "Flauta";

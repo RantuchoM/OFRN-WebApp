@@ -24,6 +24,7 @@ import {
   isSeatingSearch,
   requestSeatingLeave,
 } from "./utils/seatingLateMailLeaveGuard";
+import { requestUnsavedLeave } from "./utils/unsavedWork";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { getRolesDisplay } from "./utils/authRolesDisplay";
 import { supabase } from "./services/supabase";
@@ -47,6 +48,10 @@ import { CommandPaletteProvider } from "./context/CommandPaletteContext";
 import CommandBarTrigger from "./components/ui/CommandBarTrigger";
 import { canAccessMusicTranslation } from "./constants/musicTranslationAccess";
 import {
+  isConcertoStaff,
+  musicianCanSeeConcerto,
+} from "./utils/concertoCompeticion";
+import {
   IconLayoutDashboard,
   CuratorIcon,
   IconDownload,
@@ -55,6 +60,7 @@ import {
   IconMap,
   IconMusic,
   IconMusicNote,
+  IconTrophy,
   IconUsers,
   IconMapPin,
   IconFileText,
@@ -135,6 +141,9 @@ const ManualAdmin = lazy(() => import("./views/Manual/ManualAdmin"));
 const ManagementView = lazy(() => import("./views/Management/ManagementView"));
 const MusicTranslationView = lazy(
   () => import("./views/MusicTranslation/MusicTranslationView"),
+);
+const ConcertoCompetitionView = lazy(
+  () => import("./views/Concerto/ConcertoCompetitionView"),
 );
 const FimbaStaffApp = lazy(() => import("./views/Fimba/FimbaStaffApp"));
 const FimbaTokenPage = lazy(() => import("./views/Fimba/FimbaTokenPage"));
@@ -667,6 +676,10 @@ const ProtectedApp = ({ initialTab }) => {
 
   const [isEnsembleCoordinator, setIsEnsembleCoordinator] = useState(false);
   const [catalogoInstrumentos, setCatalogoInstrumentos] = useState([]);
+  const concertoStaff = isConcertoStaff(roles);
+  const [concertoAccess, setConcertoAccess] = useState(
+    concertoStaff ? "yes" : "pending",
+  );
 
   useEffect(() => {
     if (!user) return;
@@ -693,6 +706,25 @@ const ProtectedApp = ({ initialTab }) => {
     }
   }, [user, userRole, roles]);
 
+  useEffect(() => {
+    if (!user?.id || user.id === "guest-general") {
+      setConcertoAccess("no");
+      return;
+    }
+    if (concertoStaff) {
+      setConcertoAccess("yes");
+      return;
+    }
+    let cancelled = false;
+    setConcertoAccess("pending");
+    musicianCanSeeConcerto(supabase, user.id).then((ok) => {
+      if (!cancelled) setConcertoAccess(ok ? "yes" : "no");
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id, concertoStaff]);
+
   const tabToMode = {
     dashboard: "DASHBOARD",
     giras: "GIRAS",
@@ -715,6 +747,7 @@ const ProtectedApp = ({ initialTab }) => {
     management: "MANAGEMENT",
     music_translation: "MUSIC_TRANSLATION",
     difusion: "DIFUSION_GENERAL",
+    competition: "CONCERTO",
   };
   const modeToTab = MODE_TO_TAB;
 
@@ -784,35 +817,40 @@ const ProtectedApp = ({ initialTab }) => {
       setIsMobileMenuOpen(false);
     };
 
-    if (isSeatingSearch(searchParams)) {
-      const dest =
-        newMode === "MANAGEMENT"
-          ? "/management"
-          : (() => {
-              const newParams = new URLSearchParams(searchParams);
-              const targetTab = modeToTab[newMode];
-              if (targetTab) newParams.set("tab", targetTab);
-              else newParams.delete("tab");
-              if (newMode === "GIRAS" && giraId) {
-                newParams.set("giraId", giraId);
-                if (viewParam) newParams.set("view", viewParam);
-                if (subTabParam) newParams.set("subTab", subTabParam);
-              } else {
-                ["giraId", "view", "subTab"].forEach((p) =>
-                  newParams.delete(p),
-                );
-              }
-              const search = newParams.toString();
-              return { pathname: "/", search: search ? `?${search}` : "" };
-            })();
-      if (
-        destinationLeavesSeating(location, dest) &&
-        !requestSeatingLeave(apply)
-      ) {
-        return;
+    const afterUnsaved = () => {
+      if (isSeatingSearch(searchParams)) {
+        const dest =
+          newMode === "MANAGEMENT"
+            ? "/management"
+            : (() => {
+                const newParams = new URLSearchParams(searchParams);
+                const targetTab = modeToTab[newMode];
+                if (targetTab) newParams.set("tab", targetTab);
+                else newParams.delete("tab");
+                if (newMode === "GIRAS" && giraId) {
+                  newParams.set("giraId", giraId);
+                  if (viewParam) newParams.set("view", viewParam);
+                  if (subTabParam) newParams.set("subTab", subTabParam);
+                } else {
+                  ["giraId", "view", "subTab"].forEach((p) =>
+                    newParams.delete(p),
+                  );
+                }
+                const search = newParams.toString();
+                return { pathname: "/", search: search ? `?${search}` : "" };
+              })();
+        if (
+          destinationLeavesSeating(location, dest) &&
+          !requestSeatingLeave(apply)
+        ) {
+          return;
+        }
       }
-    }
-    apply();
+      apply();
+    };
+
+    if (!requestUnsavedLeave(afterUnsaved)) return;
+    afterUnsaved();
   };
 
   const allMenuItems = [
@@ -911,6 +949,12 @@ const ProtectedApp = ({ initialTab }) => {
       show: isAdmin,
     },
     {
+      id: "CONCERTO",
+      label: "Concerto Competition",
+      icon: <IconTrophy size={20} />,
+      show: concertoAccess === "yes",
+    },
+    {
       id: "FEEDBACK_ADMIN",
       label: "Feedback",
       icon: <IconBulb size={20} />,
@@ -1001,6 +1045,16 @@ const ProtectedApp = ({ initialTab }) => {
             ]}
           />
         );
+      case "CONCERTO":
+        if (concertoAccess === "pending") return <ViewFallback />;
+        if (concertoAccess !== "yes") {
+          return (
+            <div className="flex h-full items-center justify-center p-10 text-center text-slate-500">
+              Concerto Competition no está disponible en este momento.
+            </div>
+          );
+        }
+        return <ConcertoCompetitionView {...commonProps} />;
       case "MUSIC_TRANSLATION":
         if (!canAccessMusicTranslation(user?.id)) {
           return (
@@ -1189,10 +1243,12 @@ const ProtectedApp = ({ initialTab }) => {
               to="/fimba"
               onClick={(e) => {
                 setIsMobileMenuOpen(false);
-                if (
-                  !isModifiedClick(e) &&
-                  !requestSeatingLeave(() => navigate("/fimba"))
-                ) {
+                if (isModifiedClick(e)) return;
+                if (!requestUnsavedLeave(() => navigate("/fimba"))) {
+                  e.preventDefault();
+                  return;
+                }
+                if (!requestSeatingLeave(() => navigate("/fimba"))) {
                   e.preventDefault();
                 }
               }}
@@ -1220,12 +1276,14 @@ const ProtectedApp = ({ initialTab }) => {
             to="/entradas"
             onClick={(e) => {
               setIsMobileMenuOpen(false);
-              if (
-                !isModifiedClick(e) &&
-                !requestSeatingLeave(() => navigate("/entradas"))
-              ) {
-                e.preventDefault();
-              }
+                if (isModifiedClick(e)) return;
+                if (!requestUnsavedLeave(() => navigate("/entradas"))) {
+                  e.preventDefault();
+                  return;
+                }
+                if (!requestSeatingLeave(() => navigate("/entradas"))) {
+                  e.preventDefault();
+                }
             }}
             className={`
               w-full flex items-center px-3 py-2.5 rounded-xl transition-all
