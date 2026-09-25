@@ -5,18 +5,14 @@ import { useRegisterSW } from "virtual:pwa-register/react";
 import { IconLoader, IconRefresh, IconX } from "./Icons";
 import {
   applyPwaUpdate,
+  isSilentVersionUpdateRoute,
   resolveServiceWorkerRegistration,
 } from "../../utils/pwaApplyUpdate";
 import { hasUnsavedWork } from "../../utils/unsavedWork";
 
-/** Rutas públicas de Entradas: actualización silenciosa sin overlay ni banner. */
-function isEntradasPublicRoute(pathname = "") {
-  return String(pathname || "").startsWith("/entradas");
-}
-
 /** Idle poll: 15 min, and only while the tab is visible. Focus / visibility / navegación siguen chequeando al toque. */
 const VERSION_POLL_MS = 15 * 60 * 1000;
-const ENTRADAS_SW_POLL_MS = 15 * 60 * 1000;
+const SILENT_SW_POLL_MS = 15 * 60 * 1000;
 const RELOAD_GUARD_KEY = "ofrn:pwa-reload-guard";
 const PRELOAD_RELOAD_KEY = "ofrn:preload-reload";
 const RELOAD_GUARD_WINDOW_MS = 15_000;
@@ -128,14 +124,15 @@ function ReloadPrompt() {
  * - Staff: nunca fuerza reload mid-sesión; banner «Nueva versión / Actualizar versión».
  * - Al cambiar de ruta sin trabajo dirty: aplica la SW waiting (navegación limpia).
  * - Si hay dirty (FIMBA planilla/modal, data-unsaved-work): solo banner.
- * - /entradas: sigue en modo silencioso (público).
+ * - /entradas, /viaticos-manual y /rendiciones-manual: al cargar (y al detectar
+ *   build nuevo) recargan solas, sin banner ni overlay.
  * - version.json: poll 15 min (pestaña visible) + check en foco/navegación; cache browser 60 s.
  * - Un tap: espera waiting (updatefound → installed) → skipWaiting → controllerchange → reload.
  *   Si no hay waiting y el build está desfasado: unregister + clear caches + reload.
  */
 function ReloadPromptProd() {
   const { pathname } = useLocation();
-  const entradasSilentUpdate = isEntradasPublicRoute(pathname);
+  const silentVersionUpdate = isSilentVersionUpdateRoute(pathname);
   const swRegistrationRef = useRef(null);
   const restartStartedRef = useRef(false);
   const reloadPendingRef = useRef(false);
@@ -189,12 +186,12 @@ function ReloadPromptProd() {
     (message) => {
       console.warn("[PWA] No se pudo aplicar la actualización:", message);
       resetApplyUi();
-      if (!entradasSilentUpdate) {
+      if (!silentVersionUpdate) {
         toast.error(message);
       }
       return false;
     },
-    [entradasSilentUpdate, resetApplyUi],
+    [silentVersionUpdate, resetApplyUi],
   );
 
   const applyWaitingServiceWorker = useCallback(async () => {
@@ -256,7 +253,7 @@ function ReloadPromptProd() {
     void checkForNewVersion();
 
     if (prevPath === pathname) return;
-    if (entradasSilentUpdate) return;
+    if (silentVersionUpdate) return;
     if (!needRefresh && !buildOutdated) return;
     if (restartStartedRef.current) return;
     if (hasUnsavedWork()) {
@@ -267,23 +264,23 @@ function ReloadPromptProd() {
   }, [
     pathname,
     checkForNewVersion,
-    entradasSilentUpdate,
+    silentVersionUpdate,
     needRefresh,
     buildOutdated,
     beginApplyUpdate,
   ]);
 
-  // Entradas: auto-aplicar. Staff: solo reabrir banner si el update vuelve tras estar al día.
+  // Rutas públicas silenciosas: auto-aplicar. Staff: solo reabrir banner si el update vuelve tras estar al día.
   useEffect(() => {
     if (!needRefresh && !buildOutdated) {
       setBannerDismissed(false);
       return;
     }
-    if (entradasSilentUpdate) {
+    if (silentVersionUpdate) {
       if (restartStartedRef.current) return;
       beginApplyUpdate();
     }
-  }, [entradasSilentUpdate, needRefresh, buildOutdated, beginApplyUpdate]);
+  }, [silentVersionUpdate, needRefresh, buildOutdated, beginApplyUpdate]);
 
   useEffect(() => {
     if (!LOCAL_BUILD_ID) return undefined;
@@ -329,13 +326,13 @@ function ReloadPromptProd() {
   }, [offlineReady, setOfflineReady]);
 
   useEffect(() => {
-    if (!entradasSilentUpdate) return undefined;
+    if (!silentVersionUpdate) return undefined;
 
     const poll = () => swRegistrationRef.current?.update();
     const intervalId = window.setInterval(() => {
       if (!isDocumentVisible()) return;
       poll();
-    }, ENTRADAS_SW_POLL_MS);
+    }, SILENT_SW_POLL_MS);
 
     const onVisible = () => {
       if (document.visibilityState === "visible") poll();
@@ -348,10 +345,10 @@ function ReloadPromptProd() {
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("focus", poll);
     };
-  }, [entradasSilentUpdate]);
+  }, [silentVersionUpdate]);
 
   const showBanner =
-    updateAvailable && !entradasSilentUpdate && !isRestarting && !bannerDismissed;
+    updateAvailable && !silentVersionUpdate && !isRestarting && !bannerDismissed;
 
   const bannerSubtitle = hasUnsavedWork()
     ? "Hay cambios sin guardar: guardá o descartá antes de actualizar."
@@ -370,7 +367,7 @@ function ReloadPromptProd() {
           subtitle={bannerSubtitle}
         />
       )}
-      {isRestarting && !entradasSilentUpdate && (
+      {isRestarting && !silentVersionUpdate && (
         <div
           className="fixed inset-0 z-[10000] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-6"
           role="alert"
