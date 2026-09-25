@@ -29,7 +29,7 @@ Proveer una interfaz de carga única y manual de viáticos que permita exportar 
 Se utilizará `exportViaticosToPDFForm` enviando un objeto que cumpla con la interfaz esperada por el helper, extrayendo los valores directamente del estado del formulario.
 
 - [x] **Total = total de la pantalla (2026-09-25):** el PDF usa `totalFinal` ya calculado en la vista. No se vuelve a sumar `gasto_pasajes` y `gastos_movilidad` (el manual cargaba el mismo importe en los dos) ni se deja afuera el ceremonial. Pasajes va solo en `gasto_pasajes` → campo `gasto_movilidad`.
-- [x] **Dos vigencias (2026-09-25):** si el viaje cruza más de un valor diario, la pantalla muestra cada rango (fechas, días × valor ponderado y subtotal del tramo), el mismo par que rellena `plantilla_viaticos_multiples.pdf` (`dias_computados` / `valor_diario` y `dias_computados1` / `valor_diario1`). Un solo valor sigue `plantilla_viaticos.pdf` y un único importe en pantalla. El anticipo es la suma de los tramos, no días × promedio.
+- [x] **Dos vigencias (2026-09-25):** si el viaje cruza más de un valor diario, la pantalla muestra cada rango (fechas, días × valor ponderado y subtotal del tramo), el mismo par que rellena `plantilla_viaticos_multiples.pdf` (`dias_computados` / `valor_diario` y `dias_computados1` / `valor_diario1`). Un solo valor sigue `plantilla_viaticos.pdf` y un único importe en pantalla. El anticipo es la suma de los tramos, no días × promedio. Cada vigencia dura tres meses, así que un viaje es siempre un tramo o dos; las dos líneas de la plantilla múltiple cubren el cruce.
 
 ## Estado
 - **Ruta pública lista**: `/viaticos-manual` renderiza la vista sin pasar por `ProtectedRoute`/`AppContent` (login OTP opcional para guardado en nube).
