@@ -1245,10 +1245,22 @@ const DestaquesLocationPanel = forwardRef(function DestaquesLocationPanel({
 
             if (validPeople.length === 0) return;
 
+            const groupPatente =
+                String(group.headerInfo?.patente || "").trim() ||
+                String(
+                    group.people.find((person) =>
+                        String(person.travelData?.patente || "").trim(),
+                    )?.travelData?.patente || "",
+                ).trim();
+
             validPeople.forEach((p) => {
                 const travelFromHeader = group.headerInfo
                     ? headerInfoToTravelSchedule(group.headerInfo)
                     : null;
+                const mergedTravel = mergeTravelPreferringLocality(
+                    p.travelData,
+                    travelFromHeader,
+                );
 
                 peopleToExport.push(
                     withStableExportFallbacks({
@@ -1257,10 +1269,13 @@ const DestaquesLocationPanel = forwardRef(function DestaquesLocationPanel({
                         _groupName: group.name,
                         _diasComputablesLocalidad: localityDays,
                         // Misma fecha/hora general de la localidad para todo el grupo.
-                        travelData: mergeTravelPreferringLocality(
-                            p.travelData,
-                            travelFromHeader,
-                        ),
+                        // Patente: igual que el panel (header → alguien del grupo → personal).
+                        travelData: {
+                            ...mergedTravel,
+                            patente:
+                                String(mergedTravel.patente || "").trim() ||
+                                groupPatente,
+                        },
                     }),
                 );
             });

@@ -9,6 +9,10 @@ import {
   RENUNCIA_VIATICOS_TEXTO,
   sumGastosViaticoRow,
 } from "./viaticosAnticipo";
+import {
+  resolveCheckPatenteOficial,
+  resolvePatenteOficialValue,
+} from "./transporteOficial";
 import { resolveLugarComisionPdfField } from "./viaticosExportMotivoLugar";
 import {
   fmtDiasPdf,
@@ -223,7 +227,14 @@ export const exportViaticosToPDFForm = async (
   for (const rawData of effectiveDataList) {
     const data =
       mode === "destaque"
-        ? rawData
+        ? {
+            ...rawData,
+            subtotal: resolveAnticipoParaPdfViatico(
+              rawData,
+              useHistorical,
+              !!configData?.renuncia_viaticos,
+            ),
+          }
         : (() => {
             const subNum = getAnticipoSubtotalForExport(rawData, useHistorical);
             const sub =
@@ -512,8 +523,21 @@ chk("check_temporada", configData.factor_temporada > 0);
         // Checks como "X"
         chk("check_aereos", data.check_aereo);
         chk("check_terrestre", data.check_terrestre);
-        chk("check_patente", data.check_patente_oficial);
-        f("patente", data.patente_oficial);
+        const patenteOficialPdf = resolvePatenteOficialValue({
+          stored: data.patente_oficial,
+          logisticsPatente: data.patente,
+          travelPatente: data.travelData?.patente,
+          transports:
+            data.logistics_transports || data.logistics?.transports || [],
+        });
+        chk(
+          "check_patente",
+          resolveCheckPatenteOficial(
+            data.check_patente_oficial,
+            data.travelData?.es_oficial || data.es_oficial,
+          ),
+        );
+        f("patente", patenteOficialPdf);
         chk("check_particular", data.check_patente_particular);
         f("patente_particular", data.patente_particular);
         // Compatibilidad de plantillas: algunas usan check_otro, otras check_otros.

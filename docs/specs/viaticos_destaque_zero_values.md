@@ -28,6 +28,7 @@ Garantizar que todos los campos de importes monetarios en los PDFs de tipo **Des
 - En `exportViaticosToPDFForm`:
   - Si `mode === "destaque"`, se construye `effectiveDataList` mapeando `viaticosData` con `zeroDestaqueMonetaryFields` antes de rellenar el PDF.
   - El helper `money(val)` ahora siempre usa `fmtMoney(val)`, por lo que, al recibir `0`, los campos se renderizan como `$ 0,00` en el formulario, en lugar de quedar vacíos.
+  - **Excepción (2026-09-25):** si `renuncia_viaticos` está activo y el % es 0, `gasto_anticipo` recibe **RENUNCIA A VIÁTICOS** (mismo campo/plantilla que el viático). El resto de importes del destaque sigue en `$ 0,00`. El payload compartido del viático **no** se pone en cero.
 
 ## Reglas de Negocio
 
@@ -35,5 +36,6 @@ Garantizar que todos los campos de importes monetarios en los PDFs de tipo **Des
 - Los documentos de **"Viático"** y **"Rendición"** mantienen sus cálculos y montos originales.
 - Los campos monetarios del PDF de Destaque:
   - **No** deben quedar vacíos.
-  - Deben mostrar siempre `$ 0,00`.
+  - Deben mostrar siempre `$ 0,00`, salvo `gasto_anticipo` cuando hay renuncia al 0%.
+- [x] **Patente no se pierde al poner montos en 0:** `zeroDestaqueMonetaryFields` no toca `patente_oficial` / checks de movilidad. El fill usa `resolvePatenteOficialValue` (tabla / travel / buses del integrante).
 

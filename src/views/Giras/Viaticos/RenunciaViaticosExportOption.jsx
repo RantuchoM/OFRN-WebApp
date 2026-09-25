@@ -20,10 +20,10 @@ export default function RenunciaViaticosExportOption({
         onChange={(e) => onChange(e.target.checked)}
         className="mt-0.5 rounded text-amber-700 shrink-0"
       />
-      <span>
+        <span>
         <span className="font-bold block">Marcar que renuncia viáticos</span>
         <span className="text-[10px] text-amber-800/90 leading-snug">
-          En el PDF de viático (0%), el anticipo dirá «RENUNCIA A VIÁTICOS» en lugar de $0.
+          En el PDF de viático y de destaque (0%), el anticipo dirá «RENUNCIA A VIÁTICOS» en lugar de $0.
         </span>
       </span>
     </label>

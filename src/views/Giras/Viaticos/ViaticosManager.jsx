@@ -74,7 +74,10 @@ import {
 } from "../../../utils/viaticosAnticipo";
 import { parseSupabasePublicStorageUrl } from "../../../utils/supabaseStorage";
 import { buildViaticosLogisticsMap, resolveViaticoRowLogData } from "../../../utils/viaticosLogisticsSchedule";
-import { resolveCheckPatenteOficial } from "../../../utils/transporteOficial";
+import {
+  resolveCheckPatenteOficial,
+  resolvePatenteOficialValue,
+} from "../../../utils/transporteOficial";
 import {
   collectMotivoLugarWarningsForExport,
   resolveLugarViaticosIndividual,
@@ -1506,13 +1509,12 @@ const collectTransportSupportDocs = (personData) => {
             {},
         );
         const rich = { ...p };
-        const patenteOficialFromMass = String(
-          massConfig.patente_oficial || "",
-        ).trim();
-        const patenteOficialFromPerson = String(p.patente_oficial || "").trim();
-        const patenteOficialFromTravel = String(
-          p.travelData?.patente || "",
-        ).trim();
+        const locLogData =
+          logisticsMap?.[p.id] || logisticsMap?.[String(p.id)] || {};
+        const locTransports =
+          logisticsTransportsByPerson[String(p.id)] ||
+          p.logistics?.transports ||
+          [];
         const patenteParticularFromMass = String(
           massConfig.patente_particular || "",
         ).trim();
@@ -1532,12 +1534,19 @@ const collectTransportSupportDocs = (personData) => {
         rich.check_otros = massConfig.check_otros ?? false;
         rich.check_patente_oficial = resolveCheckPatenteOficial(
           massConfig.check_patente_oficial ?? p.check_patente_oficial,
-          p.travelData?.es_oficial,
+          p.travelData?.es_oficial || locLogData.es_oficial,
         );
-        rich.patente_oficial =
-          patenteOficialFromMass ||
-          patenteOficialFromPerson ||
-          patenteOficialFromTravel;
+        rich.patente_oficial = resolvePatenteOficialValue({
+          stored:
+            String(massConfig.patente_oficial || "").trim() ||
+            String(p.patente_oficial || "").trim(),
+          logisticsPatente: locLogData.patente,
+          travelPatente: p.travelData?.patente,
+          transports: locTransports,
+        });
+        rich.es_oficial = Boolean(
+          p.travelData?.es_oficial || locLogData.es_oficial,
+        );
         rich.check_patente_particular =
           massConfig.check_patente_particular ??
           p.check_patente_particular ??
@@ -1756,6 +1765,8 @@ const collectTransportSupportDocs = (personData) => {
         });
         const patenteOficialFromRow = String(row.patente_oficial || "").trim();
         const patenteOficialFromLogistics = String(logData?.patente || "").trim();
+        const rowTransports =
+          logisticsTransportsByPerson[String(row.id_integrante)] || [];
         const ciudadOrigen = resolveCiudadOrigenViaticos(person, row);
         const asientoHabitual = resolveAsientoHabitualViaticos(person, row);
         const effectiveSubtotal = getAnticipoSubtotalForExport(
@@ -1774,7 +1785,13 @@ const collectTransportSupportDocs = (personData) => {
           }),
           subtotal: effectiveSubtotal,
           totalFinal: totalFinalNorm,
-          patente_oficial: patenteOficialFromRow || patenteOficialFromLogistics,
+          patente_oficial: resolvePatenteOficialValue({
+            stored: patenteOficialFromRow,
+            logisticsPatente: patenteOficialFromLogistics,
+            travelPatente: logData?.patente,
+            transports: rowTransports,
+          }),
+          es_oficial: Boolean(logData?.es_oficial),
           check_patente_oficial: resolveCheckPatenteOficial(
             row.check_patente_oficial,
             logData?.es_oficial,

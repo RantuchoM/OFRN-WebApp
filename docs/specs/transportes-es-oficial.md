@@ -24,7 +24,8 @@ ALTER TABLE public.transportes
 - **Fuente de verdad**: `transportes.es_oficial` (catálogo), no `giras_transportes`.
 - Logística (`useLogistics`, `viaticosLogisticsSchedule`) propaga `es_oficial` junto con la patente del bus de subida.
 - Export viáticos: `check_patente_oficial = stored || logData.es_oficial`.
-- Export destaques: `check_patente_oficial = massConfig || person || travelData.es_oficial`.
+- Export destaques: `check_patente_oficial = massConfig || person || travelData.es_oficial || logística personal`.
+- Patente en PDF (`patente`): override → logística de tabla → travel del lote → buses del integrante (`transportes.patente` || `giras_transportes.patente`).
 - Un override manual en `true` sigue valiendo; si el vehículo es oficial, el check no se puede apagar (el PDF debe coincidir con la flota).
 
 ## UI

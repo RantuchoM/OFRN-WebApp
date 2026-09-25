@@ -33,6 +33,8 @@ Permitir que el usuario defina un "Lugar de Comisión" específico para el proce
 - [x] Badge visual **Sede local** en grupos correspondientes.
 - [x] En exportación por localidad, **todos** los miembros del grupo usan el mismo día y horario general de la **ciudad de viáticos** (`headerInfo` / reglas de ruta de la localidad). La logística personal solo rellena huecos (`mergeTravelPreferringLocality`); no pisa fechas/horas grupales.
 - [x] **Viático del lote (2026-09-23):** con **Viáticos** tildado y `porcentaje_destaques` **> 0**, el PDF usa el mismo prorrateo y plantilla dual que la tabla (`calcValorDiarioProporcional` → `exportViaticosToPDFForm`). Un solo % global del panel. **% = 0**: sin lógica dual. Destaque + viático en el mismo lote: el destaque sigue en $0; el viático conserva montos.
+- [x] **Patente del lote (2026-09-25):** el PDF de destaque/viático por localidad usa la misma patente que el panel (header del bus → alguien del grupo con placa → logística personal / catálogo). Ya no depende solo de `giras_destaques_config.patente_oficial` ni de `patente_oficial` vacío en el detalle.
+- [x] **Renuncia en destaque (2026-09-25):** con `porcentaje_destaques` = 0 y la opción tildada, el destaque pone **RENUNCIA A VIÁTICOS** en `gasto_anticipo`. El checkbox de exportación se ve con Destaques y/o Viáticos marcados.
 
 ### Recorridos y casos particulares
 

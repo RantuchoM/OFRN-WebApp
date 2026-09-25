@@ -33,7 +33,8 @@ export default function LocationBulkPanel({
     });
 
     const pctDestaques = parseFloat(porcentajeDestaques ?? 100);
-    const showRenunciaOption = pctDestaques === 0 && options.viatico;
+    const showRenunciaOption =
+        pctDestaques === 0 && (options.viatico || options.destaque);
 
     useEffect(() => {
         if (selectionStats.pendingPeople === 0 && selectionStats.totalPeople > 0) {

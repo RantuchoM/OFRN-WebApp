@@ -402,7 +402,10 @@ export const calculateLogisticsSummary = (
           String(transportMap[tid]?.categoria_logistica || "PASAJEROS").toUpperCase(),
         nombre: transportMap[tid]?.transportes?.nombre || "Bus",
         detalle: transportMap[tid]?.detalle || "",
-        patente: transportMap[tid]?.transportes?.patente || "",
+        patente:
+          transportMap[tid]?.transportes?.patente ||
+          transportMap[tid]?.patente ||
+          "",
         es_oficial: transportMap[tid]?.transportes?.es_oficial === true,
         vehicleDocumentation: transportMap[tid]?.transportes?.documentacion || "",
         id_chofer: transportMap[tid]?.id_chofer || null,

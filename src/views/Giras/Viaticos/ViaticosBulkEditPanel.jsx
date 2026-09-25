@@ -115,7 +115,8 @@ export default function ViaticosBulkEditPanel({
   });
 
   const showRenunciaOption =
-    selectionHasViaticoCero && exportOptions.viatico;
+    selectionHasViaticoCero &&
+    (exportOptions.viatico || exportOptions.destaque);
 
   // --- DETECCIÓN DE CAMBIOS ---
   const hasColorChange = useMemo(() => {
@@ -622,18 +623,6 @@ export default function ViaticosBulkEditPanel({
                   />{" "}
                   1. Viático
                 </label>
-                {showRenunciaOption && (
-                  <RenunciaViaticosExportOption
-                    className="mx-1"
-                    checked={exportRenunciaViaticos || exportOptions.renuncia_viaticos}
-                    onChange={(v) => {
-                      if (typeof onExportRenunciaViaticosChange === "function") {
-                        onExportRenunciaViaticosChange(v);
-                      }
-                      setExportOptions((prev) => ({ ...prev, renuncia_viaticos: v }));
-                    }}
-                  />
-                )}
                 <label className="flex items-center gap-2 text-xs text-slate-700 p-1.5 hover:bg-slate-50 rounded cursor-pointer">
                   <input
                     type="checkbox"
@@ -648,6 +637,18 @@ export default function ViaticosBulkEditPanel({
                   />{" "}
                   2. Destaque
                 </label>
+                {showRenunciaOption && (
+                  <RenunciaViaticosExportOption
+                    className="mx-1"
+                    checked={exportRenunciaViaticos || exportOptions.renuncia_viaticos}
+                    onChange={(v) => {
+                      if (typeof onExportRenunciaViaticosChange === "function") {
+                        onExportRenunciaViaticosChange(v);
+                      }
+                      setExportOptions((prev) => ({ ...prev, renuncia_viaticos: v }));
+                    }}
+                  />
+                )}
                 <label className="flex items-center gap-2 text-xs text-slate-700 p-1.5 hover:bg-slate-50 rounded cursor-pointer">
                   <input
                     type="checkbox"

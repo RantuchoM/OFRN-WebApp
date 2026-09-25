@@ -2,6 +2,7 @@ import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
 import { DEFAULT_CARGO } from './giraUtils';
 import { formatDdMmYy } from './dates';
+import { resolvePatenteOficialValue } from './transporteOficial';
 
 // --- CONFIGURACIÓN DE CELDAS (Mapeo Actualizado) ---
 const CELL_MAP = {
@@ -216,7 +217,15 @@ export const exportViaticosToExcel = async (giraData, viaticosData, configData) 
     setVal(CELL_MAP.check_aereo, getCheck(data.check_aereo));
     setVal(CELL_MAP.check_terrestre, getCheck(data.check_terrestre));
     
-    setVal(CELL_MAP.patente_oficial, data.patente_oficial);
+    setVal(
+      CELL_MAP.patente_oficial,
+      resolvePatenteOficialValue({
+        stored: data.patente_oficial,
+        logisticsPatente: data.patente,
+        travelPatente: data.travelData?.patente,
+        transports: data.logistics_transports || data.logistics?.transports || [],
+      }),
+    );
     setVal(CELL_MAP.check_patente_oficial, getCheck(data.check_patente_oficial));
     
     setVal(CELL_MAP.patente_particular, data.patente_particular);
