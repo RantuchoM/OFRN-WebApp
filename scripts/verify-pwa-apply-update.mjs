@@ -5,6 +5,7 @@
 import { EventEmitter } from "node:events";
 import {
   applyPwaUpdate,
+  isSilentVersionUpdateRoute,
   postSkipWaiting,
   resolveServiceWorkerRegistration,
   unregisterAndClearCaches,
@@ -259,6 +260,13 @@ function fakeServiceWorker(registration) {
   const cleared = await unregisterAndClearCaches({ serviceWorker: sw, cacheStorage });
   assert(cleared.ok, "unregisterAndClearCaches ok");
 }
+
+assert(isSilentVersionUpdateRoute("/entradas"), "entradas recarga sola");
+assert(isSilentVersionUpdateRoute("/entradas/recordarme"), "entradas anidadas recargan solas");
+assert(isSilentVersionUpdateRoute("/viaticos-manual"), "viáticos manual recarga solo");
+assert(isSilentVersionUpdateRoute("/rendiciones-manual"), "rendiciones manual recargan solas");
+assert(!isSilentVersionUpdateRoute("/giras"), "staff sigue con banner");
+assert(!isSilentVersionUpdateRoute("/"), "home sigue con banner");
 
 if (process.exitCode) {
   console.error("verify-pwa-apply-update FAILED");

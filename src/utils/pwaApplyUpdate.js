@@ -11,6 +11,19 @@ export const PWA_SKIP_WAITING_TYPE = "SKIP_WAITING";
 export const PWA_WAITING_TIMEOUT_MS = 20_000;
 export const PWA_CONTROLLER_TIMEOUT_MS = 3_500;
 
+/**
+ * Rutas públicas donde el usuario no pulsa «Actualizar versión».
+ * Al detectar build nuevo (carga, foco o poll) se aplica y se recarga sin banner.
+ */
+export function isSilentVersionUpdateRoute(pathname = "") {
+  const path = String(pathname || "");
+  return (
+    path.startsWith("/entradas") ||
+    path.startsWith("/viaticos-manual") ||
+    path.startsWith("/rendiciones-manual")
+  );
+}
+
 export function postSkipWaiting(worker) {
   if (!worker || typeof worker.postMessage !== "function") return false;
   try {

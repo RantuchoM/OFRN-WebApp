@@ -20,7 +20,7 @@ El control **«Actualizar versión»** (banner) a menudo **no hacía nada en el 
 | Staff pulsa **Actualizar versión** | Un tap: overlay → espera `waiting` (`update()` + `updatefound` → `installed` si hace falta) → `SKIP_WAITING` → espera `controllerchange` (timeout 3.5 s) → reload. Si no hay waiting y hay red: last resort **unregister + clear caches + reload**. Si falla: toast y se puede reintentar (no más clicks ciegos). |
 | Staff cambia de ruta, sin dirty | Misma ruta fiable de apply (no reload prematuro) |
 | Staff cambia de ruta o pulsa Actualizar **con dirty** | No auto-aplica; confirm si el usuario fuerza Actualizar |
-| `/entradas/*` (público) | Update silenciosa (sin banner ni toast) |
+| `/entradas/*`, `/viaticos-manual`, `/rendiciones-manual` (público) | Al cargar, si `version.json` o el service worker traen un build nuevo, se aplica y se recarga la página sin banner, overlay ni toast. Mismo camino si el build nuevo aparece con la pestaña abierta. Tope anti-bucle: 2 recargas en 15 s. |
 | `vite:preloadError` | Overlay «Hay una versión nueva. Recargando…» + reload (tope anti-bucle) |
 | Entry `/assets/index-*.js` 404/MIME tras deploy | Rewrite Vercel solo si `Accept` incluye `text/html`; SW `navigateFallbackDenylist` incluye `/assets/`; script inline en `index.html` recarga una vez |
 
@@ -35,7 +35,7 @@ Implementada en `src/utils/pwaApplyUpdate.js`, usada por `ReloadPrompt`:
 6. Last resort (online, sin waiting): `unregister()` de todos los SW + `caches.delete` + reload, para no seguir sirviendo precache viejo.
 7. Si el apply no puede completar: toast (staff) y se resetea el overlay. Tope anti-bucle de reload (2 en 15 s) se mantiene.
 
-Auto-update (navegación limpia, `/entradas`) usa **la misma** ruta; no se cambia la política de “no recargar mid-form”.
+Auto-update (navegación limpia del staff, y en silencio en `/entradas`, `/viaticos-manual` y `/rendiciones-manual`) usa **la misma** ruta. En staff no se recarga mid-form si hay trabajo sin guardar.
 
 Dirty detectado vía:
 - Registro `src/utils/unsavedWork.js` (`markUnsavedWork` / `clearUnsavedWork`)
@@ -79,3 +79,4 @@ Detección de build: `VITE_APP_BUILD_ID` embebido + poll de `/version.json` (foc
 - [x] DEV: sin ReloadPrompt / preload hard-reload; build id estable en serve
 - [x] Poll de versión menos agresivo (15 min + skip hidden + cache 60 s) para bajar Edge Requests de Hobby/Pro
 - [x] Un tap en «Actualizar versión» espera waiting + skipWaiting + controllerchange (o last resort); toast si falla
+- [x] **Viáticos y rendiciones manuales (2026-09-25):** `/viaticos-manual` y `/rendiciones-manual` actualizan en silencio al detectar versión nueva (`isSilentVersionUpdateRoute`), igual que `/entradas`. El formulario vive en `localStorage`, así que la recarga no descarta lo ya escrito. El staff sigue con banner.
