@@ -331,7 +331,7 @@ export const fetchAsistenciaMatrixBaseData = async (supabase) => {
       supabase
         .from("integrantes")
         .select(
-          "id, nombre, apellido, id_instr, instrumentos ( id, instrumento, familia, abreviatura )",
+          "id, nombre, apellido, id_instr, fecha_alta, fecha_baja, instrumentos ( id, instrumento, familia, abreviatura )",
         )
         .order("id_instr", { ascending: true }),
       supabase

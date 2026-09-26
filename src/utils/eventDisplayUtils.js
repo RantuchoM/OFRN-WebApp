@@ -9,15 +9,99 @@ import {
   startOfWeek,
 } from "date-fns";
 
-/** Texto plano sin etiquetas HTML (descripciones de RichTextEditor). */
-export function stripHtml(html) {
-  if (!html) return "";
-  return String(html)
-    .replace(/<br\s*\/?>/gi, " ")
-    .replace(/<\/(p|div|li|h[1-6])>/gi, " ")
-    .replace(/<[^>]*>?/gm, "")
+const TW_PROP_RE = /--tw-[a-z0-9-]+\s*:\s*[^;{}"']*;?/gi;
+
+/** CSS residual si un tag `style` se partió o el regex cortó mal. */
+function stripCssLeftovers(text) {
+  return String(text || "")
+    .replace(TW_PROP_RE, " ")
+    .replace(
+      /\b(?:font-weight|font-style|font-size|line-height|letter-spacing|vertical-align|border-spacing|contain(?:-layout|-paint|-style)?)\s*:\s*[^;]+;?/gi,
+      " ",
+    )
+    .replace(/\bstyle\s*=\s*("[^"]*"|'[^']*')/gi, " ")
+    .replace(/["']>/g, " ")
+    .replace(/<\/?[a-z][\w:-]*[^>]*>/gi, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, " ")
+    .replace(/&gt;/gi, " ")
+    .replace(/&#(\d+);/g, (_, n) => {
+      const code = Number(n);
+      if (!Number.isFinite(code) || code === 60 || code === 62) return " ";
+      return String.fromCharCode(code);
+    })
     .replace(/\s+/g, " ")
     .trim();
+}
+
+/** Quita tags respetando `>` dentro de atributos entre comillas. */
+function stripTagsQuoteAware(raw) {
+  const s = String(raw);
+  let out = "";
+  let i = 0;
+  while (i < s.length) {
+    if (s[i] !== "<") {
+      out += s[i];
+      i += 1;
+      continue;
+    }
+    let j = i + 1;
+    let quote = null;
+    while (j < s.length) {
+      const c = s[j];
+      if (quote) {
+        if (c === quote) quote = null;
+      } else if (c === '"' || c === "'") {
+        quote = c;
+      } else if (c === ">") {
+        j += 1;
+        break;
+      }
+      j += 1;
+    }
+    out += " ";
+    i = j;
+  }
+  return out;
+}
+
+/**
+ * Texto plano sin HTML (descripciones de RichTextEditor / agenda).
+ * En browser usa DOMParser (como `htmlToPlainText` de transporte) y borra
+ * style/script para no volcar CSS Tailwind (`--tw-*`) al PDF.
+ */
+export function stripHtml(html) {
+  if (!html) return "";
+  const raw = String(html);
+  try {
+    if (typeof DOMParser !== "undefined") {
+      const doc = new DOMParser().parseFromString(raw, "text/html");
+      doc
+        .querySelectorAll("style, script, noscript, svg, link")
+        .forEach((el) => el.remove());
+      doc.querySelectorAll("br").forEach((br) => {
+        br.replaceWith(doc.createTextNode(" "));
+      });
+      doc
+        .querySelectorAll("p, div, li, h1, h2, h3, h4, tr, blockquote")
+        .forEach((el) => {
+          el.appendChild(doc.createTextNode(" "));
+        });
+      const text = (doc.body?.textContent || "").replace(/\u00a0/g, " ");
+      return stripCssLeftovers(text);
+    }
+  } catch {
+    /* fallback regex */
+  }
+  return stripCssLeftovers(
+    stripTagsQuoteAware(
+      raw
+        .replace(/<style[\s\S]*?<\/style>/gi, " ")
+        .replace(/<script[\s\S]*?<\/script>/gi, " ")
+        .replace(/<br\s*\/?>/gi, " "),
+    ),
+  );
 }
 
 export function hasHtmlMarkup(text) {

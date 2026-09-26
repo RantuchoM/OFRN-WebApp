@@ -128,7 +128,7 @@ const SECTION_CONFIG = {
     tabLabel: "Servicios",
     subtitle: "Cantidad de servicios por integrante",
     description:
-      "Consolida ensayos de ensamble, ensayos de gira y conciertos (con didácticos) y abona reemplazos/licencias.",
+      "Conciertos, didácticos y ensayos (ensamble y gira) por persona, con 1 o ½ según duración. Reemplazo y licencia abonados cuentan.",
     icon: IconClipboard,
     cardClasses:
       "border-orange-100 hover:border-orange-300 hover:shadow-md focus-visible:ring-orange-300",
