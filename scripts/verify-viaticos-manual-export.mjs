@@ -6,6 +6,7 @@
  * y el total debe ser el de la pantalla (ceremonial incluido, pasajes una sola vez).
  */
 import { createRequire } from "module";
+import { inflateSync } from "zlib";
 import { readFileSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
@@ -118,6 +119,29 @@ function pdfText(value) {
   return String(value);
 }
 
+/** El texto pintado vive en streams FlateDecode, a veces como hex `<3134...>`. */
+function pdfContainsText(bytes, needle) {
+  const raw = Buffer.from(bytes);
+  const chunks = [raw.toString("latin1")];
+  let idx = 0;
+  while ((idx = raw.indexOf("stream", idx)) !== -1) {
+    let start = idx + 6;
+    if (raw[start] === 0x0d) start += 1;
+    if (raw[start] === 0x0a) start += 1;
+    const end = raw.indexOf("endstream", start);
+    if (end < 0) break;
+    try {
+      chunks.push(inflateSync(raw.subarray(start, end)).toString("latin1"));
+    } catch {
+      /* no es Flate */
+    }
+    idx = end + 9;
+  }
+  const hay = chunks.join("\n").toLowerCase();
+  const hex = Buffer.from(needle, "latin1").toString("hex");
+  return hay.includes(String(needle).toLowerCase()) || hay.includes(hex);
+}
+
 /** El PDF final copia los widgets a la página; el catálogo AcroForm no siempre viaja. */
 async function readFields(bytes) {
   const doc = await PDFDocument.load(bytes);
@@ -195,6 +219,11 @@ assert(viatico.gasto_ceremonial === "600", "PDF ceremonial");
 assert(viatico.total_anticipo === "363900", "PDF total = pantalla");
 assert(viatico.transporte_otros === "Remis", "PDF otro medio = texto de pantalla");
 assert(!viatico.check_temporada, "sin temporada no marca X");
+assert(!("dia_salida" in viatico), "fecha salida aplanada, ya no es campo");
+assert(!("dia_llegada" in viatico), "fecha llegada aplanada, ya no es campo");
+assert(viatico.hora_salida === "08:00", "la hora de salida sigue siendo campo");
+assert(pdfContainsText(viaticoBytes, "14/09/26"), "fecha salida pintada 14/09/26");
+assert(pdfContainsText(viaticoBytes, "18/09/26"), "fecha llegada pintada 18/09/26");
 
 const rendicionBytes = await exportViaticosToPDFForm(
   {},
@@ -242,6 +271,10 @@ assert(rend.viaticos_ant === "358400", "rendición anticipo viáticos");
 assert(rend.gastos_ceremonial_ant === "600", "rendición ceremonial");
 assert(rend.totales_ant === "363900", "rendición total = pantalla");
 assert(rend.check_temporada === "X", "rendición marca temporada alta");
+assert(!("dia_salida" in rend), "rendición fecha salida aplanada");
+assert(!("dia_llegada" in rend), "rendición fecha llegada aplanada");
+assert(pdfContainsText(rendicionBytes, "14/09/2026"), "rendición pinta salida dd/MM/yyyy");
+assert(pdfContainsText(rendicionBytes, "18/09/2026"), "rendición pinta llegada dd/MM/yyyy");
 
 if (process.exitCode) {
   console.error("Hay diferencias entre pantalla y PDF");

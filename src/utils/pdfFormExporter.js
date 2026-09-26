@@ -1,4 +1,13 @@
-import { PDFArray, PDFBool, PDFDocument, PDFName, PDFNumber, PDFString } from "pdf-lib";
+import {
+  PDFArray,
+  PDFBool,
+  PDFDocument,
+  PDFName,
+  PDFNumber,
+  PDFString,
+  StandardFonts,
+  rgb,
+} from "pdf-lib";
 import { saveAs } from "file-saver";
 import {
   PDF_LOAD_BG_SAFE,
@@ -166,6 +175,45 @@ const buildLugarYFecha = (data, giraData, configData) => {
   const anioYyyy = String(hoy.getFullYear());
   return `${lugar}, ${diaHoy} de ${mesHoy} de ${anioYyyy}`;
 };
+
+/** Fechas de salida/llegada: se aplanan para que el visor no las revalide. */
+const FLAT_DATE_FIELDS = ["dia_salida", "dia_llegada"];
+
+/**
+ * Pinta el texto actual del campo en la página y lo quita del formulario.
+ * Así el visor ya no ejecuta el script de fecha de la plantilla.
+ */
+async function flattenTextFields(pdfDoc, form, names) {
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const size = 8;
+  for (const name of names) {
+    let field;
+    try {
+      field = form.getTextField(name);
+    } catch {
+      continue;
+    }
+    try {
+      const text = String(field.getText() || "");
+      const widgets = field.acroField.getWidgets();
+      for (const widget of widgets) {
+        if (!text) continue;
+        const page = form.findWidgetPage(widget);
+        const rect = widget.getRectangle();
+        page.drawText(text, {
+          x: rect.x + 1,
+          y: rect.y + Math.max(1, (rect.height - size) / 2),
+          size,
+          font,
+          color: rgb(0, 0, 0),
+        });
+      }
+      form.removeField(field);
+    } catch (error) {
+      console.warn(`No se pudo aplanar el campo ${name}:`, error);
+    }
+  }
+}
 
 const fmtTime = (timeStr) => {
   if (!timeStr) return "";
@@ -631,7 +679,13 @@ chk("check_temporada", configData.factor_temporada > 0);
       form.updateFieldAppearances();
     } catch (e) {}
 
-    if (!keepEditable) form.flatten();
+    if (keepEditable) {
+      // Salida/llegada quedan pintadas: la plantilla de viáticos las valida
+      // como mm/dd/yyyy y dd/mm/yyyy y borra el dd/MM/yy que escribimos.
+      await flattenTextFields(srcDoc, form, FLAT_DATE_FIELDS);
+    } else {
+      form.flatten();
+    }
     const [copiedPage] = await finalPdf.copyPages(srcDoc, [0]);
     finalPdf.addPage(copiedPage);
   }
