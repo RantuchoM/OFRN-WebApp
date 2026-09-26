@@ -6,6 +6,7 @@ import React, {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
+import { toast } from "sonner";
 import DateInput from "../../components/ui/DateInput";
 import {
   IconCalculator,
@@ -35,6 +36,7 @@ import {
   resolveRostersForPrograms,
 } from "../../services/serviciosCantidadService";
 import { buildAsistenciaMatrixRowGroups } from "../../utils/asistenciaMatrixExport";
+import { saveBlobFile } from "../../utils/downloadBlob";
 import {
   CONVOCATORIA_ENSAMBLE_VIEW_MODES,
   CONVOCATORIA_VIEW_SECTION_TITLES,
@@ -179,24 +181,43 @@ function markBadge(mark) {
   return null;
 }
 
+function exportMenuPosition(el) {
+  const width = 240;
+  const height = 168;
+  if (!el) return { top: 8, left: 8, width };
+  const r = el.getBoundingClientRect();
+  const left = Math.min(
+    Math.max(8, r.right - width),
+    Math.max(8, window.innerWidth - width - 8),
+  );
+  const below = r.bottom + 4;
+  const top =
+    below + height > window.innerHeight - 8 && r.top > height + 8
+      ? Math.max(8, r.top - height - 4)
+      : below;
+  return { top, left, width };
+}
+
 function ServiciosExportMenu({ disabled, onPdf, onPdfDetalle, onExcel }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef(null);
+  const menuRef = useRef(null);
 
   useEffect(() => {
     if (!open) return undefined;
     const onDoc = (e) => {
-      if (rootRef.current && !rootRef.current.contains(e.target)) {
-        setOpen(false);
-      }
+      const target = e.target;
+      if (rootRef.current?.contains(target)) return;
+      if (menuRef.current?.contains(target)) return;
+      setOpen(false);
     };
     const onKey = (e) => {
       if (e.key === "Escape") setOpen(false);
     };
-    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("pointerdown", onDoc);
     document.addEventListener("keydown", onKey);
     return () => {
-      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("pointerdown", onDoc);
       document.removeEventListener("keydown", onKey);
     };
   }, [open]);
@@ -206,13 +227,16 @@ function ServiciosExportMenu({ disabled, onPdf, onPdfDetalle, onExcel }) {
     fn?.();
   };
 
+  const itemClass =
+    "flex min-h-11 w-full items-center gap-2 px-3 py-2.5 text-left text-sm font-semibold text-slate-700 hover:bg-orange-50";
+
   return (
     <div className="relative shrink-0" ref={rootRef}>
       <button
         type="button"
         disabled={disabled}
         onClick={() => setOpen((v) => !v)}
-        className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[11px] font-bold text-slate-600 hover:border-slate-300 disabled:cursor-not-allowed disabled:opacity-40"
+        className="inline-flex min-h-10 items-center gap-1 rounded-md border border-emerald-700 bg-emerald-600 px-3 py-2 text-xs font-bold text-white shadow-sm hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
         title="Exportar listado o detalle"
         aria-expanded={open}
         aria-haspopup="menu"
@@ -228,43 +252,48 @@ function ServiciosExportMenu({ disabled, onPdf, onPdfDetalle, onExcel }) {
         typeof document !== "undefined" &&
         createPortal(
           <div
-            className="fixed z-[100] w-56 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-xl"
+            ref={menuRef}
+            className="fixed z-[100] overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-xl"
             role="menu"
-            style={(() => {
-              const el = rootRef.current;
-              if (!el) return { top: 0, right: 8 };
-              const r = el.getBoundingClientRect();
-              return {
-                top: r.bottom + 4,
-                right: Math.max(8, window.innerWidth - r.right),
-              };
-            })()}
+            style={exportMenuPosition(rootRef.current)}
           >
             <button
               type="button"
               role="menuitem"
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-orange-50"
-              onClick={() => run(onPdf)}
+              className={itemClass}
+              onPointerDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                run(onPdf);
+              }}
             >
-              <IconFileText size={14} className="text-slate-400" />
+              <IconFileText size={16} className="text-slate-400" />
               PDF listado
             </button>
             <button
               type="button"
               role="menuitem"
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-orange-50"
-              onClick={() => run(onPdfDetalle)}
+              className={itemClass}
+              onPointerDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                run(onPdfDetalle);
+              }}
             >
-              <IconFiles size={14} className="text-slate-400" />
+              <IconFiles size={16} className="text-slate-400" />
               PDF detalle (lote)
             </button>
             <button
               type="button"
               role="menuitem"
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-orange-50"
-              onClick={() => run(onExcel)}
+              className={itemClass}
+              onPointerDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                run(onExcel);
+              }}
             >
-              <IconFileExcel size={14} className="text-slate-400" />
+              <IconFileExcel size={16} className="text-slate-400" />
               Excel
             </button>
           </div>,
@@ -369,6 +398,7 @@ function ServicioDetalleModal({
           </div>
         </div>
 
+        <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="border-b border-slate-100 bg-white px-3 py-2">
           <table className="w-full border-collapse text-xs">
             <thead>
@@ -420,7 +450,7 @@ function ServicioDetalleModal({
           </p>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto p-3 hidden md:block">
+        <div className="hidden p-3 md:block">
           {sections.every((s) => s.hits.length === 0) ? (
             <p className="px-2 py-8 text-center text-sm text-slate-400">
               No hay eventos contabilizados para esta persona en el rango.
@@ -530,6 +560,7 @@ function ServicioDetalleModal({
             </div>
           )}
         </div>
+        </div>
       </div>
     </div>,
     document.body,
@@ -567,6 +598,9 @@ export default function ServiciosCantidadReport({ supabase }) {
   const [rosterByGiraId, setRosterByGiraId] = useState({});
   const [rosterLoading, setRosterLoading] = useState(false);
   const [detalleIntegrante, setDetalleIntegrante] = useState(null);
+  const [filtersOpen, setFiltersOpen] = useState(true);
+  const [exporting, setExporting] = useState(false);
+  const [pendingSave, setPendingSave] = useState(null);
   const [avgExtra, setAvgExtra] = useState({
     events: [],
     programas: [],
@@ -1192,19 +1226,65 @@ export default function ServiciosCantidadReport({ supabase }) {
   const loading =
     catalogLoading ||
     (hasSelection && (periodLoading || rosterLoading || avgExtraLoading));
-  const exportDisabled = loading || visibleRows.length === 0;
+  const exportDisabled = loading || visibleRows.length === 0 || exporting;
+
+  const applyDownloadResult = useCallback((built) => {
+    if (!built?.blob) return;
+    if (built.result === "needs-gesture") {
+      setPendingSave({ blob: built.blob, fileName: built.fileName });
+      toast.message(
+        "El archivo está listo. Tocá «Guardar» para bajarlo al teléfono.",
+      );
+      return;
+    }
+    if (built.result === "cancelled") return;
+    setPendingSave(null);
+    if (built.result === "downloaded") toast.success("Descarga iniciada");
+  }, []);
+
+  const runExport = useCallback(
+    async (task) => {
+      if (exportDisabled) {
+        if (!exporting && visibleRows.length === 0) {
+          toast.error("Seleccioná al menos un integrante para exportar.");
+        }
+        return;
+      }
+      setExporting(true);
+      try {
+        const built = await task();
+        applyDownloadResult(built);
+      } catch (err) {
+        toast.error(err?.message || "No se pudo generar el archivo");
+      } finally {
+        setExporting(false);
+      }
+    },
+    [exportDisabled, exporting, visibleRows.length, applyDownloadResult],
+  );
+
+  const handleSavePending = useCallback(async () => {
+    if (!pendingSave) return;
+    try {
+      const result = await saveBlobFile(pendingSave.blob, pendingSave.fileName);
+      applyDownloadResult({ ...pendingSave, result });
+    } catch (err) {
+      toast.error(err?.message || "No se pudo guardar el archivo");
+    }
+  }, [pendingSave, applyDownloadResult]);
 
   const handleExportExcel = useCallback(async () => {
-    if (exportDisabled) return;
-    await downloadServiciosCantidadExcel({
-      visibleRows,
-      bucketsByIntegranteId,
-      rowGroups: groupByEnsambles ? rowGroups : null,
-      fechaDesde,
-      fechaHasta,
-      fileName: "cantidad_servicios",
-      estimateNote,
-    });
+    await runExport(() =>
+      downloadServiciosCantidadExcel({
+        visibleRows,
+        bucketsByIntegranteId,
+        rowGroups: groupByEnsambles ? rowGroups : null,
+        fechaDesde,
+        fechaHasta,
+        fileName: "cantidad_servicios",
+        estimateNote,
+      }),
+    );
   }, [
     exportDisabled,
     visibleRows,
@@ -1214,11 +1294,12 @@ export default function ServiciosCantidadReport({ supabase }) {
     fechaDesde,
     fechaHasta,
     estimateNote,
+    runExport,
   ]);
 
   const handleExportPdf = useCallback(() => {
-    if (exportDisabled) return;
-    downloadServiciosCantidadPdf({
+    void runExport(() =>
+      downloadServiciosCantidadPdf({
       visibleRows,
       bucketsByIntegranteId,
       rowGroups: groupByEnsambles ? rowGroups : [],
@@ -1227,9 +1308,10 @@ export default function ServiciosCantidadReport({ supabase }) {
       groupByEnsambles,
       fileName: "cantidad_servicios",
       estimateNote,
-    });
+    }),
+    );
   }, [
-    exportDisabled,
+    runExport,
     visibleRows,
     bucketsByIntegranteId,
     groupByEnsambles,
@@ -1240,8 +1322,8 @@ export default function ServiciosCantidadReport({ supabase }) {
   ]);
 
   const handleExportDetalleLote = useCallback(() => {
-    if (exportDisabled) return;
-    downloadServiciosCantidadDetalleLotePdf({
+    void runExport(() =>
+      downloadServiciosCantidadDetalleLotePdf({
       visibleRows,
       events,
       computeCtx,
@@ -1251,9 +1333,10 @@ export default function ServiciosCantidadReport({ supabase }) {
       ensambleById,
       programaById: programasById,
       estimateNote,
-    });
+    }),
+    );
   }, [
-    exportDisabled,
+    runExport,
     visibleRows,
     events,
     computeCtx,
@@ -1268,18 +1351,21 @@ export default function ServiciosCantidadReport({ supabase }) {
   const handleExportDetalleOne = useCallback(
     (integrante, hits) => {
       if (!integrante) return;
-      downloadServiciosCantidadDetallePdf({
-        integrante,
-        hits,
-        buckets: bucketsByIntegranteId[integranteKey(integrante.id)] || {},
-        fechaDesde,
-        fechaHasta,
-        ensambleById,
-        programaById: programasById,
-        estimateNote,
-      });
+      void runExport(() =>
+        downloadServiciosCantidadDetallePdf({
+          integrante,
+          hits,
+          buckets: bucketsByIntegranteId[integranteKey(integrante.id)] || {},
+          fechaDesde,
+          fechaHasta,
+          ensambleById,
+          programaById: programasById,
+          estimateNote,
+        }),
+      );
     },
     [
+      runExport,
       bucketsByIntegranteId,
       fechaDesde,
       fechaHasta,
@@ -1344,7 +1430,7 @@ export default function ServiciosCantidadReport({ supabase }) {
               return (
                 <label
                   key={`${eid}-${iid}`}
-                  className="flex cursor-pointer items-center gap-2.5 rounded-md py-1 pl-6 pr-2 text-sm text-slate-600 transition-colors hover:bg-slate-50"
+                  className="flex min-h-9 cursor-pointer items-center gap-2.5 rounded-md py-1.5 pl-6 pr-2 text-sm text-slate-600 transition-colors hover:bg-slate-50"
                 >
                   <input
                     type="checkbox"
@@ -1429,9 +1515,9 @@ export default function ServiciosCantidadReport({ supabase }) {
   }
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-hidden lg:flex-row">
-      <aside className="flex max-h-[42vh] w-full shrink-0 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white lg:max-h-none lg:w-72">
-        <div className="border-b border-slate-100 px-3 py-2">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-y-contain pb-8 [-webkit-overflow-scrolling:touch] lg:flex-row lg:overflow-hidden lg:pb-0">
+      <aside className="flex w-full shrink-0 flex-col rounded-lg border border-slate-200 bg-white lg:min-h-0 lg:w-72 lg:self-stretch lg:overflow-hidden">
+        <div className="shrink-0 border-b border-slate-100 px-3 py-2">
           <h3 className="mb-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">
             Tipo de programa
           </h3>
@@ -1458,22 +1544,48 @@ export default function ServiciosCantidadReport({ supabase }) {
             <h3 className="text-xs font-bold uppercase tracking-wide text-slate-600">
               Integrantes
             </h3>
-            <div className="flex gap-1">
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setFiltersOpen((v) => !v)}
+                className="inline-flex min-h-9 items-center rounded-md px-2 text-[11px] font-bold text-indigo-700 lg:hidden"
+                aria-expanded={filtersOpen}
+              >
+                {filtersOpen ? "Ocultar" : "Mostrar"}
+              </button>
               <button
                 type="button"
                 onClick={selectAllIntegrantes}
-                className="rounded px-1.5 py-0.5 text-[10px] font-bold text-indigo-600 hover:bg-indigo-50"
+                className="min-h-9 rounded px-2 text-[11px] font-bold text-indigo-600 hover:bg-indigo-50"
               >
                 Todos
               </button>
               <button
                 type="button"
                 onClick={clearAllIntegrantes}
-                className="rounded px-1.5 py-0.5 text-[10px] font-bold text-slate-500 hover:bg-slate-50"
+                className="min-h-9 rounded px-2 text-[11px] font-bold text-slate-500 hover:bg-slate-50"
               >
                 Ninguno
               </button>
             </div>
+          </div>
+          <div className="mb-2 flex flex-wrap items-center gap-2 lg:hidden">
+            {pendingSave && (
+              <button
+                type="button"
+                onClick={handleSavePending}
+                className="inline-flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-md bg-indigo-600 px-3 py-2 text-xs font-bold text-white"
+              >
+                <IconDownload size={14} />
+                Guardar
+              </button>
+            )}
+            <ServiciosExportMenu
+              disabled={exportDisabled}
+              onPdf={handleExportPdf}
+              onPdfDetalle={handleExportDetalleLote}
+              onExcel={handleExportExcel}
+            />
           </div>
           <div
             className="mb-2 inline-flex w-full rounded-lg border border-slate-200 bg-slate-100 p-0.5 text-[10px] font-bold"
@@ -1505,7 +1617,11 @@ export default function ServiciosCantidadReport({ supabase }) {
             {CONVOCATORIA_VIEW_SECTION_TITLES[ensambleViewMode]}
           </p>
         </div>
-        <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto p-2">
+        <div
+          className={`max-h-[min(40vh,18rem)] min-h-[8rem] space-y-1.5 overflow-y-auto p-2 [-webkit-overflow-scrolling:touch] lg:max-h-none lg:min-h-0 lg:flex-1 ${
+            filtersOpen ? "" : "hidden lg:block"
+          }`}
+        >
           {ensambleViewMode === "regiones"
             ? regionGroups.map((group) => {
                 const open = openRegions.has(group.key);
@@ -1573,8 +1689,8 @@ export default function ServiciosCantidadReport({ supabase }) {
         </div>
       </aside>
 
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white">
-        <div className="flex flex-wrap items-end gap-2 border-b border-slate-100 px-3 py-2">
+      <div className="flex min-w-0 shrink-0 flex-col rounded-lg border border-slate-200 bg-white lg:min-h-0 lg:flex-1 lg:shrink lg:overflow-hidden">
+        <div className="sticky top-0 z-[4] flex flex-wrap items-end gap-2 border-b border-slate-100 bg-white px-3 py-2 lg:static">
           <div className="w-[9.5rem]">
             <DateInput
               label="Desde"
@@ -1657,12 +1773,24 @@ export default function ServiciosCantidadReport({ supabase }) {
             <IconRefresh size={14} />
             Año actual
           </button>
-          <ServiciosExportMenu
-            disabled={exportDisabled}
-            onPdf={handleExportPdf}
-            onPdfDetalle={handleExportDetalleLote}
-            onExcel={handleExportExcel}
-          />
+          {pendingSave && (
+            <button
+              type="button"
+              onClick={handleSavePending}
+              className="hidden min-h-10 items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-2 text-xs font-bold text-white lg:inline-flex"
+            >
+              <IconDownload size={14} />
+              Guardar
+            </button>
+          )}
+          <div className="hidden lg:block">
+            <ServiciosExportMenu
+              disabled={exportDisabled}
+              onPdf={handleExportPdf}
+              onPdfDetalle={handleExportDetalleLote}
+              onExcel={handleExportExcel}
+            />
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-50 px-3 py-1.5 text-[11px] text-slate-500">
@@ -1690,12 +1818,15 @@ export default function ServiciosCantidadReport({ supabase }) {
               </>
             ) : null}
           </span>
-          <span className="text-[10px] text-slate-400">
+          <span className="hidden text-[10px] text-slate-400 sm:inline">
             ½ = 0,5 · R celeste · L ámbar · Serv/mes = total ÷ meses feb–dic · Estimar futuros: gira en curso/futura = promedio · clic en la fila para el detalle
+          </span>
+          <span className="text-[10px] text-slate-400 sm:hidden">
+            Tocá una persona para el resumen. Deslizá para ver el resto.
           </span>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-auto">
+        <div className="max-h-[68vh] min-h-[14rem] overflow-auto overscroll-contain [-webkit-overflow-scrolling:touch] lg:max-h-none lg:min-h-0 lg:flex-1">
           {!hasSelection ? (
             <div className="flex h-full items-center justify-center p-8 text-center text-sm text-slate-400">
               No hay músicos seleccionados. Elegí ensambles o pulsá Todos.

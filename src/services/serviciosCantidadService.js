@@ -1,6 +1,6 @@
 import ExcelJS from "exceljs";
-import { saveAs } from "file-saver";
 import jsPDF from "jspdf";
+import { XLSX_MIME, saveBlobFile } from "../utils/downloadBlob";
 import autoTable from "jspdf-autotable";
 import { resolveGiraRosterForMatrix } from "./giraService";
 import { formatDdMmYyyy } from "../utils/dates";
@@ -342,11 +342,10 @@ export async function downloadServiciosCantidadExcel({
   }
 
   const buf = await wb.xlsx.writeBuffer();
-  saveAs(
-    new Blob([buf], {
-      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    }),
-    `${fileName}.xlsx`,
+  const safe = String(fileName || "cantidad_servicios").replace(/\.xlsx$/i, "");
+  return deliverBlob(
+    new Blob([buf], { type: XLSX_MIME }),
+    `${safe}_${pdfStamp()}.xlsx`,
   );
 }
 
@@ -407,7 +406,18 @@ function slugIntegrantePdf(row) {
 }
 
 function pdfStamp() {
-  return new Date().toISOString().slice(0, 10);
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}`;
+}
+
+async function deliverBlob(blob, fileName) {
+  const result = await saveBlobFile(blob, fileName);
+  return { blob, fileName, result };
+}
+
+function deliverPdf(doc, fileName) {
+  return deliverBlob(doc.output("blob"), fileName);
 }
 
 function isPdfGroupSepRow(raw) {
@@ -771,7 +781,7 @@ export function downloadServiciosCantidadPdf({
     );
   }
 
-  doc.save(`${fileName}_${pdfStamp()}.pdf`);
+  return deliverPdf(doc, `${fileName}_${pdfStamp()}.pdf`);
 }
 
 /** PDF de detalle de una persona (mismas categorías colapsables que el modal). */
@@ -797,7 +807,8 @@ export function downloadServiciosCantidadDetallePdf({
     isFirstPage: true,
     estimateNote,
   });
-  doc.save(
+  return deliverPdf(
+    doc,
     `servicios_detalle_${slugIntegrantePdf(integrante)}_${pdfStamp()}.pdf`,
   );
 }
@@ -835,5 +846,5 @@ export function downloadServiciosCantidadDetalleLotePdf({
       estimateNote,
     });
   });
-  doc.save(`${fileName}_${pdfStamp()}.pdf`);
+  return deliverPdf(doc, `${fileName}_${pdfStamp()}.pdf`);
 }

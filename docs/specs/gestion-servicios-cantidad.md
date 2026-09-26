@@ -99,7 +99,9 @@ HTML, PDF (listado/detalle/lote) y Excel muestran el número usado. El detalle l
 ### Exportar y móvil
 
 - Un solo botón **Exportar** (menú Portal `z-[100]`, mismo patrón que Gestión → Ensayos / Seating): PDF listado, PDF detalle lote, Excel. Iconos de `Icons.jsx`.
-- **Móvil:** lista de personas (nombre + total + serv/mes). Tap abre el modal con la **tabla resumen** Categoría|Valor. El listado de eventos queda en escritorio / PDF.
+- En el teléfono el menú se abre con el ítem en el mismo toque (`pointerdown`). El cierre por fuera no usa `mousedown` sobre el portal: eso desmontaba el ítem antes del click y la descarga no arrancaba.
+- La descarga no usa `file-saver`. En iPhone/iPad se abre Compartir (Guardar en Archivos). Si el gesto ya no vale después de armar el archivo, aparece **Guardar** para un segundo toque. En el resto, un `<a download>` dentro de `document.body`. El nombre lleva fecha y hora.
+- **Móvil:** la página scrollea; la lista de integrantes tiene alto máximo y scroll propio (se puede ocultar). El botón Exportar está en ese encabezado. La tabla/lista de personas también scrollea. Tap abre el modal con la **tabla resumen** Categoría|Valor, y el modal scrollea. El listado de eventos queda en escritorio / PDF.
 
 ## Archivos
 
@@ -108,6 +110,7 @@ HTML, PDF (listado/detalle/lote) y Excel muestran el número usado. El detalle l
 | UI | `src/views/Management/ServiciosCantidadReport.jsx` |
 | Cálculo | `src/utils/serviciosCantidad.js` |
 | Fetch período / Excel / PDF | `src/services/serviciosCantidadService.js` |
+| Descarga móvil y escritorio | `src/utils/downloadBlob.js` |
 | Limpieza HTML de descripciones | `src/utils/eventDisplayUtils.js` (`stripHtml`) |
 | Catálogo árbol / roster | `fetchAsistenciaMatrixBaseData`, `resolveGiraRosterForMatrix` en `giraService.js` |
 | Menú | `ManagementView.jsx`, `App.jsx`, `managementPalette.js`, `documentTitle.js` |
@@ -128,6 +131,7 @@ HTML, PDF (listado/detalle/lote) y Excel muestran el número usado. El detalle l
 | Títulos sin HTML/CSS + resumen tabla Categoría/Valor | Completado |
 | Estimar futuros (promedio sinfónicas pasadas, default ON) | Completado |
 | Exportar un botón + resumen móvil | Completado |
+| Descarga en celular (Compartir / ancla en el DOM) + scroll móvil | Completado |
 | Paginación PostgREST `.range` en eventos | Completado |
 
 ## Deuda / abierto
