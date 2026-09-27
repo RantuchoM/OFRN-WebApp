@@ -16,8 +16,6 @@ import CommandPaletteEntityOverlays from '../components/ui/CommandPaletteEntityO
 import { useDebouncedCallback } from '../hooks/useDebouncedCallback';
 import {
   PALETTE_ENTITY_MIN_QUERY,
-  PALETTE_PERSON_SEARCH_ALIASES,
-  PALETTE_REPERTOIRE_SEARCH_ALIASES,
   formatObraComposerLabel,
   formatPersonLabel,
   searchPaletteObras,
@@ -628,47 +626,13 @@ export const CommandPaletteProvider = ({ children }) => {
 
   const allActions = useMemo(() => {
     const localActions = Object.values(registeredCommands).flat();
-    const searchCommands = [];
-
-    if (canSearchPeople) {
-      searchCommands.push({
-        id: "search-persona",
-        label: "Buscar personas",
-        subtitle: "Por nombre, instrumento o id — sin cargar el padrón",
-        icon: <IconUser size={14} className="text-emerald-600" />,
-        section: "Búsqueda",
-        aliases: PALETTE_PERSON_SEARCH_ALIASES,
-        keepOpen: true,
-        run: () => {
-          setEntityActions([]);
-          setEntitySearchMode("persona");
-        },
-      });
-    }
-    if (canSearchObras) {
-      searchCommands.push({
-        id: "search-obra",
-        label: "Buscar repertorio",
-        subtitle: "Por título, compositor o id — sin cargar el catálogo",
-        icon: <IconMusicNote size={14} className="text-violet-500" />,
-        section: "Búsqueda",
-        aliases: PALETTE_REPERTOIRE_SEARCH_ALIASES,
-        keepOpen: true,
-        run: () => {
-          setEntityActions([]);
-          setEntitySearchMode("obra");
-        },
-      });
-    }
-
     return [
-        ...searchCommands,
         ...contextCommands,
         ...localActions,
         ...globalCommands,
         ...girasCommands
     ];
-  }, [registeredCommands, globalCommands, girasCommands, contextCommands, canSearchObras, canSearchPeople]);
+  }, [registeredCommands, globalCommands, girasCommands, contextCommands]);
 
   const openWorkFromPalette = useCallback((obraId) => {
     setIsOpen(false);
@@ -691,6 +655,14 @@ export const CommandPaletteProvider = ({ children }) => {
     setEntitySearchMode(null);
     setEntityActions([]);
     setIsSearchingEntities(false);
+  }, []);
+
+  const enterEntitySearchMode = useCallback((mode) => {
+    if (mode !== "obra" && mode !== "persona") return;
+    entitySearchGen.current += 1;
+    setEntityActions([]);
+    setIsSearchingEntities(false);
+    setEntitySearchMode(mode);
   }, []);
 
   const closePalette = useCallback(() => {
@@ -828,10 +800,13 @@ export const CommandPaletteProvider = ({ children }) => {
         isOpen={isOpen} 
         onClose={closePalette} 
         actions={allActions}
+        canSearchPeople={canSearchPeople}
+        canSearchObras={canSearchObras}
         entityActions={entityActions}
         isSearchingEntities={isSearchingEntities}
         searchMode={entitySearchMode}
         onExitSearchMode={exitEntitySearchMode}
+        onSearchModeChange={enterEntitySearchMode}
         onQueryChange={handlePaletteQueryChange}
       />
       <CommandPaletteEntityOverlays

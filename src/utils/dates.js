@@ -278,6 +278,24 @@ export function formatWeekdayLongLocal(dateStr) {
 }
 
 /**
+ * Lista de conflictos / agenda: "18/02/2026, miércoles".
+ * dd/MM/yyyy + coma + weekday en minúsculas (`formatWeekdayLongLocal`).
+ */
+export function formatDdMmYyyyWeekday(value) {
+  const datePart = formatDdMmYyyy(value);
+  const dateStr =
+    typeof value === "string"
+      ? value
+      : value instanceof Date && !Number.isNaN(value.getTime())
+        ? `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`
+        : "";
+  const weekday = formatWeekdayLongLocal(dateStr);
+  if (!datePart) return weekday || "";
+  if (!weekday) return datePart;
+  return `${datePart}, ${weekday}`;
+}
+
+/**
  * Fecha larga en español (es-AR): weekday + día + mes + año.
  * Ej.: "Domingo, 20 de septiembre de 2026"
  * @param {string} dateStr - Fecha en formato "yyyy-MM-dd" (o ISO con hora)

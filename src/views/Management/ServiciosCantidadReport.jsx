@@ -9,13 +9,16 @@ import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import DateInput from "../../components/ui/DateInput";
 import {
+  IconAlertTriangle,
   IconCalculator,
   IconChevronDown,
+  IconClipboard,
   IconClock,
   IconDownload,
   IconFileExcel,
   IconFiles,
   IconFileText,
+  IconMusic,
   IconRefresh,
   IconSearch,
   IconX,
@@ -30,6 +33,8 @@ import {
   downloadServiciosCantidadDetallePdf,
   downloadServiciosCantidadExcel,
   downloadServiciosCantidadPdf,
+  fetchEnsambleServiciosBundle,
+  fetchEnsayosConflictoPeriod,
   fetchServiciosCantidadPeriod,
   formatServicioEventSubtitle,
   giraOptionLabel,
@@ -37,6 +42,8 @@ import {
 } from "../../services/serviciosCantidadService";
 import { buildAsistenciaMatrixRowGroups } from "../../utils/asistenciaMatrixExport";
 import { saveBlobFile } from "../../utils/downloadBlob";
+import EnsambleServiciosModal from "./EnsambleServiciosModal";
+import EnsayosConflictoModal from "./EnsayosConflictoModal";
 import {
   CONVOCATORIA_ENSAMBLE_VIEW_MODES,
   CONVOCATORIA_VIEW_SECTION_TITLES,
@@ -46,7 +53,7 @@ import {
 } from "../../utils/convocatoriaEnsambleViews";
 import { formatDdMmYyyy } from "../../utils/dates";
 import { programOverlapsDateRange, toLocalDateString } from "../../utils/giraDateRange";
-import { compareInstrumentIds } from "../../utils/giraUtils";
+import { compareInstrumentIds, getProgramStyle } from "../../utils/giraUtils";
 import {
   currentYearBounds,
   isProgramBorrador,
@@ -54,22 +61,26 @@ import {
 import { integranteKey } from "../../utils/integranteIds";
 import { matchesMultiTokenSearch } from "../../utils/sanitize";
 import {
+  buildEnsambleServiciosReport,
+  listEnsamblesForServiciosReport,
+} from "../../utils/serviciosEnsambleReport";
+import { buildEnsayosConflictoGroups } from "../../utils/serviciosEnsayosConflicto";
+import {
   SERVICIO_COLUMN_DEFS,
   SERVICIO_POR_MES_COLUMN,
   accumulateServiciosForIntegrante,
   bucketTotal,
-  computeGiraServiciosAverage,
   computeServiciosPorMes,
   formatEventDurationLabel,
   formatGiraAveragePlain,
   formatServicioNumber,
   formatServicioParts,
   formatServiciosPorMesPlain,
+  getFixedGiraServiciosAverage,
   groupHitsByDetailSection,
+  groupHitsByProgramTipo,
   listEstimableGiras,
-  listPastGirasForAverage,
   listServicioHitsForIntegrante,
-  priorYearBoundsFromRange,
   sumBuckets,
 } from "../../utils/serviciosCantidad";
 
@@ -303,6 +314,101 @@ function ServiciosExportMenu({ disabled, onPdf, onPdfDetalle, onExcel }) {
   );
 }
 
+function programTipoChipClass(tipo) {
+  const style = getProgramStyle(tipo);
+  const colorTokens = (style?.color || "").split(" ");
+  return (
+    colorTokens
+      .filter(
+        (t) =>
+          t.startsWith("bg-") ||
+          t.startsWith("text-") ||
+          t.startsWith("border-"),
+      )
+      .join(" ") || "bg-slate-50 text-slate-700 border-slate-200"
+  );
+}
+
+function ServiciosTipoResumenRecuadro({
+  hits,
+  buckets,
+  integrante,
+  fechaDesde,
+  fechaHasta,
+  programaById,
+  ensambleById,
+}) {
+  const entries = useMemo(
+    () => groupHitsByProgramTipo(hits, programaById, ensambleById),
+    [hits, programaById, ensambleById],
+  );
+  const total = formatServicioNumber(bucketTotal(buckets?.total));
+  const porMes = formatServiciosPorMesPlain(bucketTotal(buckets?.total), integrante, {
+    fechaDesde,
+    fechaHasta,
+  });
+
+  return (
+    <section
+      className="rounded-xl border border-slate-200 bg-white px-3 py-3 shadow-sm"
+      aria-label="Resumen por tipo de programa"
+    >
+      <h3 className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">
+        Resumen
+      </h3>
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <div className="inline-flex items-center gap-2 rounded-lg border border-indigo-100 bg-indigo-50 px-3 py-1.5 text-sm font-semibold text-indigo-900">
+          <span>Total</span>
+          <span className="inline-flex items-center rounded-md bg-white/70 px-1.5 py-0.5 text-base font-bold tabular-nums leading-none">
+            {total}
+          </span>
+        </div>
+        <div className="inline-flex items-center gap-2 rounded-lg border border-orange-200 bg-orange-50 px-3 py-1.5 text-sm font-semibold text-orange-900">
+          <span>Serv/mes</span>
+          <span className="inline-flex items-center rounded-md bg-white/70 px-1.5 py-0.5 text-base font-bold tabular-nums leading-none">
+            {porMes}
+          </span>
+        </div>
+      </div>
+      {entries.length === 0 ? (
+        <p className="text-sm text-slate-400">Sin programas en el rango.</p>
+      ) : (
+        <div className="flex items-start gap-2 overflow-x-auto pb-1">
+          {entries.map((entry) => (
+            <div
+              key={entry.tipo}
+              className="min-w-[8.5rem] flex-1"
+            >
+              <div
+                className={`inline-flex w-full items-center justify-between gap-2 rounded-lg border px-2.5 py-1.5 text-sm font-semibold ${programTipoChipClass(entry.tipo)}`}
+              >
+                <span className="truncate">{entry.tipo}</span>
+                <span className="inline-flex shrink-0 items-center rounded-md bg-white/70 px-1.5 py-0.5 text-base font-bold tabular-nums leading-none">
+                  {formatServicioNumber(entry.value)}
+                </span>
+              </div>
+              <ul className="mt-1.5 space-y-0.5">
+                {entry.programs.map((p) => (
+                  <li
+                    key={p.key}
+                    className="text-[11px] leading-snug text-slate-600"
+                  >
+                    {p.label}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      )}
+      <p className="mt-2 text-[10px] text-slate-400 md:hidden">
+        En el teléfono se muestra este resumen. El detalle por evento está en
+        escritorio o en el PDF.
+      </p>
+    </section>
+  );
+}
+
 function ServicioDetalleModal({
   integrante,
   hits,
@@ -352,7 +458,7 @@ function ServicioDetalleModal({
       }}
     >
       <div
-        className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl"
+        className="flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl"
         onMouseDown={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -400,54 +506,15 @@ function ServicioDetalleModal({
 
         <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="border-b border-slate-100 bg-white px-3 py-2">
-          <table className="w-full border-collapse text-xs">
-            <thead>
-              <tr className="border-b border-slate-200 bg-slate-50 text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                <th className="px-2 py-1.5 text-left">Categoría</th>
-                <th className="px-2 py-1.5 text-right">Valor</th>
-              </tr>
-            </thead>
-            <tbody>
-              {SERVICIO_COLUMN_DEFS.map((col) => (
-                <tr
-                  key={col.key}
-                  className={`border-b border-slate-100 ${
-                    col.key === "total" ? "bg-slate-50 font-semibold" : ""
-                  }`}
-                >
-                  <td className="px-2 py-1 text-slate-600" title={col.title}>
-                    {col.shortLabel}
-                  </td>
-                  <td className="px-2 py-1 text-right">
-                    <ServicioCellValue
-                      bucket={buckets?.[col.key]}
-                      chipClass={col.chipClass}
-                      emphasize={col.key === "total"}
-                    />
-                  </td>
-                </tr>
-              ))}
-              <tr className="bg-orange-50">
-                <td
-                  className="px-2 py-1 text-orange-800"
-                  title={SERVICIO_POR_MES_COLUMN.title}
-                >
-                  {SERVICIO_POR_MES_COLUMN.shortLabel}
-                </td>
-                <td className="px-2 py-1 text-right">
-                  <ServicioPorMesCell
-                    totalServicios={bucketTotal(buckets?.total)}
-                    integrante={integrante}
-                    range={{ fechaDesde, fechaHasta }}
-                  />
-                </td>
-              </tr>
-            </tbody>
-          </table>
-          <p className="mt-2 px-1 text-[10px] text-slate-400 md:hidden">
-            En el teléfono se muestra este resumen. El detalle por evento está
-            en escritorio o en el PDF.
-          </p>
+          <ServiciosTipoResumenRecuadro
+            hits={hits}
+            buckets={buckets}
+            integrante={integrante}
+            fechaDesde={fechaDesde}
+            fechaHasta={fechaHasta}
+            programaById={programaById}
+            ensambleById={ensambleById}
+          />
         </div>
 
         <div className="hidden p-3 md:block">
@@ -580,7 +647,7 @@ export default function ServiciosCantidadReport({ supabase }) {
   const [groupByEnsambles, setGroupByEnsambles] = useState(false);
   const [estimarFuturos, setEstimarFuturos] = useState(true);
   const [selectedTypes, setSelectedTypes] = useState(
-    () => new Set(["Sinfónico", "Camerata Filarmónica"]),
+    () => new Set(TIPOS_PROGRAMA_ASISTENCIA_MATRIZ),
   );
 
   const [catalogLoading, setCatalogLoading] = useState(true);
@@ -598,16 +665,22 @@ export default function ServiciosCantidadReport({ supabase }) {
   const [rosterByGiraId, setRosterByGiraId] = useState({});
   const [rosterLoading, setRosterLoading] = useState(false);
   const [detalleIntegrante, setDetalleIntegrante] = useState(null);
+  const [conflictoOpen, setConflictoOpen] = useState(false);
+  const [conflictoLoading, setConflictoLoading] = useState(false);
+  const [conflictoError, setConflictoError] = useState(null);
+  const [conflictoGroups, setConflictoGroups] = useState([]);
+  const [conflictoTick, setConflictoTick] = useState(0);
+  const [conflictoSessionByEventId, setConflictoSessionByEventId] = useState(
+    {},
+  );
+  const [reportEnsambleId, setReportEnsambleId] = useState(null);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportError, setReportError] = useState(null);
+  const [reportData, setReportData] = useState(null);
+  const [reportTick, setReportTick] = useState(0);
   const [filtersOpen, setFiltersOpen] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [pendingSave, setPendingSave] = useState(null);
-  const [avgExtra, setAvgExtra] = useState({
-    events: [],
-    programas: [],
-    customRows: [],
-    roster: {},
-  });
-  const [avgExtraLoading, setAvgExtraLoading] = useState(false);
 
   const [selectedIntegranteIdsByMode, setSelectedIntegranteIdsByMode] =
     useState(createEmptySelectionByMode);
@@ -617,6 +690,18 @@ export default function ServiciosCantidadReport({ supabase }) {
 
   const ensambleCheckboxRefs = useRef({});
   const regionCheckboxRefs = useRef({});
+
+  const rememberConflictoResolved = useCallback((entry) => {
+    if (!entry?.eventId || !entry?.kind) return;
+    setConflictoSessionByEventId((prev) => ({
+      ...prev,
+      [String(entry.eventId)]: entry,
+    }));
+  }, []);
+
+  useEffect(() => {
+    setConflictoSessionByEventId({});
+  }, [fechaDesde, fechaHasta]);
 
   useEffect(() => {
     let cancelled = false;
@@ -642,6 +727,109 @@ export default function ServiciosCantidadReport({ supabase }) {
       cancelled = true;
     };
   }, [supabase]);
+
+  useEffect(() => {
+    if (!conflictoOpen || !supabase) return undefined;
+    let cancelled = false;
+    (async () => {
+      setConflictoLoading(conflictoGroups.length === 0);
+      setConflictoError(null);
+      const res = await fetchEnsayosConflictoPeriod(supabase, {
+        fechaDesde,
+        fechaHasta,
+      });
+      if (cancelled) return;
+      if (res.error) {
+        setConflictoError(res.error);
+        setConflictoGroups([]);
+        setConflictoLoading(false);
+        return;
+      }
+      setConflictoGroups(
+        buildEnsayosConflictoGroups({
+          events: res.events,
+          ensambles,
+          integrantes,
+          memberships: res.memberships,
+          customRows: res.customRows,
+          programas: res.programas,
+          rosterByGiraId: res.rosterByGiraId,
+        }),
+      );
+      setConflictoLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    conflictoOpen,
+    supabase,
+    fechaDesde,
+    fechaHasta,
+    ensambles,
+    integrantes,
+    conflictoTick,
+  ]);
+
+  useEffect(() => {
+    if (!reportEnsambleId || !supabase) return undefined;
+    const ensamble = (ensambles || []).find(
+      (en) => Number(en.id) === Number(reportEnsambleId),
+    );
+    if (!ensamble) {
+      setReportData(null);
+      setReportError(new Error("Ensamble no encontrado"));
+      return undefined;
+    }
+    let cancelled = false;
+    (async () => {
+      setReportLoading(!reportData);
+      setReportError(null);
+      const res = await fetchEnsambleServiciosBundle(supabase, {
+        fechaDesde,
+        fechaHasta,
+      });
+      if (cancelled) return;
+      if (res.error) {
+        setReportError(res.error);
+        setReportData(null);
+        setReportLoading(false);
+        return;
+      }
+      const groups = buildEnsayosConflictoGroups({
+        events: res.events,
+        ensambles,
+        integrantes,
+        memberships: res.memberships,
+        customRows: res.customRows,
+        programas: res.programas,
+        rosterByGiraId: res.rosterByGiraId,
+      });
+      setReportData(
+        buildEnsambleServiciosReport({
+          ensamble,
+          programas: res.programas,
+          events: res.events,
+          conflictoGroups: groups,
+          fechaDesde,
+          fechaHasta,
+          ensambles,
+        }),
+      );
+      setReportLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    reportEnsambleId,
+    supabase,
+    fechaDesde,
+    fechaHasta,
+    ensambles,
+    integrantes,
+    reportTick,
+  ]);
 
   const membershipsByEnsamble = useMemo(() => {
     const map = new Map();
@@ -739,9 +927,8 @@ export default function ServiciosCantidadReport({ supabase }) {
     const m = new Map();
     for (const p of programasCatalog) m.set(p.id, p);
     for (const p of programasPeriod) m.set(p.id, p);
-    for (const p of avgExtra.programas || []) m.set(p.id, p);
     return m;
-  }, [programasCatalog, programasPeriod, avgExtra.programas]);
+  }, [programasCatalog, programasPeriod]);
 
   const allProgramas = useMemo(() => [...programasById.values()], [programasById]);
 
@@ -768,6 +955,11 @@ export default function ServiciosCantidadReport({ supabase }) {
     [programasCatalog, fechaDesde, fechaHasta],
   );
 
+  const ensamblesForReport = useMemo(
+    () => listEnsamblesForServiciosReport(ensambles),
+    [ensambles],
+  );
+
   const ensambleById = useMemo(() => {
     const m = new Map();
     for (const en of ensambles) m.set(Number(en.id), en);
@@ -788,25 +980,9 @@ export default function ServiciosCantidadReport({ supabase }) {
       for (const p of listEstimableGiras(filteredProgramas, { today })) {
         ids.add(p.id);
       }
-      for (const p of listPastGirasForAverage(allProgramas, {
-        fechaDesde,
-        fechaHasta,
-        today,
-        onlySinfonico: true,
-      })) {
-        ids.add(p.id);
-      }
     }
     return [...ids];
-  }, [
-    events,
-    filteredProgramas,
-    hasSelection,
-    estimarFuturos,
-    allProgramas,
-    fechaDesde,
-    fechaHasta,
-  ]);
+  }, [events, filteredProgramas, hasSelection, estimarFuturos]);
 
   useEffect(() => {
     let cancelled = false;
@@ -830,131 +1006,10 @@ export default function ServiciosCantidadReport({ supabase }) {
     };
   }, [supabase, hasSelection, giraIdsNeedingRoster, programasById]);
 
-  const pastGirasInRange = useMemo(() => {
-    if (!estimarFuturos) return [];
-    return listPastGirasForAverage(allProgramas, {
-      fechaDesde,
-      fechaHasta,
-      today: toLocalDateString(),
-      onlySinfonico: true,
-    });
-  }, [estimarFuturos, allProgramas, fechaDesde, fechaHasta]);
-
-  useEffect(() => {
-    let cancelled = false;
-    if (!estimarFuturos || !hasSelection || !supabase) {
-      setAvgExtra({ events: [], programas: [], customRows: [], roster: {} });
-      setAvgExtraLoading(false);
-      return undefined;
-    }
-    if (pastGirasInRange.length > 0) {
-      setAvgExtra({ events: [], programas: [], customRows: [], roster: {} });
-      setAvgExtraLoading(false);
-      return undefined;
-    }
-    (async () => {
-      setAvgExtraLoading(true);
-      const prior = priorYearBoundsFromRange(fechaDesde);
-      const period = await fetchServiciosCantidadPeriod(supabase, {
-        fechaDesde: prior.fechaDesde,
-        fechaHasta: prior.fechaHasta,
-        giraId: null,
-      });
-      if (cancelled) return;
-      if (period.error) {
-        setAvgExtra({ events: [], programas: [], customRows: [], roster: {} });
-        setAvgExtraLoading(false);
-        return;
-      }
-      const past = listPastGirasForAverage(period.programas || [], {
-        fechaDesde: prior.fechaDesde,
-        fechaHasta: prior.fechaHasta,
-        today: toLocalDateString(),
-        onlySinfonico: true,
-      });
-      const roster = past.length
-        ? await resolveRostersForPrograms(supabase, past)
-        : {};
-      if (cancelled) return;
-      setAvgExtra({
-        events: period.events || [],
-        programas: period.programas || [],
-        customRows: period.customRows || [],
-        roster,
-      });
-      setAvgExtraLoading(false);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    estimarFuturos,
-    hasSelection,
-    supabase,
-    pastGirasInRange.length,
-    fechaDesde,
-  ]);
-
-  const mergedRosterByGiraId = useMemo(
-    () => ({ ...avgExtra.roster, ...rosterByGiraId }),
-    [avgExtra.roster, rosterByGiraId],
-  );
-
   const giraAverage = useMemo(() => {
     if (!estimarFuturos) return null;
-    const today = toLocalDateString();
-    const usingPrior = pastGirasInRange.length === 0;
-    const programs = usingPrior
-      ? listPastGirasForAverage(
-          avgExtra.programas.length ? avgExtra.programas : allProgramas,
-          {
-            ...priorYearBoundsFromRange(fechaDesde),
-            today,
-            onlySinfonico: true,
-          },
-        )
-      : pastGirasInRange;
-    const sampleEvents = usingPrior && avgExtra.events.length
-      ? avgExtra.events
-      : events;
-    const baseCtx = buildServiciosComputeContext({
-      rosterByGiraId: mergedRosterByGiraId,
-      memberships: membershipsCount.length
-        ? membershipsCount
-        : membershipsTree,
-      customRows: usingPrior && avgExtra.customRows.length
-        ? avgExtra.customRows
-        : customRows,
-      programas: allProgramas,
-      filteredProgramas: programs,
-      fechaDesde: usingPrior
-        ? priorYearBoundsFromRange(fechaDesde).fechaDesde
-        : fechaDesde,
-      fechaHasta: usingPrior
-        ? priorYearBoundsFromRange(fechaDesde).fechaHasta
-        : fechaHasta,
-      giraIdFilter: null,
-    });
-    const avg = computeGiraServiciosAverage({
-      programs,
-      events: sampleEvents,
-      rosterByGiraId: mergedRosterByGiraId,
-      ctx: baseCtx,
-    });
-    return { ...avg, source: usingPrior ? "prior-year" : "range" };
-  }, [
-    estimarFuturos,
-    pastGirasInRange,
-    avgExtra,
-    allProgramas,
-    fechaDesde,
-    fechaHasta,
-    events,
-    mergedRosterByGiraId,
-    membershipsCount,
-    membershipsTree,
-    customRows,
-  ]);
+    return getFixedGiraServiciosAverage();
+  }, [estimarFuturos]);
 
   const estimableGiraIds = useMemo(() => {
     if (!estimarFuturos) return new Set();
@@ -969,20 +1024,13 @@ export default function ServiciosCantidadReport({ supabase }) {
 
   const estimateNote = useMemo(() => {
     if (!estimarFuturos) return "";
-    const label = formatGiraAveragePlain(giraAverage);
-    if (giraAverage?.mean == null) {
-      return "Estimar futuros: sin promedio (no hay giras pasadas con servicios de gira)";
-    }
-    const n = giraAverage.girasUsed || 0;
-    const src =
-      giraAverage.source === "prior-year" ? "año anterior" : "rango";
-    return `Estimar futuros · ${label} (${n} sinfónica${n === 1 ? "" : "s"} ${src})`;
+    return `Estimar futuros · ${formatGiraAveragePlain(giraAverage)}`;
   }, [estimarFuturos, giraAverage]);
 
   const computeCtx = useMemo(
     () =>
       buildServiciosComputeContext({
-        rosterByGiraId: mergedRosterByGiraId,
+        rosterByGiraId,
         memberships: membershipsCount.length
           ? membershipsCount
           : membershipsTree,
@@ -998,7 +1046,7 @@ export default function ServiciosCantidadReport({ supabase }) {
         programasById,
       }),
     [
-      mergedRosterByGiraId,
+      rosterByGiraId,
       membershipsCount,
       membershipsTree,
       customRows,
@@ -1225,7 +1273,7 @@ export default function ServiciosCantidadReport({ supabase }) {
 
   const loading =
     catalogLoading ||
-    (hasSelection && (periodLoading || rosterLoading || avgExtraLoading));
+    (hasSelection && (periodLoading || rosterLoading));
   const exportDisabled = loading || visibleRows.length === 0 || exporting;
 
   const applyDownloadResult = useCallback((built) => {
@@ -1417,6 +1465,18 @@ export default function ServiciosCantidadReport({ supabase }) {
           <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-800">
             {en.ensamble || `Ensamble ${eid}`}
           </span>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setReportEnsambleId(eid);
+            }}
+            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-indigo-500 hover:bg-white hover:text-indigo-700"
+            title={`Informe de ${en.ensamble || "ensamble"}`}
+            aria-label={`Informe de ${en.ensamble || "ensamble"}`}
+          >
+            <IconClipboard size={14} />
+          </button>
           <span className="shrink-0 pr-1 text-[10px] tabular-nums text-slate-400">
             {selectedCount}/{memberIds.length}
           </span>
@@ -1586,6 +1646,14 @@ export default function ServiciosCantidadReport({ supabase }) {
               onPdfDetalle={handleExportDetalleLote}
               onExcel={handleExportExcel}
             />
+            <button
+              type="button"
+              onClick={() => setConflictoOpen(true)}
+              className="inline-flex min-h-10 items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] font-bold text-amber-900"
+            >
+              <IconAlertTriangle size={14} />
+              Conflictos
+            </button>
           </div>
           <div
             className="mb-2 inline-flex w-full rounded-lg border border-slate-200 bg-slate-100 p-0.5 text-[10px] font-bold"
@@ -1613,6 +1681,26 @@ export default function ServiciosCantidadReport({ supabase }) {
               </button>
             ))}
           </div>
+          <label className="mb-2 mt-2 block">
+            <span className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-400">
+              Informe de un ensamble
+            </span>
+            <select
+              value={reportEnsambleId || ""}
+              onChange={(e) => {
+                const v = e.target.value;
+                setReportEnsambleId(v ? Number(v) : null);
+              }}
+              className="w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-300"
+            >
+              <option value="">Elegí ensamble…</option>
+              {ensamblesForReport.map((en) => (
+                <option key={en.id} value={en.id}>
+                  {en.ensamble || `Ensamble ${en.id}`}
+                </option>
+              ))}
+            </select>
+          </label>
           <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
             {CONVOCATORIA_VIEW_SECTION_TITLES[ensambleViewMode]}
           </p>
@@ -1766,6 +1854,34 @@ export default function ServiciosCantidadReport({ supabase }) {
           </label>
           <button
             type="button"
+            onClick={() => setConflictoOpen(true)}
+            className="inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] font-bold text-amber-900 hover:border-amber-300"
+            title="Ensayos de ensamble con miembros convocados a una gira que solapa esa fecha"
+          >
+            <IconAlertTriangle size={14} />
+            Ensayos en conflicto
+          </button>
+          <label className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2 py-1.5 text-[11px] font-bold text-indigo-900">
+            <IconMusic size={14} />
+            <select
+              value={reportEnsambleId || ""}
+              onChange={(e) => {
+                const v = e.target.value;
+                setReportEnsambleId(v ? Number(v) : null);
+              }}
+              className="max-w-[10rem] bg-transparent text-[11px] font-bold text-indigo-900 focus:outline-none"
+              title="Informe de convocatorias, programas y ensayos de un ensamble"
+            >
+              <option value="">Informe ensamble…</option>
+              {ensamblesForReport.map((en) => (
+                <option key={en.id} value={en.id}>
+                  {en.ensamble || `Ensamble ${en.id}`}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
             onClick={resetYear}
             className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[11px] font-bold text-slate-600 hover:border-slate-300"
             title="Rango = año calendario en curso"
@@ -1819,7 +1935,7 @@ export default function ServiciosCantidadReport({ supabase }) {
             ) : null}
           </span>
           <span className="hidden text-[10px] text-slate-400 sm:inline">
-            ½ = 0,5 · R celeste · L ámbar · Serv/mes = total ÷ meses feb–dic · Estimar futuros: gira en curso/futura = promedio · clic en la fila para el detalle
+            ½ = 0,5 (más de 30 min y menos de 2 h) · 15/30 min = 0 · R celeste · L ámbar · Serv/mes = total ÷ meses feb–dic · Estimar futuros: gira en curso/futura = 10 · clic en la fila para el detalle
           </span>
           <span className="text-[10px] text-slate-400 sm:hidden">
             Tocá una persona para el resumen. Deslizá para ver el resto.
@@ -2002,6 +2118,42 @@ export default function ServiciosCantidadReport({ supabase }) {
             handleExportDetalleOne(detalleIntegrante, detalleHits)
           }
           onClose={() => setDetalleIntegrante(null)}
+        />
+      )}
+
+      {conflictoOpen && (
+        <EnsayosConflictoModal
+          groups={conflictoGroups}
+          loading={conflictoLoading}
+          error={conflictoError}
+          fechaDesde={fechaDesde}
+          fechaHasta={fechaHasta}
+          supabase={supabase}
+          ensambles={ensambles}
+          sessionByEventId={conflictoSessionByEventId}
+          onSessionResolved={rememberConflictoResolved}
+          onChanged={() => setConflictoTick((n) => n + 1)}
+          onClose={() => setConflictoOpen(false)}
+        />
+      )}
+
+      {reportEnsambleId != null && (
+        <EnsambleServiciosModal
+          report={reportData}
+          loading={reportLoading}
+          error={reportError}
+          fechaDesde={fechaDesde}
+          fechaHasta={fechaHasta}
+          supabase={supabase}
+          ensambles={ensambles}
+          sessionByEventId={conflictoSessionByEventId}
+          onSessionResolved={rememberConflictoResolved}
+          onChanged={() => setReportTick((n) => n + 1)}
+          onClose={() => {
+            setReportEnsambleId(null);
+            setReportData(null);
+            setReportError(null);
+          }}
         />
       )}
     </div>

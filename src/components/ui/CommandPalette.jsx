@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { IconSearch, IconArrowRight, IconLoader, IconChevronLeft } from "./Icons";
+import { IconSearch, IconArrowRight, IconLoader, IconUser, IconMusicNote } from "./Icons";
 import { getSearchHighlightRanges } from "../../utils/sanitize";
 import { PALETTE_ENTITY_MIN_QUERY, rankPaletteCommands } from "../../utils/commandPaletteEntitySearch";
 
@@ -38,14 +38,53 @@ const SEARCH_MODE_UI = {
   },
 };
 
+const PALETTE_VIEWS = {
+  comandos: {
+    id: "comandos",
+    label: "Comandos",
+    placeholder: "Buscar comando o gira...",
+    Icon: IconSearch,
+    tabActive: "bg-indigo-600 text-white shadow-sm",
+    row: "bg-indigo-600 text-white shadow-md",
+    rowSub: "text-indigo-100",
+    bar: "bg-indigo-500",
+    field: "border-indigo-100",
+  },
+  persona: {
+    id: "persona",
+    label: "Personas",
+    placeholder: SEARCH_MODE_UI.persona.placeholder,
+    Icon: IconUser,
+    tabActive: "bg-emerald-600 text-white shadow-sm",
+    row: "bg-emerald-600 text-white shadow-md",
+    rowSub: "text-emerald-100",
+    bar: "bg-emerald-500",
+    field: "border-emerald-200",
+  },
+  obra: {
+    id: "obra",
+    label: "Repertorio",
+    placeholder: SEARCH_MODE_UI.obra.placeholder,
+    Icon: IconMusicNote,
+    tabActive: "bg-violet-600 text-white shadow-sm",
+    row: "bg-violet-600 text-white shadow-md",
+    rowSub: "text-violet-100",
+    bar: "bg-violet-500",
+    field: "border-violet-200",
+  },
+};
+
 export default function CommandPalette({
   isOpen,
   onClose,
   actions = [],
+  canSearchPeople = false,
+  canSearchObras = false,
   entityActions = [],
   isSearchingEntities = false,
   searchMode = null,
   onExitSearchMode,
+  onSearchModeChange,
   onQueryChange,
 }) {
   const [query, setQuery] = useState("");
@@ -54,6 +93,14 @@ export default function CommandPalette({
   const listRef = useRef(null);
   const inEntityMode = searchMode === "obra" || searchMode === "persona";
   const modeUi = SEARCH_MODE_UI[searchMode];
+  const views = useMemo(() => {
+    const next = [PALETTE_VIEWS.comandos];
+    if (canSearchPeople) next.push(PALETTE_VIEWS.persona);
+    if (canSearchObras) next.push(PALETTE_VIEWS.obra);
+    return next;
+  }, [canSearchPeople, canSearchObras]);
+  const activeViewId = inEntityMode ? searchMode : "comandos";
+  const activeView = PALETTE_VIEWS[activeViewId] || PALETTE_VIEWS.comandos;
 
   const filteredCommands = useMemo(() => {
     if (inEntityMode) return [];
@@ -81,19 +128,39 @@ export default function CommandPalette({
     onExitSearchMode?.();
   }, [onExitSearchMode]);
 
+  const selectView = useCallback(
+    (viewId) => {
+      if (viewId === activeViewId) {
+        inputRef.current?.focus();
+        return;
+      }
+      if (viewId === "comandos") onExitSearchMode?.();
+      else onSearchModeChange?.(viewId);
+      setTimeout(() => inputRef.current?.focus(), 0);
+    },
+    [activeViewId, onExitSearchMode, onSearchModeChange],
+  );
+
+  const cycleView = useCallback(
+    (direction) => {
+      if (views.length < 2) {
+        inputRef.current?.focus();
+        return;
+      }
+      const idx = views.findIndex((view) => view.id === activeViewId);
+      const safeIdx = idx === -1 ? 0 : idx;
+      const next = views[(safeIdx + direction + views.length) % views.length];
+      selectView(next.id);
+    },
+    [views, activeViewId, selectView],
+  );
+
   useEffect(() => { setSelectedIndex(0); }, [query, isOpen, visibleActions.length, searchMode]);
 
   useEffect(() => {
     if (isOpen) setTimeout(() => inputRef.current?.focus(), 50);
     else setQuery("");
-  }, [isOpen]);
-
-  useEffect(() => {
-    if (inEntityMode) {
-      setQuery("");
-      setTimeout(() => inputRef.current?.focus(), 50);
-    }
-  }, [searchMode, inEntityMode]);
+  }, [isOpen, searchMode]);
 
   useEffect(() => {
     onQueryChange?.(isOpen ? query : "", isOpen ? searchMode : null);
@@ -102,6 +169,12 @@ export default function CommandPalette({
   useEffect(() => {
     if (!isOpen) return;
     const handleKeyDown = (e) => {
+      if (e.key === "Tab" && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        cycleView(e.shiftKey ? -1 : 1);
+        return;
+      }
       if (e.key === "ArrowDown") {
         if (!visibleActions.length) return;
         e.preventDefault();
@@ -123,9 +196,9 @@ export default function CommandPalette({
         }
       }
     };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, visibleActions, selectedIndex, onClose, exitMode, inEntityMode, query, runAction]);
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => window.removeEventListener("keydown", handleKeyDown, true);
+  }, [isOpen, visibleActions, selectedIndex, onClose, exitMode, inEntityMode, query, runAction, cycleView]);
 
   useEffect(() => {
     const selectedEl = listRef.current?.querySelector("[data-palette-selected='true']");
@@ -152,12 +225,17 @@ export default function CommandPalette({
       <button
         key={action.id || idx}
         type="button"
+        tabIndex={-1}
         data-palette-selected={idx === selectedIndex ? "true" : undefined}
+        onMouseDown={(e) => e.preventDefault()}
         onClick={() => runAction(action)}
+        onMouseMove={(e) => {
+          if (!e.movementX && !e.movementY) return;
+          setSelectedIndex(idx);
+        }}
         className={`w-full text-left px-3 py-2.5 rounded-lg flex items-center justify-between text-sm transition-colors group ${
-          idx === selectedIndex ? "bg-indigo-600 text-white shadow-md" : "text-slate-600 hover:bg-slate-50"
+          idx === selectedIndex ? activeView.row : "text-slate-600 hover:bg-slate-50"
         }`}
-        onMouseEnter={() => setSelectedIndex(idx)}
       >
         <div className="flex items-center gap-3 overflow-hidden">
           <span className={`shrink-0 p-1.5 rounded-md ${idx === selectedIndex ? "bg-white/20 text-white" : "bg-slate-100 text-slate-500 group-hover:bg-white group-hover:shadow-sm"}`}>
@@ -168,7 +246,7 @@ export default function CommandPalette({
               <HighlightSearchMatch text={action.label} query={query} />
             </span>
             {action.subtitle && (
-              <span className={`truncate text-[11px] ${idx === selectedIndex ? "text-indigo-100" : "text-slate-400"}`}>
+              <span className={`truncate text-[11px] ${idx === selectedIndex ? activeView.rowSub : "text-slate-400"}`}>
                 <HighlightSearchMatch text={action.subtitle} query={query} />
               </span>
             )}
@@ -184,42 +262,69 @@ export default function CommandPalette({
 
   return createPortal(
     <div className="fixed inset-0 z-[200] flex items-start justify-center pt-[15vh] px-4 bg-slate-900/40 backdrop-blur-sm transition-all" onClick={onClose}>
-      <div className="w-full max-w-lg bg-white rounded-xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200" onClick={(e) => e.stopPropagation()}>
+      <div
+        data-palette-view={activeViewId}
+        className="w-full max-w-lg bg-white rounded-xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className={`h-1.5 w-full transition-colors duration-200 ${activeView.bar}`} />
 
-        {inEntityMode && (
-          <div className="flex items-center gap-2 px-3 pt-3 pb-0">
-            <button
-              type="button"
-              onClick={exitMode}
-              className="p-1.5 rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-800"
-              title="Volver a comandos"
+        {views.length > 1 && (
+          <div className="px-3 pt-3">
+            <div
+              role="tablist"
+              aria-label="Vista de búsqueda"
+              className="grid gap-1 rounded-lg bg-slate-100 p-1"
+              style={{ gridTemplateColumns: `repeat(${views.length}, minmax(0, 1fr))` }}
             >
-              <IconChevronLeft size={16} />
-            </button>
-            <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-600">
-              {modeUi.title}
-            </span>
+              {views.map((view) => {
+                const selected = view.id === activeViewId;
+                const ViewIcon = view.Icon;
+                return (
+                  <button
+                    key={view.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={selected}
+                    tabIndex={-1}
+                    data-palette-view-tab={view.id}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => selectView(view.id)}
+                    className={`flex items-center justify-center gap-1.5 rounded-md px-2 py-2 text-xs font-semibold transition-colors ${
+                      selected ? view.tabActive : "text-slate-500 hover:bg-white/70 hover:text-slate-800"
+                    }`}
+                  >
+                    <ViewIcon size={14} />
+                    {view.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         )}
 
-        <div className="flex items-center px-4 border-b border-slate-100 py-3">
-          <IconSearch className="text-slate-400 mr-3" size={20} />
+        <div className={`flex items-center px-4 border-b py-3 transition-colors ${activeView.field}`}>
+          <IconSearch className="text-slate-400 mr-3 shrink-0" size={20} />
           <input
             ref={inputRef}
             type="text"
             className="flex-1 text-base outline-none text-slate-700 placeholder:text-slate-400 bg-transparent"
-            placeholder={modeUi?.placeholder || "Buscar comando o gira..."}
+            placeholder={activeView.placeholder}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
-          {isSearchingEntities ? (
-            <IconLoader size={16} className="text-indigo-500 mr-2" />
-          ) : (
+          <div className="flex items-center gap-1 shrink-0 ml-2">
+            {isSearchingEntities && <IconLoader size={16} className="text-slate-400 mr-1" />}
+            {views.length > 1 && (
+              <span title="Cambiar de vista" className="text-[10px] font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+                Tab
+              </span>
+            )}
             <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">ESC</span>
-          )}
+          </div>
         </div>
 
-        <div ref={listRef} className="max-h-[60vh] overflow-y-auto p-2">
+        <div key={activeViewId} ref={listRef} className="max-h-[60vh] overflow-y-auto p-2 animate-in fade-in duration-150">
           {inEntityMode && !query.trim() && (
             <div className="px-3 py-6 text-center text-slate-400 text-sm">
               {modeUi.empty}

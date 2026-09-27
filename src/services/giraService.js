@@ -18,6 +18,7 @@ import {
   sortFamiliasParticipantes,
 } from "../utils/participantesSort";
 import { formatTramoTitle, resolvePersonIsLocal } from "../utils/giraTramos";
+import { attachEnsambleCfIds } from "../utils/serviciosEnsambleReport";
 import { buildGiraInstrumentOverrideMap, normalize } from "../utils/giraUtils";
 import {
   bookingBelongsToSegment,
@@ -324,6 +325,7 @@ export const fetchAsistenciaMatrixBaseData = async (supabase) => {
     const [
       integrantesRes,
       ensRes,
+      ensCfRes,
       ieRes,
       catalogRes,
       giInstrRes,
@@ -337,9 +339,10 @@ export const fetchAsistenciaMatrixBaseData = async (supabase) => {
       supabase
         .from("ensambles")
         .select(
-          "id, ensamble, id_localidad, localidades(id, localidad, id_region, regiones(id, region))",
+          "id, ensamble, id_localidad, id_familia, localidades(id, localidad, id_region, regiones(id, region))",
         )
         .order("ensamble"),
+      supabase.from("ensambles_cf").select("id_ensamble, id_ensamble_cf"),
       supabase
         .from("integrantes_ensambles")
         .select("id_ensamble, id_integrante, fecha_desde, fecha_hasta"),
@@ -358,6 +361,7 @@ export const fetchAsistenciaMatrixBaseData = async (supabase) => {
     const err =
       integrantesRes.error ||
       ensRes.error ||
+      ensCfRes.error ||
       ieRes.error ||
       catalogRes.error ||
       giInstrRes.error;
@@ -380,7 +384,7 @@ export const fetchAsistenciaMatrixBaseData = async (supabase) => {
     return {
       programas,
       integrantes: integrantesRes.data || [],
-      ensambles: ensRes.data || [],
+      ensambles: attachEnsambleCfIds(ensRes.data || [], ensCfRes.data || []),
       memberships: filterMembershipRowsForProgramDate(membershipsRaw, hoy),
       instrumentCatalog: catalogRes.data || [],
       giraInstrumentOverrideMap: buildGiraInstrumentOverrideMap(

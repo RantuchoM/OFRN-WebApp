@@ -1,53 +1,22 @@
 import {
   applyMultiTokenOrIlike,
   filterAndRankMultiTokenSearch,
-  normalizeForSearch,
+  splitSearchTokens,
 } from "./sanitize";
 
-/** Prefijos/alias que clavan el comando de búsqueda al tope de la paleta. */
-export const PALETTE_PERSON_SEARCH_ALIASES = ["personas", "persona"];
-export const PALETTE_REPERTOIRE_SEARCH_ALIASES = ["repertorio", "obras", "obra"];
-const PALETTE_PIN_MIN_CHARS = 3;
-
 /**
- * `pers` → personas, `rep` → repertorio, `obra`/`obras` exactos.
- * No pinnea con 1–2 letras para no tapar el resto de comandos.
- */
-export function shouldPinPaletteSearchCommand(query, aliases) {
-  const q = normalizeForSearch(query);
-  if (q.length < PALETTE_PIN_MIN_CHARS) return false;
-  return (aliases || []).some((alias) => {
-    const a = normalizeForSearch(alias);
-    return !!a && (a.startsWith(q) || q === a);
-  });
-}
-
-/**
- * Filtra comandos de la paleta y pone Buscar personas / repertorio primero
- * cuando el query es prefijo de sus alias.
+ * Filtra comandos de la paleta. Personas y repertorio no son ítems:
+ * se entra con Tab, en las vistas del selector.
  */
 export function rankPaletteCommands(actions, query) {
   const trimmed = String(query || "").trim();
   if (!trimmed) return actions.slice(0, 10);
 
-  const ranked = filterAndRankMultiTokenSearch(
+  return filterAndRankMultiTokenSearch(
     actions,
-    (action) => [
-      action.label,
-      action.section,
-      action.subtitle,
-      ...(action.aliases || []),
-    ],
+    (action) => [action.label, action.section, action.subtitle, ...(action.aliases || [])],
     trimmed,
   );
-
-  const pinned = [];
-  const rest = [];
-  for (const action of ranked) {
-    if (shouldPinPaletteSearchCommand(trimmed, action.aliases)) pinned.push(action);
-    else rest.push(action);
-  }
-  return [...pinned, ...rest];
 }
 
 export const PALETTE_ENTITY_MIN_QUERY = 2;
@@ -116,33 +85,23 @@ function mergeById(rows) {
 }
 
 /**
- * Busca obras por título, compositor/arreglador o id numérico.
- * No vuelca el catálogo: debounce + límite en el caller.
+ * Un token contra título o contra apellido/nombre del compositor.
+ * El AND entre tokens lo hace el ranking cliente, para que «Tchai Ele»
+ * encuentre Elegy (título) de Tchaikovsky (compositor).
  */
-export async function searchPaletteObras(supabase, query) {
-  const trimmed = String(query || "").trim();
-  if (!supabase || trimmed.length < PALETTE_ENTITY_MIN_QUERY) return [];
-
-  const numericId = isNumericIdQuery(trimmed);
-
+async function obrasMatchingToken(supabase, token) {
   let byTitleQuery = supabase.from("obras").select(OBRA_SELECT);
-  byTitleQuery = applyMultiTokenOrIlike(byTitleQuery, ["titulo"], trimmed);
+  byTitleQuery = applyMultiTokenOrIlike(byTitleQuery, ["titulo"], token);
   const titlePromise = byTitleQuery.limit(FETCH_LIMIT);
 
   let composersQuery = supabase.from("compositores").select("id");
-  composersQuery = applyMultiTokenOrIlike(
-    composersQuery,
-    ["apellido", "nombre"],
-    trimmed,
-  );
+  composersQuery = applyMultiTokenOrIlike(composersQuery, ["apellido", "nombre"], token);
   const composersPromise = composersQuery.limit(20);
 
-  const idPromise = numericId
-    ? supabase.from("obras").select(OBRA_SELECT).eq("id", numericId).maybeSingle()
-    : Promise.resolve({ data: null });
-
-  const [{ data: byTitle }, { data: composers }, { data: byIdRow }] =
-    await Promise.all([titlePromise, composersPromise, idPromise]);
+  const [{ data: byTitle }, { data: composers }] = await Promise.all([
+    titlePromise,
+    composersPromise,
+  ]);
 
   let byComposer = [];
   const composerIds = (composers || []).map((c) => c.id).filter((id) => id != null);
@@ -157,9 +116,33 @@ export async function searchPaletteObras(supabase, query) {
     byComposer = data || [];
   }
 
+  return [...(byTitle || []), ...byComposer];
+}
+
+/**
+ * Busca obras por título, compositor/arreglador o id numérico.
+ * Cada token se busca solo (título o compositor). El AND entre palabras
+ * queda en el cliente, sobre título + compositor juntos.
+ * No vuelca el catálogo: debounce + límite en el caller.
+ */
+export async function searchPaletteObras(supabase, query) {
+  const trimmed = String(query || "").trim();
+  if (!supabase || trimmed.length < PALETTE_ENTITY_MIN_QUERY) return [];
+
+  const numericId = isNumericIdQuery(trimmed);
+  const tokens = splitSearchTokens(trimmed);
+
+  const idPromise = numericId
+    ? supabase.from("obras").select(OBRA_SELECT).eq("id", numericId).maybeSingle()
+    : Promise.resolve({ data: null });
+
+  const [tokenGroups, { data: byIdRow }] = await Promise.all([
+    Promise.all(tokens.map((token) => obrasMatchingToken(supabase, token))),
+    idPromise,
+  ]);
+
   const merged = mergeById([
-    ...(byTitle || []),
-    ...byComposer,
+    ...tokenGroups.flat(),
     ...(byIdRow ? [byIdRow] : []),
   ]);
 
@@ -171,14 +154,10 @@ export async function searchPaletteObras(supabase, query) {
 }
 
 /**
- * Busca integrantes reales (no vacantes) por nombre, instrumento o id numérico.
+ * Un token contra nombre/apellido o contra el instrumento.
+ * El AND entre tokens lo hace el ranking cliente.
  */
-export async function searchPalettePeople(supabase, query) {
-  const trimmed = String(query || "").trim();
-  if (!supabase || trimmed.length < PALETTE_ENTITY_MIN_QUERY) return [];
-
-  const numericId = isNumericIdQuery(trimmed);
-
+async function peopleMatchingToken(supabase, token) {
   let byName = supabase
     .from("integrantes")
     .select(PERSON_SELECT)
@@ -186,25 +165,18 @@ export async function searchPalettePeople(supabase, query) {
   byName = applyMultiTokenOrIlike(
     byName,
     ["nombre", "apellido", "nombre_preferencia", "apellido_preferencia"],
-    trimmed,
+    token,
   );
   const namePromise = byName.limit(FETCH_LIMIT);
 
   let instrQuery = supabase.from("instrumentos").select("id");
-  instrQuery = applyMultiTokenOrIlike(instrQuery, ["instrumento"], trimmed);
+  instrQuery = applyMultiTokenOrIlike(instrQuery, ["instrumento"], token);
   const instrPromise = instrQuery.limit(20);
 
-  const idPromise = numericId
-    ? supabase
-        .from("integrantes")
-        .select(PERSON_SELECT)
-        .eq("id", numericId)
-        .eq("es_simulacion", false)
-        .maybeSingle()
-    : Promise.resolve({ data: null });
-
-  const [{ data: named }, { data: instruments }, { data: byIdRow }] =
-    await Promise.all([namePromise, instrPromise, idPromise]);
+  const [{ data: named }, { data: instruments }] = await Promise.all([
+    namePromise,
+    instrPromise,
+  ]);
 
   let byInstr = [];
   const instrIds = (instruments || []).map((i) => i.id).filter((id) => id != null);
@@ -218,9 +190,37 @@ export async function searchPalettePeople(supabase, query) {
     byInstr = data || [];
   }
 
+  return [...(named || []), ...byInstr];
+}
+
+/**
+ * Busca integrantes reales (no vacantes) por nombre, instrumento o id numérico.
+ * Cada token se busca solo (nombre o instrumento). El AND entre palabras
+ * queda en el cliente.
+ */
+export async function searchPalettePeople(supabase, query) {
+  const trimmed = String(query || "").trim();
+  if (!supabase || trimmed.length < PALETTE_ENTITY_MIN_QUERY) return [];
+
+  const numericId = isNumericIdQuery(trimmed);
+  const tokens = splitSearchTokens(trimmed);
+
+  const idPromise = numericId
+    ? supabase
+        .from("integrantes")
+        .select(PERSON_SELECT)
+        .eq("id", numericId)
+        .eq("es_simulacion", false)
+        .maybeSingle()
+    : Promise.resolve({ data: null });
+
+  const [tokenGroups, { data: byIdRow }] = await Promise.all([
+    Promise.all(tokens.map((token) => peopleMatchingToken(supabase, token))),
+    idPromise,
+  ]);
+
   const merged = mergeById([
-    ...(named || []),
-    ...byInstr,
+    ...tokenGroups.flat(),
     ...(byIdRow ? [byIdRow] : []),
   ]).filter((person) => !person.es_simulacion);
 

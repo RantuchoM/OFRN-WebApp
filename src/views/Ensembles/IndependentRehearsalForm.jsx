@@ -179,6 +179,7 @@ export default function IndependentRehearsalForm({
   membersOptions: membersOptionsProp = null,
   ensamblesOptions: ensamblesOptionsProp = null,
   activeMemberIds = null,
+  confirmOverlayZ = "z-[100]",
 }) {
   const { isEditor, isManagement } = useAuth();
   const { confirm, dialog } = useConfirmDialog();
@@ -474,6 +475,7 @@ export default function IndependentRehearsalForm({
         message:
           "¿Marcar este ensayo como eliminado? Se ocultará de la vista activa y se eliminará definitivamente en 24 horas.",
         destructive: true,
+        overlayClassName: confirmOverlayZ,
       }))
     )
       return;
@@ -909,6 +911,7 @@ export default function IndependentRehearsalForm({
         message="Has modificado los datos del ensayo. Si sales ahora, se perderán todos los cambios que no hayas guardado."
         confirmText="Descartar y salir"
         cancelText="Continuar editando"
+        overlayClassName={confirmOverlayZ}
       />
     </>
   );

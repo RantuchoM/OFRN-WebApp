@@ -718,7 +718,7 @@ Obra **nueva** (#**3595**), distinta de #3491 (ARIAS solo orquesta, tag `Medoza 
 - [x] El rol **`arreglador`** puede abrir **Repertorio / Archivo** en **solo lectura** (menú, command palette y `?tab=repertorio`).
 - [x] `canEdit` en `RepertoireView`: `isEditor || isArchivista || isManagement`. Arreglador sin esos roles ve listado, filtros, export «Ya programado», historial, links Drive y copiar enlaces; **no** puede crear/editar/eliminar obras, gestionar compositores/tags, selección masiva ni asignar a programa.
 - [x] Badge **«Solo lectura»** en el encabezado cuando `!canEdit`.
-- [x] **Ctrl+K:** comando **Buscar repertorio**; al escribir, `ilike` limitado (no se carga el archivo completo al abrir la paleta). Spec `docs/specs/command-palette.md`.
+- [x] **Ctrl+K:** vista **Repertorio** con Tab; al escribir, `ilike` limitado (no se carga el archivo completo al abrir la paleta). Spec `docs/specs/command-palette.md`.
 
 ---
 

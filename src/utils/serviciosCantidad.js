@@ -6,7 +6,11 @@ import {
   programOverlapsDateRange,
   toLocalDateString,
 } from "./giraDateRange";
-import { isIntegranteConvocadoToEnsayo, isProgramBorrador } from "./girasYearSummary";
+import {
+  isIntegranteConvocadoToEnsayo,
+  isProgramBorrador,
+  orderedProgramTypeEntries,
+} from "./girasYearSummary";
 import { integranteKey } from "./integranteIds";
 import { formatSecondsToHm } from "./time";
 
@@ -29,6 +33,9 @@ export const SERVICIO_EVENT_TYPE_IDS = [
 
 /** 2 horas en segundos (hora_inicio/hora_fin → minutos × 60). Exactamente 2 h cuenta como 1. */
 export const ENSAYO_FULL_SECONDS = 2 * 3600;
+
+/** Bloques de 30 min o menos (temperamento, afinación) no cuentan. */
+export const ENSAYO_MIN_COUNT_SECONDS = 30 * 60;
 
 export const ATOMIC_KIND_KEYS = [
   "concierto",
@@ -87,7 +94,8 @@ export const SERVICIO_COLUMN_DEFS = [
     key: "ensayo_lt2h",
     label: "Ensayos <2h",
     shortLabel: "<2h",
-    title: "Ensayos de ensamble o gira de menos de 2 h · ½ servicio c/u",
+    title:
+      "Ensayos de ensamble o gira de más de 30 min y menos de 2 h · ½ servicio c/u (15/30 min = 0)",
     sources: ["ensayo_ensamble_half", "ensayo_gira_half"],
     chipClass: "bg-amber-50 text-amber-900",
   },
@@ -95,7 +103,8 @@ export const SERVICIO_COLUMN_DEFS = [
     key: "ensamble",
     label: "Ensamble",
     shortLabel: "Ensam.",
-    title: "Ensayos de ensamble (misma regla 1 / ½ según duración)",
+    title:
+      "Ensayos de ensamble (1 si ≥2 h; ½ si >30 min y <2 h; 15/30 min = 0)",
     sources: ["ensayo_ensamble_full", "ensayo_ensamble_half"],
     chipClass: "bg-cyan-50 text-cyan-800",
   },
@@ -103,7 +112,8 @@ export const SERVICIO_COLUMN_DEFS = [
     key: "gira",
     label: "Gira",
     shortLabel: "Gira",
-    title: "Ensayos de gira (Ensayo / Ensayo General; misma regla 1 / ½)",
+    title:
+      "Ensayos de gira (Ensayo / Ensayo General; 1 si ≥2 h; ½ si >30 min y <2 h; 15/30 min = 0)",
     sources: ["ensayo_gira_full", "ensayo_gira_half"],
     chipClass: "bg-sky-50 text-sky-800",
   },
@@ -239,6 +249,7 @@ export function formatServicioHitBandPlain(hit) {
 function classifyEnsayoByDuration(evt, origin) {
   const secs = eventDurationSeconds(evt);
   if (secs == null) return null;
+  if (secs <= ENSAYO_MIN_COUNT_SECONDS) return null;
   const isFull = secs >= ENSAYO_FULL_SECONDS;
   const kind =
     origin === "ensamble"
@@ -257,6 +268,16 @@ function classifyEnsayoByDuration(evt, origin) {
   };
 }
 
+/** Concierto/didáctico de 30 min o menos (poco habitual) tampoco cuenta. */
+function classifyConciertoByDuration(evt) {
+  const secs = eventDurationSeconds(evt);
+  if (secs != null && secs <= ENSAYO_MIN_COUNT_SECONDS) return null;
+  if (evt.es_didactico) {
+    return { kind: "didactico", value: 0.5, origin: "didactico" };
+  }
+  return { kind: "concierto", value: 1, origin: "concierto" };
+}
+
 /**
  * Clasifica un evento y su valor de servicio (sin resolver convocatoria).
  * @returns {{ kind: ServicioKind, value: number, durationSeconds?: number, durationBand?: string, origin: string } | null}
@@ -268,10 +289,7 @@ export function classifyServicioEvent(evt) {
     return classifyEnsayoByDuration(evt, "ensamble");
   }
   if (tipo === ID_TIPO_CONCIERTO) {
-    if (evt.es_didactico) {
-      return { kind: "didactico", value: 0.5, origin: "didactico" };
-    }
-    return { kind: "concierto", value: 1, origin: "concierto" };
+    return classifyConciertoByDuration(evt);
   }
   if (tipo === ID_TIPO_ENSAYO_GIRA || tipo === ID_TIPO_ENSAYO_GENERAL) {
     return classifyEnsayoByDuration(evt, "gira");
@@ -544,9 +562,126 @@ export function computeGiraServiciosAverage({
   return { mean, byKind, observations: n, girasUsed };
 }
 
+/** Promedio fijo de servicios de gira para sinfónicas futuras (redondo). */
+export const FIXED_FUTURE_GIRA_SERVICIOS = 10;
+
+/** Mezcla típica que suma 10 (1 concierto + ensayos de gira; sin didáctico). */
+/** 1 concierto + 9 ensayos ≥2h. Los 3 bloques cortos (15/30 min) ya no entran. Suma 10. */
+export const FIXED_FUTURE_GIRA_BY_KIND = {
+  concierto: 1,
+  didactico: 0,
+  ensayo_gira_full: 9,
+  ensayo_gira_half: 0,
+};
+
+export function getFixedGiraServiciosAverage() {
+  return {
+    mean: FIXED_FUTURE_GIRA_SERVICIOS,
+    byKind: { ...FIXED_FUTURE_GIRA_BY_KIND },
+    observations: 0,
+    girasUsed: 0,
+    source: "fixed",
+  };
+}
+
 export function formatGiraAveragePlain(avg) {
   if (avg?.mean == null) return "sin promedio";
   return `promedio ${formatServicioNumber(avg.mean)} serv./gira`;
+}
+
+/** `nomenclador` + nombre de programa (sin mes ni zona). */
+export function formatProgramNomencladorNombre(program) {
+  const nom = String(program?.nomenclador ?? "").trim();
+  const nombre = String(program?.nombre_gira ?? "").trim();
+  return [nom, nombre].filter(Boolean).join(" ").trim();
+}
+
+/**
+ * Hits de una persona agrupados por `programas.tipo` (mismo orden que
+ * el resumen del año en Giras). Cada tipo lista nomenclador + nombre.
+ */
+export function groupHitsByProgramTipo(hits, programaById, ensambleById) {
+  const byTipo = new Map();
+  const ensure = (tipo) => {
+    if (!byTipo.has(tipo)) {
+      byTipo.set(tipo, { tipo, value: 0, programs: new Map() });
+    }
+    return byTipo.get(tipo);
+  };
+  const addProgram = (tipo, key, label, value) => {
+    const bucket = ensure(tipo);
+    bucket.value += Number(value || 0);
+    if (!key || !label) return;
+    const prev = bucket.programs.get(key);
+    if (prev) prev.value += Number(value || 0);
+    else {
+      bucket.programs.set(key, {
+        key,
+        label,
+        value: Number(value || 0),
+      });
+    }
+  };
+
+  for (const hit of hits || []) {
+    const v = Number(hit.value || 0);
+    const evt = hit.event || {};
+    const ids = eventAssociatedProgramaIds(evt);
+    const programs = [];
+    const seen = new Set();
+    for (const id of ids) {
+      const p = programaById?.get?.(id) || programaById?.get?.(Number(id));
+      if (!p || seen.has(Number(p.id))) continue;
+      seen.add(Number(p.id));
+      programs.push(p);
+    }
+    if (programs.length) {
+      const primary =
+        (evt.id_gira != null &&
+          (programaById?.get?.(evt.id_gira) ||
+            programaById?.get?.(Number(evt.id_gira)))) ||
+        programs[0];
+      const tipo = primary?.tipo || "General";
+      const label =
+        formatProgramNomencladorNombre(primary) || `Programa ${primary.id}`;
+      addProgram(tipo, String(primary.id), label, v);
+      for (const p of programs) {
+        if (Number(p.id) === Number(primary.id)) continue;
+        const t = p.tipo || "General";
+        const lab = formatProgramNomencladorNombre(p) || `Programa ${p.id}`;
+        const bucket = ensure(t);
+        if (!bucket.programs.has(String(p.id))) {
+          bucket.programs.set(String(p.id), {
+            key: String(p.id),
+            label: lab,
+            value: 0,
+          });
+        }
+      }
+    } else {
+      const ensNames = (evt.eventos_ensambles || [])
+        .map((row) => ensambleById?.get(Number(row.id_ensamble))?.ensamble)
+        .filter(Boolean);
+      if (ensNames.length) {
+        const label = ensNames.join(", ");
+        addProgram("Ensamble", `ens:${label}`, label, v);
+      } else if (v) {
+        addProgram("General", "otros", "Otros", v);
+      }
+    }
+  }
+
+  const counts = {};
+  for (const [tipo, bucket] of byTipo) {
+    counts[tipo] = bucket.programs.size || (bucket.value > 0 ? 1 : 0);
+  }
+  return orderedProgramTypeEntries(counts, {}).map(({ tipo }) => {
+    const bucket = byTipo.get(tipo);
+    const programs = [...(bucket?.programs.values() || [])].sort((a, b) =>
+      a.label.localeCompare(b.label, "es"),
+    );
+    return { tipo, value: bucket?.value || 0, programs };
+  });
 }
 
 function skipExactGiraHit(hit, evt, estimableIds) {

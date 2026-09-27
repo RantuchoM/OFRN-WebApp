@@ -1,18 +1,27 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
 import {
     membershipActiveOnProgramDate,
     toIsoDateString,
 } from '../../utils/ensembleMembership';
-import { IconLayers, IconPlus, IconTrash, IconEdit, IconSearch, IconLoader, IconCheck, IconMusic, IconUsers, IconMail, IconMapPin } from '../../components/ui/Icons';
+import { IconLayers, IconPlus, IconTrash, IconEdit, IconSearch, IconLoader, IconCheck, IconMusic, IconUsers, IconMail, IconMapPin, IconTag, IconX } from '../../components/ui/Icons';
 import WhatsAppLink from '../../components/ui/WhatsAppLink';
 import DateInput from '../../components/ui/DateInput';
 import ConfirmDialog from '../../components/ui/ConfirmDialog';
 import SearchableSelect from '../../components/ui/SearchableSelect';
+import MultiSelect from '../../components/ui/MultiSelect';
 import { BajaDateField, BajaDateModal } from '../../components/ui/BajaDateControls';
 import EnsembleProgramManager from './EnsembleProgramManager';
 import { useConfirmDialog } from '../../hooks/useConfirmDialog';
 import { matchesMultiTokenSearch } from '../../utils/sanitize';
+import { isCamerataEnsambleRow } from '../../utils/convocatoriaEnsambleViews';
+import {
+    ENSAMBLE_FAMILIA_OPTIONS,
+    attachEnsambleCfIds,
+    listCamerataCfOptions,
+    storedEnsambleCfIds,
+} from '../../utils/serviciosEnsambleReport';
 
 const createEmptyEnsembleInstrumentation = () => ({
     fl: 0,
@@ -88,7 +97,7 @@ export default function EnsemblesView({ supabase }) {
     const [loadingMembers, setLoadingMembers] = useState(false);
     const [togglingId, setTogglingId] = useState(null); 
     const [isEditingHeader, setIsEditingHeader] = useState(false);
-    const [headerForm, setHeaderForm] = useState({ ensamble: '', descripcion: '', id_localidad: null });
+    const [headerForm, setHeaderForm] = useState({ ensamble: '', descripcion: '', id_localidad: null, id_familia: '', id_ensamble_cf_ids: [] });
     const [localidadOptions, setLocalidadOptions] = useState([]);
     const [musicianSortMode, setMusicianSortMode] = useState('instrument');
     const [coordinatorIds, setCoordinatorIds] = useState(new Set());
@@ -134,6 +143,8 @@ export default function EnsemblesView({ supabase }) {
                 ensamble: selectedEnsemble.ensamble,
                 descripcion: selectedEnsemble.descripcion || '',
                 id_localidad: selectedEnsemble.id_localidad ?? null,
+                id_familia: selectedEnsemble.id_familia || '',
+                id_ensamble_cf_ids: storedEnsambleCfIds(selectedEnsemble),
             });
             setShowMusicianPicker(false);
             setSearchText('');
@@ -152,10 +163,13 @@ export default function EnsemblesView({ supabase }) {
     // --- CAMBIO 1: PEDIR EL COUNT A SUPABASE ---
     const fetchEnsembles = async () => {
         // 'integrantes_ensambles(count)' nos devuelve el número de relaciones
-        const { data, error } = await supabase
-            .from('ensambles')
-            .select('*, integrantes_ensambles(count), localidades(id, localidad)')
-            .order('ensamble');
+        const [{ data, error }, cfRes] = await Promise.all([
+            supabase
+                .from('ensambles')
+                .select('*, integrantes_ensambles(count), localidades(id, localidad)')
+                .order('ensamble'),
+            supabase.from('ensambles_cf').select('id_ensamble, id_ensamble_cf'),
+        ]);
         if (error) return;
 
         const hoyListado = new Date().toISOString().slice(0, 10);
@@ -185,7 +199,8 @@ export default function EnsemblesView({ supabase }) {
             }
         });
 
-        const enriched = (data || []).map((ensamble) => ({
+        const withCf = attachEnsambleCfIds(data || [], cfRes.data || []);
+        const enriched = withCf.map((ensamble) => ({
             ...ensamble,
             instrumentationLabel: formatEnsembleInstrumentation(instrumentationByEnsemble[ensamble.id]),
         }));
@@ -267,23 +282,51 @@ export default function EnsemblesView({ supabase }) {
         const idLocalidad = headerForm.id_localidad === '' || headerForm.id_localidad == null
             ? null
             : Number(headerForm.id_localidad);
+        const cfIds = [...new Set(
+            (headerForm.id_ensamble_cf_ids || [])
+                .map((id) => Number(id))
+                .filter((id) => Number.isFinite(id) && id > 0 && id !== Number(selectedEnsemble.id)),
+        )];
         const payload = {
             ensamble: headerForm.ensamble,
             descripcion: headerForm.descripcion,
             id_localidad: idLocalidad,
+            id_familia: headerForm.id_familia || null,
         };
         const { error } = await supabase.from('ensambles').update(payload).eq('id', selectedEnsemble.id);
-        if (error) toast.error("Error al actualizar: " + error.message);
-        else {
-            setIsEditingHeader(false);
-            await fetchEnsembles();
-            const locLabel = localidadOptions.find((o) => Number(o.id) === idLocalidad)?.label || null;
-            setSelectedEnsemble({
-                ...selectedEnsemble,
-                ...payload,
-                localidades: locLabel ? { id: idLocalidad, localidad: locLabel } : null,
-            });
+        if (error) {
+            toast.error("Error al actualizar: " + error.message);
+            return;
         }
+        const { error: delErr } = await supabase
+            .from('ensambles_cf')
+            .delete()
+            .eq('id_ensamble', selectedEnsemble.id);
+        if (delErr) {
+            toast.error("Error al actualizar CF: " + delErr.message);
+            return;
+        }
+        if (cfIds.length) {
+            const { error: insErr } = await supabase.from('ensambles_cf').insert(
+                cfIds.map((id_ensamble_cf) => ({
+                    id_ensamble: selectedEnsemble.id,
+                    id_ensamble_cf,
+                })),
+            );
+            if (insErr) {
+                toast.error("Error al guardar CF: " + insErr.message);
+                return;
+            }
+        }
+        setIsEditingHeader(false);
+        await fetchEnsembles();
+        const locLabel = localidadOptions.find((o) => Number(o.id) === idLocalidad)?.label || null;
+        setSelectedEnsemble({
+            ...selectedEnsemble,
+            ...payload,
+            id_ensamble_cf_ids: cfIds,
+            localidades: locLabel ? { id: idLocalidad, localidad: locLabel } : null,
+        });
     };
 
     const toggleMembership = async (musicianId) => {
@@ -449,6 +492,16 @@ export default function EnsemblesView({ supabase }) {
         }
         return (a.apellido || '').localeCompare(b.apellido || '');
     });
+    const cfParentOptions = listCamerataCfOptions(ensembles, selectedEnsemble?.id);
+    const isCamerataSelected = selectedEnsemble && isCamerataEnsambleRow(selectedEnsemble);
+    const cfParentNames = storedEnsambleCfIds(selectedEnsemble)
+        .map((id) => ensembles.find((e) => Number(e.id) === Number(id))?.ensamble)
+        .filter(Boolean);
+    const familiaOptions = ENSAMBLE_FAMILIA_OPTIONS.map((f) => ({ id: f, label: f }));
+    if (headerForm.id_familia && !ENSAMBLE_FAMILIA_OPTIONS.includes(headerForm.id_familia)) {
+        familiaOptions.push({ id: headerForm.id_familia, label: headerForm.id_familia });
+    }
+
     const visibleMusicians = showMusicianPicker ? filteredMusicians : sortedEnsembleMembers;
     const firstNonMemberIndex = filteredMusicians.findIndex(m => !memberIds.has(m.id) && !memberIds.has(Number(m.id)));
 
@@ -552,38 +605,87 @@ export default function EnsemblesView({ supabase }) {
                 {selectedEnsemble ? (
                     <>
                         <div className="p-4 lg:p-5 border-b border-slate-100 bg-slate-50">
-                            {isEditingHeader ? (
-                                <div className="space-y-3 animate-in fade-in duration-200">
-                                    <input type="text" className="w-full text-2xl font-bold border border-indigo-300 rounded px-2 py-1 focus:ring-2 focus:ring-indigo-500 outline-none" value={headerForm.ensamble} onChange={(e) => setHeaderForm({...headerForm, ensamble: e.target.value})} placeholder="Nombre del Ensamble"/>
-                                    <textarea className="w-full text-sm border border-indigo-300 rounded px-2 py-1 focus:ring-2 focus:ring-indigo-500 outline-none resize-none h-20" value={headerForm.descripcion} onChange={(e) => setHeaderForm({...headerForm, descripcion: e.target.value})} placeholder="Descripción del ensamble..."/>
-                                    <div>
-                                        <label className="text-[10px] font-bold uppercase text-slate-500 mb-1 block">Localidad</label>
-                                        <SearchableSelect
-                                            options={localidadOptions}
-                                            value={headerForm.id_localidad ?? ''}
-                                            onChange={(val) => setHeaderForm({ ...headerForm, id_localidad: val || null })}
-                                            placeholder="Buscar localidad..."
-                                        />
+                            {isEditingHeader && createPortal(
+                                <div
+                                    className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4"
+                                    onMouseDown={(e) => {
+                                        if (e.target === e.currentTarget) setIsEditingHeader(false);
+                                    }}
+                                >
+                                    <div className="w-full max-w-lg space-y-3 rounded-xl bg-white p-4 shadow-2xl" onMouseDown={(e) => e.stopPropagation()}>
+                                        <div className="flex items-start justify-between gap-2">
+                                            <h3 className="text-sm font-bold text-slate-800">Editar ensamble</h3>
+                                            <button type="button" onClick={() => setIsEditingHeader(false)} className="rounded-md p-1 text-slate-400 hover:bg-slate-100" aria-label="Cerrar"><IconX size={18} /></button>
+                                        </div>
+                                        <input type="text" className="w-full text-xl font-bold border border-indigo-300 rounded px-2 py-1 focus:ring-2 focus:ring-indigo-500 outline-none" value={headerForm.ensamble} onChange={(e) => setHeaderForm({...headerForm, ensamble: e.target.value})} placeholder="Nombre del Ensamble"/>
+                                        <textarea className="w-full text-sm border border-indigo-300 rounded px-2 py-1 focus:ring-2 focus:ring-indigo-500 outline-none resize-none h-20" value={headerForm.descripcion} onChange={(e) => setHeaderForm({...headerForm, descripcion: e.target.value})} placeholder="Descripción del ensamble..."/>
+                                        <div>
+                                            <label className="text-[10px] font-bold uppercase text-slate-500 mb-1 block">Localidad</label>
+                                            <SearchableSelect
+                                                options={localidadOptions}
+                                                value={headerForm.id_localidad ?? ''}
+                                                onChange={(val) => setHeaderForm({ ...headerForm, id_localidad: val || null })}
+                                                placeholder="Buscar localidad..."
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="text-[10px] font-bold uppercase text-slate-500 mb-1 flex items-center gap-1"><IconTag size={10} /> Familia</label>
+                                            <SearchableSelect
+                                                options={familiaOptions}
+                                                value={headerForm.id_familia ?? ''}
+                                                onChange={(val) => setHeaderForm({ ...headerForm, id_familia: val || '' })}
+                                                placeholder="Sin familia…"
+                                            />
+                                        </div>
+                                        {!isCamerataSelected && (
+                                            <div>
+                                                <label className="text-[10px] font-bold uppercase text-slate-500 mb-1 flex items-center gap-1"><IconMusic size={10} /> Cameratas CF</label>
+                                                <MultiSelect
+                                                    options={cfParentOptions}
+                                                    selectedIds={headerForm.id_ensamble_cf_ids || []}
+                                                    onChange={(ids) => setHeaderForm({
+                                                        ...headerForm,
+                                                        id_ensamble_cf_ids: (ids || []).map((id) => Number(id)).filter((id) => Number.isFinite(id)),
+                                                    })}
+                                                    placeholder="CFVal / CFMon / CFMar / Jazz Band…"
+                                                />
+                                            </div>
+                                        )}
+                                        <div className="flex gap-2 justify-end"><button type="button" onClick={() => setIsEditingHeader(false)} className="px-3 py-1 bg-white border rounded text-sm hover:bg-slate-50">Cancelar</button><button type="button" onClick={saveHeader} className="px-3 py-1 bg-indigo-600 text-white rounded text-sm hover:bg-indigo-700">Guardar</button></div>
                                     </div>
-                                    <div className="flex gap-2 justify-end"><button onClick={() => setIsEditingHeader(false)} className="px-3 py-1 bg-white border rounded text-sm hover:bg-slate-50">Cancelar</button><button onClick={saveHeader} className="px-3 py-1 bg-indigo-600 text-white rounded text-sm hover:bg-indigo-700">Guardar</button></div>
-                                </div>
-                            ) : (
+                                </div>,
+                                document.body,
+                            )}
                                 <div className="group relative">
                                     <div className="flex items-start justify-between gap-3">
                                         <div>
                                             <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
                                                 {selectedEnsemble.ensamble}
-                                                <button onClick={() => setIsEditingHeader(true)} className="text-slate-300 hover:text-indigo-500 transition-colors opacity-0 group-hover:opacity-100" title="Editar Nombre/Descripción"><IconEdit size={18} /></button>
+                                                <button onClick={() => setIsEditingHeader(true)} className="text-slate-300 hover:text-indigo-500 transition-colors opacity-0 group-hover:opacity-100" title="Editar ensamble"><IconEdit size={18} /></button>
                                             </h2>
                                             <p className="text-slate-500 text-sm mb-1 mt-1">{selectedEnsemble.descripcion || <span className="italic text-slate-400">Sin descripción</span>}</p>
                                             {resolveLocalidadLabel(selectedEnsemble) ? (
-                                                <p className="text-xs text-slate-500 flex items-center gap-1 mb-4">
+                                                <p className="text-xs text-slate-500 flex items-center gap-1 mb-1">
                                                     <IconMapPin size={12} className="text-indigo-500 shrink-0" />
                                                     {resolveLocalidadLabel(selectedEnsemble)}
                                                 </p>
                                             ) : (
-                                                <p className="text-xs text-slate-400 italic mb-4">Sin localidad asignada</p>
+                                                <p className="text-xs text-slate-400 italic mb-1">Sin localidad asignada</p>
                                             )}
+                                            <p className="text-xs text-slate-500 flex flex-wrap items-center gap-2 mb-4">
+                                                <span className="inline-flex items-center gap-1">
+                                                    <IconTag size={12} className="text-indigo-500" />
+                                                    {selectedEnsemble.id_familia || <span className="italic text-slate-400">Sin familia</span>}
+                                                </span>
+                                                {!isCamerataSelected && (
+                                                    <span className="inline-flex items-center gap-1">
+                                                        <IconMusic size={12} className="text-fuchsia-500" />
+                                                        {cfParentNames.length
+                                                            ? cfParentNames.join(" · ")
+                                                            : <span className="italic text-slate-400">Sin CF</span>}
+                                                    </span>
+                                                )}
+                                            </p>
                                         </div>
                                         {selectedEnsemble.instrumentationLabel && (
                                             <div className="text-[10px] lg:text-[11px] font-mono text-slate-600 bg-white border border-slate-200 rounded-md px-2 py-1 shrink-0">
@@ -649,7 +751,6 @@ export default function EnsemblesView({ supabase }) {
                                         <div className="flex justify-between items-center mt-2 text-xs text-slate-400"><span>Total músicos encontrados: {visibleMusicians.length}</span><span>Miembros actuales: {memberIds.size}</span></div>
                                     )}
                                 </div>
-                            )}
                         </div>
                         <div className="flex-1 overflow-y-auto p-2 lg:p-2.5 bg-slate-50/50">
                             {activeView === 'programs' ? (

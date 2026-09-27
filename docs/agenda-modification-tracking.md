@@ -6,9 +6,12 @@ Permitir que los músicos visualicen cambios recientes (24h) y habilitar una "Pa
 ## Especificaciones Técnicas
 
 ### 1. Base de Datos (Tabla `eventos`)
-- `updated_at` (TIMESTAMPTZ): Se actualiza automáticamente en cada `UPDATE`.
+- `updated_at` (TIMESTAMPTZ): Lo pisa `tr_set_eventos_updated_at` / `handle_eventos_updated_at` en cada `UPDATE` **editorial**. No se toca si el único cambio es `ensayo_pese_conflicto` (ni un UPDATE no-op). UnifiedAgenda usa este campo, no `last_modified_at`.
+- `last_modified_at` (TIMESTAMPTZ): Misma regla vía `tr_eventos_update_timestamp` / `update_last_modified_column`. La agenda no lo lee para el pulso.
 - `is_deleted` (BOOLEAN): Indica si el evento ha sido enviado a la papelera.
 - `deleted_at` (TIMESTAMPTZ): Timestamp del momento del borrado.
+
+`ADD COLUMN ... NOT NULL DEFAULT false` (p. ej. `ensayo_pese_conflicto`, `es_didactico`) es catalog-only en PG 11+ y **no** reescribe filas. Un `DEFAULT now()` (volátil) sí reescribe y deja el mismo `updated_at` en todas las filas (cluster histórico `2026-08-10 19:29:30+00`, 2183 eventos). No hacer `UPDATE eventos SET ensayo_pese_conflicto = false` masivo: eso sí dispararía los triggers.
 
 ### 2. Lógica de Negocio (24 Horas)
 - **Modificado recientemente**: `updated_at > (NOW() - INTERVAL '24 hours')`.
