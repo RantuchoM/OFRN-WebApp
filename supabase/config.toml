@@ -1,4 +1,9 @@
 
+[functions.ask-ai]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/ask-ai/index.ts"
+
 [functions.sync-scrn-transporte-calendar]
 enabled = true
 verify_jwt = false
