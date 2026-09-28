@@ -13,6 +13,7 @@ import {
 } from "../../components/ui/Icons";
 import { calculateInstrumentation } from "../../utils/instrumentation";
 import {
+  formatObraCompositores,
   formatParticipanteNombres,
   linkParticipanteObra,
   moveParticipante,
@@ -191,6 +192,7 @@ export default function ConcertoParticipantesTable({
           {participantes.map((participante, index) => {
             const obra = participante.repertorio_obra?.obras || null;
             const titulo = plainWorkTitle(obra?.titulo);
+            const compositor = formatObraCompositores(obra);
             const organico = organicoDe(obra);
             const drive = obra?.link_drive || "";
             return (
@@ -215,7 +217,12 @@ export default function ConcertoParticipantesTable({
                 <td className="px-2 py-2">
                   {obra ? (
                     <div className="flex items-start gap-1">
-                      <p className="min-w-0 text-slate-800">{titulo || "Obra vinculada"}</p>
+                      <p className="min-w-0 text-slate-800">
+                        {compositor ? (
+                          <span className="block text-[11px] font-semibold text-slate-600">{compositor}</span>
+                        ) : null}
+                        {titulo || "Obra vinculada"}
+                      </p>
                       <button
                         type="button"
                         title="Desvincular obra"

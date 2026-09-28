@@ -9,13 +9,28 @@ export const AR_TZ = "America/Argentina/Buenos_Aires";
 export const CONCERTO_BLOCK_NAME = "Concerto Competition";
 
 const REPERTOIRE_ROW_SELECT =
-  "id, id_obra, orden, id_repertorio, obras(id, titulo, instrumentacion, link_drive, obras_particellas(nombre_archivo, nota_organico, instrumentos(instrumento, abreviatura)))";
+  "id, id_obra, orden, id_repertorio, obras(id, titulo, instrumentacion, link_drive, obras_compositores(rol, compositores(apellido, nombre)), obras_particellas(nombre_archivo, nota_organico, instrumentos(instrumento, abreviatura)))";
 
 export function plainWorkTitle(value) {
   return String(value || "")
     .replace(/<[^>]*>?/gm, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+/** «Apellido, Nombre», varios unidos con « / ». Vacío si la obra no tiene compositor. */
+export function formatObraCompositores(obra) {
+  const rels = (obra?.obras_compositores || []).filter(
+    (oc) => oc?.compositores && (!oc.rol || oc.rol === "compositor"),
+  );
+  const names = rels
+    .map((oc) => [oc.compositores.apellido, oc.compositores.nombre].filter(Boolean).join(", "))
+    .filter(Boolean);
+  if (names.length) return names.join(" / ");
+  const raw = obra?.compositores;
+  const composer = Array.isArray(raw) ? raw[0] : raw;
+  if (!composer) return "";
+  return [composer.apellido, composer.nombre].filter(Boolean).join(", ");
 }
 
 export const SCORE_SCALE = [
