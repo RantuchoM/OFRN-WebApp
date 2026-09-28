@@ -146,7 +146,11 @@ export function getAgendaTransportFlags(item, myTransportLogistics = {}) {
   let isMyTransport = false;
   let isMyUpOrDown = false;
 
-  if (isTransportEvent && item.id_gira_transporte) {
+  // Asignación por vehículo, no solo tipos 11/12/35. Un Traslado Solista
+  // (28) o Interno de catálogo (31) vinculado al bus del músico sigue siendo
+  // suyo. El tipo 35 (INTERNO) con vehículo es de todos los activos; sin
+  // vehículo lo deja pasar `eventPassesOnlyMyTransportFilter`.
+  if (hasLinkedAgendaVehicle(item)) {
     const tId = String(item.id_gira_transporte);
     const myStatus = myTransportLogistics[tId];
     const isTrasladoInterno =
@@ -186,6 +190,24 @@ export function getAgendaTransportFlags(item, myTransportLogistics = {}) {
  * No saltea el filtro de categoría Transporte (`eventPassesAgendaCategoryFilter`).
  */
 export function isAssignedVehicleAgendaStop(item, myTransportLogistics = {}) {
+  return getAgendaTransportFlags(item, myTransportLogistics).isMyTransport;
+}
+
+/**
+ * «Solo mi transporte»: deja ensayos, comidas y conciertos; oculta paradas
+ * y traslados que no son del vehículo asignado.
+ * Cubre Traslado Solista (28) y otros de categoría Transporte sin
+ * `id_gira_transporte` (p. ej. arribo de Campos Neto). El INTERNO (35)
+ * sigue visible para todos los activos, con o sin vehículo vinculado.
+ * Una parada de otro tipo vinculada al bus asignado también queda.
+ */
+export function eventPassesOnlyMyTransportFilter(
+  item,
+  myTransportLogistics = {},
+) {
+  if (!item || item.isProgramMarker) return true;
+  if (Number(item.id_tipo_evento) === ID_TIPO_TRASLADO_INTERNO) return true;
+  if (!isAgendaTransportCategoryEvent(item)) return true;
   return getAgendaTransportFlags(item, myTransportLogistics).isMyTransport;
 }
 
