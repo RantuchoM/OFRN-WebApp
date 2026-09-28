@@ -3,6 +3,7 @@ import { IconPlus, IconCheck, IconChevronDown, IconX } from "../ui/Icons";
 import PartNameLabel, { usePartNameTooltip } from "./PartNameLabel";
 import { getPartDisplayName } from "../../utils/partNameDisplay";
 import { filterAndRankMultiTokenSearch } from "../../utils/sanitize";
+import { isSameSeatingInstrument } from "../../utils/seatingUniqueInstrumentSuggestion";
 
 export const CreateParticellaModal = ({ isOpen, onClose, onConfirm, instrumentList, defaultInstrumentId }) => {
   const [selectedInstr, setSelectedInstr] = useState(defaultInstrumentId || "");
@@ -123,8 +124,12 @@ export const ParticellaSelect = ({ options, value, onChange, onRequestCreate, pl
     (o) => [o.nombre_archivo, o.instrumentos?.instrumento],
     search,
   );
-  const recommendedOptions = filteredOptions.filter((o) => o.id_instrumento === preferredInstrumentId);
-  const otherOptions = filteredOptions.filter((o) => o.id_instrumento !== preferredInstrumentId);
+  const recommendedOptions = filteredOptions.filter((o) =>
+    isSameSeatingInstrument(o.id_instrumento, preferredInstrumentId),
+  );
+  const otherOptions = filteredOptions.filter(
+    (o) => !isSameSeatingInstrument(o.id_instrumento, preferredInstrumentId),
+  );
 
   const handleSelect = (id) => { onChange(id); setIsOpen(false); setSearch(""); };
   const renderOption = (opt) => {

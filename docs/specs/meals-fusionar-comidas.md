@@ -26,7 +26,7 @@ Locación / hora / tipo del survivor **no** se rellenan desde los otros (solo ta
 | `eventos_fimba_propuestas` | Unión de `id_propuesta` → `setEventoFimbaPropuestas` |
 | `eventos_grupos` / `selectedGrupos` | Unión de `id_grupo` → `setEventoGrupos` |
 | `convocados` | Unión de tags positivos; si hay positivos, se **descarta** `GRP:NONE` (Nadie). Solo Nadie en todas → queda `[GRP:NONE]`. Vacío + vacío → `[]`. |
-| `descripcion` | `mergeMealDescriptionWithConvocados` con convocados y siglas FIMBA fusionados |
+| `descripcion` | Título regenerado: tipo (con subtipo) + convocados fusionados + siglas FIMBA. No concatena el texto anterior. |
 
 ## Borrado
 Hard `DELETE` de los no-survivor (paridad `deleteRow`). Junctions `eventos_grupos` / `eventos_fimba_propuestas` CASCADE. Check-in/out logísticos: FKs `ON DELETE SET NULL`. Ventanas de comida ya no apuntan a eventos (slot día+tipo).

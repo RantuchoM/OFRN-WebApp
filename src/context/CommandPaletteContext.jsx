@@ -709,6 +709,8 @@ export const CommandPaletteProvider = ({ children }) => {
           subtitle: person.instrumentos?.instrumento || person.condicion || undefined,
           icon: <IconUser size={14} className="text-emerald-600" />,
           section: "Personas",
+          phone: String(person.telefono || "").trim(),
+          mail: String(person.mail || "").trim(),
           run: () => openPersonFromPalette(person.id),
         }));
 

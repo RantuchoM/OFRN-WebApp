@@ -1,5 +1,6 @@
 /** Concerto Competition: escala, electorado, horarios de Argentina y llamadas al cliente. */
 
+import { toast } from "sonner";
 import { fetchRosterForGira } from "../hooks/useGiraRoster";
 
 export const AR_TZ = "America/Argentina/Buenos_Aires";
@@ -763,7 +764,9 @@ export async function deleteInstancia(supabase, instancia) {
     .from("concerto_instancias")
     .delete()
     .eq("id", instancia.id);
-  return { error };
+  if (error) return { error };
+  if (instancia.id_gira == null) return { error: null };
+  return reconcileConcertoBlock(supabase, instancia.id_gira);
 }
 
 export async function saveParticipante(
@@ -818,9 +821,14 @@ export async function saveParticipante(
   return { error: null, id: participanteId };
 }
 
-export async function deleteParticipante(supabase, participante, idGira) {
-  if (participante?.id_repertorio_obra) {
-    const { error } = await unlinkParticipanteObra(supabase, { participante, idGira });
+export async function deleteParticipante(supabase, participante, idGira, { reportDrive = false } = {}) {
+  const rowId = resolveRowId(participante);
+  if (rowId) {
+    const { error } = await unlinkParticipanteObra(supabase, {
+      participante: { ...participante, id_repertorio_obra: rowId },
+      idGira,
+      reportDrive,
+    });
     if (error) return { error };
   }
   const participanteId = participante?.id ?? participante;
@@ -869,7 +877,25 @@ async function syncRepertoireNoteForParticipante(supabase, participanteId) {
   return { error: writeError };
 }
 
-export async function linkParticipanteObra(supabase, { participante, idGira, idObra }) {
+const rowIdByParticipante = new Map();
+
+function resolveRowId(participante) {
+  const key = String(participante?.id ?? "");
+  if (rowIdByParticipante.has(key)) return rowIdByParticipante.get(key);
+  return participante?.id_repertorio_obra ?? null;
+}
+
+function rememberRow(participanteId, rowId) {
+  const key = String(participanteId ?? "");
+  if (!key) return;
+  if (rowId == null) rowIdByParticipante.delete(key);
+  else rowIdByParticipante.set(key, rowId);
+}
+
+export async function linkParticipanteObra(
+  supabase,
+  { participante, idGira, idObra, reportDrive = false },
+) {
   if (idGira == null) {
     return {
       error: {
@@ -883,13 +909,14 @@ export async function linkParticipanteObra(supabase, { participante, idGira, idO
   }
 
   const previousObraId = participante?.repertorio_obra?.id_obra ?? null;
-  let rowId = participante?.id_repertorio_obra ?? null;
+  let rowId = resolveRowId(participante);
   if (rowId && previousObraId && String(previousObraId) !== String(idObra)) {
-    await invokeDrive(supabase, {
+    const drive = await invokeDrive(supabase, {
       action: "delete_work_shortcuts",
       programId: idGira,
       obraId: previousObraId,
     });
+    if (reportDrive && drive.error) return { error: drive.error };
   }
 
   if (rowId) {
@@ -920,11 +947,15 @@ export async function linkParticipanteObra(supabase, { participante, idGira, idO
     }
   }
 
-  return reconcileConcertoBlock(supabase, idGira);
+  rememberRow(participante.id, rowId);
+  return { error: null, rowId };
 }
 
-export async function unlinkParticipanteObra(supabase, { participante, idGira }) {
-  const rowId = participante?.id_repertorio_obra;
+export async function unlinkParticipanteObra(
+  supabase,
+  { participante, idGira, reportDrive = false },
+) {
+  const rowId = resolveRowId(participante);
   if (!rowId) return { error: null };
   const { data: row, error: readError } = await supabase
     .from("repertorio_obras")
@@ -933,14 +964,17 @@ export async function unlinkParticipanteObra(supabase, { participante, idGira })
     .maybeSingle();
   if (readError) return { error: readError };
   if (row) {
-    const { error } = await deleteRepertoireRows(supabase, idGira, [row]);
+    const { error } = await deleteRepertoireRows(supabase, idGira, [row], { reportDrive });
     if (error) return { error };
   }
-  if (idGira == null) return { error: null };
-  return reconcileConcertoBlock(supabase, idGira);
+  rememberRow(participante.id, null);
+  return { error: null };
 }
 
-export async function moveParticipante(supabase, { participante, origenGiraId, destino, orden }) {
+export async function moveParticipante(
+  supabase,
+  { participante, origenGiraId, destino, orden, reportDrive = false },
+) {
   const idObra = participante?.repertorio_obra?.id_obra ?? null;
   const rowId = participante?.id_repertorio_obra ?? null;
   const destinoGiraId = destino?.id_gira ?? null;
@@ -951,11 +985,12 @@ export async function moveParticipante(supabase, { participante, origenGiraId, d
       return { error: block.error || { message: "No se pudo preparar el bloque de destino." } };
     }
     if (origenGiraId != null && String(origenGiraId) !== String(destinoGiraId)) {
-      await invokeDrive(supabase, {
+      const drive = await invokeDrive(supabase, {
         action: "delete_work_shortcuts",
         programId: origenGiraId,
         obraId: idObra,
       });
+      if (reportDrive && drive.error) return { error: drive.error };
     }
     const { error } = await supabase
       .from("repertorio_obras")
@@ -963,9 +998,12 @@ export async function moveParticipante(supabase, { participante, origenGiraId, d
       .eq("id", rowId);
     if (error) return { error };
   } else if (rowId) {
-    const { error } = await deleteRepertoireRows(supabase, origenGiraId, [
-      { id: rowId, id_obra: idObra },
-    ]);
+    const { error } = await deleteRepertoireRows(
+      supabase,
+      origenGiraId,
+      [{ id: rowId, id_obra: idObra }],
+      { reportDrive },
+    );
     if (error) return { error };
   }
 
@@ -979,53 +1017,172 @@ export async function moveParticipante(supabase, { participante, origenGiraId, d
     .eq("id", participante.id);
   if (error) return { error };
 
-  if (origenGiraId != null && String(origenGiraId) !== String(destinoGiraId ?? "")) {
-    const source = await reconcileConcertoBlock(supabase, origenGiraId);
-    if (source.error) return source;
-  }
-  if (destinoGiraId != null) return reconcileConcertoBlock(supabase, destinoGiraId);
+  const keptRow = rowId && idObra && destinoGiraId != null ? rowId : null;
+  rememberRow(participante.id, keptRow);
   return { error: null };
 }
 
-export async function reorderParticipante(supabase, participantes, participanteId, direction, idGira) {
+export function moverEnLista(participantes, participanteId, direction) {
   const list = sortByOrden(participantes);
   const index = list.findIndex((item) => String(item.id) === String(participanteId));
   const target = index + direction;
-  if (index < 0 || target < 0 || target >= list.length) return { error: null };
+  if (index < 0 || target < 0 || target >= list.length) return null;
   const next = [...list];
   const [item] = next.splice(index, 1);
   next.splice(target, 0, item);
-  for (let i = 0; i < next.length; i += 1) {
+  return next.map((participante, i) => ({ ...participante, orden: i + 1 }));
+}
+
+async function saveParticipanteOrden(supabase, participantes) {
+  for (let i = 0; i < participantes.length; i += 1) {
     const orden = i + 1;
-    if (Number(next[i].orden) === orden) continue;
     const { error } = await supabase
       .from("concerto_participantes")
       .update({ orden })
-      .eq("id", next[i].id);
+      .eq("id", participantes[i].id);
     if (error) return { error };
   }
-  if (idGira == null) return { error: null };
-  return reconcileConcertoBlock(supabase, idGira);
+  return { error: null };
+}
+
+const ordenJobs = new Map();
+
+function giraKey(idGira) {
+  return idGira == null ? "sin-gira" : String(idGira);
+}
+
+function ensureOrdenJob(key, supabase, idGira) {
+  let job = ordenJobs.get(key);
+  if (!job) {
+    job = {
+      running: false,
+      ordenByInstancia: new Map(),
+      writes: [],
+      dirty: false,
+      supabase,
+      idGira,
+    };
+    ordenJobs.set(key, job);
+  }
+  if (supabase) job.supabase = supabase;
+  if (idGira !== undefined) job.idGira = idGira;
+  return job;
+}
+
+function jobPending(job) {
+  return job.ordenByInstancia.size > 0 || job.writes.length > 0 || job.dirty;
+}
+
+/**
+ * Una cola por gira. Varios clics dejan el orden y las escrituras pendientes;
+ * al vaciarse se reconcilia el bloque y las carpetas una sola vez.
+ */
+export function queueParticipanteReorder(supabase, idGira, participantes, instanciaId) {
+  const key = giraKey(idGira);
+  const job = ensureOrdenJob(key, supabase, idGira ?? null);
+  const listKey = String(instanciaId ?? participantes?.[0]?.id_instancia ?? "lista");
+  job.ordenByInstancia.set(listKey, participantes);
+  if (!job.running) drainOrdenJob(key);
+}
+
+export function queueConcertoMutation(supabase, giraIds, write) {
+  const unique = [];
+  for (const idGira of giraIds || []) {
+    const key = giraKey(idGira);
+    if (unique.some((item) => item.key === key)) continue;
+    unique.push({ key, idGira: idGira ?? null });
+  }
+  unique.sort((a, b) => Number(a.idGira == null) - Number(b.idGira == null));
+  if (!unique.length) unique.push({ key: "sin-gira", idGira: null });
+  const primary = unique[0];
+  const job = ensureOrdenJob(primary.key, supabase, primary.idGira);
+  job.writes.push(async () => {
+    const result = await write();
+    if (result?.error) return result;
+    for (const extra of unique.slice(1)) {
+      const other = ensureOrdenJob(extra.key, supabase, extra.idGira);
+      other.dirty = true;
+      if (!other.running) drainOrdenJob(extra.key);
+    }
+    return { error: null };
+  });
+  if (!job.running) drainOrdenJob(primary.key);
+}
+
+async function drainOrdenJob(key) {
+  const job = ordenJobs.get(key);
+  if (!job || job.running) return;
+  job.running = true;
+  const toastId = `concerto-orden-${key}`;
+  try {
+    while (jobPending(job)) {
+      const structural = job.writes.length > 0;
+      const ordering = job.ordenByInstancia.size > 0;
+      if (structural || ordering) {
+        toast.loading(structural ? "Sincronizando…" : "Sincronizando el orden…", { id: toastId });
+      }
+      const batch = job.writes.splice(0, job.writes.length);
+      for (const fn of batch) {
+        const result = await fn();
+        if (result?.error) throw result.error;
+      }
+      if (job.writes.length) continue;
+      if (job.ordenByInstancia.size) {
+        const lists = [...job.ordenByInstancia.values()];
+        job.ordenByInstancia.clear();
+        for (const list of lists) {
+          const saved = await saveParticipanteOrden(job.supabase, list);
+          if (saved.error) throw saved.error;
+        }
+      }
+      if (job.writes.length || job.ordenByInstancia.size) continue;
+      if (job.idGira == null) {
+        job.dirty = false;
+        break;
+      }
+      job.dirty = false;
+      toast.loading("Actualizando carpetas y bloque…", { id: toastId });
+      const synced = await reconcileConcertoBlock(job.supabase, job.idGira, {
+        reportDrive: true,
+      });
+      if (synced.error) throw synced.error;
+    }
+    toast.success(
+      job.idGira == null ? "Cambios guardados" : "Carpetas y bloque actualizados",
+      { id: toastId },
+    );
+  } catch (error) {
+    toast.error(error?.message || "No se pudo sincronizar.", { id: toastId });
+  } finally {
+    job.running = false;
+    if (jobPending(job)) drainOrdenJob(key);
+  }
 }
 
 async function invokeDrive(supabase, body) {
   try {
     const { error } = await supabase.functions.invoke("manage-drive", { body });
-    if (error) console.error("manage-drive", error);
+    if (error) {
+      console.error("manage-drive", error);
+      return { error };
+    }
+    return { error: null };
   } catch (err) {
     console.error("manage-drive", err);
+    return { error: err };
   }
 }
 
-async function deleteRepertoireRows(supabase, idGira, rows) {
+async function deleteRepertoireRows(supabase, idGira, rows, { reportDrive = false } = {}) {
   const pending = (rows || []).filter((row) => row?.id != null);
   for (const row of pending) {
     if (idGira == null || row.id_obra == null) continue;
-    await invokeDrive(supabase, {
+    const drive = await invokeDrive(supabase, {
       action: "delete_work_shortcuts",
       programId: idGira,
       obraId: row.id_obra,
     });
+    if (reportDrive && drive.error) return { error: drive.error };
   }
   const ids = pending.map((row) => row.id);
   if (!ids.length) return { error: null };
@@ -1066,7 +1223,7 @@ async function ensureConcertoBlock(supabase, idGira) {
  * Cada fila vinculada recibe en `notas_especificas` la proyección del participante.
  * No toca filas de otros bloques.
  */
-export async function reconcileConcertoBlock(supabase, idGira) {
+export async function reconcileConcertoBlock(supabase, idGira, { reportDrive = false } = {}) {
   if (idGira == null) return { error: null };
 
   const { data: instancias, error: instError } = await supabase
@@ -1112,12 +1269,13 @@ export async function reconcileConcertoBlock(supabase, idGira) {
 
   if (!linked.length) {
     if (!blockId) return { error: null };
-    const cleared = await deleteUnlinkedBlockRows(supabase, idGira, blockId);
+    const cleared = await deleteUnlinkedBlockRows(supabase, idGira, blockId, { reportDrive });
     if (cleared.error) return cleared;
-    await invokeDrive(supabase, {
+    const drive = await invokeDrive(supabase, {
       action: "sync_repertoire_shortcuts",
       programId: idGira,
     });
+    if (reportDrive && drive.error) return { error: drive.error };
     return { error: null };
   }
 
@@ -1149,16 +1307,17 @@ export async function reconcileConcertoBlock(supabase, idGira) {
     if (error) return { error };
   }
 
-  const cleared = await deleteUnlinkedBlockRows(supabase, idGira, blockId);
+  const cleared = await deleteUnlinkedBlockRows(supabase, idGira, blockId, { reportDrive });
   if (cleared.error) return cleared;
-  await invokeDrive(supabase, {
+  const drive = await invokeDrive(supabase, {
     action: "sync_repertoire_shortcuts",
     programId: idGira,
   });
+  if (reportDrive && drive.error) return { error: drive.error };
   return { error: null };
 }
 
-async function deleteUnlinkedBlockRows(supabase, idGira, blockId) {
+async function deleteUnlinkedBlockRows(supabase, idGira, blockId, { reportDrive = false } = {}) {
   const { data: rows, error } = await supabase
     .from("repertorio_obras")
     .select("id, id_obra")
@@ -1175,5 +1334,5 @@ async function deleteUnlinkedBlockRows(supabase, idGira, blockId) {
   if (ownerError) return { error: ownerError };
   const owned = new Set((owners || []).map((row) => String(row.id_repertorio_obra)));
   const extras = rows.filter((row) => !owned.has(String(row.id)));
-  return deleteRepertoireRows(supabase, idGira, extras);
+  return deleteRepertoireRows(supabase, idGira, extras, { reportDrive });
 }

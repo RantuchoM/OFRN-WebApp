@@ -89,6 +89,10 @@ import {
   resolveCuerdasConfigForBlock,
 } from "../../utils/seatingCuerdasConfig";
 import { applyBulkParticellaAssignments } from "../../utils/seatingBulkAssign";
+import {
+  countMusiciansByInstrument,
+  uniqueUnassignedInstrumentPartId,
+} from "../../utils/seatingUniqueInstrumentSuggestion";
 import { useSeatingLateAssignmentChanges } from "../../hooks/useSeatingLateAssignmentChanges";
 import SeatingLateAssignmentBanner from "../../components/seating/SeatingLateAssignmentBanner";
 import {
@@ -1639,9 +1643,10 @@ export default function ProgramSeating({
     return map;
   }, [availablePartsByWork, omittedPartIds]);
 
-  /** Sugerencias bombilla (IconBulb) por músico: derivadas siempre de assignations + obras. Para cada celda vacía se usa la etiqueta de parte de la obra más cercana en el programa donde ese músico ya tiene asignación (primero columnas anteriores, luego posteriores). Así una obra nueva muestra sugerencia sin tener que re-asignar en la sesión. */
+  /** Sugerencias bombilla (IconBulb) por músico. 1) Propagación entre obras: para cada celda vacía se usa la etiqueta de parte de la obra más cercana donde ese músico ya tiene asignación (primero columnas anteriores, luego posteriores). 2) Si esa regla no sugirió nada y el instrumento es 1:1 (un solo músico de ese id en el roster visible y una sola particella asignable de ese id en la obra, todavía libre), se sugiere esa particella. La segunda no pisa la primera. */
   const derivedMusicianSuggestions = useMemo(() => {
     const result = {};
+    const playerCountByInstrument = countMusiciansByInstrument(filteredRoster);
 
     otherMusicians.forEach((m) => {
       const forMusician = {};
@@ -1682,6 +1687,18 @@ export default function ProgramSeating({
             break;
           }
         }
+
+        if (forMusician[targetObraId]) return;
+
+        const uniquePartId = uniqueUnassignedInstrumentPartId({
+          musician: m,
+          playerCountByInstrument,
+          parts: available,
+          assignedPartIds: assignedInObra,
+        });
+        if (uniquePartId != null) {
+          forMusician[targetObraId] = uniquePartId;
+        }
       });
 
       if (Object.keys(forMusician).length > 0) {
@@ -1698,6 +1715,7 @@ export default function ProgramSeating({
     particellas,
     assignablePartsByWork,
     assignedPartIdsByObra,
+    filteredRoster,
   ]);
 
   const obrasWithInstrumentation = useMemo(() => {

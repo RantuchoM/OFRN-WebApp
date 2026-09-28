@@ -1,6 +1,6 @@
 import {
-  applyMultiTokenOrIlike,
   filterAndRankMultiTokenSearch,
+  normalizeForSearch,
   splitSearchTokens,
 } from "./sanitize";
 
@@ -27,7 +27,57 @@ const OBRA_SELECT =
   "id, titulo, obras_compositores(rol, compositores(apellido, nombre))";
 
 const PERSON_SELECT =
-  "id, nombre, apellido, nombre_preferencia, apellido_preferencia, es_simulacion, condicion, instrumentos(instrumento)";
+  "id, nombre, apellido, nombre_preferencia, apellido_preferencia, es_simulacion, condicion, telefono, mail, instrumentos(instrumento)";
+
+/**
+ * Letras cuyo NFD cae en la misma base (á/à/ä → a, ñ → n).
+ * `ilike` no pliega tildes; el filtro de la paleta usa estas clases en `~*`.
+ */
+let accentFoldClasses;
+function accentFoldClassMap() {
+  if (accentFoldClasses) return accentFoldClasses;
+  const map = new Map();
+  const add = (base, ch) => {
+    if (!map.has(base)) map.set(base, new Set([base, base.toUpperCase()]));
+    map.get(base).add(ch);
+  };
+  for (let cp = 0x00c0; cp <= 0x024f; cp += 1) {
+    const ch = String.fromCodePoint(cp);
+    const base = normalizeForSearch(ch);
+    if (base.length === 1 && /[a-z]/.test(base)) add(base, ch);
+  }
+  for (const ch of "øØ") add("o", ch);
+  for (const ch of "łŁ") add("l", ch);
+  for (const ch of "đĐ") add("d", ch);
+  accentFoldClasses = map;
+  return map;
+}
+
+function accentFoldRegex(token) {
+  const normalized = normalizeForSearch(token);
+  if (!normalized) return "";
+  const classes = accentFoldClassMap();
+  let pattern = "";
+  for (const ch of normalized) {
+    const set = classes.get(ch);
+    if (set && set.size > 1) pattern += `[${[...set].join("")}]`;
+    else if (/[a-z0-9]/.test(ch)) pattern += ch;
+    else pattern += ch.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&");
+  }
+  return pattern;
+}
+
+function quotePostgrestValue(value) {
+  return `"${String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
+/** Un token, sin tildes, contra cualquiera de los campos (`OR` de `~*`). */
+function applyAccentFoldOr(queryBuilder, fields, token) {
+  const pattern = accentFoldRegex(token);
+  if (!pattern) return queryBuilder;
+  const quoted = quotePostgrestValue(pattern);
+  return queryBuilder.or(fields.map((field) => `${field}.imatch.${quoted}`).join(","));
+}
 
 function isNumericIdQuery(query) {
   const trimmed = String(query || "").trim();
@@ -91,11 +141,11 @@ function mergeById(rows) {
  */
 async function obrasMatchingToken(supabase, token) {
   let byTitleQuery = supabase.from("obras").select(OBRA_SELECT);
-  byTitleQuery = applyMultiTokenOrIlike(byTitleQuery, ["titulo"], token);
+  byTitleQuery = applyAccentFoldOr(byTitleQuery, ["titulo"], token);
   const titlePromise = byTitleQuery.limit(FETCH_LIMIT);
 
   let composersQuery = supabase.from("compositores").select("id");
-  composersQuery = applyMultiTokenOrIlike(composersQuery, ["apellido", "nombre"], token);
+  composersQuery = applyAccentFoldOr(composersQuery, ["apellido", "nombre"], token);
   const composersPromise = composersQuery.limit(20);
 
   const [{ data: byTitle }, { data: composers }] = await Promise.all([
@@ -162,7 +212,7 @@ async function peopleMatchingToken(supabase, token) {
     .from("integrantes")
     .select(PERSON_SELECT)
     .eq("es_simulacion", false);
-  byName = applyMultiTokenOrIlike(
+  byName = applyAccentFoldOr(
     byName,
     ["nombre", "apellido", "nombre_preferencia", "apellido_preferencia"],
     token,
@@ -170,7 +220,7 @@ async function peopleMatchingToken(supabase, token) {
   const namePromise = byName.limit(FETCH_LIMIT);
 
   let instrQuery = supabase.from("instrumentos").select("id");
-  instrQuery = applyMultiTokenOrIlike(instrQuery, ["instrumento"], token);
+  instrQuery = applyAccentFoldOr(instrQuery, ["instrumento"], token);
   const instrPromise = instrQuery.limit(20);
 
   const [{ data: named }, { data: instruments }] = await Promise.all([

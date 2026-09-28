@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { format, addDays, addHours, addMinutes } from "date-fns";
 import { IconX } from "../../ui/Icons";
 
@@ -8,6 +9,7 @@ export default function TransportShiftScheduleModal({
   onApply,
   transportName,
   events = [],
+  applyLabel = "Aplicar a todos",
 }) {
   const [shift, setShift] = useState({ days: 0, hours: 0, minutes: 0 });
 
@@ -38,7 +40,7 @@ export default function TransportShiftScheduleModal({
   const previewFirst = getPreview(first);
   const previewLast = getPreview(last);
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4 backdrop-blur-sm">
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95">
         <div className="p-4 border-b bg-slate-50 flex justify-between items-center">
@@ -140,10 +142,11 @@ export default function TransportShiftScheduleModal({
             onClick={() => onApply(shift)}
             className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 shadow-md"
           >
-            Aplicar a todos
+            {applyLabel}
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

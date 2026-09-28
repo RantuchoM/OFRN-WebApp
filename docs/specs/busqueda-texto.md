@@ -34,7 +34,7 @@ Ejemplo: query `José G` → `Gómez, José` (prefijo de apellido + orden) antes
 ## Comportamiento
 - **Cliente** (listas ya cargadas, `SearchableSelect`, filtros de Personas, roster, agenda, repertorio, etc.): `matchesMultiTokenSearch` / `filterAndRankMultiTokenSearch`.
 - **Resaltado**: cada palabra de la query se marca por separado (también en Agenda vía `getAccentInsensitiveHighlightRanges`).
-- **Servidor** (`ilike`): tokens AND entre campos; no hay `unaccent` en Postgres ni ranking remoto. En **Usuarios** la búsqueda filtra en cliente sobre el padrón para respetar tildes.
+- **Servidor** (`ilike`): tokens AND entre campos; no hay `unaccent` en Postgres ni ranking remoto. En **Usuarios** la búsqueda filtra en cliente sobre el padrón para respetar tildes. En la **paleta** (personas y repertorio) el filtro es `~*` (`imatch`) con clases de acentos, porque `ilike` no pliega tildes.
 
 ## Completado
 - [x] Helpers canónicos en `sanitize.js`

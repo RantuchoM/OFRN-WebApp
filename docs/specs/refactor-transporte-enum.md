@@ -72,6 +72,43 @@ Cualquier evento en la agenda cuyo `id_tipo_evento` sea **35** debe considerarse
 - [x] Roster/catálogo propaga `instrumentos.abreviatura` vía `useGiraRoster` + `applyEffectiveGiraInstrument`.
 - [x] Localidad inferida (viáticos ≠ residencia): chip celeste `n inf.` / `m y n inf.` (plaza extra solo sobre pax reales); lista expandida con marca **inf.**.
 
+## Selección de paradas, color de tipo y divergencia
+
+Al tildar paradas (`selectedEventIds`, solo en memoria) aparece una barra fija abajo, en desktop y en mobile. Portal a `document.body`, `z-[90]` (debajo de modales `z-[100]` y tooltips `z-[110]`), desplazada con `--app-sidebar-width` para no tapar el menú. Muestra el conteo y una X que llama a `clearSelection()`.
+
+- [x] **Mover horarios.** Abre `TransportShiftScheduleModal` acotado a la selección (el mismo filtro de antes: con tildes, solo esas paradas; sin tildes, Acciones sigue moviendo todas las del vehículo). Si la selección es de un solo vehículo, el movimiento queda en ese vehículo. Si mezcla varios, toast y no se aplica (ni desde la barra ni desde Acciones). El botón del modal dice «Aplicar a N paradas» cuando la selección de ese vehículo es parcial, y «Aplicar a todos» cuando no hay tildes o están tildadas todas las paradas del vehículo. Al aplicar con éxito, `clearSelection()`.
+- [x] **Ocultar / Mostrar en agenda.** Escribe `eventos.visible_agenda` en lote (mismo campo que el ojo de la fila). Si todas las tildadas están ocultas, el botón dice **Mostrar en agenda** y las vuelve a `true`. Si hay alguna visible (o la selección está mixta), dice **Ocultar** y pone `false` en todas. La selección se mantiene para ver el resultado.
+- [x] **Cambiar tipo.** Menú con los tres tipos de `TRANSPORT_EVENT_TYPES` (no un ciclo). Actualiza `id_tipo_evento` solo de las paradas tildadas. No toca `categoria_logistica` del vehículo ni las paradas no tildadas. La selección se mantiene.
+- [x] Borrar sigue siendo el tacho por fila. No hay borrado masivo.
+
+### Código de colores
+
+Mapa único en `src/utils/giraTransportUtils.js` (`TRANSPORT_EVENT_TYPES` / `transportStopRowPaint`). La fila se pinta por el `id_tipo_evento` de esa parada, en tabla desktop y cards mobile.
+
+| Tipo | id | Nombre | Acento | Fondo de fila | Equivalente Tailwind |
+| --- | --- | --- | --- | --- | --- |
+| Pasajeros | 11 | Traslado | `#6366f1` (`tipos_evento.color`) | `#EEF2FF` | indigo-500 / indigo-50 |
+| Logístico | 12 | Traslado logístico | `#D97706` | `#FFFBEB` | amber-600 / amber-50 |
+| Interno | 35 | Traslado Interno | `#8B5CF6` (`tipos_evento.color`) | `#F5F3FF` | violet-500 / violet-50 |
+
+El catálogo pinta 11 y 12 con el mismo `#6366f1`. La fila del 12 usa el ámbar del badge «Solo logístico» para que los tres se distingan. Con `visible_agenda === false` el fondo pasa a gris `#E2E8F0` (slate-200) y se conserva la franja del acento.
+
+- [x] Color por parada, no por la categoría del vehículo
+- [x] Oculto sigue leyéndose como gris, con la franja del tipo
+
+### Tag de divergencia
+
+El tipo del contenedor es `eventTypeIdForCategoria(giras_transportes.categoria_logistica)` (el mismo mapa que `saveTransportChanges`: PASAJEROS→11, LOGISTICO→12, INTERNO→35). Si `eventos.id_tipo_evento` es otro, la fila muestra un tag con el nombre del tipo de **esa** parada (`Traslado`, `Traslado logístico` o `Traslado Interno`). Si coincide, no hay tag.
+
+- [x] Tag en desktop y mobile
+- [x] `saveTransportChanges` sigue alineando **todas** las paradas al tipo del vehículo al guardar la categoría. Eso borra divergencias a propósito. Las divergencias nacen solo de «Cambiar tipo» sobre la selección.
+
+### Agenda
+
+Cambiar una parada a tipo 35 persiste `id_tipo_evento`. `getAgendaTransportFlags` la sigue tratando como traslado interno (`isMyTransport`) sin cambio de regla ni de visibilidad del tipo 35.
+
+- [x] Sin rediseño de agenda
+
 ## Migración SQL
 
 Ver `supabase/migrations/20260329120000_transporte_categoria_logistica.sql`. La columna `es_tipo_alternativo` puede eliminarse después de validar (paso opcional comentado en el archivo).

@@ -349,7 +349,7 @@ export default function RepertoireWorkPickerModal({
     [worksLibrary, debouncedFilters, instrFilters, stringsFilter, strictMode],
   );
 
-  const handleRowAction = async (workId) => {
+  const handleRowAction = async (workId, work) => {
     if (mode === "toggle") {
       setTogglingId(workId);
       try {
@@ -359,7 +359,7 @@ export default function RepertoireWorkPickerModal({
       }
       return;
     }
-    onSelectWork?.(workId);
+    onSelectWork?.(workId, work);
   };
 
   const renderActionButton = (w) => {
@@ -394,7 +394,7 @@ export default function RepertoireWorkPickerModal({
     return (
       <button
         type="button"
-        onClick={() => handleRowAction(w.id)}
+        onClick={() => handleRowAction(w.id, w)}
         className={`bg-white border px-2 py-1 rounded font-bold hover:text-white shadow-sm transition-colors text-[10px] min-h-9 max-w-full whitespace-normal ${accent === "violet" ? "border-violet-200 text-violet-700 hover:bg-violet-700" : "border-fixed-indigo-200 text-fixed-indigo-600 hover:bg-fixed-indigo-600"}`}
       >
         Seleccionar

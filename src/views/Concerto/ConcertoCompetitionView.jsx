@@ -19,6 +19,8 @@ import {
   createInstancia,
   deleteInstancia,
   deleteParticipante,
+  queueConcertoMutation,
+  queueParticipanteReorder,
   fetchEditionBundle,
   fetchEditionChoices,
   fetchIntegrantesOptions,
@@ -137,6 +139,8 @@ function InstanciaStaffCard({
   promedios,
   now,
   onChanged,
+  onReorder,
+  onMove,
   onVoted,
   askDiscard,
   onDirtyChange,
@@ -149,7 +153,6 @@ function InstanciaStaffCard({
   const [cierra, setCierra] = useState(() => toDatetimeLocalAR(instancia.cierra_en));
   const [obs, setObs] = useState({});
   const [saving, setSaving] = useState(false);
-  const [rowBusy, setRowBusy] = useState(false);
   const [error, setError] = useState("");
   const [modal, setModal] = useState(null);
   const seenDiscard = useRef(discardNonce);
@@ -268,18 +271,14 @@ function InstanciaStaffCard({
       destructive: true,
     });
     if (!ok) return;
-    setRowBusy(true);
-    const { error: deleteError } = await deleteParticipante(
-      supabase,
-      participante,
-      instancia.id_gira,
+    const next = instancia.participantes.filter(
+      (item) => String(item.id) !== String(participante.id),
     );
-    setRowBusy(false);
-    if (deleteError) {
-      setError(errorText(deleteError));
-      return;
-    }
-    onChanged();
+    onReorder?.(next);
+    queueParticipanteReorder(supabase, instancia.id_gira, next, instancia.id);
+    queueConcertoMutation(supabase, [instancia.id_gira], () =>
+      deleteParticipante(supabase, participante, instancia.id_gira, { reportDrive: true }),
+    );
   };
 
   const guardarParticipante = async (draft) => {
@@ -444,15 +443,15 @@ function InstanciaStaffCard({
             supabase={supabase}
             instancia={instancia}
             otras={otras}
-            busy={rowBusy}
             editing={editing}
             observaciones={obs}
             onObservacion={(participanteId, value) =>
               setObs((prev) => ({ ...prev, [String(participanteId)]: value }))
             }
-            onBusy={setRowBusy}
-            onError={(message) => setError(message ? errorText({ message }) : "")}
-            onChanged={onChanged}
+            onReorder={onReorder}
+            onMove={(origenId, sourceNext, destinoId, destNext) =>
+              onMove?.(origenId, sourceNext, destinoId, destNext)
+            }
             onEdit={(participante) => setModal({ participante })}
             onRemove={quitarParticipante}
           />
@@ -699,6 +698,24 @@ export default function ConcertoCompetitionView({ supabase }) {
       await loadBundle(id, requestId);
       if (requestId === requestRef.current) setLoading(false);
     });
+  };
+
+  const aplicarOrdenLocal = (instanciaId, participantes) => {
+    setInstancias((current) =>
+      current.map((item) =>
+        String(item.id) === String(instanciaId) ? { ...item, participantes } : item,
+      ),
+    );
+  };
+
+  const aplicarMovimiento = (origenId, sourceNext, destinoId, destNext) => {
+    setInstancias((current) =>
+      current.map((item) => {
+        if (String(item.id) === String(origenId)) return { ...item, participantes: sourceNext };
+        if (String(item.id) === String(destinoId)) return { ...item, participantes: destNext };
+        return item;
+      }),
+    );
   };
 
   const reload = () => {
@@ -985,6 +1002,8 @@ export default function ConcertoCompetitionView({ supabase }) {
                       promedios={promedios[String(instancia.id)]}
                       now={now}
                       onChanged={reload}
+                      onReorder={(participantes) => aplicarOrdenLocal(instancia.id, participantes)}
+                      onMove={aplicarMovimiento}
                       onVoted={() => setPromediosTick((value) => value + 1)}
                       askDiscard={askDiscard}
                       onDirtyChange={reportDirty}

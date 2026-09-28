@@ -27,6 +27,18 @@ Helpers de normalización:
 
 ### Lógica de generación de sugerencias (vientos/percusión)
 
+Las sugerencias bombilla salen de `derivedMusicianSuggestions`. Hay dos reglas. La segunda no reemplaza a la primera si esa celda ya tiene sugerencia.
+
+1. **Propagación entre obras** (comportamiento anterior). Para cada celda vacía se busca la obra más cercana del programa donde ese músico ya tiene asignación (primero columnas anteriores, luego posteriores). Se sugiere la primera particella libre de la obra destino que represente el mismo slot (`seatingPartsRepresentSameSlot`). La percusión auxiliar no se propaga; solo `Perc Timp` / timbales. Hace falta una asignación previa en otra obra: sin eso, esta regla no dispara.
+
+2. **Instrumento único (1:1)** — completado. Si la regla anterior no sugirió nada para esa celda:
+   - **Un músico:** exactamente una persona del roster visible del bloque (`filteredRoster`, ya sin ausentes) con ese `id_instr`. Dos oboístas, o un oboísta más una vacante de oboe, no entran. Los tutti de cuerda del mismo id también cuentan, así un solista de violín no se queda con la única parte de violín si hay más violinistas en la grilla.
+   - **Una parte:** exactamente una particella asignable de esa obra (no omitida) con el mismo `id_instrumento`. `Oboe 1` y `Oboe 2` son dos partes: no se sugiere. La parte tiene que estar libre (no asignada a otro músico ni a un contenedor en esa obra).
+   - **Identidad:** id de catálogo (`integrantes.id_instr` ↔ `obras_particellas.id_instrumento`), comparado como texto (`7` y `"7"`). No se usa la familia (`instrumentos.familia`): Oboe y Corno Inglés siguen separados. Vale para cualquier instrumento, no solo oboe. La percusión auxiliar sí puede sugerirse por esta regla cuando el par es 1:1; la exclusión de aux sigue solo en la propagación entre obras.
+   - **UI:** el mismo chip ámbar `IconBulb` y «Aceptar todas». No asigna sola. En el desplegable, la parte sigue en **Sugeridos** porque comparte id de instrumento con el músico (`isSameSeatingInstrument`).
+
+El listado histórico de la propagación (el matching de slot no cambió):
+
 1. Cuando se llama a `handleAssign("M", musicianId, obraId, particellaId)` con `particellaId` definido:
    - Se busca la particella (`obras_particellas`) asignada.
    - Se obtiene su etiqueta normalizada (`normalizePartLabel(getPartLabelFromPart(part))`).

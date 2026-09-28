@@ -42,6 +42,61 @@ export function eventTypeIdForCategoria(categoria) {
   return CATEGORIAS_TRANSPORTE.PASAJEROS;
 }
 
+/**
+ * Fondo de fila por `id_tipo_evento` de la parada (no por la categoría del vehículo).
+ * 11 y 35 reutilizan `tipos_evento.color`. El 12 comparte `#6366f1` con el 11 en el
+ * catálogo, así que la fila usa el ámbar del badge «Solo logístico».
+ * Oculto (`visible_agenda === false`): fondo gris + la franja del tipo.
+ */
+export const TRANSPORT_STOP_HIDDEN_ROW = "#E2E8F0";
+
+export const TRANSPORT_EVENT_TYPES = [
+  {
+    id: CATEGORIAS_TRANSPORTE.PASAJEROS,
+    categoria: "PASAJEROS",
+    nombre: "Traslado",
+    accent: "#6366f1",
+    rowBackground: "#EEF2FF",
+  },
+  {
+    id: CATEGORIAS_TRANSPORTE.LOGISTICO,
+    categoria: "LOGISTICO",
+    nombre: "Traslado logístico",
+    accent: "#D97706",
+    rowBackground: "#FFFBEB",
+  },
+  {
+    id: CATEGORIAS_TRANSPORTE.INTERNO,
+    categoria: "INTERNO",
+    nombre: "Traslado Interno",
+    accent: "#8B5CF6",
+    rowBackground: "#F5F3FF",
+  },
+];
+
+export function getTransportEventTypeMeta(typeId) {
+  const id = Number(typeId);
+  if (!Number.isFinite(id)) return null;
+  return TRANSPORT_EVENT_TYPES.find((tipo) => tipo.id === id) || null;
+}
+
+export function transportStopRowPaint(typeId, hidden) {
+  const meta = getTransportEventTypeMeta(typeId);
+  return {
+    backgroundColor: hidden
+      ? TRANSPORT_STOP_HIDDEN_ROW
+      : meta?.rowBackground || "#FFFFFF",
+    accent: meta?.accent || "#CBD5E1",
+  };
+}
+
+/** Tag solo si el tipo de la parada no es el que corresponde a `categoria_logistica`. */
+export function transportStopTypeDiverges(eventTypeId, categoriaLogistica) {
+  const stopId = Number(eventTypeId);
+  if (!Number.isFinite(stopId)) return false;
+  return stopId !== eventTypeIdForCategoria(categoriaLogistica);
+}
+
 export const formatDateSafe = (dateString) => {
   if (!dateString) return "-";
   try {

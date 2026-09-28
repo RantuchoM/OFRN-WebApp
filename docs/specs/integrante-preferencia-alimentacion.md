@@ -40,6 +40,8 @@ No abreviar con `substring(0,4)` (colisionaba GENE vs ESTÁ vs SIN). `dietsDiffe
 ### Mi Perfil (`ProfileEditModal`) — flujo del músico
 - Se abre desde el avatar / nombre en el header (`App.jsx` → `setProfileModalOpen`).
 - Select de alimentación (`DIET_OPTIONS`) + nombre/apellido de preferencia.
+- El título junto al avatar usa `seatingNombre` / `seatingApellido`: si hay preferencia cargada, muestra esa; si no, el nombre legal. Se actualiza con lo que está en el formulario (lo guardado al abrir, y lo que se está editando).
+- El aviso «Salir sin guardar» usa `overlayClassName: z-[10050]` para quedar por encima del portal del perfil (`z-[9999]`).
 - **Único lugar que dispara el mail:** al guardar, si cambió `alimentacion`, se invoca `notifyAlimentacionChange` → `filarmonica.scrn@gmail.com`.
 - El guardado no se revierte si el mail falla.
 

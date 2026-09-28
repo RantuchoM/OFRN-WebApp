@@ -29,6 +29,10 @@
     dietSelectValue,
   } from "../../utils/dietOptions";
   import { notifyAlimentacionChange } from "../../services/alimentacionChangeNotify";
+  import {
+    seatingApellido,
+    seatingNombre,
+  } from "../../utils/integranteDisplayName";
 
   // --- CONSTANTES DE ESTILO ---
   const labelClass =
@@ -309,6 +313,7 @@
         title: "Salir sin guardar",
         message: "Cambios sin guardar. ¿Salir?",
         destructive: true,
+        overlayClassName: "z-[10050]",
       }))) return;
       onClose();
     };
@@ -592,7 +597,14 @@
                   
                   <div className="flex-1 w-full text-center sm:text-left">
                     <h2 className="font-black text-slate-800 text-lg uppercase tracking-tighter">
-                      {user.nombre} {user.apellido}
+                      {seatingNombre({
+                        nombre: user.nombre,
+                        nombre_preferencia: formData.nombre_preferencia,
+                      })}{" "}
+                      {seatingApellido({
+                        apellido: user.apellido,
+                        apellido_preferencia: formData.apellido_preferencia,
+                      })}
                     </h2>
                     <p className="text-[10px] text-slate-400 font-bold mb-3 uppercase tracking-wide">
                       Personaliza tu color de tema

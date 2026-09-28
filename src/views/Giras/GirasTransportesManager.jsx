@@ -49,6 +49,9 @@ import TransportAdmissionModal from "./TransportAdmissionModal";
 import DataIntegrityIndicator from "../../components/DataIntegrityIndicator";
 import ConfirmModal from "../../components/ui/ConfirmModal";
 import TransportShiftScheduleModal from "../../components/giras/transport/TransportShiftScheduleModal";
+import TransportSelectionBar, {
+  TransportStopTypeTag,
+} from "../../components/giras/transport/TransportSelectionBar";
 import TransportVehicleIdentity, {
   TransportCornerButton,
 } from "../../components/giras/transport/TransportVehicleIdentity";
@@ -79,10 +82,13 @@ import {
   CATEGORIAS_TRANSPORTE,
   TRANSPORT_ICON_MAP,
   eventTypeIdForCategoria,
+  getTransportEventTypeMeta,
   sortEventsBySchedule,
   getTransportScheduleBounds,
   getChoferDocumentationStatus,
   extractStoragePathFromUrl,
+  transportStopRowPaint,
+  transportStopTypeDiverges,
 } from "../../utils/giraTransportUtils";
 import {
   countTransportOccupancySeats,
@@ -239,6 +245,20 @@ export default function GirasTransportesManager({
   };
 
   const handleApplyShiftSchedule = async (offset) => {
+    if (selectedEventIds.size > 0) {
+      const vehicleIds = new Set();
+      for (const [tid, evts] of Object.entries(transportEvents || {})) {
+        if ((evts || []).some((evt) => selectedEventIds.has(evt.id))) {
+          vehicleIds.add(String(tid));
+        }
+      }
+      if (vehicleIds.size > 1) {
+        toast.message(
+          "Las paradas seleccionadas son de varios vehículos. Mové los horarios de a un vehículo.",
+        );
+        return;
+      }
+    }
     const tId = shiftModal.transportId;
     const allTransportEvents = transportEvents[tId] || [];
 
@@ -285,6 +305,7 @@ export default function GirasTransportesManager({
       setShiftModal({ isOpen: false, transportId: null, transportName: "" });
       await fetchData();
       refresh();
+      clearSelection();
     } catch (error) {
       console.error(error);
       toast.error("Error al mover los horarios");
@@ -329,6 +350,20 @@ export default function GirasTransportesManager({
   );
   const [paxLocalities, setPaxLocalities] = useState({});
   const [loading, setLoading] = useState(false);
+  const [selectionBusy, setSelectionBusy] = useState(false);
+
+  const selectedStops = useMemo(() => {
+    const stops = [];
+    const transportIds = new Set();
+    for (const [tId, events] of Object.entries(transportEvents || {})) {
+      for (const evt of events || []) {
+        if (!selectedEventIds.has(evt.id)) continue;
+        stops.push(evt);
+        transportIds.add(String(tId));
+      }
+    }
+    return { stops, transportIds };
+  }, [transportEvents, selectedEventIds]);
 
   const [infoListModal, setInfoListModal] = useState({
     isOpen: false,
@@ -880,6 +915,85 @@ export default function GirasTransportesManager({
     } finally {
       setLoading(false);
     }
+  };
+
+  const openShiftFromSelection = () => {
+    if (selectedStops.transportIds.size > 1) {
+      toast.message(
+        "Las paradas seleccionadas son de varios vehículos. Mové los horarios de a un vehículo.",
+      );
+      return;
+    }
+    const tId = [...selectedStops.transportIds][0];
+    if (!tId) return;
+    const transport = transports.find((row) => String(row.id) === String(tId));
+    setShiftModal({
+      isOpen: true,
+      transportId: transport?.id ?? tId,
+      transportName: transport?.detalle || "Transporte",
+    });
+  };
+
+  const patchStopsLocal = (ids, patch) => {
+    const idSet = new Set(ids.map((id) => String(id)));
+    setTransportEvents((prev) => {
+      const next = { ...prev };
+      for (const key of Object.keys(next)) {
+        next[key] = (next[key] || []).map((evt) =>
+          idSet.has(String(evt.id)) ? { ...evt, ...patch } : evt,
+        );
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectionVisibility = async () => {
+    const ids = selectedStops.stops.map((evt) => evt.id);
+    if (!ids.length || selectionBusy) return;
+    const allHidden = selectedStops.stops.every(
+      (evt) => evt.visible_agenda === false,
+    );
+    const nextVisible = allHidden;
+    setSelectionBusy(true);
+    patchStopsLocal(ids, { visible_agenda: nextVisible });
+    const { error } = await supabase
+      .from("eventos")
+      .update({ visible_agenda: nextVisible })
+      .in("id", ids);
+    setSelectionBusy(false);
+    if (error) {
+      console.error(error);
+      toast.error("No se pudo actualizar la visibilidad");
+      fetchData();
+      return;
+    }
+    toast.success(
+      nextVisible
+        ? "Paradas visibles en la agenda"
+        : "Paradas ocultas en la agenda",
+    );
+  };
+
+  const changeSelectionEventType = async (typeId) => {
+    const ids = selectedStops.stops.map((evt) => evt.id);
+    if (!ids.length || selectionBusy) return;
+    const meta = getTransportEventTypeMeta(typeId);
+    setSelectionBusy(true);
+    patchStopsLocal(ids, { id_tipo_evento: typeId });
+    const { error } = await supabase
+      .from("eventos")
+      .update({ id_tipo_evento: typeId })
+      .in("id", ids);
+    setSelectionBusy(false);
+    if (error) {
+      console.error(error);
+      toast.error("No se pudo cambiar el tipo de evento");
+      fetchData();
+      return;
+    }
+    toast.success(
+      `Tipo actualizado a ${meta?.nombre || "el tipo elegido"} en ${ids.length} parada${ids.length === 1 ? "" : "s"}.`,
+    );
   };
 
   const refreshLocationsList = useCallback(async () => {
@@ -2125,8 +2239,26 @@ export default function GirasTransportesManager({
     }
   };
 
+  const shiftSourceEvents = transportEvents[shiftModal.transportId] || [];
+  const shiftTargetEvents =
+    selectedEventIds.size > 0
+      ? shiftSourceEvents.filter((evt) => selectedEventIds.has(evt.id))
+      : shiftSourceEvents;
+  const shiftIsPartial =
+    selectedEventIds.size > 0 &&
+    shiftTargetEvents.length !== shiftSourceEvents.length;
+  const shiftApplyLabel = shiftIsPartial
+    ? `Aplicar a ${shiftTargetEvents.length} parada${shiftTargetEvents.length === 1 ? "" : "s"}`
+    : "Aplicar a todos";
+  const selectionAllHidden =
+    selectedStops.stops.length > 0 &&
+    selectedStops.stops.every((evt) => evt.visible_agenda === false);
+  const selectionTypeIds = new Set(
+    selectedStops.stops.map((evt) => Number(evt.id_tipo_evento)),
+  );
+
   return (
-    <div className="h-full overflow-y-auto p-3 sm:p-4 bg-white rounded-lg shadow-sm border border-slate-200 max-w-6xl mx-auto">
+    <div className={`h-full overflow-y-auto p-3 sm:p-4 bg-white rounded-lg shadow-sm border border-slate-200 max-w-6xl mx-auto ${selectedStops.stops.length > 0 ? "pb-24" : ""}`}>
       {dialog}
       <div className="mb-3 flex items-center justify-between">
         <h3 className="font-bold text-slate-700 flex items-center gap-2">
@@ -2755,13 +2887,19 @@ export default function GirasTransportesManager({
                             transportId: t.id,
                           })
                         }
-                        onShift={() =>
+                        onShift={() => {
+                          if (selectedStops.transportIds.size > 1) {
+                            toast.message(
+                              "Las paradas seleccionadas son de varios vehículos. Mové los horarios de a un vehículo.",
+                            );
+                            return;
+                          }
                           setShiftModal({
                             isOpen: true,
                             transportId: t.id,
                             transportName: t.detalle,
-                          })
-                        }
+                          });
+                        }}
                         onRoadmap={() =>
                           setRoadmapModal({ isOpen: true, transportId: t.id })
                         }
@@ -2894,16 +3032,25 @@ export default function GirasTransportesManager({
                             downs.alert,
                           );
 
+                          const rowPaint = transportStopRowPaint(
+                            evt.id_tipo_evento,
+                            evt.visible_agenda === false,
+                          );
+                          const typeDiverges = transportStopTypeDiverges(
+                            evt.id_tipo_evento,
+                            t.categoria_logistica,
+                          );
+
                           return (
                             <tr
                               key={evt.id}
-                              className={`group transition-colors ${
-                                evt.visible_agenda === false
-                                  ? "bg-slate-100"
-                                  : "hover:bg-slate-50"
-                              }`}
+                              className="group transition-colors"
+                              style={{ backgroundColor: rowPaint.backgroundColor }}
                             >
-                              <td className="p-2 text-center align-middle">
+                              <td
+                                className="p-2 text-center align-middle"
+                                style={{ boxShadow: `inset 3px 0 0 ${rowPaint.accent}` }}
+                              >
                                 <input
                                   type="checkbox"
                                   className="rounded border-slate-300 text-indigo-600"
@@ -2972,6 +3119,11 @@ export default function GirasTransportesManager({
                               </td>
                               <td className="p-2 align-middle">
                                 <div className="relative">
+                                  {typeDiverges && (
+                                    <div className="mb-1">
+                                      <TransportStopTypeTag typeId={evt.id_tipo_evento} />
+                                    </div>
+                                  )}
                                   {activeDetailEventId === evt.id && (
                                     <div className="absolute -top-7 left-0 flex gap-1 bg-slate-50 p-0.5 rounded border border-slate-200 shadow-sm z-10">
                                       <button
@@ -3341,15 +3493,34 @@ export default function GirasTransportesManager({
                       );
                       const mobileDetailEditorId = `transport-detail-mobile-${evt.id}`;
 
+                      const rowPaint = transportStopRowPaint(
+                        evt.id_tipo_evento,
+                        evt.visible_agenda === false,
+                      );
+                      const typeDiverges = transportStopTypeDiverges(
+                        evt.id_tipo_evento,
+                        t.categoria_logistica,
+                      );
+
                       return (
                         <div
                           key={evt.id}
                           className={`rounded-2xl border p-2 shadow-sm ${
                             evt.visible_agenda === false
-                              ? "border-slate-200 bg-slate-100"
-                              : "border-slate-200 bg-white"
+                              ? "border-slate-300"
+                              : "border-slate-200"
                           }`}
+                          style={{
+                            backgroundColor: rowPaint.backgroundColor,
+                            borderLeftColor: rowPaint.accent,
+                            borderLeftWidth: 3,
+                          }}
                         >
+                          {typeDiverges && (
+                            <div className="mb-2">
+                              <TransportStopTypeTag typeId={evt.id_tipo_evento} />
+                            </div>
+                          )}
                           <div className="flex gap-2">
                             <div className="min-w-0 flex-1 space-y-2">
                               <div className="grid grid-cols-3 gap-2">
@@ -4078,16 +4249,25 @@ export default function GirasTransportesManager({
       <TransportShiftScheduleModal
         isOpen={shiftModal.isOpen}
         transportName={shiftModal.transportName}
-        events={(transportEvents[shiftModal.transportId] || []).filter((e) =>
-          selectedEventIds.size > 0 ? selectedEventIds.has(e.id) : true,
-        )}
+        events={shiftTargetEvents}
+        applyLabel={shiftApplyLabel}
         onClose={() =>
           setShiftModal({ isOpen: false, transportId: null, transportName: "" })
         }
         onApply={(offset) => {
           handleApplyShiftSchedule(offset);
-          clearSelection();
         }}
+      />
+
+      <TransportSelectionBar
+        count={selectedStops.stops.length}
+        allHidden={selectionAllHidden}
+        busy={selectionBusy}
+        activeTypeIds={selectionTypeIds}
+        onClear={clearSelection}
+        onShift={openShiftFromSelection}
+        onToggleVisibility={toggleSelectionVisibility}
+        onChangeType={changeSelectionEventType}
       />
 
       <EventGruposAssignModal

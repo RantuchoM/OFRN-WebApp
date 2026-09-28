@@ -39,7 +39,6 @@ import {
   isPersonEligibleForMealSlot,
   getMealServiceStyle,
   formatMealServiceLabel,
-  rewriteMealDescriptionServiceLabel,
   mealServicioFromEvent,
   mealBaseFromTypeName,
   resolveRuleMealSlot,
@@ -793,39 +792,6 @@ function ComensalesDetailModal({
 }
 
 
-const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
-const stripHtmlToPlain = (html) => {
-  if (!html) return "";
-  return String(html)
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/(div|p|li)>/gi, "\n")
-    .replace(/<[^>]+>/g, "")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/\s+/g, " ")
-    .trim();
-};
-
-const getKnownGroupLabels = (catalogs) => {
-  const fixed = [
-    "Nadie",
-    "Tutti",
-    "Solo alojados",
-    "Locales",
-    "Prod.",
-    "Sol.",
-    "Dir.",
-  ];
-  const aliases = ["No Locales", "No locales"];
-  const locs = (catalogs?.localidades || [])
-    .map((l) => l.localidad)
-    .filter(Boolean);
-  const ens = (catalogs?.ensambles || []).map((e) => e.ensamble).filter(Boolean);
-  const fams = catalogs?.familias || [];
-  return [...fixed, ...aliases, ...locs, ...ens, ...fams];
-};
-
 /** Localidades de residencia presentes en el roster confirmado. */
 const collectRosterResidenciaLocalidades = (roster = []) => {
   const map = new Map();
@@ -873,12 +839,6 @@ const collectRosterEnsambles = (roster = []) => {
   );
 };
 
-const splitFlexiblePlus = (text) =>
-  String(text)
-    .split(/\s*\+\s*/)
-    .map((p) => p.trim())
-    .filter(Boolean);
-
 const buildConvocadosLabelsOnly = (convocados, catalogs) => {
   const labels = (convocados || [])
     .filter((id) => id !== ROSTER_CATEGORIES.NONE && id !== "GRP:NONE")
@@ -891,10 +851,19 @@ const buildConvocadosLabelsOnly = (convocados, catalogs) => {
 const serviceLabelOf = (servicio, detalle) =>
   formatMealServiceLabel(servicio, detalle);
 
+/** Nombre de tipo ya resuelto (incluye subtipo) o legado servicio + detalle. */
+const mealRowTitleLabel = (row, servicioFallback) =>
+  row?.tipo_nombre ||
+  serviceLabelOf(row?.servicio ?? servicioFallback, row?.servicio_detalle) ||
+  row?.servicio ||
+  servicioFallback ||
+  "";
+
 /**
- * Bloque auto de convocados: "Almuerzo Solo alojados + Prod."
- * Nadie (GRP:NONE) → solo el servicio ("Cena"), sin la palabra "Nadie".
- * Sin convocados → null (caller usa "… Gira").
+ * Título: "{tipo con subtipo} {convocados}".
+ * Nadie (GRP:NONE) → solo el tipo, sin la palabra "Nadie".
+ * Sin convocados → "{tipo} Gira".
+ * No lee el texto anterior.
  */
 const buildConvocadosAutoPart = (serviceLabel, convocados, catalogs) => {
   if (isNobodyConvocados(convocados)) return serviceLabel;
@@ -918,317 +887,17 @@ const buildArtistInitialsSuffix = (propuestas = []) => {
   return ` - ${siglas.join(" / ")}`;
 };
 
-const ARTIST_INITIALS_SUFFIX_RE =
-  /\s+-\s+[A-ZÁÉÍÓÚÜÑ0-9]+(?:\s*\/\s*[A-ZÁÉÍÓÚÜÑ0-9]+)*\s*$/iu;
-
-const stripArtistInitialsSuffix = (plain) =>
-  String(plain || "")
-    .replace(ARTIST_INITIALS_SUFFIX_RE, "")
-    .replace(/\s+$/, "");
-
-const withArtistInitialsSuffix = (plainOrHtml, propuestas) => {
-  const plain = stripHtmlToPlain(plainOrHtml);
-  const base = stripArtistInitialsSuffix(plain);
-  const suffix = buildArtistInitialsSuffix(propuestas);
-  return `${base}${suffix}`.trim();
-};
-
 const buildMealDescription = (
   serviceLabel,
   convocados,
   catalogs,
   propuestas = [],
 ) => {
+  const label = String(serviceLabel || "").trim();
   const base =
-    buildConvocadosAutoPart(serviceLabel, convocados, catalogs) ||
-    `${serviceLabel} Gira`;
-  return withArtistInitialsSuffix(base, propuestas);
-};
-
-const isAllKnownLabelParts = (parts, catalogs) => {
-  if (parts.length === 0) return false;
-  const known = new Set(getKnownGroupLabels(catalogs));
-  return parts.every((p) => known.has(p));
-};
-
-const isAutoConvocadosTail = (tail, catalogs) =>
-  isAllKnownLabelParts(splitFlexiblePlus(tail), catalogs);
-
-const labelSuffixVariants = (labelsPart) => {
-  if (!labelsPart) return [];
-  return [
-    labelsPart,
-    labelsPart.replace(/ \+ /g, "+"),
-    labelsPart.replace(/ \+ /g, " +"),
-  ];
-};
-
-/** ¿El bloque "Servicio …" empieza en un límite real (no dentro de "pausa y merienda")? */
-const isServiceBlockBoundary = (index, text) => {
-  if (index === 0) return true;
-  const prev = text[index - 1];
-  return /[|–—;\-,(]/.test(prev);
-};
-
-/**
- * Sufijo de grupos al final, leyendo etiquetas enteras de derecha a izquierda
- * (evita confundir "Locales" dentro de "No Locales").
- */
-const findConvocadosLabelsSuffix = (plainText, catalogs, convocados) => {
-  if (!plainText) return null;
-
-  const fromConvocados = buildConvocadosLabelsOnly(convocados, catalogs);
-  for (const variant of labelSuffixVariants(fromConvocados)) {
-    if (!variant) continue;
-    if (plainText === variant) {
-      return { start: 0, end: plainText.length, text: plainText, kind: "suffix" };
-    }
-    if (plainText.endsWith(variant)) {
-      const end = plainText.length;
-      const start = end - variant.length;
-      const sep = start > 0 && plainText[start - 1] === " " ? start - 1 : start;
-      return {
-        start: sep,
-        end,
-        text: plainText.slice(sep),
-        kind: "suffix",
-      };
-    }
-  }
-
-  const knownSorted = [...getKnownGroupLabels(catalogs)].sort(
-    (a, b) => b.length - a.length,
-  );
-  let pos = plainText.length;
-  const parts = [];
-
-  while (pos > 0) {
-    while (pos > 0 && /[\s+]/.test(plainText[pos - 1])) pos -= 1;
-    if (pos === 0) break;
-
-    let matched = null;
-    for (const label of knownSorted) {
-      const start = pos - label.length;
-      if (start < 0) continue;
-      if (plainText.slice(start, pos) !== label) continue;
-      const charBefore = start > 0 ? plainText[start - 1] : "";
-      if (start > 0 && !/[\s+]/.test(charBefore)) continue;
-      matched = { label, start };
-      break;
-    }
-    if (!matched) {
-      parts.length = 0;
-      break;
-    }
-    parts.unshift(matched.label);
-    pos = matched.start;
-  }
-
-  if (parts.length === 0) return null;
-
-  const suffixStart = pos;
-  const sep =
-    suffixStart > 0 && plainText[suffixStart - 1] === " "
-      ? suffixStart - 1
-      : suffixStart;
-  return {
-    start: sep,
-    end: plainText.length,
-    text: plainText.slice(sep),
-    kind: "suffix",
-  };
-};
-
-/** Tramo "Servicio(+detalle) + grupos" o legado "Servicio en …". */
-const findConvocadosAutoSegment = (
-  plainText,
-  serviceLabel,
-  catalogs,
-  convocados,
-) => {
-  if (!plainText) return null;
-
-  const tryExact = (candidate, kind) => {
-    if (!candidate) return null;
-    // Exact whole string
-    if (plainText === candidate) {
-      return { start: 0, end: plainText.length, text: candidate, kind };
-    }
-    const idx = plainText.indexOf(candidate);
-    if (idx === -1) return null;
-    const end = idx + candidate.length;
-    // Evitar que "Cena" gane dentro de "Cena Nadie" / "Cena Tutti".
-    const next = plainText[end];
-    if (next && /[\p{L}\p{N}]/u.test(next)) return null;
-    if (next === " " || next === "\u00a0") {
-      const rest = plainText.slice(end + 1);
-      // Si lo que sigue parece tramo auto de convocados, preferir match más largo.
-      const firstTok = rest.split(/\s+/)[0];
-      if (
-        firstTok &&
-        (firstTok === "Nadie" ||
-          firstTok === "Gira" ||
-          getKnownGroupLabels(catalogs).includes(firstTok) ||
-          firstTok === "Tutti")
-      ) {
-        return null;
-      }
-    }
-    return {
-      start: idx,
-      end,
-      text: candidate,
-      kind,
-    };
-  };
-
-  // Más largo primero: "Cena Nadie" antes que "Cena".
-  const exactCandidates = [
-    buildConvocadosAutoPart(serviceLabel, convocados, catalogs),
-    `${serviceLabel} Nadie`,
-    `${serviceLabel} Gira`,
-  ]
-    .filter(Boolean)
-    .sort((a, b) => b.length - a.length);
-
-  for (const candidate of exactCandidates) {
-    const found = tryExact(candidate, "full");
-    if (found) return found;
-  }
-
-  const servicioRe = escapeRegex(serviceLabel);
-  const re = new RegExp(`\\b${servicioRe}\\s+[^\\n|–—;]+`, "gi");
-  let match;
-  let best = null;
-  while ((match = re.exec(plainText)) !== null) {
-    if (!isServiceBlockBoundary(match.index, plainText)) continue;
-    const candidate = match[0].trim();
-    const tail = candidate.slice(serviceLabel.length).trim();
-    if (isAutoConvocadosTail(tail, catalogs)) {
-      if (!best || candidate.length > best.text.length) {
-        best = {
-          start: match.index,
-          end: match.index + candidate.length,
-          text: candidate,
-          kind: "full",
-        };
-      }
-    }
-  }
-  if (best) return best;
-
-  const legacyRe = new RegExp(
-    `\\b${servicioRe}\\s+en\\s+[^\\n|–—;]+`,
-    "i",
-  );
-  const legacy = plainText.match(legacyRe);
-  if (legacy?.index != null) {
-    return {
-      start: legacy.index,
-      end: legacy.index + legacy[0].length,
-      text: legacy[0],
-      kind: "legacy",
-    };
-  }
-  return null;
-};
-
-const findConvocadosSegment = (
-  plainText,
-  serviceLabel,
-  catalogs,
-  convocados,
-) => {
-  const full = findConvocadosAutoSegment(
-    plainText,
-    serviceLabel,
-    catalogs,
-    convocados,
-  );
-  const suffix = findConvocadosLabelsSuffix(plainText, catalogs, convocados);
-  if (full && suffix) {
-    // Preferir el tramo más corto (sufijo de grupos) salvo bloque completo al inicio
-    if (full.start === 0 && suffix.start > 0) return suffix;
-    if (suffix.start > 0 && suffix.text.length <= full.text.length) return suffix;
-    return full;
-  }
-  return full || suffix;
-};
-
-const applySegmentReplacement = (
-  plain,
-  existingHtml,
-  segment,
-  replacement,
-) => {
-  const custom = plain.slice(0, segment.start).replace(/\s+$/, "");
-  const tail = plain.slice(segment.end).replace(/^\s+/, "");
-  const pieces = [custom, replacement, tail].filter((p) => p != null && p !== "");
-  let merged = pieces.join(" ").trim();
-  if (!merged) merged = "";
-
-  if (existingHtml && existingHtml !== plain && segment.text) {
-    if (existingHtml.includes(segment.text)) {
-      return existingHtml.replace(segment.text, replacement);
-    }
-  }
-  return merged;
-};
-
-/**
- * Reemplaza o agrega el tramo de convocados; conserva aclaraciones de producción.
- * Nadie → sin la palabra "Nadie". Artistas FIMBA → sufijo " - SIGLA [/ SIGLA…]".
- * Ej: "Pausa y merienda" + Tutti → "Pausa y merienda Tutti"
- * Ej: "Merienda a bordo No Locales+Prod." sin Prod. → "Merienda a bordo Solo alojados"
- * @param {string} serviceLabel etiqueta completa ("Merienda a bordo" o "Almuerzo")
- * @param {Array} [propuestas] tags FIMBA para siglas
- */
-const mergeMealDescriptionWithConvocados = (
-  existingHtml,
-  serviceLabel,
-  convocados,
-  catalogs,
-  convocadosForLookup = convocados,
-  propuestas = [],
-) => {
-  const plainRaw = stripHtmlToPlain(existingHtml);
-  const plain = stripArtistInitialsSuffix(plainRaw);
-  const newLabelsOnly = buildConvocadosLabelsOnly(convocados, catalogs);
-  const newAuto = buildConvocadosAutoPart(serviceLabel, convocados, catalogs);
-  const segment = findConvocadosSegment(
-    plain,
-    serviceLabel,
-    catalogs,
-    convocadosForLookup,
-  );
-
-  let merged;
-  if (!segment) {
-    if (!plain && newAuto) merged = newAuto;
-    else if (!plain) merged = `${serviceLabel} Gira`;
-    else if (newLabelsOnly) merged = `${plain} ${newLabelsOnly}`;
-    else if (isNobodyConvocados(convocados)) {
-      // Sin segmento detectable: no conservar "… Nadie" residual.
-      merged = newAuto || serviceLabel;
-    } else merged = existingHtml || plain;
-  } else {
-    const hasCustomPrefix = segment.start > 0;
-    const useLabelsOnly =
-      segment.kind === "suffix" || (segment.kind === "full" && hasCustomPrefix);
-    const replacement = useLabelsOnly
-      ? newLabelsOnly || ""
-      : newAuto || newLabelsOnly || (isNobodyConvocados(convocados) ? serviceLabel : "");
-
-    merged = applySegmentReplacement(
-      plain,
-      plain === plainRaw ? existingHtml : plain,
-      segment,
-      replacement,
-    );
-    if (!merged) merged = `${serviceLabel} Gira`;
-  }
-
-  return withArtistInitialsSuffix(merged, propuestas);
+    buildConvocadosAutoPart(label, convocados, catalogs) ||
+    (label ? `${label} Gira` : "Gira");
+  return `${base}${buildArtistInitialsSuffix(propuestas)}`.trim();
 };
 
 // --- COMPONENTE: INSPECTOR DE GRUPOS SUPERIOR ---
@@ -2624,9 +2293,6 @@ export default function MealsManager({
         );
         const tipoNombre = resolved.tipo_nombre;
         const base = resolved.servicio || prevRow.servicio;
-        const oldLabel =
-          prevRow.tipo_nombre ||
-          serviceLabelOf(prevRow.servicio, prevRow.servicio_detalle);
         row.id_tipo_evento = resolved.id_tipo_evento;
         row.tipo_nombre = tipoNombre;
         row.servicio = base;
@@ -2640,32 +2306,17 @@ export default function MealsManager({
             is_catering: tipo.is_catering,
           };
         }
-        if (!stripHtmlToPlain(prevRow.descripcion)) {
-          row.descripcion = buildMealDescription(
-            tipoNombre || base,
-            row.convocados,
-            catalogs,
-            row.propuestas,
-          );
-        } else {
-          row.descripcion = rewriteMealDescriptionServiceLabel(
-            prevRow.descripcion,
-            oldLabel,
-            tipoNombre || base,
-          );
-        }
+        row.descripcion = buildMealDescription(
+          tipoNombre || base,
+          row.convocados,
+          catalogs,
+          row.propuestas,
+        );
       } else if (field === "convocados") {
-        const prevConvocados = prevRow.convocados;
-        const label =
-          row.tipo_nombre ||
-          serviceLabelOf(row.servicio, row.servicio_detalle) ||
-          row.servicio;
-        row.descripcion = mergeMealDescriptionWithConvocados(
-          prevRow.descripcion,
-          label,
+        row.descripcion = buildMealDescription(
+          mealRowTitleLabel(row),
           val,
           catalogs,
-          prevConvocados,
           row.propuestas,
         );
       } else if (field === "selectedGrupos") {
@@ -2714,14 +2365,10 @@ export default function MealsManager({
 
         if (Array.isArray(changes.convocados) && changes.convocados.length > 0) {
           newRow.convocados = changes.convocados;
-          newRow.descripcion = mergeMealDescriptionWithConvocados(
-            r.descripcion,
-            newRow.tipo_nombre ||
-              serviceLabelOf(newRow.servicio, newRow.servicio_detalle) ||
-              newRow.servicio,
+          newRow.descripcion = buildMealDescription(
+            mealRowTitleLabel(newRow),
             changes.convocados,
             catalogs,
-            r.convocados,
             r.propuestas,
           );
         }
@@ -2851,11 +2498,7 @@ export default function MealsManager({
     if (!merged) return;
     const { survivor, dropIds, convocados, selectedGrupos, propuestaIds, propuestas } =
       merged;
-    const serviceLabel =
-      survivor.tipo_nombre ||
-      serviceLabelOf(survivor.servicio, survivor.servicio_detalle) ||
-      survivor.servicio ||
-      eligibility.turnoKey;
+    const serviceLabel = mealRowTitleLabel(survivor, eligibility.turnoKey);
 
     const ok = await confirm({
       title: "Fusionar comidas",
@@ -2866,12 +2509,10 @@ export default function MealsManager({
 
     setMergingMeals(true);
     try {
-      const descripcion = mergeMealDescriptionWithConvocados(
-        survivor.descripcion,
+      const descripcion = buildMealDescription(
         serviceLabel,
         convocados,
         catalogs,
-        survivor.convocados,
         propuestas,
       );
 
@@ -2964,7 +2605,7 @@ export default function MealsManager({
     }
     const ok = await confirm({
       title: "Renombrar comidas",
-      message: `¿Renombrar ${rowsToUpdate.length} comida(s)? Se actualiza el tramo auto (servicio + convocados + siglas de artistas FIMBA). Se conservan aclaraciones de producción (ej. "a bordo", "pausa y merienda").`,
+      message: `¿Renombrar ${rowsToUpdate.length} comida(s)? El título pasa a ser «tipo (con subtipo) + convocados». No se conserva el texto anterior.`,
       confirmText: "Renombrar",
     });
     if (!ok) return;
@@ -2972,17 +2613,10 @@ export default function MealsManager({
     setResettingNames(true);
     try {
       const updates = rowsToUpdate.map((row) => {
-        const serviceLabel =
-          row.tipo_nombre ||
-          serviceLabelOf(row.servicio, row.servicio_detalle) ||
-          row.servicio;
-        // Lee propuestas/tags en memoria de la fila (no solo convocados).
-        const descripcion = mergeMealDescriptionWithConvocados(
-          row.descripcion,
-          serviceLabel,
+        const descripcion = buildMealDescription(
+          mealRowTitleLabel(row),
           row.convocados,
           catalogs,
-          row.convocados,
           row.propuestas || [],
         );
         return { id: row.id, descripcion };
@@ -3690,7 +3324,7 @@ export default function MealsManager({
             onClick={handleResetAllMealNames}
             disabled={resettingNames || loading}
             className="text-[10px] font-bold px-2.5 py-1 rounded border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 disabled:opacity-50 flex items-center gap-1 shrink-0"
-            title="Renombrar: servicio + convocados (sin «Nadie») + siglas de artistas FIMBA; conserva aclaraciones de producción"
+            title="Renombrar: tipo (con subtipo) + convocados. No usa el texto anterior."
           >
             {resettingNames && (
               <IconLoader className="animate-spin" size={12} />
@@ -3713,7 +3347,7 @@ export default function MealsManager({
             onClick={handleResetAllMealNames}
             disabled={resettingNames || loading}
             className="text-[10px] font-bold px-2 py-1 rounded border border-amber-300 bg-amber-50 text-amber-800 disabled:opacity-50 flex items-center gap-1"
-            title="Renombrar comidas (convocados + siglas artistas)"
+            title="Renombrar: tipo (con subtipo) + convocados"
           >
             {resettingNames && (
               <IconLoader className="animate-spin" size={12} />
@@ -4326,22 +3960,12 @@ export default function MealsManager({
                                   if (p?.id != null) byId.set(Number(p.id), p);
                                 }
                                 nextPropuestas = Array.from(byId.values());
-                                const label =
-                                  prevRow.tipo_nombre ||
-                                  serviceLabelOf(
-                                    prevRow.servicio,
-                                    prevRow.servicio_detalle,
-                                  ) ||
-                                  prevRow.servicio;
-                                const descripcion =
-                                  mergeMealDescriptionWithConvocados(
-                                    prevRow.descripcion,
-                                    label,
-                                    prevRow.convocados,
-                                    catalogs,
-                                    prevRow.convocados,
-                                    nextPropuestas,
-                                  );
+                                const descripcion = buildMealDescription(
+                                  mealRowTitleLabel(prevRow),
+                                  prevRow.convocados,
+                                  catalogs,
+                                  nextPropuestas,
+                                );
                                 const patched = {
                                   ...prevRow,
                                   selectedGrupos: idGrupos,
@@ -4370,23 +3994,12 @@ export default function MealsManager({
                                 const live = grid.find(
                                   (r) => String(r.id) === String(eventoId),
                                 );
-                                // Prefer description just computed via setState — refetch from nextPropuestas
-                                const label =
-                                  live?.tipo_nombre ||
-                                  serviceLabelOf(
-                                    live?.servicio,
-                                    live?.servicio_detalle,
-                                  ) ||
-                                  live?.servicio;
-                                const descripcion =
-                                  mergeMealDescriptionWithConvocados(
-                                    live?.descripcion || "",
-                                    label,
-                                    live?.convocados || [],
-                                    catalogs,
-                                    live?.convocados || [],
-                                    nextPropuestas,
-                                  );
+                                const descripcion = buildMealDescription(
+                                  mealRowTitleLabel(live),
+                                  live?.convocados || [],
+                                  catalogs,
+                                  nextPropuestas,
+                                );
                                 supabase
                                   .from("eventos")
                                   .update({ descripcion })
@@ -4826,10 +4439,11 @@ function MobileMealEditor({ row, catalogs, mealTypes = [], onCancel, onSave }) {
                   id_tipo_evento: resolved.id_tipo_evento,
                   tipo_nombre: tipoNombre,
                   servicio: base,
-                  descripcion: rewriteMealDescriptionServiceLabel(
-                    p.descripcion,
-                    p.tipo_nombre || row.servicio,
+                  descripcion: buildMealDescription(
                     tipoNombre || base,
+                    p.convocados,
+                    catalogs,
+                    row.propuestas,
                   ),
                 }));
               }}
@@ -4915,12 +4529,11 @@ function MobileMealEditor({ row, catalogs, mealTypes = [], onCancel, onSave }) {
                   setDraft((p) => ({
                     ...p,
                     convocados: v,
-                    descripcion: mergeMealDescriptionWithConvocados(
-                      p.descripcion,
-                      p.tipo_nombre || row.servicio,
+                    descripcion: buildMealDescription(
+                      p.tipo_nombre || row.tipo_nombre || row.servicio,
                       v,
                       catalogs,
-                      p.convocados,
+                      row.propuestas,
                     ),
                   }))
                 }

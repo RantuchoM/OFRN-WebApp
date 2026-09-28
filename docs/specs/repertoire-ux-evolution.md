@@ -1188,4 +1188,12 @@ Carpeta [Para acomodar](https://drive.google.com/open?id=12BFnGYyChrYaLv7UEk3736
 
 Scripts: `scripts/lib/gliereCornoCatalog.mjs`, `scripts/process-gliere-corno-local.mjs`, `scripts/generate-gliere-corno-sync.mjs`.
 
+---
+
+### Completado (2026-09-28) — Sugerencia de vinculación 1:1 en ProgramSeating
+
+- [x] Si en el roster visible hay **un solo** músico de un instrumento y en la obra hay **una sola** particella asignable de ese mismo `id_instrumento`, y esa parte sigue libre, la celda vacía muestra la sugerencia bombilla (chip ámbar + «Aceptar todas»). Misma regla para cualquier instrumento, no solo oboe.
+- [x] Dos músicos del mismo id, o dos partes (`Oboe 1` / `Oboe 2`), no disparan esta regla. No pisa una sugerencia ya armada por propagación entre obras. Oboe y Corno Inglés siguen siendo ids distintos.
+- [x] Spec viva: `docs/program-seating-smart-suggestions.md`. Función: `uniqueUnassignedInstrumentPartId` en `src/utils/seatingUniqueInstrumentSuggestion.js`.
+
 

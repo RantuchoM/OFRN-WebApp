@@ -7,7 +7,6 @@ import {
   IconDrive,
   IconEdit,
   IconExchange,
-  IconLoader,
   IconSearch,
   IconTrash,
   IconX,
@@ -17,9 +16,11 @@ import {
   formatParticipanteNombres,
   linkParticipanteObra,
   moveParticipante,
+  moverEnLista,
   nextOrden,
   plainWorkTitle,
-  reorderParticipante,
+  queueConcertoMutation,
+  queueParticipanteReorder,
   unlinkParticipanteObra,
 } from "../../utils/concertoCompeticion";
 
@@ -57,15 +58,13 @@ export default function ConcertoParticipantesTable({
   supabase,
   instancia,
   otras,
-  busy,
   editing = false,
   observaciones = {},
   onObservacion,
-  onBusy,
-  onError,
-  onChanged,
   onEdit,
   onRemove,
+  onReorder,
+  onMove,
 }) {
   const [picking, setPicking] = useState(null);
   const [moveFor, setMoveFor] = useState(null);
@@ -82,31 +81,89 @@ export default function ConcertoParticipantesTable({
   const participantes = instancia.participantes || [];
   const sinGira = instancia.id_gira == null;
 
-  const run = async (action) => {
-    onBusy(true);
-    onError("");
-    try {
-      const { error } = await action();
-      if (error) {
-        onError(error.message || "No se pudo guardar.");
-        return;
-      }
-      onChanged();
-    } finally {
-      onBusy(false);
-    }
+  const reordenar = (participanteId, direction) => {
+    const next = moverEnLista(participantes, participanteId, direction);
+    if (!next) return;
+    onReorder?.(next);
+    queueParticipanteReorder(supabase, instancia.id_gira, next, instancia.id);
   };
 
-  const vincular = (participante, workId) => {
+  const vincular = (participante, workId, work) => {
     setPicking(null);
     if (!workId) return;
-    run(() =>
+    const obra = work || { id: workId, titulo: "" };
+    onReorder?.(
+      participantes.map((item) =>
+        String(item.id) === String(participante.id)
+          ? {
+              ...item,
+              repertorio_obra: {
+                id: item.id_repertorio_obra,
+                id_obra: obra.id ?? workId,
+                obras: obra,
+              },
+            }
+          : item,
+      ),
+    );
+    queueConcertoMutation(supabase, [instancia.id_gira], () =>
       linkParticipanteObra(supabase, {
         participante,
         idGira: instancia.id_gira,
         idObra: workId,
+        reportDrive: true,
       }),
     );
+  };
+
+  const desvincular = (participante) => {
+    onReorder?.(
+      participantes.map((item) =>
+        String(item.id) === String(participante.id)
+          ? { ...item, id_repertorio_obra: null, repertorio_obra: null }
+          : item,
+      ),
+    );
+    queueConcertoMutation(supabase, [instancia.id_gira], () =>
+      unlinkParticipanteObra(supabase, {
+        participante,
+        idGira: instancia.id_gira,
+        reportDrive: true,
+      }),
+    );
+  };
+
+  const moverA = (participante, destino) => {
+    setMoveFor(null);
+    const orden = nextOrden(destino.participantes || []);
+    const moving = { ...participante, id_instancia: destino.id, orden };
+    if (destino.id_gira == null) {
+      moving.id_repertorio_obra = null;
+      moving.repertorio_obra = null;
+    }
+    const sourceNext = participantes.filter((item) => String(item.id) !== String(participante.id));
+    const destNext = [...(destino.participantes || []), moving];
+    onMove?.(instancia.id, sourceNext, destino.id, destNext);
+    const same = String(instancia.id_gira ?? "") === String(destino.id_gira ?? "");
+    if (same) {
+      queueParticipanteReorder(supabase, instancia.id_gira, sourceNext, instancia.id);
+      queueParticipanteReorder(supabase, destino.id_gira, destNext, destino.id);
+    } else {
+      queueParticipanteReorder(supabase, instancia.id_gira, sourceNext, instancia.id);
+    }
+    queueConcertoMutation(supabase, [instancia.id_gira, destino.id_gira], async () => {
+      const result = await moveParticipante(supabase, {
+        participante,
+        origenGiraId: instancia.id_gira,
+        destino,
+        orden,
+        reportDrive: true,
+      });
+      if (!result.error && !same && destino.id_gira != null) {
+        queueParticipanteReorder(supabase, destino.id_gira, destNext, destino.id);
+      }
+      return result;
+    });
   };
 
   return (
@@ -161,17 +218,9 @@ export default function ConcertoParticipantesTable({
                       <p className="min-w-0 text-slate-800">{titulo || "Obra vinculada"}</p>
                       <button
                         type="button"
-                        disabled={busy}
                         title="Desvincular obra"
-                        onClick={() =>
-                          run(() =>
-                            unlinkParticipanteObra(supabase, {
-                              participante,
-                              idGira: instancia.id_gira,
-                            }),
-                          )
-                        }
-                        className="shrink-0 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50"
+                        onClick={() => desvincular(participante)}
+                        className="shrink-0 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
                       >
                         <IconX size={14} />
                       </button>
@@ -179,7 +228,7 @@ export default function ConcertoParticipantesTable({
                   ) : (
                     <button
                       type="button"
-                      disabled={busy || sinGira}
+                      disabled={sinGira}
                       title={
                         sinGira
                           ? "Asigná una gira a la instancia para vincular una obra"
@@ -215,48 +264,27 @@ export default function ConcertoParticipantesTable({
                   <div className="flex items-center justify-end gap-0.5">
                     <button
                       type="button"
-                      disabled={busy || index === 0}
+                      disabled={index === 0}
                       title="Subir"
-                      onClick={() =>
-                        run(() =>
-                          reorderParticipante(
-                            supabase,
-                            participantes,
-                            participante.id,
-                            -1,
-                            instancia.id_gira,
-                          ),
-                        )
-                      }
+                      onClick={() => reordenar(participante.id, -1)}
                       className="rounded p-1 text-slate-500 hover:bg-slate-100 disabled:opacity-30"
                     >
                       <IconChevronUp size={16} />
                     </button>
                     <button
                       type="button"
-                      disabled={busy || index === participantes.length - 1}
+                      disabled={index === participantes.length - 1}
                       title="Bajar"
-                      onClick={() =>
-                        run(() =>
-                          reorderParticipante(
-                            supabase,
-                            participantes,
-                            participante.id,
-                            1,
-                            instancia.id_gira,
-                          ),
-                        )
-                      }
+                      onClick={() => reordenar(participante.id, 1)}
                       className="rounded p-1 text-slate-500 hover:bg-slate-100 disabled:opacity-30"
                     >
                       <IconChevronDown size={16} />
                     </button>
                     <button
                       type="button"
-                      disabled={busy}
                       title="Editar integrantes"
                       onClick={() => onEdit(participante)}
-                      className="rounded p-1 text-slate-500 hover:bg-slate-100 disabled:opacity-50"
+                      className="rounded p-1 text-slate-500 hover:bg-slate-100"
                     >
                       <IconEdit size={16} />
                     </button>
@@ -264,14 +292,13 @@ export default function ConcertoParticipantesTable({
                       <div className="relative" data-concerto-move="">
                         <button
                           type="button"
-                          disabled={busy}
                           title="Mover a otra instancia"
                           onClick={() =>
                             setMoveFor((current) =>
                               String(current) === String(participante.id) ? null : participante.id,
                             )
                           }
-                          className="rounded p-1 text-slate-500 hover:bg-slate-100 disabled:opacity-50"
+                          className="rounded p-1 text-slate-500 hover:bg-slate-100"
                         >
                           <IconExchange size={16} />
                         </button>
@@ -282,17 +309,7 @@ export default function ConcertoParticipantesTable({
                                 key={otra.id}
                                 type="button"
                                 className="block w-full px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50"
-                                onClick={() => {
-                                  setMoveFor(null);
-                                  run(() =>
-                                    moveParticipante(supabase, {
-                                      participante,
-                                      origenGiraId: instancia.id_gira,
-                                      destino: otra,
-                                      orden: nextOrden(otra.participantes || []),
-                                    }),
-                                  );
-                                }}
+                                onClick={() => moverA(participante, otra)}
                               >
                                 {otra.titulo || `Instancia ${otra.id}`}
                               </button>
@@ -303,10 +320,9 @@ export default function ConcertoParticipantesTable({
                     ) : null}
                     <button
                       type="button"
-                      disabled={busy}
                       title="Quitar"
                       onClick={() => onRemove(participante)}
-                      className="rounded p-1 text-rose-600 hover:bg-rose-50 disabled:opacity-50"
+                      className="rounded p-1 text-rose-600 hover:bg-rose-50"
                     >
                       <IconTrash size={16} />
                     </button>
@@ -317,12 +333,6 @@ export default function ConcertoParticipantesTable({
           })}
         </tbody>
       </table>
-      {busy ? (
-        <p className="mt-2 flex items-center gap-1 text-xs text-slate-500">
-          <IconLoader size={12} className="animate-spin" />
-          Guardando…
-        </p>
-      ) : null}
       {picking ? (
         <RepertoireWorkPickerModal
           supabase={supabase}
@@ -332,7 +342,7 @@ export default function ConcertoParticipantesTable({
           title="Obra de repertorio"
           showCreateRequest={false}
           onClose={() => setPicking(null)}
-          onSelectWork={(workId) => vincular(picking, workId)}
+          onSelectWork={(workId, work) => vincular(picking, workId, work)}
         />
       ) : null}
     </div>

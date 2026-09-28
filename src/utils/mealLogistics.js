@@ -985,10 +985,6 @@ export function resolveRuleMealSlot(rule, which = "inicio") {
   };
 }
 
-function escapeRegex(s) {
-  return String(s || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 /**
  * Etiqueta visible: "{tipo}" o "{tipo} {detalle}".
  * Si el detalle ya incluye el tipo al inicio, se usa tal cual.
@@ -1100,55 +1096,6 @@ export function mealDisplayLabelFromEvent(evt, extraLabels = []) {
   );
   if (fromDesc) return formatMealServiceLabel(base, fromDesc);
   return base;
-}
-
-/**
- * Reescribe el prefijo de servicio en la descripciÃÂÃÂÃÂÃÂ³n al cambiar el detalle.
- * Conserva el resto (convocados, notas).
- */
-export function rewriteMealDescriptionServiceLabel(
-  existingHtml,
-  oldLabel,
-  newLabel,
-) {
-  const plain = stripHtml(existingHtml).replace(/\s+/g, " ").trim();
-  const next = String(newLabel || "").trim();
-  if (!next) return existingHtml || "";
-
-  if (!plain) return `${next} Gira`;
-
-  const prev = String(oldLabel || "").trim();
-  if (prev && plain.toLowerCase().startsWith(prev.toLowerCase())) {
-    const rest = plain.slice(prev.length);
-    const merged = `${next}${rest}`.trim();
-    if (
-      existingHtml &&
-      existingHtml !== plain &&
-      typeof existingHtml.includes === "function" &&
-      existingHtml.includes(prev)
-    ) {
-      return existingHtml.replace(prev, next);
-    }
-    return merged;
-  }
-
-  // Intento con solo el tipo canÃÂÃÂÃÂÃÂ³nico al inicio
-  const base = normalizeMealServiceBase(next) || normalizeMealServiceBase(prev);
-  if (base && plain.toLowerCase().startsWith(base.toLowerCase())) {
-    const rest = plain.slice(base.length);
-    const merged = `${next}${rest}`.trim();
-    if (
-      existingHtml &&
-      existingHtml !== plain &&
-      existingHtml.includes(base)
-    ) {
-      // Reemplazar solo la primera ocurrencia del tipo
-      return existingHtml.replace(new RegExp(escapeRegex(base)), next);
-    }
-    return merged;
-  }
-
-  return existingHtml || plain;
 }
 
 /** CSS de badges de servicio para la ventana de impresiÃÂÃÂÃÂÃÂ³n (selector `span.` para ganar a `span.rounded`). */

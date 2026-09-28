@@ -99,7 +99,7 @@ No hace falta duplicar la URL en más sitios: `buildManagementPaletteCommands()`
 - [x] Coordinación con detección de coordinador de ensamble
 - [x] Historial de giras: deep-link por `giraId` carga programa fuera del filtro de fechas y abre Roster (management) o Agenda (personal)
 - [x] Búsqueda del paleta: tokens AND, sin tildes/mayúsculas (`matchesMultiTokenSearch`; spec `docs/specs/busqueda-texto.md`)
-- [x] **Personas / repertorio por Tab** (sin prefetch del catálogo al abrir Ctrl+K), abriendo `MusicianForm` / `WorkForm`. No hay ítems «Buscar personas» ni «Buscar repertorio» en la lista. Tokens cruzan campos: `Tchai Ele` → Elegy + Tchaikovsky.
+- [x] **Personas / repertorio por Tab** (sin prefetch del catálogo al abrir Ctrl+K), abriendo `MusicianForm` / `WorkForm`. No hay ítems «Buscar personas» ni «Buscar repertorio» en la lista. Tokens cruzan campos (`Tchai Ele` → Elegy + Tchaikovsky) y no distinguen tildes (`Garcia` → García). En personas, WhatsApp y mail se abren desde la fila.
 - [x] **Gira: Escenario** en contexto de gira (management), misma URL que menú Gira → Escenario
 - [x] **Tab cambia de vista** (Comandos / Personas / Repertorio) con selector visible; no mueve el foco a los resultados
 
@@ -109,8 +109,8 @@ No hace falta duplicar la URL en más sitios: `buildManagementPaletteCommands()`
 
 ### Cómo se usa
 1. Abrir la paleta. La lista es de comandos (navegación, contexto, giras). No incluye «Buscar personas» ni «Buscar repertorio».
-2. **Tab** (o el segmento de arriba) pasa a Personas o Repertorio. Recién ahí se escribe. A los **2+ caracteres**, con debounce **250 ms**, cada token se busca solo (`ilike` en título **o** compositor; en personas, nombre **o** instrumento; tope 20 por token). El AND entre palabras lo hace el ranking cliente sobre los campos juntos, igual que la búsqueda rápida del repertorio móvil: `Tchai Ele` encuentra *Elegy* de Tchaikovsky. No se descarga la tabla completa.
-3. Elegir un resultado abre la ficha: `WorkForm` (`z-[9999]`) o `MusicianForm` (id numérico, `z-[100]`). ESC limpia el texto y, si ya está vacío, vuelve a comandos; ESC de nuevo cierra.
+2. **Tab** (o el segmento de arriba) pasa a Personas o Repertorio. Recién ahí se escribe. A los **2+ caracteres**, con debounce **250 ms**, cada token se busca solo (título **o** compositor; en personas, nombre **o** instrumento; tope 20 por token). El filtro de Postgres es `~*` con clases de acentos, así `Garcia` encuentra *García* y `Jose` encuentra *José*. El AND entre palabras lo hace el ranking cliente sobre los campos juntos, igual que la búsqueda rápida del repertorio móvil: `Tchai Ele` encuentra *Elegy* de Tchaikovsky. No se descarga la tabla completa.
+3. Elegir un resultado abre la ficha: `WorkForm` (`z-[9999]`) o `MusicianForm` (id numérico, `z-[100]`). En personas, si hay teléfono o mail, la fila muestra **WhatsApp** (`wa.me`, con el mismo normalizado que el resto de la app) y **mail** (`mailto:`). Un clic en esos iconos no abre la ficha. ESC limpia el texto y, si ya está vacío, vuelve a comandos; ESC de nuevo cierra.
 
 ### Alternar las tres vistas con Tab
 

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { IconSearch, IconArrowRight, IconLoader, IconUser, IconMusicNote } from "./Icons";
+import { IconSearch, IconArrowRight, IconLoader, IconUser, IconMusicNote, IconMail } from "./Icons";
+import WhatsAppLink from "./WhatsAppLink";
 import { getSearchHighlightRanges } from "../../utils/sanitize";
 import { PALETTE_ENTITY_MIN_QUERY, rankPaletteCommands } from "../../utils/commandPaletteEntitySearch";
 
@@ -222,38 +223,77 @@ export default function CommandPalette({
       );
     }
     rows.push(
-      <button
+      <div
         key={action.id || idx}
-        type="button"
-        tabIndex={-1}
         data-palette-selected={idx === selectedIndex ? "true" : undefined}
-        onMouseDown={(e) => e.preventDefault()}
-        onClick={() => runAction(action)}
         onMouseMove={(e) => {
           if (!e.movementX && !e.movementY) return;
           setSelectedIndex(idx);
         }}
-        className={`w-full text-left px-3 py-2.5 rounded-lg flex items-center justify-between text-sm transition-colors group ${
+        className={`w-full rounded-lg flex items-center text-sm transition-colors group ${
           idx === selectedIndex ? activeView.row : "text-slate-600 hover:bg-slate-50"
         }`}
       >
-        <div className="flex items-center gap-3 overflow-hidden">
-          <span className={`shrink-0 p-1.5 rounded-md ${idx === selectedIndex ? "bg-white/20 text-white" : "bg-slate-100 text-slate-500 group-hover:bg-white group-hover:shadow-sm"}`}>
-            {action.icon || <IconArrowRight size={14} />}
-          </span>
-          <div className="flex flex-col truncate">
-            <span className="truncate font-medium">
-              <HighlightSearchMatch text={action.label} query={query} />
+        <button
+          type="button"
+          tabIndex={-1}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => runAction(action)}
+          className="min-w-0 flex-1 text-left px-3 py-2.5 flex items-center justify-between gap-2"
+        >
+          <div className="flex items-center gap-3 overflow-hidden">
+            <span className={`shrink-0 p-1.5 rounded-md ${idx === selectedIndex ? "bg-white/20 text-white" : "bg-slate-100 text-slate-500 group-hover:bg-white group-hover:shadow-sm"}`}>
+              {action.icon || <IconArrowRight size={14} />}
             </span>
-            {action.subtitle && (
-              <span className={`truncate text-[11px] ${idx === selectedIndex ? activeView.rowSub : "text-slate-400"}`}>
-                <HighlightSearchMatch text={action.subtitle} query={query} />
+            <div className="flex flex-col truncate">
+              <span className="truncate font-medium">
+                <HighlightSearchMatch text={action.label} query={query} />
               </span>
+              {action.subtitle && (
+                <span className={`truncate text-[11px] ${idx === selectedIndex ? activeView.rowSub : "text-slate-400"}`}>
+                  <HighlightSearchMatch text={action.subtitle} query={query} />
+                </span>
+              )}
+            </div>
+          </div>
+          {idx === selectedIndex && !action.phone && !action.mail && (
+            <IconArrowRight size={14} className="opacity-80 shrink-0" />
+          )}
+        </button>
+        {(action.phone || action.mail) && (
+          <div className="flex items-center gap-0.5 pr-2 shrink-0">
+            {action.phone && (
+              <WhatsAppLink
+                phone={action.phone}
+                iconSize={15}
+                title="WhatsApp"
+                className={`p-1.5 rounded-md inline-flex items-center justify-center transition-colors ${
+                  idx === selectedIndex
+                    ? "text-white hover:bg-white/20"
+                    : "text-emerald-600 hover:bg-emerald-50"
+                }`}
+              />
+            )}
+            {action.mail && (
+              <a
+                href={`mailto:${action.mail}`}
+                title="Enviar mail"
+                data-palette-mail="true"
+                tabIndex={-1}
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => e.stopPropagation()}
+                className={`p-1.5 rounded-md inline-flex items-center justify-center transition-colors ${
+                  idx === selectedIndex
+                    ? "text-white hover:bg-white/20"
+                    : "text-slate-500 hover:bg-indigo-50 hover:text-indigo-600"
+                }`}
+              >
+                <IconMail size={15} />
+              </a>
             )}
           </div>
-        </div>
-        {idx === selectedIndex && <IconArrowRight size={14} className="opacity-80 shrink-0" />}
-      </button>,
+        )}
+      </div>,
     );
   });
 
