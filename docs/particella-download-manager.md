@@ -8,6 +8,7 @@ Módulo para la descarga masiva y unificación de particellas de un programa, in
    - **Cuerdas**: Basado en `seating_contenedores`. Toggle **1 por atril** (default ON): `ceil(n/2)` copias por contenedor (ej. 9 músicos → 5). Si se desactiva: 1 copia por músico (`n`).  
    - **Vientos/Percusión/Director**: 1 copia por asignación en `musicianAssignments` (no el mapa de contenedores). Incluye roles director/solista del roster confirmado.  
    - **Ajuste manual**: el cálculo es tope; se puede restar por fila (tablets) hasta 0.
+   - **Páginas a imprimir (2026-09-28):** cada fila tiene un campo **Páginas** (vacío = todas; ej. `1-3, 5`). El recorte entra en el PDF unificado, en **Bajar**, en **A Drive** (si hay recorte se sube el PDF recortado; si no, se copia el archivo) y en el binder **por músico**. Doble faz se calcula sobre las páginas que quedan. **Ver** abre un visor propio (pdf.js) que sabe qué página está arriba del recuadro. Los números arrancan apagados. **Desde aquí** marca el inicio en esa página; **Hasta aquí** marca el fin y, si el otro extremo ya está, suma el rango. **Sumar** agrega solo esa página. **Guardar** cierra la vista y deja el recorte en la fila. **Abrir** sigue en una pestaña nueva. Si el campo queda con páginas (no vacío), esa fila se tilda sola para exportar; vaciarlo no la destilda.
    - **Salida PDF (2026-09-25):** selector **1 PDF por obra** (default, comportamiento previo) o **1 PDF consolidado** (todas las obras tildadas en un solo archivo). El consolidado no cambia copias, seating individual ni overrides; solo empaqueta. Marcadores: obra → particellas (con `Nombre (i/n)` si hay varias copias). Nombre Drive/local: `SetParticellas_{nomenclador}_Consolidado.pdf`.
 2. **Modo «Toda la gira por músico»**  
    - Binder por persona: portada + particellas de todas las obras tildadas donde tiene asignación.  
@@ -35,6 +36,8 @@ Módulo para la descarga masiva y unificación de particellas de un programa, in
 - `src/utils/buildMusicianParticellaBundles.js`: mapa músico→partes + orden.
 - `supabase/functions/manage-drive/index.ts`: `upload_particella_set`, `create_particella_musician_folder`.
 - `src/utils/docMerger.js`: unión de buffers + `padOddPages` + marcadores PDF (`attachPdfBookmarks`). Load/save con `pdfLibBackgroundSafe` (`parseSpeed: Fastest`, `objectsPerTick: Infinity`) y `yieldExportLoop` entre ítems para no trabarse en pestaña oculta.
+- `src/utils/pdfPageRange.js`: rango `1-3, 5` y recorte con pdf-lib (`slicePdfPages`). Vacío no re-guarda el PDF.
+- `src/components/seating/ParticellaPdfPreviewModal.jsx`: visor encima del gestor. Página visible vía `ParticellaPdfScroll` (pdf.js); botones Desde aquí / Hasta aquí / Sumar.
 - `src/utils/pdfLibBackgroundSafe.js`: helper compartido con viáticos (no duplicar el Worker).
 
 ## Notas de Implementación
@@ -87,7 +90,8 @@ En la generación del PDF, el buffer de cada particella seleccionada se duplica 
   - **Nivel 2 (Instrumento)**: checkbox por fila (instrumento lógico) dentro de la obra.
 - Si se desactiva la obra, no se genera ningún set para ella.  
 - Si se desactiva un instrumento concreto, sus copias no se incluyen en el set.
-- **Score / Director / partitura** (`id_instrumento` 50 o nombre con score/director/conductor/partitura): aparecen en la lista pero **no se tildan** al marcar la obra ni con «Seleccionar todo»; se pueden activar a mano.
+- **Score / Director / partitura** (`id_instrumento` 50 o nombre con score/director/conductor/partitura): aparecen en la lista pero **no se tildan** al marcar la obra ni con «Seleccionar todo»; se pueden activar a mano (clic, Shift+clic o al recortar sus páginas).
+- **Shift+clic** en la tilde de una fila (obra expandida) marca todas las filas visibles desde la última que se tocó sin Shift hasta esa, inclusive. No destilda. El ancla se pierde si esa fila ya no está visible.
 - **Sin seating** (toggle **on** por defecto): lista particellas sin asignación (p. ej. arpa) con 1 copia; badge violeta. El header de cada obra muestra `{n} sin seating`.
 
 #### Descarga de buffers
@@ -116,7 +120,7 @@ En la generación del PDF, el buffer de cada particella seleccionada se duplica 
 #### UI del modal (actualizado)
 - Portal a `document.body`, `z-[100]`, overlay con blur; Escape / clic fuera cierra (si no está corriendo).
 - Toolbar: selector **Salida** (1 PDF por obra / 1 PDF consolidado), Seleccionar todo / Limpiar, resumen de selección, toggles **1 por atril** (cuerdas) y **Doble faz**.
-- Árbol de obras con checkbox indeterminado, badge de selección y filas en grilla (particella / asignado / **copias −/+** / archivo / copiar).
+- Árbol de obras con checkbox indeterminado, badge de selección y filas en grilla (particella / asignado / **copias −/+** / archivo / **páginas** / ver / abrir / bajar / copiar).
 - Footer con hint de seating + estado de doble faz y CTA deshabilitado si no hay selección.
 
 #### Progreso y resultado
@@ -126,8 +130,10 @@ En la generación del PDF, el buffer de cada particella seleccionada se duplica 
   - Subida de cada set a Drive **o** descarga local al navegador (`file-saver`).
 - Enlace permanente a la carpeta de sets: `PARTICELLA_SETS_ROOT_URL`.
 - Acciones por fila:
-  - **Bajar**: descarga el PDF suelto al navegador.
-  - **A Drive**: copia el archivo suelto a la carpeta de sets (`copy_file`), sin bajarlo al PC.
+  - **Ver**: visor propio. La página de arriba del recuadro alimenta **Desde aquí**, **Hasta aquí** y **Sumar**.
+  - **Abrir**: el mismo archivo en una pestaña nueva.
+  - **Bajar**: descarga el PDF suelto al navegador (recortado si hay páginas elegidas).
+  - **A Drive**: copia el archivo suelto a la carpeta de sets (`copy_file`) si se imprimen todas las páginas; si hay recorte, sube el PDF resultante.
 - Footer: **Descargar PDF** / **Descargar PDF consolidado** (local) y **Subir a Drive** / **Subir consolidado**.
 - Al finalizar se muestra un listado de resultados por obra (o una sola fila «PDF consolidado») con:
   - Enlace clicable a Drive (`webViewLink`) cuando la subida/copia fue exitosa.

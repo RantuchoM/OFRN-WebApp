@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { saveAs } from "file-saver";
 import PizZip from "pizzip";
 import { mergeSequential } from "../../utils/docMerger";
+import { slicePdfPages } from "../../utils/pdfPageRange";
 import { yieldExportLoop } from "../../utils/pdfLibBackgroundSafe";
 import { buildMusicianCoverPdf } from "../../utils/particellaMusicianCover";
 import {
@@ -54,6 +55,8 @@ export default function ParticellaByMusicianExport({
   filteredRoster = [],
   onBusyChange,
   onProgressChange,
+  /** url → spec de páginas ("" = todas). Lo define la pestaña Por obra. */
+  pageRangeByUrl = {},
 }) {
   const [selectedObraIds, setSelectedObraIds] = useState(() =>
     new Set((obras || []).map((o) => String(o.obra_id))),
@@ -375,6 +378,10 @@ export default function ParticellaByMusicianExport({
       }
       try {
         let buffer = await fetchPartBuffer(link.url);
+        buffer = await slicePdfPages(
+          buffer,
+          pageRangeByUrl[link.url] || "",
+        );
         if (dobleFaz) {
           buffer = new Uint8Array(
             await mergeSequential([{ buffer }], { padOddPages: true }),
@@ -390,6 +397,9 @@ export default function ParticellaByMusicianExport({
         await yieldExportLoop();
       } catch (e) {
         console.error("[ParticellaByMusician] part fail", part, e);
+        setError(
+          `${part.displayName}: ${e.message || "No se pudo preparar el PDF"}`,
+        );
         stepRef.current += 1;
         setProgress({
           current: stepRef.current,
@@ -890,6 +900,9 @@ export default function ParticellaByMusicianExport({
           Portada por músico
           {dobleFaz ? " (anverso + reverso en blanco)" : ""}. Una particella por
           obra asignada; destildá músicos con tablet.
+          {Object.values(pageRangeByUrl).some((spec) => String(spec || "").trim())
+            ? " Se respetan las páginas elegidas en Por obra."
+            : ""}
           {outputMode === "per_musician"
             ? " Salida: un PDF por músico (zip o carpeta Drive)."
             : " Salida: un solo PDF con todos."}

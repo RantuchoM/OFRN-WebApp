@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { saveAs } from "file-saver";
 import { mergeSequential } from "../../utils/docMerger";
@@ -8,6 +8,7 @@ import {
   IconCopy,
   IconDownload,
   IconExternalLink,
+  IconEye,
   IconFolder,
   IconLayers,
   IconLoader,
@@ -25,6 +26,13 @@ import { isConfirmedConvocadoForSeatingReports } from "../../utils/seatingRoster
 import { seatingApellidoNombre } from "../../utils/integranteDisplayName";
 import ParticellaByMusicianExport from "./ParticellaByMusicianExport";
 import ParticellaExportBusyOverlay from "./ParticellaExportBusyOverlay";
+import ParticellaPdfPreviewModal from "./ParticellaPdfPreviewModal";
+import {
+  detectPartMime,
+  getPdfPageCount,
+  parsePageRange,
+  slicePdfPages,
+} from "../../utils/pdfPageRange";
 
 function getDriveFileLabel(_url, fallbackIndex) {
   if (fallbackIndex === 0) return "Principal";
@@ -135,6 +143,19 @@ export default function ParticellaDownloadModal({
   const [includeUnassigned, setIncludeUnassigned] = useState(true);
   /** Override de copias por fila: tope = sugerido; se puede bajar (tablets). */
   const [copyOverrides, setCopyOverrides] = useState({});
+  /** url del PDF → páginas a imprimir ("" = todas). Ej: "1-3, 5". */
+  const [pageRangeByUrl, setPageRangeByUrl] = useState({});
+  /** url → cantidad de páginas, conocida después de Ver. */
+  const [pageCountByUrl, setPageCountByUrl] = useState({});
+  const [preview, setPreview] = useState(null);
+  /** `${partId}:view` | `${partId}:open` mientras se baja ese archivo. */
+  const [rowFileAction, setRowFileAction] = useState(null);
+  const previewBlobRef = useRef(null);
+  const tabBlobUrlsRef = useRef([]);
+  const viewReqRef = useRef(0);
+  const aliveRef = useRef(true);
+  /** Última fila tildada sin Shift, para marcar un rango. */
+  const partCheckAnchorRef = useRef(null);
   /** 'obra' | 'musico' */
   const [exportMode, setExportMode] = useState("obra");
   /** 'per_obra' | 'single' — 1 PDF por obra vs un PDF con todas las obras. */
@@ -398,14 +419,37 @@ export default function ParticellaDownloadModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- getEffectiveCopies usa copyOverrides
   }, [tree, selectedByObra, copyOverrides]);
 
+  const closePreview = useCallback(() => {
+    if (previewBlobRef.current) {
+      URL.revokeObjectURL(previewBlobRef.current);
+      previewBlobRef.current = null;
+    }
+    viewReqRef.current += 1;
+    setPreview(null);
+  }, []);
+
+  useEffect(() => {
+    aliveRef.current = true;
+    return () => {
+      aliveRef.current = false;
+      if (previewBlobRef.current) URL.revokeObjectURL(previewBlobRef.current);
+    };
+  }, []);
+
   useEffect(() => {
     if (!isOpen) return undefined;
     const onKey = (e) => {
-      if (e.key === "Escape" && !isRunning && !musicianBusy) onClose();
+      if (e.key !== "Escape") return;
+      if (preview) {
+        e.preventDefault();
+        closePreview();
+        return;
+      }
+      if (!isRunning && !musicianBusy) onClose();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [isOpen, isRunning, musicianBusy, onClose]);
+  }, [isOpen, isRunning, musicianBusy, onClose, preview, closePreview]);
 
   // Aviso nativo del navegador al intentar cerrar/recargar la pestaña durante exportación.
   useEffect(() => {
@@ -525,6 +569,82 @@ export default function ParticellaDownloadModal({
         },
       };
     });
+  };
+
+  const selectPartKeys = (entries, selected) => {
+    const clean = (entries || []).filter(
+      (entry) => entry?.obraId != null && entry?.partKey,
+    );
+    if (!clean.length) return;
+    setSelectedByObra((prev) => {
+      const next = { ...prev };
+      const touched = new Set();
+      let changed = false;
+      for (const { obraId, partKey } of clean) {
+        const current = next[obraId] || { enabled: false, parts: {} };
+        if (!!current.parts[partKey] === selected) {
+          touched.add(obraId);
+          continue;
+        }
+        const parts = { ...current.parts };
+        if (selected) parts[partKey] = true;
+        else delete parts[partKey];
+        next[obraId] = { ...current, parts };
+        touched.add(obraId);
+        changed = true;
+      }
+      if (!changed) return prev;
+      for (const obraId of touched) {
+        const rows = tree.find((item) => item.obraId === obraId)?.rows || [];
+        const parts = next[obraId]?.parts || {};
+        next[obraId] = {
+          enabled: rows.some((row) => !!parts[row.partKey]),
+          parts,
+        };
+      }
+      return next;
+    });
+  };
+
+  const visiblePartRows = () => {
+    const list = [];
+    tree.forEach(({ obraId, rows }) => {
+      if (!expandedByObra[obraId]) return;
+      rows.forEach((row) => list.push({ obraId, partKey: row.partKey }));
+    });
+    return list;
+  };
+
+  const handlePartCheckboxClick = (event, obraId, partKey) => {
+    event.preventDefault();
+    const visible = visiblePartRows();
+    const index = visible.findIndex(
+      (item) => item.obraId === obraId && item.partKey === partKey,
+    );
+    const anchor = partCheckAnchorRef.current;
+    if (event.shiftKey && anchor && index >= 0) {
+      const anchorIndex = visible.findIndex(
+        (item) =>
+          item.obraId === anchor.obraId && item.partKey === anchor.partKey,
+      );
+      if (anchorIndex >= 0) {
+        const start = Math.min(anchorIndex, index);
+        const end = Math.max(anchorIndex, index);
+        selectPartKeys(visible.slice(start, end + 1), true);
+        return;
+      }
+    }
+    const rows = tree.find((item) => item.obraId === obraId)?.rows;
+    handleTogglePart(obraId, partKey, rows);
+    partCheckAnchorRef.current = { obraId, partKey };
+  };
+
+  const writePageRange = (url, next, obraId, partKey) => {
+    if (!url) return;
+    setPageRangeByUrl((prev) => ({ ...prev, [url]: next }));
+    if (String(next ?? "").trim()) {
+      selectPartKeys([{ obraId, partKey }], true);
+    }
   };
 
   const handleToggleExpand = (obraId) => {
@@ -703,6 +823,133 @@ export default function ParticellaDownloadModal({
     return row.links[chosenLinkIdx] || row.links[0];
   };
 
+  const pageSpecForLink = (link) =>
+    (link?.url && pageRangeByUrl[link.url]) || "";
+
+  const applyPageSlice = async (buffer, link) =>
+    slicePdfPages(buffer, pageSpecForLink(link));
+
+  const rememberPreviewBlob = (blobUrl) => {
+    if (previewBlobRef.current && previewBlobRef.current !== blobUrl) {
+      URL.revokeObjectURL(previewBlobRef.current);
+    }
+    previewBlobRef.current = blobUrl;
+  };
+
+  const openBlobInNewTab = (buffer) => {
+    const blobUrl = URL.createObjectURL(
+      new Blob([buffer], { type: detectPartMime(buffer) }),
+    );
+    const opened = window.open(blobUrl, "_blank");
+    if (!opened) {
+      URL.revokeObjectURL(blobUrl);
+      setError(
+        "El navegador bloqueó la pestaña nueva. Permití ventanas emergentes para este sitio.",
+      );
+      return false;
+    }
+    tabBlobUrlsRef.current.push(blobUrl);
+    return true;
+  };
+
+  const handleViewPart = async (obra, row) => {
+    const chosenLink = getChosenLink(row);
+    if (!chosenLink?.url) {
+      setError("Esta particella no tiene archivo.");
+      return;
+    }
+    const req = viewReqRef.current + 1;
+    viewReqRef.current = req;
+    if (previewBlobRef.current) {
+      URL.revokeObjectURL(previewBlobRef.current);
+      previewBlobRef.current = null;
+    }
+    const subtitle = [obra?.composer, stripHtml(obra?.title)]
+      .filter(Boolean)
+      .join(" — ");
+    setPreview({
+      title: row.displayName,
+      subtitle,
+      sourceUrl: chosenLink.url,
+      obraId: obra?.obra_id,
+      partKey: row.partKey,
+      blobUrl: null,
+      mime: "application/pdf",
+      loading: true,
+      error: null,
+      pageCount: pageCountByUrl[chosenLink.url] || null,
+    });
+    setRowFileAction(`${row.partId}:view`);
+    setError(null);
+    try {
+      const buffer = await fetchPartBuffer(chosenLink);
+      if (!aliveRef.current || viewReqRef.current !== req) return;
+      const pageCount = await getPdfPageCount(buffer);
+      if (!aliveRef.current || viewReqRef.current !== req) return;
+      const mime = detectPartMime(buffer);
+      const blobUrl = URL.createObjectURL(new Blob([buffer], { type: mime }));
+      if (!aliveRef.current || viewReqRef.current !== req) {
+        URL.revokeObjectURL(blobUrl);
+        return;
+      }
+      rememberPreviewBlob(blobUrl);
+      setPageCountByUrl((prev) => ({
+        ...prev,
+        [chosenLink.url]: pageCount,
+      }));
+      setPreview({
+        title: row.displayName,
+        subtitle,
+        sourceUrl: chosenLink.url,
+        obraId: obra?.obra_id,
+        partKey: row.partKey,
+        blobUrl,
+        mime,
+        loading: false,
+        error: null,
+        pageCount,
+      });
+    } catch (e) {
+      if (!aliveRef.current || viewReqRef.current !== req) return;
+      console.error("[ParticellaDownloadModal] Error al ver particella:", e);
+      setPreview({
+        title: row.displayName,
+        subtitle,
+        sourceUrl: chosenLink.url,
+        obraId: obra?.obra_id,
+        partKey: row.partKey,
+        blobUrl: null,
+        mime: "application/pdf",
+        loading: false,
+        error: e.message || "No se pudo abrir el PDF.",
+        pageCount: null,
+      });
+    } finally {
+      if (aliveRef.current && viewReqRef.current === req) setRowFileAction(null);
+    }
+  };
+
+  const handleOpenPart = async (row) => {
+    const chosenLink = getChosenLink(row);
+    if (!chosenLink?.url) {
+      setError("Esta particella no tiene archivo.");
+      return;
+    }
+    setRowFileAction(`${row.partId}:open`);
+    setError(null);
+    try {
+      const buffer = await fetchPartBuffer(chosenLink);
+      if (!aliveRef.current) return;
+      openBlobInNewTab(buffer);
+    } catch (e) {
+      if (!aliveRef.current) return;
+      console.error("[ParticellaDownloadModal] Error al abrir particella:", e);
+      setError(e.message || "No se pudo abrir el archivo.");
+    } finally {
+      if (aliveRef.current) setRowFileAction(null);
+    }
+  };
+
   /** Copia el PDF suelto a la carpeta de sets en Drive (no lo baja al PC). */
   const handleCopySinglePart = async (obraSel, row) => {
     const chosenLink = getChosenLink(row);
@@ -723,6 +970,29 @@ export default function ParticellaDownloadModal({
       if (!fileId) throw new Error("No se pudo extraer el ID de Drive.");
 
       const { baseName, obraTitleClean } = buildSafeFileBase(obraSel, row);
+      const pageSpec = pageSpecForLink(chosenLink);
+      const pageParsed = parsePageRange(pageSpec);
+      if (!pageParsed.ok) throw new Error(pageParsed.error);
+
+      if (!pageParsed.all) {
+        const raw = await fetchPartBuffer(chosenLink);
+        const buffer = await slicePdfPages(raw, pageSpec);
+        const upData = await uploadPdfBlob(
+          new Blob([buffer], { type: "application/pdf" }),
+          `${baseName}.pdf`,
+        );
+        setResults((prev) => [
+          ...prev,
+          {
+            obraId: obraSel.obraId,
+            title: `${obraTitleClean} · ${row.displayName}`,
+            link: upData.webViewLink || null,
+            copiedSingle: true,
+          },
+        ]);
+        setError(null);
+        return;
+      }
 
       const { data, error: copyError } = await supabase.functions.invoke(
         "manage-drive",
@@ -778,9 +1048,13 @@ export default function ParticellaDownloadModal({
         label: `Descargando ${row.displayName}...`,
       }));
 
-      const buffer = await fetchPartBuffer(chosenLink);
+      const raw = await fetchPartBuffer(chosenLink);
+      const buffer = await applyPageSlice(raw, chosenLink);
       const { baseName, obraTitleClean } = buildSafeFileBase(obraSel, row);
-      saveAs(new Blob([buffer], { type: "application/pdf" }), `${baseName}.pdf`);
+      saveAs(
+        new Blob([buffer], { type: detectPartMime(buffer) }),
+        `${baseName}.pdf`,
+      );
 
       setResults((prev) => [
         ...prev,
@@ -813,6 +1087,17 @@ export default function ParticellaDownloadModal({
     if (!selection.length) {
       setError("Seleccioná al menos una obra/instrumento.");
       return;
+    }
+    for (const obraSel of selection) {
+      for (const row of obraSel.rows) {
+        const link = getChosenLink(row);
+        if (!link?.url) continue;
+        const parsed = parsePageRange(pageSpecForLink(link));
+        if (!parsed.ok) {
+          setError(`${row.displayName}: ${parsed.error}`);
+          return;
+        }
+      }
     }
     setError(null);
     setIsRunning(true);
@@ -931,7 +1216,8 @@ export default function ParticellaDownloadModal({
 
           let buffer;
           try {
-            buffer = await fetchPartBuffer(chosenLink);
+            const raw = await fetchPartBuffer(chosenLink);
+            buffer = await applyPageSlice(raw, chosenLink);
           } catch (e) {
             console.error(
               "[DownloadFlow] Error descargando particella",
@@ -942,6 +1228,11 @@ export default function ParticellaDownloadModal({
               },
               e,
             );
+            globalResults.push({
+              obraId: obraSel.obraId,
+              title: `${obraTitleClean} · ${row.displayName}`,
+              error: e.message || "Error al preparar el PDF",
+            });
             currentStep += 1;
             await paintProgress({
               current: currentStep,
@@ -1102,7 +1393,7 @@ export default function ParticellaDownloadModal({
       }}
     >
       <div
-        className="relative flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl"
+        className="relative flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         {busy && (
@@ -1207,6 +1498,7 @@ export default function ParticellaDownloadModal({
             filteredRoster={presentRoster}
             onBusyChange={setMusicianBusy}
             onProgressChange={setMusicianProgress}
+            pageRangeByUrl={pageRangeByUrl}
           />
         ) : (
           <>
@@ -1436,12 +1728,13 @@ export default function ParticellaDownloadModal({
                     {rows.length > 0 && expanded && (
                       <div className="divide-y divide-slate-100 border-t border-slate-100 bg-white">
                         {/* Column headers — desktop */}
-                        <div className="hidden sm:grid grid-cols-[minmax(0,1.3fr)_minmax(0,1.1fr)_5.5rem_minmax(0,0.9fr)_auto] gap-2 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-400 bg-slate-50/50">
+                        <div className="hidden sm:grid grid-cols-[minmax(0,1.15fr)_minmax(0,0.9fr)_4.75rem_minmax(0,0.8fr)_7.25rem_auto] gap-2 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-400 bg-slate-50/50">
                           <span>Particella</span>
                           <span>Asignado a</span>
                           <span className="text-center">Copias</span>
                           <span>Archivo</span>
-                          <span className="w-[8.5rem] text-right">Acciones</span>
+                          <span>Páginas</span>
+                          <span className="text-right">Acciones</span>
                         </div>
                         {rows.map((row) => {
                           const isSelected = !!conf.parts[row.partKey];
@@ -1450,7 +1743,7 @@ export default function ParticellaDownloadModal({
                           return (
                             <div
                               key={row.partKey}
-                              className={`grid grid-cols-1 sm:grid-cols-[minmax(0,1.3fr)_minmax(0,1.1fr)_5.5rem_minmax(0,0.9fr)_auto] gap-2 sm:gap-2 items-center px-3 py-2 text-xs border-l-4 ${
+                              className={`grid grid-cols-1 sm:grid-cols-[minmax(0,1.15fr)_minmax(0,0.9fr)_4.75rem_minmax(0,0.8fr)_7.25rem_auto] gap-2 sm:gap-2 items-center px-3 py-2 text-xs border-l-4 ${
                                 row.sinSeating
                                   ? "border-l-violet-400 bg-violet-50/70"
                                   : isSelected
@@ -1458,14 +1751,18 @@ export default function ParticellaDownloadModal({
                                     : "border-l-transparent"
                               }`}
                             >
-                              <label className="flex min-w-0 cursor-pointer items-start gap-2">
+                              <label
+                                className="flex min-w-0 cursor-pointer select-none items-start gap-2"
+                                onClick={(e) =>
+                                  handlePartCheckboxClick(e, obraId, row.partKey)
+                                }
+                              >
                                 <input
                                   type="checkbox"
                                   className="mt-0.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
                                   checked={isSelected}
-                                  onChange={() =>
-                                    handleTogglePart(obraId, row.partKey, rows)
-                                  }
+                                  title="Shift+clic marca desde la última fila hasta esta"
+                                  onChange={() => {}}
                                 />
                                 <span className="min-w-0">
                                   <span className="block font-semibold text-slate-800 truncate">
@@ -1590,7 +1887,99 @@ export default function ParticellaDownloadModal({
                                 )}
                               </div>
 
-                              <div className="flex justify-end gap-1 pl-6 sm:pl-0">
+                              {(() => {
+                                const chosenLink = getChosenLink(row);
+                                const spec = pageSpecForLink(chosenLink);
+                                const knownCount = chosenLink?.url
+                                  ? pageCountByUrl[chosenLink.url]
+                                  : null;
+                                const parsed = parsePageRange(
+                                  spec,
+                                  knownCount ?? null,
+                                );
+                                const hasFile = !!chosenLink?.url;
+                                return (
+                                  <label className="block min-w-0 pl-6 sm:pl-0">
+                                    <span className="mb-0.5 block text-[10px] font-bold uppercase tracking-wide text-slate-400 sm:hidden">
+                                      Páginas
+                                    </span>
+                                    <input
+                                      type="text"
+                                      value={spec}
+                                      disabled={isRunning || !hasFile}
+                                      placeholder="Todas"
+                                      title="Páginas a imprimir. Vacío = todas. Ej: 1-3, 5"
+                                      aria-label={`Páginas a imprimir de ${row.displayName}`}
+                                      onChange={(e) =>
+                                        writePageRange(
+                                          chosenLink?.url,
+                                          e.target.value,
+                                          obraId,
+                                          row.partKey,
+                                        )
+                                      }
+                                      className={`w-full rounded border bg-white px-1.5 py-1 text-[11px] focus:outline-none focus:ring-1 disabled:opacity-40 ${
+                                        parsed.ok
+                                          ? "border-slate-300 focus:border-indigo-400 focus:ring-indigo-400"
+                                          : "border-red-300 focus:border-red-400 focus:ring-red-400"
+                                      }`}
+                                    />
+                                    {!parsed.ok ? (
+                                      <span className="mt-0.5 block text-[10px] leading-tight text-red-600">
+                                        {parsed.error}
+                                      </span>
+                                    ) : parsed.dropped?.length ? (
+                                      <span className="mt-0.5 block text-[10px] leading-tight text-amber-700">
+                                        Máx. {knownCount}
+                                      </span>
+                                    ) : null}
+                                  </label>
+                                );
+                              })()}
+
+                              <div className="flex flex-wrap justify-end gap-1 pl-6 sm:pl-0">
+                                <button
+                                  type="button"
+                                  className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+                                  disabled={
+                                    isRunning ||
+                                    !getChosenLink(row)?.url ||
+                                    rowFileAction === `${row.partId}:view`
+                                  }
+                                  onClick={() => handleViewPart(obra, row)}
+                                  title="Ver el PDF en un cuadro encima"
+                                >
+                                  {rowFileAction === `${row.partId}:view` ? (
+                                    <IconLoader
+                                      className="animate-spin"
+                                      size={12}
+                                    />
+                                  ) : (
+                                    <IconEye size={12} />
+                                  )}
+                                  Ver
+                                </button>
+                                <button
+                                  type="button"
+                                  className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+                                  disabled={
+                                    isRunning ||
+                                    !getChosenLink(row)?.url ||
+                                    rowFileAction === `${row.partId}:open`
+                                  }
+                                  onClick={() => handleOpenPart(row)}
+                                  title="Abrir el PDF en una pestaña nueva"
+                                >
+                                  {rowFileAction === `${row.partId}:open` ? (
+                                    <IconLoader
+                                      className="animate-spin"
+                                      size={12}
+                                    />
+                                  ) : (
+                                    <IconExternalLink size={12} />
+                                  )}
+                                  Abrir
+                                </button>
                                 <button
                                   type="button"
                                   className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-40"
@@ -1601,7 +1990,7 @@ export default function ParticellaDownloadModal({
                                       row,
                                     )
                                   }
-                                  title="Descargar este PDF al navegador (archivo suelto, sin unificar)"
+                                  title="Descargar este PDF al navegador. Si elegiste páginas, baja solo esas."
                                 >
                                   <IconDownload size={12} />
                                   Bajar
@@ -1613,7 +2002,7 @@ export default function ParticellaDownloadModal({
                                   onClick={() =>
                                     handleCopySinglePart({ obraId, obra }, row)
                                   }
-                                  title="Copia este PDF suelto a la carpeta de sets en Drive (no lo descarga al PC)"
+                                  title="Copia este PDF a la carpeta de sets en Drive. Si elegiste páginas, sube solo esas."
                                 >
                                   <IconCopy size={12} />
                                   A Drive
@@ -1700,6 +2089,9 @@ export default function ParticellaDownloadModal({
                 hoja en blanco si páginas impares.
               </>
             )}
+            {" "}
+            <span className="font-medium text-slate-600">Páginas:</span> vacío
+            imprime todas (ej. 1-3, 5).
             {obraOutputMode === "single" ? (
               <>
                 {" "}
@@ -1772,6 +2164,34 @@ export default function ParticellaDownloadModal({
           </>
         )}
       </div>
+      <ParticellaPdfPreviewModal
+        preview={preview}
+        pageSpec={
+          preview?.sourceUrl ? pageRangeByUrl[preview.sourceUrl] || "" : ""
+        }
+        onPageSpecChange={(next) => {
+          if (!preview?.sourceUrl) return;
+          writePageRange(
+            preview.sourceUrl,
+            next,
+            preview.obraId,
+            preview.partKey,
+          );
+        }}
+        onClose={closePreview}
+        onOpenInTab={() => {
+          if (!preview?.blobUrl) return;
+          const opened = window.open(preview.blobUrl, "_blank");
+          if (!opened) {
+            setError(
+              "El navegador bloqueó la pestaña nueva. Permití ventanas emergentes para este sitio.",
+            );
+            return;
+          }
+          tabBlobUrlsRef.current.push(preview.blobUrl);
+          previewBlobRef.current = null;
+        }}
+      />
     </div>,
     document.body,
   );
