@@ -25,6 +25,8 @@ Personas y repertorio no son comandos de la lista. Se entra con el selector de a
 ## Contexto de gira (`?tab=giras` + `giraId`)
 Aparecen solo con una gira en la URL. **Management** ve la sección *Gira (Gestión)* (mismo patrón que `GiraActionMenu`). **Sin atajo propio** (se llega con Ctrl/Cmd+K).
 
+Al escribir, si el texto coincide, estos comandos salen **antes** que «Ir a…», el historial de otras giras y el resto. Dentro de la gira se sigue ordenando por relevancia (`reper` deja primero *Programación y Repertorio*, no Roster).
+
 | Comando | URL |
 |---------|-----|
 | Gira: Dashboard / Resumen | `/?tab=giras&view=RESUMEN&giraId={id}` |
@@ -98,7 +100,7 @@ No hace falta duplicar la URL en más sitios: `buildManagementPaletteCommands()`
 - [x] Corrección ruta Usuarios (`/?tab=usuarios`, antes `configuracion`)
 - [x] Coordinación con detección de coordinador de ensamble
 - [x] Historial de giras: deep-link por `giraId` carga programa fuera del filtro de fechas y abre Roster (management) o Agenda (personal)
-- [x] Búsqueda del paleta: tokens AND, sin tildes/mayúsculas (`matchesMultiTokenSearch`; spec `docs/specs/busqueda-texto.md`)
+- [x] Búsqueda del paleta: tokens AND, sin tildes/mayúsculas (`matchesMultiTokenSearch`; spec `docs/specs/busqueda-texto.md`). Con `giraId` en la URL, los comandos de esa gira que coinciden van antes que General e Historial.
 - [x] **Personas / repertorio por Tab** (sin prefetch del catálogo al abrir Ctrl+K), abriendo `MusicianForm` / `WorkForm`. No hay ítems «Buscar personas» ni «Buscar repertorio» en la lista. Tokens cruzan campos (`Tchai Ele` → Elegy + Tchaikovsky) y no distinguen tildes (`Garcia` → García). En personas, WhatsApp y mail se abren desde la fila.
 - [x] **Gira: Escenario** en contexto de gira (management), misma URL que menú Gira → Escenario
 - [x] **Tab cambia de vista** (Comandos / Personas / Repertorio) con selector visible; no mueve el foco a los resultados

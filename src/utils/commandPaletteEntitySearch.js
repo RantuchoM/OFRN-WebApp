@@ -7,16 +7,25 @@ import {
 /**
  * Filtra comandos de la paleta. Personas y repertorio no son ítems:
  * se entra con Tab, en las vistas del selector.
+ * Con una gira abierta, sus comandos (scope "gira") van antes que
+ * General, Historial y el resto, si coinciden con la búsqueda.
  */
 export function rankPaletteCommands(actions, query) {
   const trimmed = String(query || "").trim();
   if (!trimmed) return actions.slice(0, 10);
 
-  return filterAndRankMultiTokenSearch(
+  const ranked = filterAndRankMultiTokenSearch(
     actions,
     (action) => [action.label, action.section, action.subtitle, ...(action.aliases || [])],
     trimmed,
   );
+  const inGira = [];
+  const rest = [];
+  for (const action of ranked) {
+    if (action.scope === "gira") inGira.push(action);
+    else rest.push(action);
+  }
+  return [...inGira, ...rest];
 }
 
 export const PALETTE_ENTITY_MIN_QUERY = 2;

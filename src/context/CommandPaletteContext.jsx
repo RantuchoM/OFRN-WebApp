@@ -405,7 +405,9 @@ export const CommandPaletteProvider = ({ children }) => {
           cmds.push(...buildManagementPaletteCommands(navigate));
       }
 
-      return cmds;
+      return currentTab === "giras" && currentGiraId
+        ? cmds.map((cmd) => ({ ...cmd, scope: "gira" }))
+        : cmds;
   }, [currentTab, currentGiraId, currentView, location.pathname, navigate, isManagement, isAdmin, isEditor]);
 
   // ===========================================================================
