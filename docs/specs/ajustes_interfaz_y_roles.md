@@ -27,6 +27,7 @@
 - **Estado**: Completado (2026-06-11)
 - **Comportamiento**: Al elegir un integrante en el selector local de `UnifiedAgenda`, los filtros se reinician según los permisos de esa persona (no según los del editor ni el `localStorage` del integrante simulado).
 - **Músico / personal**: `Solo mi transporte` y `Solo mis comidas` activos (también dentro de una gira en modo simulación); sin categoría Logística (id 3).
+- **Solo mi transporte siempre tildado (2026-09-28):** si `defaultPersonalFilter` es verdadero (músico, técnico, enlace personal, «Ver como» de ese perfil), el checkbox arranca marcado en la agenda general **y** dentro de una gira. Un destilde guardado en `localStorage` no lo apaga al reabrir. En la sesión se puede destildar. Editor / gestión siguen con el default apagado (o lo que tengan guardado). `Solo mis comidas` dentro de una gira no cambia: solo simulación y enlace personal.
 - **Editor / gestión / técnico**: filtros globales (en gira: todas las categorías permitidas; sin filtros personales).
 - **Salir de "Ver como"**: restaura los filtros guardados del usuario logueado.
 - **Implementación**: `deriveAgendaPermissions` en `src/utils/agendaPermissions.js`; `useAgendaFilters` recibe `isViewAsMode` y permisos efectivos desde `UnifiedAgenda`.
