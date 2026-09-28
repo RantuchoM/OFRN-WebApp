@@ -99,6 +99,7 @@ import {
   buildAgendaPdfExportItems,
   eventMatchesAgendaSearch,
   eventPassesAgendaCategoryFilter,
+  eventPassesOnlyMyTransportFilter,
   getAccentInsensitiveHighlightRanges,
   isFimbaOnlyAgendaEvent,
   ID_TIPO_TRASLADO_INTERNO,
@@ -1507,8 +1508,6 @@ export default function UnifiedAgenda({
       }
 
       const {
-        isTransportEvent,
-        isMyTransport,
         isMyAssignedTransportParada,
         blockedByVisibility,
       } = getAgendaTransportFlags(item, myTransportLogistics);
@@ -1591,9 +1590,13 @@ export default function UnifiedAgenda({
         return false;
       }
 
-      // Filtro "Solo mi transporte": ocultar resto de logística, pero nunca mis subidas/bajadas
-      if (showOnlyMyTransport && isTransportEvent) {
-        if (!isMyTransport) return false;
+      // Filtro "Solo mi transporte": ocultar traslados ajenos (incl. Solista
+      // tipo 28 sin vehículo). El bus asignado y el INTERNO (35) quedan.
+      if (
+        showOnlyMyTransport &&
+        !eventPassesOnlyMyTransportFilter(item, myTransportLogistics)
+      ) {
+        return false;
       }
 
       if (showOnlyMyMeals) {

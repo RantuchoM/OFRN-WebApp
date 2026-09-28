@@ -86,6 +86,7 @@
 - **Problema:** En Filtros → Categorías, destildar **Transporte** dejaba filas de parada/traslado (charter, camioneta, chips TRASLADO) en vista compacta y las demás, porque `isAssignedVehicleAgendaStop` salteaba el filtro de categoría.
 - **Comportamiento:** el checkbox de categoría es el interruptor. Sin Transporte, no se listan eventos de transporte. Con Transporte tildado, la excepción de vehículo asignado sigue aplicando a **convocatoria** (tag Crimson/Vergara no oculta la subida).
 - **Helper:** `eventPassesAgendaCategoryFilter` / `isAgendaTransportCategoryEvent` en `agendaHelpers.js`. Compacta y vista expandida de `UnifiedAgenda` (Agenda de gira y Agenda general) usan el mismo `filteredItems`.
+- **Solo mi transporte (2026-09-28):** `eventPassesOnlyMyTransportFilter` oculta traslados ajenos de la categoría Transporte, no solo paradas 11/12/35 con vehículo. «Traslado Solista» (tipo 28, sin `id_gira_transporte`) deja de aparecer — caso Campos Neto / Lars Hoefs / Charbonnier en La Fuerza del Legado. El bus asignado y el INTERNO (tipo 35) siguen. Detalle en `refactor-transporte-enum.md`.
 - **Implementación:** `agendaHelpers.js`, `UnifiedAgenda.jsx`. Specs: `refactor-transporte-enum.md`, `giras-grupos-convocatoria.md`.
 
 ## 13. Agenda: multi-select editor + trash + historial icon-only
