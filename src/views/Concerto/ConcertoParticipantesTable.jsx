@@ -178,23 +178,52 @@ function DriveLink({ href }) {
   );
 }
 
-function ObservacionesCell({ participante, editing, value, onChange, compact = false }) {
+function valorFragmento(draft, participante, campo) {
+  if (draft && Object.prototype.hasOwnProperty.call(draft, campo)) return draft[campo];
+  if (campo === "solista") return participante?.fragmento_solista || "";
+  return participante?.fragmento_orquesta || "";
+}
+
+export function FragmentosCampos({
+  participante,
+  editing = false,
+  value,
+  onChange,
+  compact = false,
+}) {
+  const solista = valorFragmento(value, participante, "solista");
+  const orquesta = valorFragmento(value, participante, "orquesta");
   const width = compact ? "min-w-0" : "min-w-[12rem]";
-  if (!editing) {
-    const text = String(participante.observaciones || "").trim();
-    return text ? (
-      <p className={`${width} break-words text-sm text-slate-700`}>{text}</p>
-    ) : (
-      <p className="text-sm text-slate-400">—</p>
-    );
-  }
+  const inputClass = `mt-0.5 w-full ${width} rounded border border-slate-200 bg-white px-2 py-1 text-sm text-slate-700 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500`;
   return (
-    <input
-      value={value}
-      onChange={(event) => onChange(event.target.value)}
-      className={`w-full ${width} rounded border border-slate-200 bg-white px-2 py-1 text-sm text-slate-700 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500`}
-      aria-label={`Observaciones de ${nombresDe(participante)}`}
-    />
+    <div className="space-y-1.5">
+      <label className="block">
+        <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Solista</span>
+        {editing ? (
+          <input
+            value={solista}
+            onChange={(event) => onChange?.("solista", event.target.value)}
+            className={inputClass}
+            aria-label={`Solista de ${nombresDe(participante)}`}
+          />
+        ) : (
+          <p className={`${width} break-words text-sm text-slate-700`}>{String(solista || "").trim() || "—"}</p>
+        )}
+      </label>
+      <label className="block">
+        <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Con orquesta</span>
+        {editing ? (
+          <input
+            value={orquesta}
+            onChange={(event) => onChange?.("orquesta", event.target.value)}
+            className={inputClass}
+            aria-label={`Con orquesta de ${nombresDe(participante)}`}
+          />
+        ) : (
+          <p className={`${width} break-words text-sm text-slate-700`}>{String(orquesta || "").trim() || "—"}</p>
+        )}
+      </label>
+    </div>
   );
 }
 
@@ -209,8 +238,8 @@ function ParticipanteCard({
   total,
   sinGira,
   editing,
-  observacion,
-  onObservacion,
+  fragmentos,
+  onFragmento,
   otras,
   moveFor,
   setMoveFor,
@@ -250,18 +279,13 @@ function ParticipanteCard({
               Sin integrantes asignados.
             </p>
           ) : null}
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Observaciones</p>
-            <div className="mt-1">
-              <ObservacionesCell
-                participante={participante}
-                editing={editing}
-                value={observacion}
-                onChange={onObservacion}
-                compact
-              />
-            </div>
-          </div>
+          <FragmentosCampos
+            participante={participante}
+            editing={editing}
+            value={fragmentos}
+            onChange={onFragmento}
+            compact
+          />
           <div>
             <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Obra</p>
             <div className="mt-1">
@@ -307,8 +331,8 @@ export default function ConcertoParticipantesTable({
   instancia,
   otras,
   editing = false,
-  observaciones = {},
-  onObservacion,
+  fragmentos = {},
+  onFragmento,
   onEdit,
   onRemove,
   onReorder,
@@ -429,7 +453,10 @@ export default function ConcertoParticipantesTable({
         <thead>
           <tr className="border-b border-slate-200 text-left text-[10px] font-bold uppercase tracking-wide text-slate-500">
             <th className="px-2 py-2">Participantes</th>
-            <th className="px-2 py-2">Observaciones</th>
+            <th className="px-2 py-2">
+              <span className="block">Solista</span>
+              <span className="block">Con orquesta</span>
+            </th>
             <th className="px-2 py-2">Obra de repertorio</th>
             <th className="px-2 py-2">Drive</th>
             <th className="px-2 py-2">Orgánico</th>
@@ -454,11 +481,11 @@ export default function ConcertoParticipantesTable({
                   ) : null}
                 </td>
                 <td className="px-2 py-2">
-                  <ObservacionesCell
+                  <FragmentosCampos
                     participante={participante}
                     editing={editing}
-                    value={observaciones[String(participante.id)] ?? participante.observaciones ?? ""}
-                    onChange={(value) => onObservacion?.(participante.id, value)}
+                    value={fragmentos[String(participante.id)]}
+                    onChange={(campo, value) => onFragmento?.(participante.id, campo, value)}
                   />
                 </td>
                 <td className="px-2 py-2">
@@ -518,8 +545,8 @@ export default function ConcertoParticipantesTable({
               total={participantes.length}
               sinGira={sinGira}
               editing={editing}
-              observacion={observaciones[String(participante.id)] ?? participante.observaciones ?? ""}
-              onObservacion={(value) => onObservacion?.(participante.id, value)}
+              fragmentos={fragmentos[String(participante.id)]}
+              onFragmento={(campo, value) => onFragmento?.(participante.id, campo, value)}
               otras={otras}
               moveFor={moveFor}
               setMoveFor={setMoveFor}

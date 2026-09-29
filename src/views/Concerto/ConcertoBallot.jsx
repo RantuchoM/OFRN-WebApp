@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { RichTextPreview } from "../../components/repertoire/RepertoireWorkPickerModal";
+import { FragmentosCampos } from "./ConcertoParticipantesTable";
 import { IconChevronDown, IconChevronUp, IconTrash } from "../../components/ui/Icons";
 import {
   SCALE_FOOT,
@@ -26,7 +27,6 @@ function nombresDe(participante) {
 export function ParticipanteVotoIdentidad({ participante }) {
   const nombre = formatParticipanteNombres(participante?.integrantes) || "Sin nombre";
   const titulo = participante?.repertorio_obra?.obras?.titulo;
-  const obs = String(participante?.observaciones || "").trim();
   return (
     <div className="min-w-0">
       <div className="text-sm font-medium text-slate-800">
@@ -36,7 +36,9 @@ export function ParticipanteVotoIdentidad({ participante }) {
           <RichTextPreview content={titulo} className="font-normal [&_p]:my-0 [&_div]:my-0" />
         ) : null}
       </div>
-      {obs ? <p className="text-xs text-slate-500">{obs}</p> : null}
+      <div className="mt-1">
+        <FragmentosCampos participante={participante} compact />
+      </div>
     </div>
   );
 }
@@ -85,7 +87,6 @@ function BoletaFila({ participante, selected, onElegir, onQuitar }) {
   const [open, setOpen] = useState(false);
   const nombre = nombresDe(participante);
   const corto = tituloCortoObra(participante?.repertorio_obra?.obras?.titulo);
-  const obs = String(participante?.observaciones || "").trim();
   return (
     <div>
       <article className="min-w-0 overflow-hidden rounded-lg border border-slate-200 md:hidden">
@@ -108,10 +109,7 @@ function BoletaFila({ participante, selected, onElegir, onQuitar }) {
         </button>
         {open ? (
           <div className="space-y-2 border-t border-slate-100 px-3 py-3">
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Observaciones</p>
-              <p className="mt-1 break-words text-sm text-slate-600">{obs || "—"}</p>
-            </div>
+            <FragmentosCampos participante={participante} compact />
             <div>
               <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-slate-500">Puntaje</p>
               <PuntajeControles
@@ -141,7 +139,6 @@ function BoletaCardCerrada({ participante }) {
   const [open, setOpen] = useState(false);
   const nombre = nombresDe(participante);
   const corto = tituloCortoObra(participante?.repertorio_obra?.obras?.titulo);
-  const obs = String(participante?.observaciones || "").trim();
   return (
     <li className="min-w-0 overflow-hidden rounded-lg border border-slate-200">
       <button
@@ -163,8 +160,7 @@ function BoletaCardCerrada({ participante }) {
       </button>
       {open ? (
         <div className="border-t border-slate-100 px-3 py-2">
-          <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Observaciones</p>
-          <p className="mt-1 break-words text-sm text-slate-600">{obs || "—"}</p>
+          <FragmentosCampos participante={participante} compact />
         </div>
       ) : null}
     </li>

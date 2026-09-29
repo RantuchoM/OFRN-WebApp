@@ -15,6 +15,7 @@ import { BajaDateField, BajaDateModal } from '../../components/ui/BajaDateContro
 import EnsembleProgramManager from './EnsembleProgramManager';
 import { useConfirmDialog } from '../../hooks/useConfirmDialog';
 import { matchesMultiTokenSearch } from '../../utils/sanitize';
+import { seatingApellidoNombre } from '../../utils/integranteDisplayName';
 import { isCamerataEnsambleRow } from '../../utils/convocatoriaEnsambleViews';
 import {
     ENSAMBLE_FAMILIA_OPTIONS,
@@ -209,7 +210,7 @@ export default function EnsemblesView({ supabase }) {
 
     const fetchAllMusicians = async () => {
         setLoadingAllMusicians(true);
-        const { data, error } = await supabase.from('integrantes').select('id, nombre, apellido, mail, telefono, id_instr, fecha_alta, instrumentos(instrumento, familia)').order('apellido');
+        const { data, error } = await supabase.from('integrantes').select('id, nombre, apellido, nombre_preferencia, apellido_preferencia, mail, telefono, id_instr, fecha_alta, instrumentos(instrumento, familia)').order('apellido');
         if (!error) {
             setAllMusicians(data || []);
             setMusiciansLoaded(true);
@@ -225,7 +226,7 @@ export default function EnsemblesView({ supabase }) {
         const [membersRes, coordinatorsRes] = await Promise.all([
             supabase
                 .from('integrantes_ensambles')
-                .select('id, id_integrante, fecha_desde, fecha_hasta, integrantes(id, nombre, apellido, mail, telefono, id_instr, instrumentos(instrumento, familia))')
+                .select('id, id_integrante, fecha_desde, fecha_hasta, integrantes(id, nombre, apellido, nombre_preferencia, apellido_preferencia, mail, telefono, id_instr, instrumentos(instrumento, familia))')
                 .eq('id_ensamble', ensambleId),
             supabase.from('ensambles_coordinadores').select('id_integrante').eq('id_ensamble', ensambleId),
         ]);
@@ -430,7 +431,7 @@ export default function EnsemblesView({ supabase }) {
     const openMembershipBajaModal = (musician) => {
         setMembershipBajaModal({
             row: musician,
-            musicianLabel: `${musician.apellido}, ${musician.nombre}`,
+            musicianLabel: seatingApellidoNombre(musician),
         });
     };
 
@@ -460,7 +461,7 @@ export default function EnsemblesView({ supabase }) {
     };
 
     const goToMusicianEditor = (musician) => {
-        sessionStorage.setItem('musicians_last_search', `${musician.apellido || ''} ${musician.nombre || ''}`.trim());
+        sessionStorage.setItem('musicians_last_search', seatingApellidoNombre(musician));
         window.location.href = '/?tab=musicos';
     };
 
@@ -771,7 +772,7 @@ export default function EnsemblesView({ supabase }) {
                                             >
                                                 <div className="flex items-center gap-3 min-w-0 flex-1">
                                                     <div className={`w-6 h-6 shrink-0 rounded border flex items-center justify-center transition-colors ${isMember ? 'bg-indigo-600 border-indigo-600' : 'bg-white border-slate-300'}`}>{isToggling ? (<IconLoader size={14} className={isMember ? "text-white" : "text-indigo-600"}/>) : (isMember && <IconCheck size={14} className="text-white"/>)}</div>
-                                                    <div className="min-w-0"><div className={`font-bold truncate ${isMember ? 'text-indigo-900' : 'text-slate-700'}`}>{musician.apellido}, {musician.nombre}</div><div className="text-xs text-slate-500 flex items-center gap-1"><IconMusic size={10}/> {musician.instrumentos?.instrumento || 'Sin instrumento'}</div></div>
+                                                    <div className="min-w-0"><div className={`font-bold truncate ${isMember ? 'text-indigo-900' : 'text-slate-700'}`}>{seatingApellidoNombre(musician)}</div><div className="text-xs text-slate-500 flex items-center gap-1"><IconMusic size={10}/> {musician.instrumentos?.instrumento || 'Sin instrumento'}</div></div>
                                                 </div>
                                                 <div
                                                     className={`flex flex-wrap items-end gap-2 sm:justify-center ${dateBusy ? 'opacity-60 pointer-events-none' : ''}`}
@@ -818,7 +819,7 @@ export default function EnsemblesView({ supabase }) {
                                                             e.stopPropagation();
                                                             setMembershipDeleteConfirm({
                                                                 membershipId: musician.membershipId,
-                                                                musicianLabel: `${musician.apellido}, ${musician.nombre}`,
+                                                                musicianLabel: seatingApellidoNombre(musician),
                                                             });
                                                         }}
                                                         className="p-1 rounded-full text-slate-500 hover:text-red-600 hover:bg-red-50 transition-colors"
@@ -852,7 +853,7 @@ export default function EnsemblesView({ supabase }) {
                                                             <div className="flex items-center gap-3 min-w-0 flex-1">
                                                                 <div className="w-6 h-6 shrink-0 rounded border border-slate-200 bg-slate-50" />
                                                                 <div className="min-w-0">
-                                                                    <div className="font-semibold text-slate-600 truncate">{musician.apellido}, {musician.nombre}</div>
+                                                                    <div className="font-semibold text-slate-600 truncate">{seatingApellidoNombre(musician)}</div>
                                                                     <div className="text-xs text-slate-400 flex items-center gap-1"><IconMusic size={10}/> {musician.instrumentos?.instrumento || 'Sin instrumento'}</div>
                                                                 </div>
                                                             </div>
@@ -891,7 +892,7 @@ export default function EnsemblesView({ supabase }) {
                                                                     onClick={() =>
                                                                         setMembershipDeleteConfirm({
                                                                             membershipId: musician.membershipId,
-                                                                            musicianLabel: `${musician.apellido}, ${musician.nombre}`,
+                                                                            musicianLabel: seatingApellidoNombre(musician),
                                                                         })
                                                                     }
                                                                     className="p-1 rounded-full text-slate-500 hover:text-red-600 hover:bg-red-50 transition-colors"
@@ -920,7 +921,7 @@ export default function EnsemblesView({ supabase }) {
                                                 <div onClick={() => !isToggling && toggleMembership(musician.id)} className={`flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-all select-none ${isMember ? 'bg-indigo-50 shadow-sm z-10' : 'bg-white'} ${isCoordinator ? 'border-2 border-amber-400' : isMember ? 'border-indigo-200' : 'border-slate-200 hover:border-indigo-300'}`}>
                                                     <div className="flex items-center gap-3">
                                                         <div className={`w-6 h-6 rounded border flex items-center justify-center transition-colors ${isMember ? 'bg-indigo-600 border-indigo-600' : 'bg-white border-slate-300'}`}>{isToggling ? (<IconLoader size={14} className={isMember ? "text-white" : "text-indigo-600"}/>) : (isMember && <IconCheck size={14} className="text-white"/>)}</div>
-                                                        <div><div className={`font-bold ${isMember ? 'text-indigo-900' : 'text-slate-700'}`}>{musician.apellido}, {musician.nombre}</div><div className="text-xs text-slate-500 flex items-center gap-1"><IconMusic size={10}/> {musician.instrumentos?.instrumento || 'Sin instrumento'}</div></div>
+                                                        <div><div className={`font-bold ${isMember ? 'text-indigo-900' : 'text-slate-700'}`}>{seatingApellidoNombre(musician)}</div><div className="text-xs text-slate-500 flex items-center gap-1"><IconMusic size={10}/> {musician.instrumentos?.instrumento || 'Sin instrumento'}</div></div>
                                                     </div>
                                                     <div className="flex items-center gap-1.5">
                                                         {musician.mail && (

@@ -1,7 +1,9 @@
 /**
- * Nombre de escenario (seating e informes de seating):
- * usa preferencia si existe; si no, el nombre/apellido legal.
- * Transporte y documentos oficiales siguen usando `nombre` / `apellido`.
+ * Nombre para mostrar en la interfaz:
+ * `nombre_preferencia` / `apellido_preferencia` si hay valor; si no, el legal.
+ * Cada campo se resuelve por separado.
+ * Las exportaciones de documentación oficial siguen usando `legalNombre` / `legalApellido`
+ * (o `nombre` / `apellido` sin pasar por estas funciones).
  */
 
 export const SEATING_INTEGRANTES_EMBED =

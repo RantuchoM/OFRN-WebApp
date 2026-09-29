@@ -22,11 +22,12 @@ import {
   updateGiraGrupo,
 } from "../../services/giraGruposService";
 import { integranteKey } from "../../utils/integranteIds";
+import { seatingApellidoNombre } from "../../utils/integranteDisplayName";
 import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
 
 function getMemberNombre(m) {
-  return `${m.apellido || ""}, ${m.nombre || ""}`.trim();
+  return seatingApellidoNombre(m);
 }
 
 function getMemberInstrumento(m) {

@@ -23,6 +23,11 @@ import {
 import CommentsManager from "../../components/comments/CommentsManager";
 import CommentButton from "../../components/comments/CommentButton";
 import RoomingReportModal from "./RoomingReport";
+import {
+  seatingApellido,
+  seatingNombre,
+  seatingApellidoNombre,
+} from "../../utils/integranteDisplayName";
 import InitialOrderReportModal from "./RoomingInitialOrderReport";
 import RoomingInitialAdjustmentModal from "./RoomingInitialAdjustmentModal";
 import RoomingReportsHubModal from "./RoomingReportsHubModal";
@@ -211,7 +216,7 @@ const MissingDataModal = ({ people, onClose }) => {
               {people.map((p) => (
                 <tr key={p.id}>
                   <td className="p-3 font-medium text-slate-700">
-                    {p.apellido}, {p.nombre}
+                    {seatingApellidoNombre(p)}
                   </td>
                   <td className="p-3 text-red-600 font-bold text-xs">
                     {p.missingFields.join(", ")}
@@ -655,11 +660,11 @@ const MusicianCard = ({
       title={
         isLocalWarning
           ? "¡Atención! Músico local asignado a hotel"
-          : `${m.apellido}, ${m.nombre}`
+          : seatingApellidoNombre(m)
       }
     >
       <div className="truncate max-w-[120px]">
-        <b>{m.apellido}</b> {m.nombre}
+        <b>{seatingApellido(m)}</b> {seatingNombre(m)}
         {isCuna && " (Cuna)"}
         {(m.earlyCheckIn || m.lateCheckOut) && (
           <span className="ml-1 text-[8px] font-black uppercase text-sky-700">
@@ -1320,7 +1325,7 @@ const AssignRoomModal = ({
                             <span className="text-slate-500 font-normal ml-1">
                               —{" "}
                               {r.occupants
-                                .map((o) => `${o.apellido}, ${o.nombre}`)
+                                .map((o) => seatingApellidoNombre(o))
                                 .join("; ")}
                             </span>
                           )}
@@ -3130,7 +3135,7 @@ export default function RoomingManager({
                               className="flex items-center justify-between gap-2 border-b border-slate-50 py-1.5 text-[10px] last:border-0"
                             >
                               <span className="truncate text-slate-700">
-                                {p.apellido}, {p.nombre}
+                                {seatingApellidoNombre(p)}
                               </span>
                               <button
                                 type="button"
@@ -3249,7 +3254,7 @@ export default function RoomingManager({
                         className="flex items-center justify-between gap-2 border-b border-slate-50 py-1.5 text-[10px] last:border-0"
                       >
                         <span className="truncate text-slate-700">
-                          {p.apellido}, {p.nombre}
+                          {seatingApellidoNombre(p)}
                         </span>
                         <button
                           type="button"

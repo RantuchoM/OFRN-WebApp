@@ -13,6 +13,7 @@ import SeguimientoColorSelect, {
   seguimientoColorRowBgClass,
 } from "../../../components/viaticos/SeguimientoColorSelect";
 import "./ViaticosSheet.css";
+import { seatingApellidoNombre } from "../../../utils/integranteDisplayName";
 import RenunciaViaticosExportOption from "./RenunciaViaticosExportOption";
 import {
   canMergeTramoGroup,
@@ -935,9 +936,9 @@ export default function ViaticosTable({
                             className={`truncate text-sm font-semibold leading-tight ${
                               esTramo ? "text-slate-800" : "text-slate-700"
                             }`}
-                            title={`${row.apellido}, ${row.nombre}`}
+                            title={seatingApellidoNombre(row)}
                           >
-                            {row.apellido}, {row.nombre}
+                            {seatingApellidoNombre(row)}
                           </div>
 
                           {esTramo && (

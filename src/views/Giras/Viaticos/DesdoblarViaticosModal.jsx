@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { IconX, IconScissors, IconMapPin } from "../../../components/ui/Icons";
 import { calculateDaysDiff } from "../../../utils/viaticosDiasComputables";
+import { seatingApellidoNombre } from "../../../utils/integranteDisplayName";
 import DiasComputablesHelp from "./DiasComputablesHelp";
 import {
   buildTramosFromParadas,
@@ -106,7 +107,7 @@ export default function DesdoblarViaticosModal({
         <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
           <h3 className="flex items-center gap-2 text-sm font-bold text-slate-800">
             <IconScissors size={18} className="text-indigo-600" />
-            Desdoblar viáticos — {row.apellido}, {row.nombre}
+            Desdoblar viáticos — {seatingApellidoNombre(row)}
           </h3>
           <button
             type="button"

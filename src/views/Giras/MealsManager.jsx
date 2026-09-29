@@ -108,6 +108,11 @@ import { formatFechaLargaEs } from "../../utils/dates";
 import { toast } from "sonner";
 import { matchesMultiTokenSearch } from "../../utils/sanitize";
 import { getFixedMenuPosition } from "../../utils/fixedMenuPosition";
+import {
+  seatingApellido,
+  seatingApellidoInicial,
+  seatingApellidoNombre,
+} from "../../utils/integranteDisplayName";
 
 /** Embed `eventos_grupos` alineado a `selectedGrupos` (deducción orquesta↔grupo en vivo). */
 const buildEventosGruposEmbed = (selectedGrupos, giraGrupos) =>
@@ -452,8 +457,8 @@ const buildComensalesDetail = (people = []) => {
     const la = personLocalidadLabel(a);
     const lb = personLocalidadLabel(b);
     if (la !== lb) return la.localeCompare(lb, "es");
-    const ap = `${a.apellido || ""}, ${a.nombre || ""}`;
-    const bp = `${b.apellido || ""}, ${b.nombre || ""}`;
+    const ap = seatingApellidoNombre(a);
+    const bp = seatingApellidoNombre(b);
     return ap.localeCompare(bp, "es");
   });
 
@@ -537,7 +542,7 @@ function MealTurnoOverInclusionModal({
               <ul className="space-y-2">
                 {people.map((entry) => {
                   const p = entry.person || {};
-                  const name = `${p.apellido || ""}, ${p.nombre || ""}`.trim();
+                  const name = seatingApellidoNombre(p);
                   return (
                     <li
                       key={`p-${entry.id}-${entry.turnoKey}`}
@@ -729,7 +734,7 @@ function ComensalesDetailModal({
                   key={`ded-${p.id}`}
                   className="py-1 text-[11px] text-amber-900/90 truncate"
                 >
-                  {p.apellido}, {p.nombre}
+                  {seatingApellidoNombre(p)}
                 </li>
               ))}
             </ul>
@@ -759,7 +764,7 @@ function ComensalesDetailModal({
                       className="flex items-center justify-between gap-2 py-1.5 text-xs"
                     >
                       <span className="font-medium text-slate-800 truncate">
-                        {p.apellido}, {p.nombre}
+                        {seatingApellidoNombre(p)}
                       </span>
                       <span className="text-[10px] text-slate-400 uppercase truncate max-w-[40%] text-right shrink-0">
                         {(!isStandardOfrnDiet(p.alimentacion)
@@ -930,14 +935,16 @@ const GroupInspectorHeader = ({ roster, catalogs, groupDefs }) => {
                 <div className="max-h-40 overflow-y-auto custom-scrollbar">
                   {roster
                     .filter(g.filter)
-                    .sort((a, b) => a.apellido.localeCompare(b.apellido))
+                    .sort((a, b) =>
+                      seatingApellido(a).localeCompare(seatingApellido(b), "es"),
+                    )
                     .map((p) => (
                       <div
                         key={p.id}
                         className="text-[10px] py-0.5 flex justify-between border-b border-slate-50 last:border-0"
                       >
                         <span className="truncate">
-                          {p.apellido}, {p.nombre[0]}.
+                          {seatingApellidoInicial(p)}
                         </span>
                         <span className="text-slate-400 italic text-[8px]">
                           {p.instrumentos?.instrumento?.substring(0, 12)}

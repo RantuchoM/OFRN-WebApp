@@ -13,6 +13,7 @@ import {
   scheduleFromParadaRange,
 } from "../../utils/viaticosParadasIntegrante";
 import { calculateDaysDiff } from "../../utils/viaticosDiasComputables";
+import { seatingApellido } from "../../utils/integranteDisplayName";
 import { calcValorDiarioProporcional } from "../../utils/viaticosValorDiarioProporcional";
 import { useConfirmDialog } from "../useConfirmDialog";
 
@@ -126,7 +127,7 @@ export function useViaticosIndividuales(
           `
                     *, 
                     integrantes:id_integrante(
-                        id, nombre, apellido, mail, dni, firma, id_instr, 
+                        id, nombre, apellido, nombre_preferencia, apellido_preferencia, mail, dni, firma, id_instr, 
                         documentacion, docred, link_declaracion, link_carnet, link_dni_img,
                         motivo, cargo, jornada
                     )
@@ -256,6 +257,8 @@ export function useViaticosIndividuales(
           ...rowWithLogistics,
           nombre: persona?.nombre || "Desconocido",
           apellido: persona?.apellido || `(ID: ${row.id_integrante})`,
+          nombre_preferencia: persona?.nombre_preferencia || null,
+          apellido_preferencia: persona?.apellido_preferencia || null,
           rol_roster: persona?.rol_gira || persona?.rol || "",
           cargo: row.cargo || persona?.rol_gira || "Músico",
           firma: persona ? persona.firma : null,
@@ -278,7 +281,7 @@ export function useViaticosIndividuales(
         };
       })
       .sort((a, b) => {
-        const byName = (a.apellido || "").localeCompare(b.apellido || "");
+        const byName = seatingApellido(a).localeCompare(seatingApellido(b), "es");
         if (byName !== 0) return byName;
         return (a.tramo_orden || 1) - (b.tramo_orden || 1);
       });

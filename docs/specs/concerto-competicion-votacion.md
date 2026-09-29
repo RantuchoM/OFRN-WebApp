@@ -8,7 +8,7 @@
 - [x] Gestión de edición, instancias y participantes
 - [x] Resultados en vivo (promedio y cantidad de boletas, sin votos individuales)
 - [x] Participantes en columnas, con obra de catálogo vinculada al bloque «Concerto Competition» de la gira
-- [x] `repertorio_obras.notas_especificas` del bloque es la proyección del participante (nombres y observación)
+- [x] Fragmentos solista y con orquesta en el participante. La nota de repertorio ya no se proyecta desde la competencia.
 
 ## Contrato de datos
 
@@ -18,7 +18,7 @@ Tablas:
 
 - `concerto_ediciones` (`id`, `nombre`, `visible_desde`, `visible_hasta`)
 - `concerto_instancias` (`id`, `id_edicion`, `id_gira`, `titulo`, `abre_en`, `cierra_en`, `orden`). `id_gira` → `programas.id`
-- `concerto_participantes` (`id`, `id_instancia`, `observaciones`, `orden`, `id_repertorio_obra`)
+- `concerto_participantes` (`id`, `id_instancia`, `observaciones` legacy, `fragmento_solista`, `fragmento_orquesta`, `orden`, `id_repertorio_obra`)
 - `concerto_participante_integrantes` (`id_participante`, `id_integrante`)
 
 RPCs:
@@ -94,11 +94,11 @@ La boleta previa se carga con `concerto_mi_boleta`. El error de `concerto_guarda
 
 No ve pestañas ni resultados. Una tarjeta por instancia en la que es electorado.
 
-Fuera de la ventana abierta: la línea 1 es el nombre y, si hay obra vinculada, « - » más `obras.titulo`; debajo, más chicas, las observaciones (sin segunda línea si están vacías). Sin controles de puntaje y sin promedios. Texto de si todavía no abre, está cerrada, o falta definir la ventana.
+Fuera de la ventana abierta: la línea 1 es el nombre y, si hay obra vinculada, « - » más `obras.titulo`; debajo, «Solista» y «Con orquesta». Sin controles de puntaje y sin promedios. Texto de si todavía no abre, está cerrada, o falta definir la ventana.
 
-Con la ventana abierta: escala arriba y una fila por participante que no lo incluye, con las mismas dos líneas y los siete puntajes. Cada click persiste ese puntaje.
+Con la ventana abierta: escala arriba y una fila por participante que no lo incluye, con el nombre, la obra, los dos fragmentos y los siete puntajes. Cada click persiste ese puntaje.
 
-En viewport menor a `md` (768px) cada fila de la boleta es una tarjeta colapsable. Cerrada: nombre y la primera línea del título. Abierta: observaciones y, si la ventana está abierta, el puntaje y el tachito.
+En viewport menor a `md` (768px) cada fila de la boleta es una tarjeta colapsable. Cerrada: nombre y la primera línea del título. Abierta: Solista, Con orquesta y, si la ventana está abierta, el puntaje y el tachito.
 
 ## Editor y admin
 
@@ -114,20 +114,20 @@ Aunque también sea músico, ve el panel de gestión.
 - Nombre y vigencia (`visible_desde`, `visible_hasta`) de la edición se ven como texto. Editar los habilita; «Guardar cambios» vuelve a lectura.
 - Crear otra edición (nombre + vigencia).
 - Alta de instancia: gira (`programas`, hasta 500 recientes) y título. Baja de instancia. Junto al nomenclador y el nombre de la gira, la cabecera muestra `fecha_desde` / `fecha_hasta` como `dd/mm - dd/mm`; no reemplaza Abre/Cierra.
-- Por instancia: título, `abre_en`, `cierra_en` y observaciones se ven como texto. Editar habilita esos campos de esa instancia. «Guardar cambios» los persiste y vuelve a lectura. Guardar no depende de los votos. Si la edición o una instancia tiene cambios sin guardar, salir (otra pestaña, otra vista o cancelar) pide el diálogo de confirmación de la app: «Hay cambios sin guardar.» Cancelar sin cambios no pregunta.
-- Alta de participante: buscador de integrantes (nombre y apellido; sin vacantes `es_simulacion`), segundo integrante opcional, observaciones. La grilla muestra una fila por participante (el dúo sigue siendo una fila). En el modal del lápiz, Guardar dice «Guardando» mientras persiste; la X con cambios pide «Hay cambios sin guardar.» (Guardar persiste y cierra, Cancelar descarta y cierra) y sin cambios cierra directo.
-- Columnas: Participantes, Observaciones (texto libre; se editan con el Editar de la instancia y se guardan con «Guardar cambios»), Obra de repertorio (buscador `RepertoireWorkPickerModal`; si hay vínculo, el compositor va encima del título como «Apellido, Nombre», varios con « / », y si no hay compositor solo el título; el título se pinta con el `RichTextPreview` del repertorio, así `&nbsp;`, `<br>` y los párrafos se ven como en el catálogo), Drive, Orgánico y acciones compactas (orden, editar integrantes, mover, quitar). Drive y orgánico salen de la obra de catálogo; si no hay vínculo, esas celdas quedan vacías. Agregar sigue siendo directo. Subir, bajar, vincular, desvincular, quitar y mover a otra instancia actualizan la tabla al toque y siguen habilitados; el bloque y las carpetas van a una cola por gira, con un toast, y si Drive o la reconciliación fallan el error aparece ahí.
+- Por instancia: título, `abre_en`, `cierra_en` y los fragmentos se ven como texto. Editar habilita esos campos de esa instancia. «Guardar cambios» los persiste y vuelve a lectura. Guardar no depende de los votos. Si la edición o una instancia tiene cambios sin guardar, salir (otra pestaña, otra vista o cancelar) pide el diálogo de confirmación de la app: «Hay cambios sin guardar.» Cancelar sin cambios no pregunta.
+- Alta de participante: buscador de integrantes (nombre y apellido; sin vacantes `es_simulacion`), segundo integrante opcional, Solista y Con orquesta (opcionales, uno encima del otro). La grilla muestra una fila por participante (el dúo sigue siendo una fila). En el modal del lápiz, Guardar dice «Guardando» mientras persiste; la X con cambios pide «Hay cambios sin guardar.» (Guardar persiste y cierra, Cancelar descarta y cierra) y sin cambios cierra directo.
+- Columnas: Participantes, Solista y Con orquesta (se editan con el Editar de la instancia y se guardan con «Guardar cambios»), Obra de repertorio (buscador `RepertoireWorkPickerModal`; si hay vínculo, el compositor va encima del título como «Apellido, Nombre», varios con « / », y si no hay compositor solo el título; el título se pinta con el `RichTextPreview` del repertorio, así `&nbsp;`, `<br>` y los párrafos se ven como en el catálogo), Drive, Orgánico y acciones compactas (orden, editar integrantes, mover, quitar). Drive y orgánico salen de la obra de catálogo; si no hay vínculo, esas celdas quedan vacías. Agregar sigue siendo directo. Subir, bajar, vincular, desvincular, quitar y mover a otra instancia actualizan la tabla al toque y siguen habilitados; el bloque y las carpetas van a una cola por gira, con un toast, y si Drive o la reconciliación fallan el error aparece ahí.
 - Mover a otra instancia de la misma edición (`id_instancia` y `orden` al final de la destino) es un menú, no un select a lo ancho. Quitar y mover sacan la fila del bloque de la gira de origen y, si el destino tiene gira y obra vinculada, la agregan al bloque de destino.
 - Participante sin integrante vinculado: aviso para asignarlo.
 - Resultados (pestaña aparte): un ranking de la edición anual elegida, no de todas las ediciones y no agrupado por instancia. Una tabla con Nombre, instrumento, obra y puntaje, de mayor promedio a menor; sin puntaje al final y empate por nombre. El instrumento sale de cada integrante; la obra usa el mismo render que la columna de participantes. El puntaje es `concerto_promedios` con el formato ya visible. Sin votos, «—» y el texto «Todavía no hay puntajes.». No se listan votos individuales. El músico que solo vota no ve esta pestaña. Las instancias siguen para participantes, ventanas y boleta.
 - Si el editor o admin está en el electorado de la instancia, «Tu votación» queda en la pestaña Instancias, en esa instancia. La boleta aplica la ventana, el guardado por click y el tachito; no se puntúa a sí mismo ni a su dúo. Si no está convocado, esa instancia no muestra boleta.
-- En viewport menor a `md`, la grilla de participantes, la boleta y el ranking pasan a tarjetas colapsables, sin scroll horizontal para lo esencial. Escritorio mantiene las tablas. Participantes, cerrada: nombre y primera línea del título; abierta: observaciones, compositor y título enriquecido, Drive, orgánico y acciones. Boleta, cerrada: nombre y primera línea del título; abierta: observaciones, puntaje y tachito. Resultados, cerrada: nombre y puntaje; abierta: instrumento y obra.
+- En viewport menor a `md`, la grilla de participantes, la boleta y el ranking pasan a tarjetas colapsables, sin scroll horizontal para lo esencial. Escritorio mantiene las tablas. Participantes, cerrada: nombre y primera línea del título; abierta: Solista, Con orquesta, compositor y título enriquecido, Drive, orgánico y acciones. Boleta, cerrada: nombre y primera línea del título; abierta: Solista, Con orquesta, puntaje y tachito. Resultados, cerrada: nombre y puntaje; abierta: instrumento y obra.
 
 Modales con portal a `document.body` y `z-[100]`. Iconos solo de `src/components/ui/Icons.jsx`. Textos en español. El buscador de obras es el modal que ya usa Programación/Repertorio, sin el filtro inicial de orgánico de la gira: las obras del concurso no tienen por qué caber en el seating convocado. Abrirlo no cambia el ancho de la página: el modal no crece con el contenido y el sidebar no se encoge.
 
 ## Obra de repertorio y bloque de la gira
 
-`concerto_participantes.observaciones` es el texto libre (antes se llamaba `obra`). No se copia al título del catálogo ni a `repertorio_obras.titulo_concierto`. Junto con los nombres del participante, se proyecta en `repertorio_obras.notas_especificas` (el post-it de notas de la obra en el programa).
+`fragmento_solista` y `fragmento_orquesta` son los textos del concurso, uno encima del otro. `observaciones` queda como columna legacy: la migración `20260929142915` copió el texto existente a `fragmento_orquesta` y dejó `fragmento_solista` vacío. La UI no vuelve a mostrar `observaciones`. No se copian al título del catálogo ni a `repertorio_obras.titulo_concierto`, y la competencia ya no escribe `repertorio_obras.notas_especificas`. Esa nota sigue siendo el post-it editable del repertorio.
 
 `concerto_participantes.id_repertorio_obra` apunta a `repertorio_obras.id` (`ON DELETE SET NULL`). Esa fila tiene `id_obra`. Drive (`obras.link_drive`, ícono `IconDrive`) y orgánico (`obras.instrumentacion`, o el cálculo de particellas si el texto está vacío) se leen de ahí. No hay columnas de título, orgánico ni URL en el participante.
 
@@ -137,13 +137,14 @@ Cada instancia usa `concerto_instancias.id_gira` → `programas.id`. Al vincular
 - Si ya existe, se reutiliza (el de menor `id` si hubiera más de uno con el mismo nombre).
 - Las filas del bloque son las `repertorio_obras` de los participantes de las instancias de esa gira que tienen obra vinculada. El `orden` del bloque sigue el orden de la instancia y, dentro, el de los participantes.
 - Un participante sin obra vinculada no genera fila.
-- `notas_especificas` de cada fila vinculada queda así: primera línea, los nombres como en la tabla (`formatParticipanteNombres`: «Nombre Apellido», o «Nombre Apellido y Nombre Apellido» si hay dúo; el orden de los dos es `id_integrante`); si hay observación, un salto de línea y el texto de `concerto_participantes.observaciones`. Sin observación, solo el nombre. Sin integrantes vinculados no se inventa un nombre: si hay observación, la nota es solo ese texto; si no hay ninguna de las dos, la nota queda vacía. No se copia el título de la obra. La escribe la misma reconciliación. Guardar observaciones, o editar el participante, también actualiza esa nota en la fila ya vinculada, sin reordenar el bloque ni tocar Drive.
+- La reconciliación no escribe `notas_especificas`. El valor que ya estaba queda. A partir de ahora la competencia no lo actualiza, y editar esa nota en el repertorio no vuelve a `concerto_participantes`.
+- En el repertorio de la gira (`ConcertoFragmentoBloque`, usado por `RepertoireManager` / ProgramRepertoire) y en Mis Partes (`MyPartsViewer`), cada obra vinculada a un participante muestra el mismo bloque de solo lectura, aparte de la nota amarilla: ícono `IconTrophy` chico, fondo índigo, nombre del concursante (nombre y apellido de preferencia si existen; dúo: cada uno con el suyo) y, una debajo de la otra, Con orquesta arriba y Solista abajo. En móvil el bloque está cerrado en ícono + nombre y se abre para ver los fragmentos. Si no hay participante vinculado a esa `repertorio_obras`, el bloque no aparece. No es un textarea y no escribe `notas_especificas`. Mis Partes lo carga con `fetchConcertoPorRepertorio` por el id de la fila de repertorio.
 - Las filas de ese bloque que ningún participante referencia se borran en esa reconciliación. Otros bloques de la gira no se tocan.
 - Si el bloque se queda sin filas, se deja vacío. Es lo mismo que hace el repertorio al borrar la última obra de un bloque (`removeWork` borra la fila y no el bloque).
 - Si alguien borra la fila desde Repertorio, la FK queda en null. Esta pantalla no la vuelve a crear hasta que el editor vincule de nuevo.
 - Sin gira en la instancia no se puede vincular. La semilla no trae obras de catálogo: el bloque se llena cuando el editor vincula.
 
-Migración: `supabase/migrations/20260924220000_concerto_participantes_observaciones_repertorio.sql` (después de `20260924210000`, que todavía lee `obra`). Aplicada al proyecto linked.
+Migración: `supabase/migrations/20260924220000_concerto_participantes_observaciones_repertorio.sql` (después de `20260924210000`, que todavía lee `obra`). `supabase/migrations/20260929142915_concerto_participantes_fragmentos.sql` agrega los dos fragmentos y copia `observaciones` con texto a `fragmento_orquesta` si ese campo estaba vacío. Aplicadas al proyecto linked.
 
 ## Archivos
 

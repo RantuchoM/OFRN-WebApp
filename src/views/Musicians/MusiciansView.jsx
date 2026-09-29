@@ -43,6 +43,7 @@ import {
 import UniversalExporter from "../../components/ui/UniversalExporter";
 import { getSearchHighlightRanges, matchesMultiTokenSearch, scoreMultiTokenSearch } from "../../utils/sanitize";
 import { useConfirmDialog } from "../../hooks/useConfirmDialog";
+import { seatingApellidoNombre } from "../../utils/integranteDisplayName";
 
 // --- CONFIGURACIÓN ---
 const MISSING_DATA_OPTIONS = [
@@ -559,7 +560,7 @@ const MusicianCard = ({
           <div className="min-w-0">
             <div className="font-bold text-slate-800 text-sm leading-tight truncate pr-1">
               <HighlightText
-                text={`${item.apellido}, ${item.nombre}`}
+                text={seatingApellidoNombre(item)}
                 highlight={highlightText}
               />
             </div>
@@ -1604,6 +1605,8 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
       const musicianParts = (item) => [
         item.apellido,
         item.nombre,
+        item.apellido_preferencia,
+        item.nombre_preferencia,
         [item.apellido, item.nombre].filter(Boolean).join(" "),
         [item.nombre, item.apellido].filter(Boolean).join(" "),
         item.dni,
@@ -1629,7 +1632,15 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
           colCfg && colCfg.displayKey
             ? getNestedValue(item, colCfg.displayKey)
             : key === "apellido_nombre"
-              ? `${item.apellido} ${item.nombre}`
+              ? [
+                  seatingApellidoNombre(item),
+                  item.apellido,
+                  item.nombre,
+                  item.apellido_preferencia,
+                  item.nombre_preferencia,
+                ]
+                  .filter(Boolean)
+                  .join(" ")
               : item[key];
         return matchesMultiTokenSearch([val], columnFilters[key]);
       });
@@ -1643,8 +1654,8 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
       }
       let valA, valB;
       if (sortConfig.key === "apellido") {
-        valA = `${a.apellido} ${a.nombre}`;
-        valB = `${b.apellido} ${b.nombre}`;
+        valA = seatingApellidoNombre(a);
+        valB = seatingApellidoNombre(b);
       } else {
         const colCfg = AVAILABLE_COLUMNS.find(
           (c) => (c.sortKey || c.key) === sortConfig.key,
@@ -2291,7 +2302,7 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
                       <div className="flex items-center justify-between gap-2 px-1">
                         <span className="truncate">
                           <HighlightText
-                            text={`${item.apellido}, ${item.nombre}`}
+                            text={seatingApellidoNombre(item)}
                             highlight={columnFilters.apellido_nombre || ""}
                           />
                         </span>

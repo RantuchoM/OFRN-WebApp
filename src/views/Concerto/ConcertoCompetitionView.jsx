@@ -41,7 +41,7 @@ import {
   isConcertoStaff,
   nextOrden,
   pickDefaultEdition,
-  saveObservaciones,
+  saveFragmentos,
   saveParticipante,
   toDatetimeLocalAR,
   updateEdicion,
@@ -337,7 +337,7 @@ function InstanciaStaffCard({
   const [titulo, setTitulo] = useState(instancia.titulo || "");
   const [abre, setAbre] = useState(() => toDatetimeLocalAR(instancia.abre_en));
   const [cierra, setCierra] = useState(() => toDatetimeLocalAR(instancia.cierra_en));
-  const [obs, setObs] = useState({});
+  const [fragmentos, setFragmentos] = useState({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [modal, setModal] = useState(null);
@@ -350,9 +350,12 @@ function InstanciaStaffCard({
     setCierra(toDatetimeLocalAR(instancia.cierra_en));
     const next = {};
     for (const participante of instancia.participantes) {
-      next[String(participante.id)] = participante.observaciones || "";
+      next[String(participante.id)] = {
+        solista: participante.fragmento_solista || "",
+        orquesta: participante.fragmento_orquesta || "",
+      };
     }
-    setObs(next);
+    setFragmentos(next);
   }, [
     editing,
     instancia.id,
@@ -373,11 +376,13 @@ function InstanciaStaffCard({
     (titulo !== (instancia.titulo || "") ||
       abre !== toDatetimeLocalAR(instancia.abre_en) ||
       cierra !== toDatetimeLocalAR(instancia.cierra_en) ||
-      instancia.participantes.some(
-        (participante) =>
-          String(obs[String(participante.id)] ?? "") !==
-          String(participante.observaciones || ""),
-      ));
+      instancia.participantes.some((participante) => {
+        const draft = fragmentos[String(participante.id)] || {};
+        return (
+          String(draft.solista ?? "") !== String(participante.fragmento_solista || "") ||
+          String(draft.orquesta ?? "") !== String(participante.fragmento_orquesta || "")
+        );
+      }));
 
   useEffect(() => {
     onDirtyChange?.(String(instancia.id), dirty);
@@ -390,9 +395,12 @@ function InstanciaStaffCard({
     setCierra(toDatetimeLocalAR(instancia.cierra_en));
     const next = {};
     for (const participante of instancia.participantes) {
-      next[String(participante.id)] = participante.observaciones || "";
+      next[String(participante.id)] = {
+        solista: participante.fragmento_solista || "",
+        orquesta: participante.fragmento_orquesta || "",
+      };
     }
-    setObs(next);
+    setFragmentos(next);
     setError("");
     setEditing(true);
   };
@@ -435,12 +443,19 @@ function InstanciaStaffCard({
       return;
     }
     for (const participante of instancia.participantes) {
-      const next = String(obs[String(participante.id)] ?? "").trim();
-      if (next === String(participante.observaciones || "").trim()) continue;
-      const { error: obsError } = await saveObservaciones(supabase, participante.id, next);
-      if (obsError) {
+      const draft = fragmentos[String(participante.id)] || {};
+      const solista = String(draft.solista ?? "").trim();
+      const orquesta = String(draft.orquesta ?? "").trim();
+      if (
+        solista === String(participante.fragmento_solista || "").trim() &&
+        orquesta === String(participante.fragmento_orquesta || "").trim()
+      ) {
+        continue;
+      }
+      const { error: fragError } = await saveFragmentos(supabase, participante.id, solista, orquesta);
+      if (fragError) {
         setSaving(false);
-        setError(errorText(obsError));
+        setError(errorText(fragError));
         return;
       }
     }
@@ -477,7 +492,8 @@ function InstanciaStaffCard({
     const { error: saveError } = await saveParticipante(supabase, {
       id: existente?.id,
       idInstancia: instancia.id,
-      observaciones: String(draft.observaciones || "").trim(),
+      fragmentoSolista: String(draft.fragmentoSolista || "").trim(),
+      fragmentoOrquesta: String(draft.fragmentoOrquesta || "").trim(),
       orden: existente?.orden ?? nextOrden(instancia.participantes),
       integranteIds,
     });
@@ -628,9 +644,15 @@ function InstanciaStaffCard({
             instancia={instancia}
             otras={otras}
             editing={editing}
-            observaciones={obs}
-            onObservacion={(participanteId, value) =>
-              setObs((prev) => ({ ...prev, [String(participanteId)]: value }))
+            fragmentos={fragmentos}
+            onFragmento={(participanteId, campo, value) =>
+              setFragmentos((prev) => {
+                const current = prev[String(participanteId)] || { solista: "", orquesta: "" };
+                return {
+                  ...prev,
+                  [String(participanteId)]: { ...current, [campo]: value },
+                };
+              })
             }
             onReorder={onReorder}
             onMove={(origenId, sourceNext, destinoId, destNext) =>
@@ -664,7 +686,8 @@ function InstanciaStaffCard({
               ? {
                   idUno: modal.participante.integrantes?.[0]?.id ?? null,
                   idDos: modal.participante.integrantes?.[1]?.id ?? null,
-                  observaciones: modal.participante.observaciones || "",
+                  fragmentoSolista: modal.participante.fragmento_solista || "",
+                  fragmentoOrquesta: modal.participante.fragmento_orquesta || "",
                 }
               : null
           }

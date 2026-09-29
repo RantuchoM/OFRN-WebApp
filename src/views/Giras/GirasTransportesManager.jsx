@@ -38,6 +38,7 @@ import {
   IconUser,
   IconTag,
 } from "../../components/ui/Icons";
+import { seatingApellido, seatingApellidoNombre } from "../../utils/integranteDisplayName";
 import DateInput from "../../components/ui/DateInput";
 import TimeInput from "../../components/ui/TimeInput";
 import LocationSelectWithCreate from "../../components/forms/LocationSelectWithCreate";
@@ -431,8 +432,8 @@ export default function GirasTransportesManager({
                 <ul className="divide-y divide-slate-100">
                   {grouped[locName]
                     .sort((a, b) =>
-                      `${a.apellido || ""} ${a.nombre || ""}`.localeCompare(
-                        `${b.apellido || ""} ${b.nombre || ""}`,
+                      seatingApellidoNombre(a).localeCompare(
+                        seatingApellidoNombre(b),
                         "es",
                       ),
                     )
@@ -450,7 +451,7 @@ export default function GirasTransportesManager({
                           className="py-2 px-3 text-sm flex items-start justify-between gap-3 hover:bg-slate-50"
                         >
                           <span className="font-semibold text-slate-700">
-                            {p.apellido}, {p.nombre}
+                            {seatingApellidoNombre(p)}
                           </span>
                           <div className="flex flex-col items-end gap-1">
                             {personTransports
@@ -699,7 +700,7 @@ export default function GirasTransportesManager({
       if (byId.has(String(m.id))) return;
       byId.set(String(m.id), {
         value: String(m.id),
-        label: `${m.apellido || ""}, ${m.nombre || ""}`.trim() || `Integrante #${m.id}`,
+        label: seatingApellidoNombre(m) || `Integrante #${m.id}`,
         dni: m.dni || "",
       });
     });
@@ -851,7 +852,7 @@ export default function GirasTransportesManager({
           supabase
             .from("integrantes")
             .select(
-              "id, nombre, apellido, dni, link_carnet, link_dni_img, genero, fecha_nac, nacionalidad, id_localidad, localidades(localidad)",
+              "id, nombre, apellido, nombre_preferencia, apellido_preferencia, dni, link_carnet, link_dni_img, genero, fecha_nac, nacionalidad, id_localidad, localidades(localidad)",
             ),
         ]);
 
@@ -877,7 +878,7 @@ export default function GirasTransportesManager({
       const { data: list } = await supabase
         .from("giras_transportes")
         .select(
-          `id, detalle, costo, capacidad_maxima, id_transporte, id_chofer, categoria_logistica, transportes ( id, nombre, patente, icon, documentacion, es_oficial ), chofer:integrantes!giras_transportes_id_chofer_fkey ( id, nombre, apellido, dni, link_carnet, link_dni_img )`,
+          `id, detalle, costo, capacidad_maxima, id_transporte, id_chofer, categoria_logistica, transportes ( id, nombre, patente, icon, documentacion, es_oficial ), chofer:integrantes!giras_transportes_id_chofer_fkey ( id, nombre, apellido, nombre_preferencia, apellido_preferencia, dni, link_carnet, link_dni_img )`,
         )
         .eq("id_gira", giraId)
         .order("id");
@@ -1133,7 +1134,7 @@ export default function GirasTransportesManager({
       if (scope === "General") label = "Todos";
       else if (scope === "Persona") {
         const p = roster?.find((mus) => String(mus.id) === String(r.id_integrante));
-        label = p ? `${p.apellido}` : "Individual";
+        label = p ? seatingApellido(p) : "Individual";
       } else if (scope === "Region") {
         const reg = regionsList.find(
           (x) => String(x.id) === String(r.id_region),
@@ -2020,7 +2021,7 @@ export default function GirasTransportesManager({
     setChoferDocsModal({
       isOpen: true,
       choferLabel:
-        `${chofer.apellido || ""}, ${chofer.nombre || ""}`.trim() ||
+        seatingApellidoNombre(chofer) ||
         `Chofer #${transport.id_chofer}`,
       link_carnet: chofer.link_carnet || "",
       link_dni_img: chofer.link_dni_img || "",
@@ -2767,7 +2768,7 @@ export default function GirasTransportesManager({
                               title={
                                 t.id_chofer
                                   ? t.chofer
-                                    ? `${t.chofer.apellido || ""}, ${t.chofer.nombre || ""}`.trim()
+                                    ? seatingApellidoNombre(t.chofer)
                                     : `Chofer #${t.id_chofer}`
                                   : "Asignar chofer"
                               }
@@ -2776,7 +2777,7 @@ export default function GirasTransportesManager({
                               <span className="truncate">
                                 {t.id_chofer
                                   ? t.chofer
-                                    ? `${t.chofer.apellido || ""}, ${t.chofer.nombre || ""}`.trim()
+                                    ? seatingApellidoNombre(t.chofer)
                                     : `#${t.id_chofer}`
                                   : "Sin chofer"}
                               </span>

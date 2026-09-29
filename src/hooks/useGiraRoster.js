@@ -1,4 +1,5 @@
 import { integranteKey } from "../utils/integranteIds";
+import { seatingApellidoNombre } from "../utils/integranteDisplayName";
 import { useGiraRosterQuery } from "./useGiraRosterQuery";
 import { resolveLocalidadEfectivaViaticos } from "../utils/integranteDomicilioViaticos";
 import {
@@ -219,7 +220,7 @@ export async function fetchRosterForGira(supabase, gira, options = {}) {
     const processedMember = lite
       ? {
           ...m,
-          nombre_completo: `${m.apellido}, ${m.nombre}`,
+          nombre_completo: seatingApellidoNombre(m),
           integrantes_ensambles: ieForProgram,
           ensambles: ieForProgram.map((ie) => ie.ensambles).filter(Boolean),
         }
@@ -229,7 +230,7 @@ export async function fetchRosterForGira(supabase, gira, options = {}) {
           return {
             ...m,
             localidades: localidadEfectiva,
-            nombre_completo: `${m.apellido}, ${m.nombre}`,
+            nombre_completo: seatingApellidoNombre(m),
             _loc_residencia: m.residencia,
             _loc_viaticos: m.viaticos,
             integrantes_ensambles: ieForProgram,

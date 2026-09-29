@@ -5,6 +5,7 @@ import {
   BAJA_MOTIVO_OPCIONES,
   resolveBajaMotivoText,
 } from "../../utils/rosterBajaMotivos";
+import { seatingApellidoNombre } from "../../utils/integranteDisplayName";
 
 export { BAJA_MOTIVO_OPCIONES, resolveBajaMotivoText } from "../../utils/rosterBajaMotivos";
 
@@ -90,8 +91,7 @@ export default function RosterBajaModal({
 
   const nombre = isGroupChange
     ? `${selectedCount} de ${affectedMembers.length} integrante(s)`
-    : musician.nombre_completo ||
-      `${musician.apellido || ""}, ${musician.nombre || ""}`.trim();
+    : musician.nombre_completo || seatingApellidoNombre(musician);
 
   const isDesconvocar = action === "desconvocar";
   const isPresente = action === "presente";
@@ -216,8 +216,7 @@ export default function RosterBajaModal({
                   const m = a.member;
                   const checked = Boolean(selectionById[m.id]);
                   const label =
-                    m.nombre_completo ||
-                    `${m.apellido || ""}, ${m.nombre || ""}`.trim();
+                    m.nombre_completo || seatingApellidoNombre(m);
                   return (
                     <li key={m.id}>
                       <label

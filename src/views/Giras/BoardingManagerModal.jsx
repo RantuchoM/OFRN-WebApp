@@ -12,6 +12,7 @@ import {
   IconTrash,
   IconUser,
 } from "../../components/ui/Icons";
+import { seatingApellidoNombre } from "../../utils/integranteDisplayName";
 
 // --- UTILIDADES ---
 const formatTime = (time) => (time ? time.slice(0, 5) : "--:--");
@@ -502,7 +503,7 @@ export default function BoardingManagerModal({
                   >
                     <td className="p-2 align-middle">
                       <div className="font-bold text-slate-700">
-                        {p.apellido}, {p.nombre}
+                        {seatingApellidoNombre(p)}
                       </div>
                       <div className="text-xs text-slate-400">
                         {p.instrumento || "Staff"}

@@ -42,6 +42,7 @@ import {
 } from "../../../services/viaticosValorDiarioService";
 import { canAdminValorDiario } from "../../../utils/viaticosValorDiarioAdmin";
 import { matchesMultiTokenSearch } from "../../../utils/sanitize";
+import { seatingApellidoNombre } from "../../../utils/integranteDisplayName";
 import {
   calculateDaysDiff,
   useViaticosIndividuales,
@@ -598,7 +599,7 @@ export default function ViaticosManager({ supabase, giraId }) {
   const individualsPendingNamesSorted = useMemo(() => {
     return [...individualsPending]
       .map((p) =>
-        `${p.apellido || ""}, ${p.nombre || ""}`.trim() ||
+        seatingApellidoNombre(p) ||
         p.rol_gira ||
         p.rol ||
         "Sin nombre",
@@ -625,7 +626,7 @@ export default function ViaticosManager({ supabase, giraId }) {
       )
       .map((p) => ({
         value: p.id,
-        label: `${p.apellido || ""}, ${p.nombre || ""}`,
+        label: seatingApellidoNombre(p),
         subLabel: p.rol_gira || p.rol || "Sin Rol",
       }))
       .sort((a, b) => a.label.localeCompare(b.label));
@@ -874,7 +875,7 @@ const collectTransportSupportDocs = (personData) => {
     setDetail,
   ) => {
     const shortName = personData.apellido;
-    const personLabel = `${personData.apellido || ""}, ${personData.nombre || ""}`.trim();
+    const personLabel = seatingApellidoNombre(personData);
 
     const pushExportFailure = (item, message) => {
       const entry = {
@@ -1145,7 +1146,7 @@ const collectTransportSupportDocs = (personData) => {
 
       for (const personData of dataList) {
         count++;
-        const name = `${personData.apellido}, ${personData.nombre}`;
+        const name = seatingApellidoNombre(personData);
         setExportStatus(`[${count}/${total}] Unificando: ${name}`);
         await yieldExportLoop();
 
@@ -1202,7 +1203,7 @@ const collectTransportSupportDocs = (personData) => {
 
         for (const personData of groupData) {
           pCount++;
-          const name = `${personData.apellido}, ${personData.nombre}`;
+          const name = seatingApellidoNombre(personData);
           setExportStatus(
             `[${groupIdx}/${groupKeys.length}] ${groupName}: ${pCount}/${groupData.length}`,
           );
@@ -1245,7 +1246,7 @@ const collectTransportSupportDocs = (personData) => {
           : personData.tramo_orden > 1
             ? ` (Tramo ${personData.tramo_orden})`
             : "";
-        const nameSafe = `${personData.apellido}, ${personData.nombre}${tramoSuffix}`;
+        const nameSafe = `${seatingApellidoNombre(personData)}${tramoSuffix}`;
         const prefix = `[${attempt}/${total}]`;
         setExportStatus(`${prefix} ${nameSafe}`);
         await yieldExportLoop();
@@ -2020,7 +2021,7 @@ const collectTransportSupportDocs = (personData) => {
         title="Fusionar tramos"
         message={
           fusionarConfirm
-            ? `¿Fusionar ${fusionarConfirm.tramoGroup.length} tramos de ${fusionarConfirm.row.apellido}, ${fusionarConfirm.row.nombre} en una sola fila?\n\nSe sumarán gastos y rendiciones. Las fechas volverán al recorrido completo de logística.`
+            ? `¿Fusionar ${fusionarConfirm.tramoGroup.length} tramos de ${seatingApellidoNombre(fusionarConfirm.row)} en una sola fila?\n\nSe sumarán gastos y rendiciones. Las fechas volverán al recorrido completo de logística.`
             : ""
         }
         confirmText="Fusionar"

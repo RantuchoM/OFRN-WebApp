@@ -1,4 +1,5 @@
 import { countsTowardInstrumentationConvoked } from "./instrumentation";
+import { seatingApellidoNombre } from "./integranteDisplayName";
 import {
   getStagePlotCatalogItem,
   stagePlotItemHasInstrumentFootprint,
@@ -183,11 +184,10 @@ export const STAGE_PLOT_BANQUETA_ORGANICO_KEYS = new Set([
 
 /** Nombre corto para listados (apellido, nombre). */
 function stagePlotMusicianDisplayName(member) {
-  const ap =
-    member?.apellido_preferencia || member?.apellido || "";
-  const no = member?.nombre_preferencia || member?.nombre || "";
-  const label = [ap, no].filter(Boolean).join(", ").trim();
-  return label || (member?.id != null ? String(member.id) : "—");
+  return (
+    seatingApellidoNombre(member) ||
+    (member?.id != null ? String(member.id) : "—")
+  );
 }
 
 const TYPE_TO_KEY = new Map();

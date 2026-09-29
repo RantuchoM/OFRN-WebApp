@@ -3,6 +3,7 @@ import {
   normalizeForSearch,
   splitSearchTokens,
 } from "./sanitize";
+import { seatingApellidoNombre } from "./integranteDisplayName";
 
 /**
  * Filtra comandos de la paleta. Personas y repertorio no son ítems:
@@ -122,14 +123,7 @@ export function formatObraComposerLabel(obra) {
 }
 
 export function formatPersonLabel(person) {
-  const apellido = String(
-    person?.apellido_preferencia || person?.apellido || "",
-  ).trim();
-  const nombre = String(
-    person?.nombre_preferencia || person?.nombre || "",
-  ).trim();
-  if (apellido && nombre) return `${apellido}, ${nombre}`;
-  return apellido || nombre || `ID ${person?.id}`;
+  return seatingApellidoNombre(person) || `ID ${person?.id}`;
 }
 
 function mergeById(rows) {

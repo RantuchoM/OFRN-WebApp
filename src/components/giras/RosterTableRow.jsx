@@ -10,6 +10,7 @@ import {
   IconX,
 } from "../ui/Icons";
 import WhatsAppLink from "../ui/WhatsAppLink";
+import { seatingApellidoNombre } from "../../utils/integranteDisplayName";
 
 /**
  * Una fila de la tabla del roster de gira.
@@ -169,7 +170,7 @@ export default function RosterTableRow({
         <div className="flex flex-col gap-0.5 md:gap-1.5 min-w-0 truncate">
           <div className="flex items-center gap-1 md:gap-2 truncate text-[10px] md:text-sm flex-wrap">
             <span className="truncate">
-              {m.apellido}, {m.nombre}
+              {seatingApellidoNombre(m)}
             </span>
             {m.es_simulacion && (
               <span className="bg-amber-100 text-amber-700 text-[8px] md:text-[9px] px-0.5 md:px-1 rounded border border-amber-200 font-black tracking-wider shrink-0">

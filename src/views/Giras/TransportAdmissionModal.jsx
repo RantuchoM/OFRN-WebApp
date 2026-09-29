@@ -12,6 +12,7 @@ import {
 import SearchableSelect from "../../components/ui/SearchableSelect";
 import { matchesRule } from "../../hooks/useLogistics";
 import { useConfirmDialog } from "../../hooks/useConfirmDialog";
+import { seatingApellidoNombre } from "../../utils/integranteDisplayName";
 import {
   fetchGiraGrupos,
   enrichRosterWithGrupoIds,
@@ -227,7 +228,7 @@ export default function TransportAdmissionModal({
 
         return {
           id: p.id,
-          label: `${p.apellido}, ${p.nombre}`,
+          label: seatingApellidoNombre(p),
           subLabel: assign
             ? `${assign.isCurrent ? "✅" : "⚠️"} Ya en ${assign.name}${assign.via}`
             : `${isProd ? "🛠️ Producción" : p.instrumento || "Músico"}`,
@@ -418,7 +419,7 @@ export default function TransportAdmissionModal({
         (m) => String(m.id) === String(rule.id_integrante),
       );
       return p
-        ? `${p.apellido}, ${p.nombre}`
+        ? seatingApellidoNombre(p)
         : `Músico ID: ${rule.id_integrante}`;
     }
 
@@ -493,8 +494,8 @@ export default function TransportAdmissionModal({
 
     Object.values(map).forEach((list) => {
       list.sort((a, b) => {
-        const an = `${a.apellido || ""} ${a.nombre || ""}`.trim();
-        const bn = `${b.apellido || ""} ${b.nombre || ""}`.trim();
+        const an = seatingApellidoNombre(a);
+        const bn = seatingApellidoNombre(b);
         return an.localeCompare(bn, "es", { sensitivity: "base" });
       });
     });
@@ -718,7 +719,7 @@ export default function TransportAdmissionModal({
                                   >
                                     <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" />
                                     <span className="truncate">
-                                      {p.apellido}, {p.nombre}
+                                      {seatingApellidoNombre(p)}
                                     </span>
                                   </li>
                                 ))}

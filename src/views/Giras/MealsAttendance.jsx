@@ -18,6 +18,9 @@ import { format, parseISO, isAfter, formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
 import { toast } from "sonner";
 import { matchesMultiTokenSearch } from "../../utils/sanitize";
+import {
+  seatingApellidoNombre,
+} from "../../utils/integranteDisplayName";
 import { dietDisplayLabel } from "../../utils/dietOptions";
 import {
   isPersonEligibleForMealSlot,
@@ -396,8 +399,8 @@ export default function MealsAttendance({
 
     // 6. Ordenamiento
     return data.sort((a, b) => {
-      const valA = `${a.apellido} ${a.nombre}`;
-      const valB = `${b.apellido} ${b.nombre}`;
+      const valA = seatingApellidoNombre(a);
+      const valB = seatingApellidoNombre(b);
       return sortConfig.direction === "asc"
         ? valA.localeCompare(valB)
         : valB.localeCompare(valA);
@@ -919,7 +922,7 @@ export default function MealsAttendance({
                   <td className="sticky left-0 bg-white group-hover:bg-slate-50 z-30 border-r border-slate-200 px-3 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
                     <div className="flex flex-col min-w-0">
                       <span className="font-bold truncate text-slate-700 text-xs">
-                        {person.apellido}, {person.nombre}
+                        {seatingApellidoNombre(person)}
                       </span>
                       <span className="text-[9px] text-purple-500 font-medium truncate uppercase">
                         {person.instrumentos?.instrumento ||

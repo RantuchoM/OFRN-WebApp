@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { IconX } from "../ui/Icons";
+import { seatingApellidoNombre } from "../../utils/integranteDisplayName";
 
 function formatMotivoTs(iso) {
   if (!iso) return null;
@@ -31,7 +32,7 @@ export default function RosterMotivoModal({
 
   const nombre =
     musician.nombre_completo ||
-    `${musician.apellido || ""}, ${musician.nombre || ""}`.trim();
+    seatingApellidoNombre(musician);
 
   const handleSave = async () => {
     if (!isEditor || !onSave) return;

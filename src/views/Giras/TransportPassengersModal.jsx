@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { IconX, IconCheck, IconSearch } from "../../components/ui/Icons";
 import { normalize } from "../../hooks/useLogistics";
 import { matchesMultiTokenSearch } from "../../utils/sanitize";
+import { seatingApellidoNombre } from "../../utils/integranteDisplayName";
 
 export default function TransportPassengersModal({
   isOpen,
@@ -255,7 +256,7 @@ export default function TransportPassengersModal({
                     </div>
                     <div>
                       <div className={`text-sm font-medium ${isSelected ? "text-indigo-900" : "text-slate-700"}`}>
-                        {p.apellido}, {p.nombre}
+                        {seatingApellidoNombre(p)}
                       </div>
                       <div className="text-[10px] text-slate-400 uppercase font-bold flex gap-2">
                         <span>{p.rol_gira || "Invitado"}</span>

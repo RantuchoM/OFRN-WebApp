@@ -27,6 +27,7 @@ import {
 import { requestUnsavedLeave } from "./utils/unsavedWork";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { getRolesDisplay } from "./utils/authRolesDisplay";
+import { seatingApellidoNombre } from "./utils/integranteDisplayName";
 import { supabase } from "./services/supabase";
 import ReloadPrompt from "./components/ui/ReloadPrompt";
 import PwaOrientationHint from "./components/ui/PwaOrientationHint";
@@ -474,7 +475,7 @@ const ProtectedApp = ({ initialTab }) => {
     if (isActuallyAdmin) {
       supabase
         .from("integrantes")
-        .select("id, nombre, apellido, rol_sistema")
+        .select("id, nombre, apellido, nombre_preferencia, apellido_preferencia, rol_sistema")
         .order("apellido")
         .then(({ data }) => setOrchestraList(data || []));
     }
@@ -484,7 +485,7 @@ const ProtectedApp = ({ initialTab }) => {
     () =>
       orchestraList.map((u) => ({
         id: u.id,
-        label: `${u.apellido}, ${u.nombre}`,
+        label: seatingApellidoNombre(u),
         subLabel: getRolesDisplay(u.rol_sistema),
       })),
     [orchestraList],
@@ -1336,7 +1337,7 @@ const ProtectedApp = ({ initialTab }) => {
                         Ver como…
                       </span>
                       <span className="text-xs font-bold truncate max-w-[140px]">
-                        {user.apellido}, {user.nombre}
+                        {seatingApellidoNombre(user)}
                       </span>
                       <button
                         onClick={stopImpersonating}
@@ -1368,7 +1369,7 @@ const ProtectedApp = ({ initialTab }) => {
                         Ver como…
                       </span>
                       <span className="text-[11px] font-bold truncate max-w-[72px]">
-                        {user.apellido}, {user.nombre}
+                        {seatingApellidoNombre(user)}
                       </span>
                       <button
                         onClick={stopImpersonating}

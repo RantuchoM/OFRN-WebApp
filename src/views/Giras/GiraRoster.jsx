@@ -24,6 +24,10 @@ import {
   IconTag,
 } from "../../components/ui/Icons";
 import { useGiraRoster } from "../../hooks/useGiraRoster";
+import {
+  seatingApellido,
+  seatingApellidoNombre,
+} from "../../utils/integranteDisplayName";
 import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 import { deleteVacancyFromGira } from "../../services/giraService";
 import { useRosterDropdownData } from "../../hooks/useRosterDropdownData";
@@ -354,7 +358,7 @@ async function fetchFamilyInclusionAffected(
   const { data, error } = await supabase
     .from("integrantes")
     .select(
-      `id, nombre, apellido, mail, condicion, es_simulacion, fecha_alta, fecha_baja,
+      `id, nombre, apellido, nombre_preferencia, apellido_preferencia, mail, condicion, es_simulacion, fecha_alta, fecha_baja,
        instrumentos!inner(instrumento, familia),
        integrantes_ensambles(id, id_ensamble, fecha_desde, fecha_hasta, ensambles(id, ensamble))`,
     )
@@ -370,7 +374,7 @@ async function fetchFamilyInclusionAffected(
 
     const member = {
       ...row,
-      nombre_completo: `${row.apellido || ""}, ${row.nombre || ""}`.trim(),
+      nombre_completo: seatingApellidoNombre(row),
     };
     const existing = currentById.get(row.id);
     if (existing) {
@@ -430,7 +434,7 @@ const MetricBadge = ({ label, items, colorBase, icon }) => {
               className="px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 rounded flex justify-between"
             >
               <span>
-                {m.apellido}, {m.nombre}
+                {seatingApellidoNombre(m)}
               </span>
               <span className="text-[10px] text-slate-400 ml-2 truncate max-w-[60px]">
                 {m.instrumentos?.instrumento}
@@ -689,7 +693,7 @@ export default function GiraRoster({
 
   const handleRemoveFromGrupo = async (musician, grupo) => {
     if (!musician?.id || !grupo?.id) return;
-    const nombrePersona = `${musician.apellido || ""}, ${musician.nombre || ""}`.trim();
+    const nombrePersona = seatingApellidoNombre(musician);
     if (
       !(await confirm({
         title: "Quitar del grupo",
@@ -941,7 +945,14 @@ export default function GiraRoster({
       let filtered = rawRoster.filter((m) => {
         // Search
         const matchesSearch = matchesMultiTokenSearch(
-          [m.nombre_completo, m.instrumentos?.instrumento],
+          [
+            m.nombre_completo,
+            m.nombre,
+            m.apellido,
+            m.nombre_preferencia,
+            m.apellido_preferencia,
+            m.instrumentos?.instrumento,
+          ],
           searchTerm,
         );
 
@@ -1017,6 +1028,8 @@ export default function GiraRoster({
             m.nombre_completo,
             m.nombre,
             m.apellido,
+            m.nombre_preferencia,
+            m.apellido_preferencia,
             m.instrumentos?.instrumento,
           ];
           const scoreDiff =
@@ -1037,14 +1050,14 @@ export default function GiraRoster({
             const locB = b.localidades?.localidad || "zzz";
             return (
               locA.localeCompare(locB) ||
-              (a.apellido || "").localeCompare(b.apellido || "")
+              (seatingApellido(a) || "").localeCompare(seatingApellido(b) || "")
             );
           }
           case "region": {
             const regA = a.localidades?.regiones?.region || "zzz";
             const regB = b.localidades?.regiones?.region || "zzz";
             if (regA !== regB) return regA.localeCompare(regB);
-            return (a.apellido || "").localeCompare(b.apellido || "");
+            return (seatingApellido(a) || "").localeCompare(seatingApellido(b) || "");
           }
           case "instrumento":
             return compareRosterByInstrument(
@@ -1057,14 +1070,14 @@ export default function GiraRoster({
             const gA = a.genero || "Z";
             const gB = b.genero || "Z";
             if (gA !== gB) return gA.localeCompare(gB);
-            return (a.apellido || "").localeCompare(b.apellido || "");
+            return (seatingApellido(a) || "").localeCompare(seatingApellido(b) || "");
           }
           case "rol":
           default: {
             const pA = rolePriority(a.rol_gira);
             const pB = rolePriority(b.rol_gira);
             if (pA !== pB) return pA - pB;
-            return (a.apellido || "").localeCompare(b.apellido || "");
+            return (seatingApellido(a) || "").localeCompare(seatingApellido(b) || "");
           }
         }
       });
@@ -1346,7 +1359,7 @@ export default function GiraRoster({
       ) {
         const nombreCompleto =
           newMusician.nombre_completo ||
-          `${newMusician.apellido || ""}, ${newMusician.nombre || ""}`.trim();
+          seatingApellidoNombre(newMusician);
         setPendingNotifications((prev) => [
           ...prev,
           {
@@ -1504,7 +1517,7 @@ export default function GiraRoster({
             id: `alta-groups-${m.id}-${Date.now()}`,
             variant: "ALTA",
             emails: [m.mail],
-            nombres: [m.nombre_completo || `${m.apellido || ""}, ${m.nombre || ""}`.trim()],
+            nombres: [m.nombre_completo || seatingApellidoNombre(m)],
             reason,
           },
         ]);
@@ -1650,7 +1663,7 @@ export default function GiraRoster({
         if (!member?.mail) return;
         const nombreCompleto =
           member.nombre_completo ||
-          `${member.apellido || ""}, ${member.nombre || ""}`.trim();
+          seatingApellidoNombre(member);
         const mail =
           causeKind === "familia"
             ? buildExclusionFamiliaMailNotification({
@@ -1688,7 +1701,7 @@ export default function GiraRoster({
         if (!member?.mail) return;
         const nombreCompleto =
           member.nombre_completo ||
-          `${member.apellido || ""}, ${member.nombre || ""}`.trim();
+          seatingApellidoNombre(member);
         const mail = buildInclusionFamiliaMailNotification({
           familiaLabel: causeLabel,
         });
@@ -1823,7 +1836,7 @@ export default function GiraRoster({
     ) {
       const nombreCompleto =
         musicianData.nombre_completo ||
-        `${musicianData.apellido || ""}, ${musicianData.nombre || ""}`.trim();
+        seatingApellidoNombre(musicianData);
       setPendingNotifications((prev) => [
         ...prev,
         {
@@ -1936,7 +1949,7 @@ export default function GiraRoster({
 
     const nombreCompleto =
       musician.nombre_completo ||
-      `${musician.nombre || ""} ${musician.apellido || ""}`.trim();
+      seatingApellidoNombre(musician);
     const shouldNotifyMusician = shouldNotify && musician.mail;
     const motivoPayload = {
       motivo_estado: motivoText,
@@ -2057,7 +2070,7 @@ export default function GiraRoster({
     }
     const nombre =
       musician.nombre_completo ||
-      `${musician.apellido || ""}, ${musician.nombre || ""}`.trim();
+      seatingApellidoNombre(musician);
     toast.success(
       next
         ? `${nombre} abona reemplazo`
@@ -2097,7 +2110,7 @@ export default function GiraRoster({
     }
     const nombre =
       musician.nombre_completo ||
-      `${musician.apellido || ""}, ${musician.nombre || ""}`.trim();
+      seatingApellidoNombre(musician);
     toast.success(
       next
         ? `${nombre} en licencia`
@@ -2293,8 +2306,14 @@ export default function GiraRoster({
     }
     let query = supabase
       .from("integrantes")
-      .select("id, nombre, apellido, mail, instrumentos(instrumento), cuil");
-    query = applyMultiTokenOrIlike(query, ["nombre", "apellido"], cleanTerm);
+      .select(
+        "id, nombre, apellido, nombre_preferencia, apellido_preferencia, mail, instrumentos(instrumento), cuil",
+      );
+    query = applyMultiTokenOrIlike(
+      query,
+      ["nombre", "apellido", "nombre_preferencia", "apellido_preferencia"],
+      cleanTerm,
+    );
     const { data } = await query.limit(80);
     const currentIds = new Set(localRoster.map((r) => integranteKey(r.id)));
     const withFlag = filterAndRankMultiTokenSearch(
@@ -2302,6 +2321,8 @@ export default function GiraRoster({
       (m) => [
         m.nombre,
         m.apellido,
+        m.nombre_preferencia,
+        m.apellido_preferencia,
         [m.apellido, m.nombre].filter(Boolean).join(" "),
         [m.nombre, m.apellido].filter(Boolean).join(" "),
         m.mail,
@@ -2387,7 +2408,7 @@ export default function GiraRoster({
 
     const nombreCompleto =
       musicianInfo.nombre_completo ||
-      `${musicianInfo.apellido || ""}, ${musicianInfo.nombre || ""}`.trim();
+      seatingApellidoNombre(musicianInfo);
 
     setPendingNotifications((prev) => [
       ...prev,
@@ -2472,7 +2493,7 @@ export default function GiraRoster({
           ),
           nombre_completo:
             data.nombre_completo ||
-            `${data.apellido || ""}, ${data.nombre || ""}`.trim(),
+            seatingApellidoNombre(data),
         };
       } else {
         const label =
@@ -2499,7 +2520,7 @@ export default function GiraRoster({
 
     const label =
       musicianData.nombre_completo ||
-      `${musicianData.apellido || ""}, ${musicianData.nombre || ""}`.trim();
+      seatingApellidoNombre(musicianData);
     setIndividualAddRoleId(inferDefaultTourRole(musicianData));
     setPendingIndividualAdd({ idForQuery, musicianData, label });
   };
@@ -2811,7 +2832,7 @@ export default function GiraRoster({
               <span className="font-bold">Listo para convocar:</span>{" "}
               <span className="font-semibold text-fixed-indigo-900">
                 {pendingDetailedLink.nombre_completo ||
-                  `${pendingDetailedLink.apellido || ""}, ${pendingDetailedLink.nombre || ""}`.trim()}
+                  seatingApellidoNombre(pendingDetailedLink)}
               </span>
             </p>
             <label

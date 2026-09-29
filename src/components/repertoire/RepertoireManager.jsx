@@ -77,6 +77,12 @@ import { useAuth } from "../../context/AuthContext";
 import { filterAndRankMultiTokenSearch } from "../../utils/sanitize";
 import WorkForm, { WysiwygEditor } from "../../views/Repertoire/WorkForm";
 import RepertoireWorkPickerModal from "./RepertoireWorkPickerModal";
+import ConcertoFragmentoBloque from "./ConcertoFragmentoBloque";
+import { fetchConcertoPorRepertorio } from "../../utils/concertoCompeticion";
+import {
+  seatingApellidoInicial,
+  seatingApellidoNombre,
+} from "../../utils/integranteDisplayName";
 import { dedupeSeatingStringItems } from "../../utils/seatingStringItemsDedupe";
 import { fetchCuerdasDispositionGroups } from "../../utils/seatingCuerdasConfig";
 import {
@@ -636,8 +642,9 @@ const SoloistSelect = ({ currentId, musicians, onChange }) => {
     (m) => [
       m.apellido,
       m.nombre,
-      [m.apellido, m.nombre].filter(Boolean).join(" "),
-      [m.nombre, m.apellido].filter(Boolean).join(" "),
+      m.apellido_preferencia,
+      m.nombre_preferencia,
+      seatingApellidoNombre(m),
     ],
     search,
   );
@@ -651,7 +658,7 @@ const SoloistSelect = ({ currentId, musicians, onChange }) => {
         >
           {selectedMusician ? (
             <span className="font-bold text-fixed-indigo-700">
-              {selectedMusician.apellido}, {selectedMusician.nombre}
+              {seatingApellidoNombre(selectedMusician)}
             </span>
           ) : (
             <span className="text-slate-400 italic">- Seleccionar -</span>
@@ -691,7 +698,7 @@ const SoloistSelect = ({ currentId, musicians, onChange }) => {
                 }`}
               >
                 <span>
-                  {m.apellido}, {m.nombre}
+                  {seatingApellidoNombre(m)}
                 </span>
                 <span className="text-[9px] text-slate-400 ml-2 truncate max-w-[80px]">
                   {m.instrumentos?.instrumento}
@@ -1777,7 +1784,23 @@ export default function RepertoireManager({
     (isAdmin || isGlobalEditor) && Array.isArray(roster);
 
   const [repertorios, setRepertorios] = useState(initialData);
+  const [concertoPorFila, setConcertoPorFila] = useState({});
   const [musicians, setMusicians] = useState([]);
+
+  useEffect(() => {
+    if (programId == null) {
+      setConcertoPorFila({});
+      return undefined;
+    }
+    let cancelled = false;
+    fetchConcertoPorRepertorio(supabase, programId).then((result) => {
+      if (cancelled || result.error) return;
+      setConcertoPorFila(result.byRowId || {});
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase, programId]);
 
   const [seatingMap, setSeatingMap] = useState({});
   const [assignments, setAssignments] = useState([]);
@@ -1876,7 +1899,9 @@ export default function RepertoireManager({
   const fetchMusicians = async () => {
     const { data } = await supabase
       .from("integrantes")
-      .select("id, nombre, apellido, id_instr, instrumentos(instrumento)")
+      .select(
+        "id, nombre, apellido, nombre_preferencia, apellido_preferencia, id_instr, instrumentos(instrumento)",
+      )
       .order("apellido");
     if (data) setMusicians(data);
   };
@@ -1949,9 +1974,12 @@ export default function RepertoireManager({
     const availableOptions = musicians.filter(
       (m) =>
         !selectedIds?.includes(m.id) &&
-        `${m.apellido}, ${m.nombre}`
+        (seatingApellidoNombre(m)
           .toLowerCase()
-          .includes(search.toLowerCase()),
+          .includes(search.toLowerCase()) ||
+          `${m.apellido || ""} ${m.nombre || ""} ${m.apellido_preferencia || ""} ${m.nombre_preferencia || ""}`
+            .toLowerCase()
+            .includes(search.toLowerCase())),
     );
 
     return (
@@ -1964,7 +1992,7 @@ export default function RepertoireManager({
           >
             {/* Cambiamos m.apellido por m.apellido, m.nombre y aumentamos el max-w */}
             <span className="truncate max-w-[120px]">
-              {m.apellido}, {m.nombre}
+              {seatingApellidoNombre(m)}
             </span>
             {isEditor && (
               <button
@@ -2009,7 +2037,7 @@ export default function RepertoireManager({
                       className="p-2 text-xs cursor-pointer hover:bg-fixed-indigo-50 flex justify-between"
                     >
                       <span>
-                        {m.apellido}, {m.nombre}
+                        {seatingApellidoNombre(m)}
                       </span>
                       <span className="text-[9px] text-slate-400">
                         {m.instrumentos?.instrumento}
@@ -3634,6 +3662,7 @@ export default function RepertoireManager({
                           {renderMyPartBadge(item.obras)}
                         </div>
 
+                        <ConcertoFragmentoBloque entrada={concertoPorFila[String(item.id)]} />
                         {/* Fila 4: Notas (misma línea stick-it que escritorio en lectura) */}
                         {(item.notas_especificas?.trim() || isEditor) && (
                           <div className="mb-2">
@@ -3659,7 +3688,7 @@ export default function RepertoireManager({
                                   key={id}
                                   className="text-[10px] font-bold text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-100"
                                 >
-                                  ★ {`${m.apellido}, ${m.nombre}`}
+                                  ★ {seatingApellidoNombre(m)}
                                 </span>
                               ) : null;
                             })}
@@ -4216,7 +4245,7 @@ export default function RepertoireManager({
                                     key={id}
                                     className="text-[10px] font-bold text-fixed-indigo-700 bg-fixed-indigo-50 px-1.5 py-0.5 rounded border border-fixed-indigo-100 truncate max-w-[100px]"
                                   >
-                                    {m.apellido}, {m.nombre[0]}.
+                                    {seatingApellidoInicial(m)}
                                   </span>
                                 ) : null;
                               })
@@ -4232,6 +4261,7 @@ export default function RepertoireManager({
                         {getArranger(item.obras)}
                       </td>
                       <td className="p-0 border-l border-slate-100 align-middle min-w-0">
+                        <ConcertoFragmentoBloque entrada={concertoPorFila[String(item.id)]} />
                         <NotasProgramaStickyCell
                           item={item}
                           isEditor={isEditor}

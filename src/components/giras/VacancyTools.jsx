@@ -11,6 +11,10 @@ import {
 import SearchableSelect from "../ui/SearchableSelect";
 import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 import { crearVacante } from "../../services/giraService";
+import {
+  legalApellidoNombre,
+  seatingApellidoNombre,
+} from "../../utils/integranteDisplayName";
 
 export const AddVacancyModal = ({
   isOpen,
@@ -202,13 +206,19 @@ export const SwapVacancyModal = ({
     setSearching(true);
     const { data } = await supabase
       .from("integrantes")
-      .select("id, nombre, apellido, dni, mail, instrumentos(instrumento)")
+      .select(
+        "id, nombre, apellido, nombre_preferencia, apellido_preferencia, dni, mail, instrumentos(instrumento)",
+      )
       .eq("es_simulacion", false)
       .order("apellido");
 
     const options = (data || []).map((p) => ({
       id: p.id,
-      label: `${p.apellido}, ${p.nombre}`,
+      label: seatingApellidoNombre(p),
+      subLabel:
+        legalApellidoNombre(p) !== seatingApellidoNombre(p)
+          ? legalApellidoNombre(p)
+          : undefined,
       subLabel: ausenteSet.has(String(p.id))
         ? "Ausente en esta gira"
         : p.dni || "Sin DNI",

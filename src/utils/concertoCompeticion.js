@@ -2,6 +2,12 @@
 
 import { toast } from "sonner";
 import { fetchRosterForGira } from "../hooks/useGiraRoster";
+import {
+  legalApellidoNombre,
+  seatingApellido,
+  seatingApellidoNombre,
+  seatingNombre,
+} from "./integranteDisplayName";
 
 export const AR_TZ = "America/Argentina/Buenos_Aires";
 
@@ -112,16 +118,13 @@ export function estadoCuentaComoElector(estado) {
 }
 
 export function formatPersona(persona) {
-  const nombre = String(persona?.nombre || "").trim();
-  const apellido = String(persona?.apellido || "").trim();
+  const nombre = seatingNombre(persona);
+  const apellido = seatingApellido(persona);
   return [nombre, apellido].filter(Boolean).join(" ");
 }
 
 export function formatPersonaLista(persona) {
-  const apellido = String(persona?.apellido || "").trim();
-  const nombre = String(persona?.nombre || "").trim();
-  if (apellido && nombre) return `${apellido}, ${nombre}`;
-  return apellido || nombre || `Integrante ${persona?.id ?? ""}`;
+  return seatingApellidoNombre(persona) || `Integrante ${persona?.id ?? ""}`;
 }
 
 export function formatParticipanteNombres(integrantes) {
@@ -131,16 +134,8 @@ export function formatParticipanteNombres(integrantes) {
   return `${names[0]} y ${names[1]}`;
 }
 
-/**
- * Nota de la fila del bloque: nombres como en la tabla y, si hay, la observación.
- * Sin integrantes no inventa un nombre. Sin observación no agrega una línea vacía.
- */
-export function formatConcertoRepertoireNote(integrantes, observaciones) {
-  const nombres = formatParticipanteNombres(integrantes);
-  const texto = String(observaciones ?? "").trim();
-  if (!nombres) return texto || null;
-  if (!texto) return nombres;
-  return `${nombres}\n${texto}`;
+export function textoFragmento(value) {
+  return String(value ?? "").trim();
 }
 
 export function formatPuntaje(value) {
@@ -372,7 +367,7 @@ async function integrantesPorParticipante(supabase, participanteIds) {
   const { data: personas, error: personasError } = await selectIn(
     supabase,
     "integrantes",
-    "id, nombre, apellido, instrumentos(instrumento)",
+    "id, nombre, apellido, nombre_preferencia, apellido_preferencia, instrumentos(instrumento)",
     "id",
     integranteIds,
   );
@@ -536,7 +531,7 @@ export async function fetchEditionBundle(supabase, edicionId, userId) {
   const { data: participantesRaw, error: partError } = await selectIn(
     supabase,
     "concerto_participantes",
-    "id, id_instancia, observaciones, orden, id_repertorio_obra",
+    "id, id_instancia, fragmento_solista, fragmento_orquesta, orden, id_repertorio_obra",
     "id_instancia",
     instanciaIds,
     "orden",
@@ -643,18 +638,24 @@ export async function fetchProgramasOptions(supabase) {
 export async function fetchIntegrantesOptions(supabase) {
   const { data, error } = await supabase
     .from("integrantes")
-    .select("id, nombre, apellido, es_simulacion")
-    .or("es_simulacion.is.null,es_simulacion.eq.false")
-    .order("apellido", { ascending: true })
-    .order("nombre", { ascending: true });
+    .select(
+      "id, nombre, apellido, nombre_preferencia, apellido_preferencia, es_simulacion",
+    )
+    .or("es_simulacion.is.null,es_simulacion.eq.false");
   if (error) return { options: [], error };
   return {
     options: (data || [])
       .filter((persona) => persona.es_simulacion !== true)
-      .map((persona) => ({
-        id: persona.id,
-        label: formatPersonaLista(persona),
-      })),
+      .map((persona) => {
+        const label = formatPersonaLista(persona);
+        const legal = legalApellidoNombre(persona);
+        return {
+          id: persona.id,
+          label,
+          ...(legal && legal !== label ? { subLabel: legal } : {}),
+        };
+      })
+      .sort((a, b) => a.label.localeCompare(b.label, "es")),
     error: null,
   };
 }
@@ -796,20 +797,27 @@ export async function deleteInstancia(supabase, instancia) {
   return reconcileConcertoBlock(supabase, instancia.id_gira);
 }
 
+function camposFragmento(fragmentoSolista, fragmentoOrquesta) {
+  return {
+    fragmento_solista: textoFragmento(fragmentoSolista) || null,
+    fragmento_orquesta: textoFragmento(fragmentoOrquesta) || null,
+  };
+}
+
 export async function saveParticipante(
   supabase,
-  { id, idInstancia, observaciones, orden, integranteIds },
+  { id, idInstancia, fragmentoSolista, fragmentoOrquesta, orden, integranteIds },
 ) {
   let participanteId = id;
   let created = false;
-  const nota = String(observaciones || "");
+  const campos = camposFragmento(fragmentoSolista, fragmentoOrquesta);
   if (!participanteId) {
     const { data, error } = await supabase
       .from("concerto_participantes")
       .insert({
         id_instancia: idInstancia,
-        observaciones: nota,
         orden,
+        ...campos,
       })
       .select("id")
       .single();
@@ -819,7 +827,7 @@ export async function saveParticipante(
   } else {
     const { error } = await supabase
       .from("concerto_participantes")
-      .update({ observaciones: nota })
+      .update(campos)
       .eq("id", participanteId);
     if (error) return { error };
     const { error: deleteError } = await supabase
@@ -843,8 +851,6 @@ export async function saveParticipante(
       return { error };
     }
   }
-  const synced = await syncRepertoireNoteForParticipante(supabase, participanteId);
-  if (synced.error) return { error: synced.error, id: participanteId };
   return { error: null, id: participanteId };
 }
 
@@ -871,37 +877,48 @@ export async function deleteParticipante(supabase, participante, idGira, { repor
   return { error };
 }
 
-export async function saveObservaciones(supabase, participanteId, observaciones) {
+export async function saveFragmentos(supabase, participanteId, fragmentoSolista, fragmentoOrquesta) {
   const { error } = await supabase
     .from("concerto_participantes")
-    .update({ observaciones: String(observaciones || "") })
+    .update(camposFragmento(fragmentoSolista, fragmentoOrquesta))
     .eq("id", participanteId);
-  if (error) return { error };
-  return syncRepertoireNoteForParticipante(supabase, participanteId);
+  return { error };
 }
 
-/** Escribe solo `notas_especificas` de la fila vinculada. No reordena el bloque ni toca Drive. */
-async function syncRepertoireNoteForParticipante(supabase, participanteId) {
-  const { data, error } = await supabase
-    .from("concerto_participantes")
-    .select("id, observaciones, id_repertorio_obra")
-    .eq("id", participanteId)
-    .maybeSingle();
-  if (error) return { error };
-  if (!data?.id_repertorio_obra) return { error: null };
-
-  const { map, error: namesError } = await integrantesPorParticipante(supabase, [data.id]);
-  if (namesError) return { error: namesError };
-  const { error: writeError } = await supabase
-    .from("repertorio_obras")
-    .update({
-      notas_especificas: formatConcertoRepertoireNote(
-        map.get(String(data.id)) || [],
-        data.observaciones,
-      ),
-    })
-    .eq("id", data.id_repertorio_obra);
-  return { error: writeError };
+/** Participantes de la gira vinculados a una fila de repertorio, para el bloque de solo lectura. */
+export async function fetchConcertoPorRepertorio(supabase, programId) {
+  if (programId == null) return { byRowId: {}, error: null };
+  const { data: instancias, error: instError } = await supabase
+    .from("concerto_instancias")
+    .select("id")
+    .eq("id_gira", programId);
+  if (instError) return { byRowId: {}, error: instError };
+  const instanciaIds = (instancias || []).map((row) => row.id);
+  if (!instanciaIds.length) return { byRowId: {}, error: null };
+  const { data: participantes, error: partError } = await selectIn(
+    supabase,
+    "concerto_participantes",
+    "id, fragmento_solista, fragmento_orquesta, id_repertorio_obra",
+    "id_instancia",
+    instanciaIds,
+  );
+  if (partError) return { byRowId: {}, error: partError };
+  const linked = (participantes || []).filter((row) => row.id_repertorio_obra != null);
+  if (!linked.length) return { byRowId: {}, error: null };
+  const { map, error: namesError } = await integrantesPorParticipante(
+    supabase,
+    linked.map((row) => row.id),
+  );
+  if (namesError) return { byRowId: {}, error: namesError };
+  const byRowId = {};
+  for (const row of linked) {
+    byRowId[String(row.id_repertorio_obra)] = {
+      nombre: formatParticipanteNombres(map.get(String(row.id)) || []) || "Sin nombre",
+      solista: textoFragmento(row.fragmento_solista),
+      orquesta: textoFragmento(row.fragmento_orquesta),
+    };
+  }
+  return { byRowId, error: null };
 }
 
 const rowIdByParticipante = new Map();
@@ -1247,7 +1264,7 @@ async function ensureConcertoBlock(supabase, idGira) {
  * El bloque «Concerto Competition» de la gira queda igual a las obras vinculadas
  * de las instancias de esa gira. Si no queda ninguna, el bloque vacío se conserva:
  * el repertorio, al borrar la última obra, también deja el bloque.
- * Cada fila vinculada recibe en `notas_especificas` la proyección del participante.
+ * No escribe `notas_especificas`: esa nota queda en el repertorio y se edita a mano.
  * No toca filas de otros bloques.
  */
 export async function reconcileConcertoBlock(supabase, idGira, { reportDrive = false } = {}) {
@@ -1263,7 +1280,7 @@ export async function reconcileConcertoBlock(supabase, idGira, { reportDrive = f
   const { data: participantes, error: partError } = await selectIn(
     supabase,
     "concerto_participantes",
-    "id, id_instancia, observaciones, orden, id_repertorio_obra",
+    "id, id_instancia, fragmento_solista, fragmento_orquesta, orden, id_repertorio_obra",
     "id_instancia",
     instanciaIds,
   );
@@ -1312,12 +1329,6 @@ export async function reconcileConcertoBlock(supabase, idGira, { reportDrive = f
     blockId = created.id;
   }
 
-  const { map: integrantesMap, error: namesError } = await integrantesPorParticipante(
-    supabase,
-    linked.map((participante) => participante.id),
-  );
-  if (namesError) return { error: namesError };
-
   for (let i = 0; i < linked.length; i += 1) {
     const participante = linked[i];
     const { error } = await supabase
@@ -1325,10 +1336,6 @@ export async function reconcileConcertoBlock(supabase, idGira, { reportDrive = f
       .update({
         id_repertorio: blockId,
         orden: i + 1,
-        notas_especificas: formatConcertoRepertoireNote(
-          integrantesMap.get(String(participante.id)) || [],
-          participante.observaciones,
-        ),
       })
       .eq("id", participante.id_repertorio_obra);
     if (error) return { error };

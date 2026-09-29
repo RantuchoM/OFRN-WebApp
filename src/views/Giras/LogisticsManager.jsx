@@ -72,6 +72,7 @@ import {
   isStayTipoEvento,
   STAY_SIDES,
 } from "../../utils/hotelStayEvents";
+import { seatingApellidoNombre } from "../../utils/integranteDisplayName";
 
 // --- CONSTANTES ---
 const CATEGORIA_OPTIONS = [
@@ -1233,7 +1234,7 @@ export default function LogisticsManager({
   const rosterOptions = useMemo(
     () =>
       (roster || [])
-        .map((m) => ({ id: m.id, label: `${m.apellido}, ${m.nombre}` }))
+        .map((m) => ({ id: m.id, label: seatingApellidoNombre(m) }))
         .sort((a, b) => a.label.localeCompare(b.label)),
     [roster],
   );
@@ -1307,8 +1308,8 @@ export default function LogisticsManager({
     });
     Object.values(byCity).forEach((arr) =>
       arr.sort((a, b) =>
-        `${a.person.apellido || ""}, ${a.person.nombre || ""}`.localeCompare(
-          `${b.person.apellido || ""}, ${b.person.nombre || ""}`,
+        seatingApellidoNombre(a.person).localeCompare(
+          seatingApellidoNombre(b.person),
           "es",
         ),
       ),
@@ -1336,6 +1337,8 @@ export default function LogisticsManager({
         (m) => [
           m.nombre,
           m.apellido,
+          m.nombre_preferencia,
+          m.apellido_preferencia,
           [m.apellido, m.nombre].filter(Boolean).join(" "),
           [m.nombre, m.apellido].filter(Boolean).join(" "),
         ],
@@ -2461,7 +2464,7 @@ export default function LogisticsManager({
                       >
                         <div className="w-44 shrink-0">
                           <div className="font-black text-slate-900 uppercase leading-tight text-xs tracking-tighter">
-                            {m.apellido}, {m.nombre}
+                            {seatingApellidoNombre(m)}
                           </div>
                           <div className="text-[8px] text-slate-400 font-bold uppercase mt-1">
                             {m.rol_gira || m.rol}
@@ -2675,7 +2678,7 @@ export default function LogisticsManager({
                               }`}
                             >
                               <div className="font-bold">
-                                {person.apellido}, {person.nombre}
+                                {seatingApellidoNombre(person)}
                               </div>
                               {overridden && (
                                 <div className="text-[9px] mt-0.5 font-semibold text-amber-800">

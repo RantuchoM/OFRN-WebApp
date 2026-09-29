@@ -174,7 +174,8 @@ export function ParticipanteModal({
 }) {
   const [idUno, setIdUno] = useState(initial?.idUno ?? null);
   const [idDos, setIdDos] = useState(initial?.idDos ?? null);
-  const [observaciones, setObservaciones] = useState(initial?.observaciones || "");
+  const [fragmentoSolista, setFragmentoSolista] = useState(initial?.fragmentoSolista || "");
+  const [fragmentoOrquesta, setFragmentoOrquesta] = useState(initial?.fragmentoOrquesta || "");
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
   const confirmingRef = useRef(false);
@@ -183,7 +184,8 @@ export function ParticipanteModal({
   const dirty =
     !mismoId(idUno, initial?.idUno ?? null) ||
     !mismoId(idDos, initial?.idDos ?? null) ||
-    String(observaciones) !== String(initial?.observaciones || "");
+    String(fragmentoSolista) !== String(initial?.fragmentoSolista || "") ||
+    String(fragmentoOrquesta) !== String(initial?.fragmentoOrquesta || "");
 
   const optionsUno = personas.map((persona) => ({
     ...persona,
@@ -198,7 +200,7 @@ export function ParticipanteModal({
     setError("");
     setPending(true);
     try {
-      const message = await onSubmit({ idUno, idDos, observaciones });
+      const message = await onSubmit({ idUno, idDos, fragmentoSolista, fragmentoOrquesta });
       if (message) {
         setError(message);
         return false;
@@ -263,11 +265,19 @@ export function ParticipanteModal({
           />
         </div>
         <label className="block text-xs font-bold uppercase text-slate-500">
-          Observaciones
+          Solista
           <input
             className={`${fieldClass} mt-1 normal-case`}
-            value={observaciones}
-            onChange={(event) => setObservaciones(event.target.value)}
+            value={fragmentoSolista}
+            onChange={(event) => setFragmentoSolista(event.target.value)}
+          />
+        </label>
+        <label className="block text-xs font-bold uppercase text-slate-500">
+          Con orquesta
+          <input
+            className={`${fieldClass} mt-1 normal-case`}
+            value={fragmentoOrquesta}
+            onChange={(event) => setFragmentoOrquesta(event.target.value)}
           />
         </label>
         <ModalError message={error} />

@@ -26,6 +26,8 @@ import {
   repertorioGruposMetaFromBlock,
 } from "../../services/giraGruposService";
 import { yieldExportLoop } from "../../utils/pdfLibBackgroundSafe";
+import ConcertoFragmentoBloque from "../../components/repertoire/ConcertoFragmentoBloque";
+import { fetchConcertoPorRepertorio } from "../../utils/concertoCompeticion";
 
 const initialDownloadAllState = {
   isRunning: false,
@@ -214,7 +216,7 @@ const RepertoireBlockDivider = ({
 );
 
 // --- SUB-COMPONENTE: TARJETA MÓVIL COMPACTA ---
-const MobilePartCard = ({ item, dimmed = false, onPlayWork, canPlay = false }) => {
+const MobilePartCard = ({ item, dimmed = false, onPlayWork, canPlay = false, concertoEntrada = null }) => {
   const [showVersions, setShowVersions] = useState(false);
   const menuRef = useRef(null);
 
@@ -292,6 +294,11 @@ const MobilePartCard = ({ item, dimmed = false, onPlayWork, canPlay = false }) =
           ) : null}
         </div>
       </div>
+      {concertoEntrada ? (
+        <div className="pl-2">
+          <ConcertoFragmentoBloque entrada={concertoEntrada} />
+        </div>
+      ) : null}
       {item.notas_especificas?.trim() ? (
         <div className="pl-2">
           <NotasProgramaStickyNote notas={item.notas_especificas} />
@@ -412,6 +419,7 @@ export default function MyPartsViewer({
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [repertoire, setRepertoire] = useState([]);
+  const [concertoPorFila, setConcertoPorFila] = useState({});
   const [userInstrument, setUserInstrument] = useState(null);
   const [seatingInfo, setSeatingInfo] = useState(null);
   const [googleAccessToken, setGoogleAccessToken] = useState(null);
@@ -422,6 +430,21 @@ export default function MyPartsViewer({
   useEffect(() => {
     fetchData();
   }, [gira.id, user.id]);
+
+  useEffect(() => {
+    if (gira?.id == null) {
+      setConcertoPorFila({});
+      return undefined;
+    }
+    let cancelled = false;
+    fetchConcertoPorRepertorio(supabase, gira.id).then((result) => {
+      if (cancelled || result.error) return;
+      setConcertoPorFila(result.byRowId || {});
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase, gira?.id]);
 
   const downloadablePartsCount = repertoire.reduce((total, row) => {
     if (row.particella_status !== "AVAILABLE") return total;
@@ -1081,6 +1104,7 @@ export default function MyPartsViewer({
                       dimmed={row.particella_status === "NO_ASSIGNED"}
                       onPlayWork={onPlayWork}
                       canPlay={playableObraIds?.has(String(row.id))}
+                      concertoEntrada={concertoPorFila[String(row.uniqueId)] || null}
                     />
                   ))}
                 </div>
@@ -1139,6 +1163,9 @@ export default function MyPartsViewer({
                               >
                                 {row.compositor}
                               </div>
+                              <ConcertoFragmentoBloque
+                                entrada={concertoPorFila[String(row.uniqueId)] || null}
+                              />
                             </div>
                             {onPlayWork && playableObraIds?.has(String(row.id)) ? (
                               <button

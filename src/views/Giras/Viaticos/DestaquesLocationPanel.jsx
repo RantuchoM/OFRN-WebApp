@@ -4,6 +4,7 @@ import {
     IconUsers, IconCheck, IconSettings, 
     IconX, IconCalculator, IconCar, IconMap, IconRefresh
 } from "../../../components/ui/Icons";
+import { seatingApellidoInicial, seatingApellidoNombre } from "../../../utils/integranteDisplayName";
 import LocationBulkPanel from "./LocationBulkPanel";
 import DestaquesRecorridosModal from "./DestaquesRecorridosModal";
 import {
@@ -954,7 +955,7 @@ const LocationGroupItem = ({ group, isSelected, onToggleSelect, locationConfig, 
                             return (
                                 <li key={p.id} className={`text-[10px] px-1.5 py-1 rounded border flex items-center gap-1.5 relative overflow-hidden ${cardClass}`}>
                                     <div className={`w-1 h-1 rounded-full shrink-0 bg-indigo-300`}></div>
-                                    <span className="truncate flex-1 font-medium" title={`${p.apellido}, ${p.nombre}`}>{p.apellido}, {p.nombre?.charAt(0)}.</span>
+                                    <span className="truncate flex-1 font-medium" title={seatingApellidoNombre(p)}>{seatingApellidoInicial(p)}</span>
                                     
                                     {isIndividual && <span className="text-[8px] font-bold text-orange-600">IND</span>}
                                     {isExported && <span className="text-green-600"><IconCheck size={10} strokeWidth={4} /></span>}
