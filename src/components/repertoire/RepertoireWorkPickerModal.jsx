@@ -56,7 +56,7 @@ const sanitizePreviewHtml = (content) => {
   return html.trim();
 };
 
-const RichTextPreview = ({ content, className = "" }) => {
+export const RichTextPreview = ({ content, className = "" }) => {
   const sanitized = sanitizePreviewHtml(content);
   if (!sanitized) return null;
   return (

@@ -92,13 +92,22 @@ La boleta previa se carga con `concerto_mi_boleta`. El error de `concerto_guarda
 
 ## Músico
 
-Una tarjeta por instancia en la que es electorado.
+No ve pestañas ni resultados. Una tarjeta por instancia en la que es electorado.
 
 Fuera de la ventana abierta: la línea 1 es el nombre y, si hay obra vinculada, « - » más `obras.titulo`; debajo, más chicas, las observaciones (sin segunda línea si están vacías). Sin controles de puntaje y sin promedios. Texto de si todavía no abre, está cerrada, o falta definir la ventana.
 
 Con la ventana abierta: escala arriba y una fila por participante que no lo incluye, con las mismas dos líneas y los siete puntajes. Cada click persiste ese puntaje.
 
+En viewport menor a `md` (768px) cada fila de la boleta es una tarjeta colapsable. Cerrada: nombre y la primera línea del título. Abierta: observaciones y, si la ventana está abierta, el puntaje y el tachito.
+
 ## Editor y admin
+
+El rol (`admin` o `editor`, no curador) decide pestañas, edición y resultados. La boleta no depende del rol: si el usuario está en el electorado de esa instancia, la ve igual que un músico.
+
+Dos pestañas, estilo interruptor (fondo `slate-100`, pestaña activa blanca): «Instancias» y «Resultados».
+
+- Instancias: la gestión (edición, instancias, participantes, ventanas) y, en cada instancia donde es electorado, la sección «Tu votación» con la misma boleta. Un editor que no está en esa gira no vota esa instancia.
+- Resultados: el ranking único de la edición elegida, sin la grilla de gestión.
 
 Aunque también sea músico, ve el panel de gestión.
 
@@ -107,11 +116,12 @@ Aunque también sea músico, ve el panel de gestión.
 - Alta de instancia: gira (`programas`, hasta 500 recientes) y título. Baja de instancia. Junto al nomenclador y el nombre de la gira, la cabecera muestra `fecha_desde` / `fecha_hasta` como `dd/mm - dd/mm`; no reemplaza Abre/Cierra.
 - Por instancia: título, `abre_en`, `cierra_en` y observaciones se ven como texto. Editar habilita esos campos de esa instancia. «Guardar cambios» los persiste y vuelve a lectura. Guardar no depende de los votos. Si la edición o una instancia tiene cambios sin guardar, salir (otra pestaña, otra vista o cancelar) pide el diálogo de confirmación de la app: «Hay cambios sin guardar.» Cancelar sin cambios no pregunta.
 - Alta de participante: buscador de integrantes (nombre y apellido; sin vacantes `es_simulacion`), segundo integrante opcional, observaciones. La grilla muestra una fila por participante (el dúo sigue siendo una fila). En el modal del lápiz, Guardar dice «Guardando» mientras persiste; la X con cambios pide «Hay cambios sin guardar.» (Guardar persiste y cierra, Cancelar descarta y cierra) y sin cambios cierra directo.
-- Columnas: Participantes, Observaciones (texto libre; se editan con el Editar de la instancia y se guardan con «Guardar cambios»), Obra de repertorio (buscador `RepertoireWorkPickerModal`; si hay vínculo, el compositor va encima del título como «Apellido, Nombre», varios con « / », y si no hay compositor solo el título), Drive, Orgánico y acciones compactas (orden, editar integrantes, mover, quitar). Drive y orgánico salen de la obra de catálogo; si no hay vínculo, esas celdas quedan vacías. Agregar sigue siendo directo. Subir, bajar, vincular, desvincular, quitar y mover a otra instancia actualizan la tabla al toque y siguen habilitados; el bloque y las carpetas van a una cola por gira, con un toast, y si Drive o la reconciliación fallan el error aparece ahí.
+- Columnas: Participantes, Observaciones (texto libre; se editan con el Editar de la instancia y se guardan con «Guardar cambios»), Obra de repertorio (buscador `RepertoireWorkPickerModal`; si hay vínculo, el compositor va encima del título como «Apellido, Nombre», varios con « / », y si no hay compositor solo el título; el título se pinta con el `RichTextPreview` del repertorio, así `&nbsp;`, `<br>` y los párrafos se ven como en el catálogo), Drive, Orgánico y acciones compactas (orden, editar integrantes, mover, quitar). Drive y orgánico salen de la obra de catálogo; si no hay vínculo, esas celdas quedan vacías. Agregar sigue siendo directo. Subir, bajar, vincular, desvincular, quitar y mover a otra instancia actualizan la tabla al toque y siguen habilitados; el bloque y las carpetas van a una cola por gira, con un toast, y si Drive o la reconciliación fallan el error aparece ahí.
 - Mover a otra instancia de la misma edición (`id_instancia` y `orden` al final de la destino) es un menú, no un select a lo ancho. Quitar y mover sacan la fila del bloque de la gira de origen y, si el destino tiene gira y obra vinculada, la agregan al bloque de destino.
 - Participante sin integrante vinculado: aviso para asignarlo.
-- Resultados: `concerto_promedios`, en el orden del campo `orden`, no por promedio, también con la ventana abierta. Cada fila es «Nombre - título» (`obras.titulo` de la obra vinculada; solo el nombre si no hay vínculo) y, debajo y más chico, las observaciones. Promedio con coma y cantidad de puntajes guardados, aunque la boleta esté incompleta. Si nadie puntuó todavía, la sección sigue visible, con cada participante en «—» y el texto «Todavía no hay puntajes.» (sin ceros inventados). No se listan votos individuales. El músico que solo vota no ve esta sección. Se pide al entrar y con Actualizar.
-- Si el editor también es electorado y la ventana está abierta, vota en la misma pantalla, en la sección «Tu votación», aparte de la gestión.
+- Resultados (pestaña aparte): un ranking de la edición anual elegida, no de todas las ediciones y no agrupado por instancia. Una tabla con Nombre, instrumento, obra y puntaje, de mayor promedio a menor; sin puntaje al final y empate por nombre. El instrumento sale de cada integrante; la obra usa el mismo render que la columna de participantes. El puntaje es `concerto_promedios` con el formato ya visible. Sin votos, «—» y el texto «Todavía no hay puntajes.». No se listan votos individuales. El músico que solo vota no ve esta pestaña. Las instancias siguen para participantes, ventanas y boleta.
+- Si el editor o admin está en el electorado de la instancia, «Tu votación» queda en la pestaña Instancias, en esa instancia. La boleta aplica la ventana, el guardado por click y el tachito; no se puntúa a sí mismo ni a su dúo. Si no está convocado, esa instancia no muestra boleta.
+- En viewport menor a `md`, la grilla de participantes, la boleta y el ranking pasan a tarjetas colapsables, sin scroll horizontal para lo esencial. Escritorio mantiene las tablas. Participantes, cerrada: nombre y primera línea del título; abierta: observaciones, compositor y título enriquecido, Drive, orgánico y acciones. Boleta, cerrada: nombre y primera línea del título; abierta: observaciones, puntaje y tachito. Resultados, cerrada: nombre y puntaje; abierta: instrumento y obra.
 
 Modales con portal a `document.body` y `z-[100]`. Iconos solo de `src/components/ui/Icons.jsx`. Textos en español. El buscador de obras es el modal que ya usa Programación/Repertorio, sin el filtro inicial de orgánico de la gira: las obras del concurso no tienen por qué caber en el seating convocado. Abrirlo no cambia el ancho de la página: el modal no crece con el contenido y el sidebar no se encoge.
 

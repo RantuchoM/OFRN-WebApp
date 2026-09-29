@@ -19,12 +19,12 @@ const INSTRUMENT_WORDS: { id: string; re: RegExp; label: string }[] = [
   { id: 'viola', re: /\b(viola|violas)\b/i, label: 'Viola' },
   { id: 'bass', re: /\b(contrabajos?|double bass(?:es)?)\b/i, label: 'Contrabajo' },
   { id: 'horn', re: /\b(trompas?|cornos?|french horns?|horns?)\b/i, label: 'Corno' },
-  { id: 'bassoon', re: /\b(fagotes?|bassoons?)\b/i, label: 'Fagot' },
+  { id: 'bassoon', re: /\b(fagot(?:e?s)?|bassoons?)\b/i, label: 'Fagot' },
   { id: 'flute', re: /\b(flautas?|flutes?)\b/i, label: 'Flauta' },
   { id: 'oboe', re: /\b(oboes?)\b/i, label: 'Oboe' },
   { id: 'clarinet', re: /\b(clarinetes?|clarinets?)\b/i, label: 'Clarinete' },
   { id: 'trumpet', re: /\b(trompetas?|trumpets?)\b/i, label: 'Trompeta' },
-  { id: 'trombone', re: /\b(trombones?)\b/i, label: 'Trombón' },
+  { id: 'trombone', re: /\b(tromb[oó]n(?:es)?|trombones?)\b/i, label: 'Trombón' },
   { id: 'tuba', re: /\b(tubas?)\b/i, label: 'Tuba' },
   { id: 'piano', re: /\b(pianos?)\b/i, label: 'Piano' },
   { id: 'harp', re: /\b(arpas?|harps?)\b/i, label: 'Arpa' },
@@ -100,36 +100,21 @@ function formatCatalog(raw: string): string | null {
   return null;
 }
 
-function translateMovement(raw: string): string {
-  let text = decodeEntities(raw)
+function cleanMovement(raw: string): string {
+  const text = decodeEntities(raw)
     .replace(/\(\s*=\s*\d+\s*\)/g, ' ')
     .replace(/\([^)]*\b(?:major|minor|bars?|compases?)\b[^)]*\)/gi, ' ')
+    .replace(/\s+\./g, '.')
+    .replace(/^['"“”‘’]+|['"“”‘’]+$/g, '')
     .replace(/\s+/g, ' ')
     .trim();
-  const replacements: [RegExp, string][] = [
-    [/\bfinale\b\s*[.:]\s*/gi, 'final . '],
-    [/\bfinale\b/gi, 'final'],
-    [/\badagio\b/gi, 'lentamente'],
-    [/\blento\b/gi, 'lentamente'],
-    [/\blargo\b/gi, 'muy lento'],
-    [/\bmoderato\b/gi, 'moderado'],
-    [/\bma non troppo\b/gi, 'pero no demasiado'],
-    [/\bma non tanto\b/gi, 'pero no tanto'],
-    [/\bcon brio\b/gi, 'con brío'],
-    [/\bcon moto\b/gi, 'con movimiento'],
-    [/\bmolto\b/gi, 'muy'],
-    [/\bassai\b/gi, 'muy'],
-    [/\bmarcia funebre\b/gi, 'marcha fúnebre'],
-  ];
-  for (const [pattern, to] of replacements) text = text.replace(pattern, to);
-  text = text.replace(/\s+,/g, ',').replace(/,\s*pero\b/g, ' pero').replace(/\s+/g, ' ').trim();
   if (!text) return '';
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 function parseMovements(tdHtml: string): string[] {
   const items = [...tdHtml.matchAll(/<li\b[^>]*>([\s\S]*?)<\/li>/gi)]
-    .map((item) => translateMovement(htmlText(item[1])))
+    .map((item) => cleanMovement(htmlText(item[1])))
     .filter((item) => item.length > 0 && !/^\d*\s*movements?$/i.test(item));
   return items;
 }
@@ -165,7 +150,47 @@ function applyInstrumentNames(text: string): string {
   return out;
 }
 
-function programHead(spanishName: string | null, englishTitle: string): string {
+function composerPhrases(apellido: string, nombre: string, composerCell: string): string[] {
+  const phrases = new Set<string>();
+  const add = (value: string) => {
+    const text = value.replace(/\s+/g, ' ').trim();
+    if (text.length >= 3) phrases.add(text);
+  };
+  add(apellido);
+  add(nombre);
+  add(`${nombre} ${apellido}`);
+  add(`${apellido}, ${nombre}`);
+  const cell = composerCell.replace(/\s+/g, ' ').trim();
+  if (cell.includes(',')) {
+    const [surname, given] = cell.split(',').map((part) => part.trim());
+    add(surname);
+    add(given);
+    add(`${given} ${surname}`);
+  } else {
+    add(cell);
+  }
+  return [...phrases].sort((a, b) => b.length - a.length);
+}
+
+function stripComposerMentions(head: string, phrases: string[]): string {
+  let out = head;
+  for (const phrase of phrases) {
+    const body = phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/ /g, '\\s+');
+    out = out.replace(new RegExp(`(?:\\b(?:de|del|di|by)\\s+)?\\b${body}\\b`, 'gi'), ' ');
+  }
+  return out
+    .replace(/\bde\s+(?=en\b)/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/\s+,/g, ',')
+    .replace(/^[,\s]+|[,\s]+$/g, '')
+    .trim();
+}
+
+function programHead(
+  spanishName: string | null,
+  englishTitle: string,
+  phrases: string[] = [],
+): string {
   let head = (spanishName || '').trim();
   if (!head) {
     const title = englishTitle.replace(/\s*\([^)]*\)\s*$/, '');
@@ -176,7 +201,9 @@ function programHead(spanishName: string | null, englishTitle: string): string {
       const prefixed = title.match(/^([^,]+?)\s+concerto/i);
       const prefixedFor = title.match(/concerto\s+for\s+([^,]+)/i);
       const instrument = applyInstrumentNames((prefixedFor?.[1] || prefixed?.[1] || '').trim());
+      const number = title.match(/\bno\.?\s*(\d+)/i);
       head = instrument ? `Concierto para ${instrument}` : 'Concierto';
+      if (number) head += ` Nro. ${number[1]}`;
     } else if (/overture/i.test(title)) head = 'Obertura';
     else if (/suite/i.test(title)) head = 'Suite';
     else head = title.replace(/,?\s*\bOp\.?\s*\d+.*/i, '').trim();
@@ -190,9 +217,22 @@ function programHead(spanishName: string | null, englishTitle: string): string {
     .replace(/\s+/g, ' ')
     .trim()
     .replace(/^[,\s]+|[,\s]+$/g, '');
+  head = stripComposerMentions(head, phrases);
   head = applyInstrumentNames(head);
   if (!head) return '';
   return head.charAt(0).toUpperCase() + head.slice(1);
+}
+
+function shortenComposerParen(title: string): string | null {
+  const match = title.match(/^(.*)\(([^)]+)\)\s*$/);
+  if (!match || !match[2].includes('-')) return null;
+  const [surRaw, ...rest] = match[2].split(',');
+  const sur = (surRaw || '').trim().split('-')[0].trim();
+  if (!sur) return null;
+  const ascii = (value: string) => value.normalize('NFD').replace(/\p{M}/gu, '');
+  const given = rest.join(',').trim();
+  const inner = given ? `${ascii(sur)}, ${ascii(given)}` : ascii(sur);
+  return `${match[1].replace(/\s+$/, '')} (${inner})`;
 }
 
 function pageTitleVariants(title: string): string[] {
@@ -201,7 +241,28 @@ function pageTitleVariants(title: string): string[] {
     .replace(/\s+,/g, ',')
     .replace(/\s+/g, ' ')
     .trim();
-  return stripped && stripped !== title ? [stripped, title] : [title];
+  const compactCatalog = stripped.replace(/\b(Op|No|KV|K|BWV|D)\.\s+(\d+)/gi, '$1.$2');
+  const bases = [compactCatalog, stripped, title].filter((item, index, all) => item && all.indexOf(item) === index);
+  const shortened = bases.map(shortenComposerParen).filter((item): item is string => Boolean(item));
+  return [...shortened, ...bases].filter((item, index, all) => item && all.indexOf(item) === index);
+}
+
+function surnameMatches(composer: string, apellido: string): boolean {
+  const folded = foldText(apellido);
+  if (folded.length >= 2 && composer.includes(folded)) return true;
+  const tokens = folded.split(/[^a-z0-9]+/).filter((token) => token.length >= 4);
+  return tokens.some((token) => composer.includes(token));
+}
+
+function composerSuffixes(apellido: string, nombre: string): string[] {
+  const surToken = apellido.split(/[-\s]+/).find((token) => foldText(token).length >= 4) || apellido.trim();
+  const givenToken = (nombre.trim().split(/\s+/)[0] || '').trim();
+  const ascii = (value: string) => value.normalize('NFD').replace(/\p{M}/gu, '');
+  const suffixes = [
+    givenToken ? `${surToken}, ${givenToken}` : surToken,
+    givenToken ? `${ascii(surToken)}, ${ascii(givenToken)}` : ascii(surToken),
+  ];
+  return suffixes.filter((item, index, all) => item && all.indexOf(item) === index);
 }
 
 function catalogIdentity(title: string): string {
@@ -217,6 +278,31 @@ function cleanImslpPageTitle(value: string): string {
   const fromUrl = title.match(/imslp\.org\/wiki\/([^#?\s]+)/i);
   if (fromUrl) title = decodeURIComponent(fromUrl[1]).replace(/_/g, ' ');
   return title.trim();
+}
+
+async function searchImslpWikiTitles(query: string): Promise<string[]> {
+  const url = 'https://html.duckduckgo.com/html/?q=' + encodeURIComponent(`site:imslp.org ${query}`);
+  const response = await fetch(url, {
+    headers: { 'User-Agent': IMSLP_UA, 'Accept': 'text/html' },
+    redirect: 'follow',
+  });
+  if (!response.ok) return [];
+  const html = await response.text();
+  const titles: string[] = [];
+  const re = /uddg=([^&"]+)/gi;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(html)) && titles.length < 5) {
+    let decoded = match[1];
+    try { decoded = decodeURIComponent(decoded); } catch { /* keep raw */ }
+    const wiki = decoded.match(/imslp\.org\/wiki\/([^?#]+)/i);
+    if (!wiki) continue;
+    let title = wiki[1];
+    try { title = decodeURIComponent(title); } catch { /* keep raw */ }
+    title = title.replace(/_/g, ' ').trim();
+    if (/^(Category|Special|User|File|Talk):/i.test(title)) continue;
+    if (!titles.includes(title)) titles.push(title);
+  }
+  return titles;
 }
 
 async function fetchImslpHtml(pageTitle: string): Promise<string | null> {
@@ -237,7 +323,10 @@ async function fetchImslpHtml(pageTitle: string): Promise<string | null> {
   return html;
 }
 
-function readImslpWork(html: string): { head: string; key: string | null; catalog: string | null; movements: string[] } | null {
+function readImslpWork(
+  html: string,
+  composer: { apellido: string; nombre: string } = { apellido: '', nombre: '' },
+): { head: string; key: string | null; catalog: string | null; movements: string[] } | null {
   const rows = imslpRows(html);
   const keyRow = rows.find((row) => /^key$/i.test(row.th) && formatKey(row.td));
   const catalogRow = rows.find((row) => /opus|catalogue/i.test(row.th) && formatCatalog(row.td));
@@ -245,7 +334,12 @@ function readImslpWork(html: string): { head: string; key: string | null; catalo
   const spanish = nameRow?.tdHtml.match(/<span[^>]*\btitle="es"[^>]*>([\s\S]*?)<\/span>/i);
   const titleMatch = html.match(/<title>([^<]+)<\/title>/i);
   const englishTitle = (titleMatch?.[1] || '').replace(/\s*-\s*IMSLP\s*$/i, '').trim();
-  const head = programHead(spanish ? htmlText(spanish[1]) : null, englishTitle);
+  const composerCell = rows.find((row) => /^composer$/i.test(row.th))?.td || '';
+  const head = programHead(
+    spanish ? htmlText(spanish[1]) : null,
+    englishTitle,
+    composerPhrases(composer.apellido, composer.nombre, composerCell),
+  );
   let movements: string[] = [];
   for (const row of rows) {
     if (!/movement/i.test(row.th)) continue;
@@ -268,7 +362,7 @@ function workMatchesQuery(
   const rows = imslpRows(html);
   const composer = foldText(rows.find((row) => /^composer$/i.test(row.th))?.td || html);
   const surname = foldText(query.apellido);
-  if (surname.length < 2 || !composer.includes(surname)) return false;
+  if (!surnameMatches(composer, query.apellido) && surname.length >= 2 && !composer.includes(surname)) return false;
   const given = foldText(query.nombre);
   if (given.length >= 3 && !composer.includes(given)) {
     const first = given.split(/\s+/)[0] || '';
@@ -372,6 +466,58 @@ serve(async (req) => {
 
     // --- MODO: FIND_TITLE_WITH_MOVEMENTS (sugerencia de título con movimientos) ---
     if (body?.type === 'FIND_TITLE_WITH_MOVEMENTS') {
+      const titulo = (body.titulo || '').trim();
+      const compositorApellido = (body.compositorApellido || '').trim();
+      const compositorNombre = (body.compositorNombre || '').trim();
+      const imslpUrl = String(body.imslpUrl || '').trim();
+
+      if (imslpUrl) {
+        if (!/imslp\.org\/wiki\//i.test(imslpUrl)) {
+          return new Response(
+            JSON.stringify({
+              titleWithMovements: null,
+              error: 'El link tiene que ser una página de obra de IMSLP (imslp.org/wiki/…).',
+            }),
+            { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+          );
+        }
+        try {
+          const html = await fetchImslpHtml(cleanImslpPageTitle(imslpUrl));
+          if (!html) {
+            return new Response(
+              JSON.stringify({
+                titleWithMovements: null,
+                error: 'No pude abrir esa página de IMSLP.',
+              }),
+              { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+            );
+          }
+          const work = readImslpWork(html, { apellido: compositorApellido, nombre: compositorNombre });
+          if (!work) {
+            return new Response(
+              JSON.stringify({
+                titleWithMovements: null,
+                error: 'Esa página de IMSLP no tiene la ficha de la obra.',
+              }),
+              { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+            );
+          }
+          return new Response(
+            JSON.stringify({ titleWithMovements: formatProgramTitle(work) }),
+            { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+          );
+        } catch (e) {
+          console.error('FIND_TITLE_WITH_MOVEMENTS página IMSLP:', e);
+          return new Response(
+            JSON.stringify({
+              titleWithMovements: null,
+              error: 'No pude consultar esa página de IMSLP.',
+            }),
+            { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+          );
+        }
+      }
+
       const openaiKey = Deno.env.get('OPENAI_API_KEY') ?? '';
       if (!openaiKey) {
         return new Response(
@@ -380,9 +526,6 @@ serve(async (req) => {
         );
       }
       const openai = new OpenAI({ apiKey: openaiKey });
-      const titulo = (body.titulo || '').trim();
-      const compositorApellido = (body.compositorApellido || '').trim();
-      const compositorNombre = (body.compositorNombre || '').trim();
       if (!titulo || (!compositorApellido && !compositorNombre)) {
         return new Response(
           JSON.stringify({
@@ -407,12 +550,13 @@ serve(async (req) => {
       }
 
       const systemContent =
-        'Localizás artículos de IMSLP. Dado un compositor y un título aproximado, devolvés hasta 3 títulos EXACTOS de página, del más probable al menos.\n' +
-        'Formato: "Horn Concerto, Op.91 (Glière, Reinhold)". Incluí apellido y nombre como en IMSLP, con la grafía habitual (Glière, Dvořák).\n' +
-        'No devuelvas movimientos ni tonalidad. Si el título no alcanza para elegir una sola obra (por ejemplo "Sinfonía" de Beethoven, sin número ni opus), respondé {"pages":[]}.\n' +
-        'JSON válido: {"pages": string[]}.';
+        'Localizás artículos de IMSLP. Traducí el título del usuario al inglés de catálogo, sin el compositor, y devolvés hasta 3 títulos EXACTOS de página, del más probable al menos.\n' +
+        'Formato: "Horn Concerto, Op.91 (Glière, Reinhold)". En el paréntesis usá el apellido corto de IMSLP (Mendelssohn, Felix, no Mendelssohn-Bartholdy).\n' +
+        'No devuelvas movimientos ni tonalidad. Si el título no alcanza para elegir una sola obra (por ejemplo "Sinfonía" de Beethoven, sin número ni opus), englishTitle igual y pages vacío.\n' +
+        'JSON válido: {"englishTitle": string, "pages": string[]}.';
 
       let pages: string[] = [];
+      let englishTitle = '';
       try {
         const comp = await openai.chat.completions.create({
           model: 'gpt-4o-mini',
@@ -435,6 +579,7 @@ serve(async (req) => {
           .replace(/\s*```$/i, '')
           .trim();
         const parsed = JSON.parse(rawContent);
+        englishTitle = typeof parsed?.englishTitle === 'string' ? parsed.englishTitle.trim() : '';
         const rawPages = Array.isArray(parsed?.pages) ? parsed.pages : [];
         pages = rawPages
           .filter((page: unknown): page is string => typeof page === 'string')
@@ -450,6 +595,22 @@ serve(async (req) => {
           }),
           { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
         );
+      }
+
+      const searchQuery = [compositorApellido, compositorNombre, englishTitle || titulo]
+        .filter(Boolean)
+        .join(' ')
+        .replace(/,/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      try {
+        const found = await searchImslpWikiTitles(searchQuery);
+        const extra = englishTitle && foldText(englishTitle) !== foldText(titulo)
+          ? await searchImslpWikiTitles([compositorApellido, compositorNombre, titulo].filter(Boolean).join(' '))
+          : [];
+        pages = [...found, ...extra, ...pages].filter((page, index, all) => all.indexOf(page) === index).slice(0, 5);
+      } catch (e) {
+        console.error('FIND_TITLE_WITH_MOVEMENTS búsqueda IMSLP:', e);
       }
 
       if (!pages.length) {
@@ -478,11 +639,16 @@ serve(async (req) => {
       let titleWithMovements: string | null = null;
       try {
         for (const page of pages) {
-          for (const variant of pageTitleVariants(page)) {
+          const head = pageTitleVariants(page)[0].replace(/\s*\([^)]*\)\s*$/, '').trim();
+          const withComposer = composerSuffixes(compositorApellido, compositorNombre)
+            .map((suffix) => `${head} (${suffix})`);
+          const variants = [...pageTitleVariants(page), ...withComposer]
+            .filter((item, index, all) => item && all.indexOf(item) === index);
+          for (const variant of variants) {
             const html = await fetchImslpHtml(variant);
             if (!html) continue;
             if (!workMatchesQuery(html, { apellido: compositorApellido, nombre: compositorNombre, titulo })) continue;
-            const work = readImslpWork(html);
+            const work = readImslpWork(html, { apellido: compositorApellido, nombre: compositorNombre });
             if (!work) continue;
             titleWithMovements = formatProgramTitle(work);
             break;

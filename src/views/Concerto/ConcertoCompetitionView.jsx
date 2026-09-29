@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useAuth } from "../../context/AuthContext";
 import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 import {
+  IconChevronDown,
+  IconChevronUp,
   IconEdit,
   IconLoader,
   IconTrophy,
@@ -30,7 +32,9 @@ import {
   formatDateTimeAR,
   formatGiraLabel,
   formatGiraRango,
+  formatObraCompositores,
   formatParticipanteNombres,
+  formatPersona,
   formatPuntaje,
   friendlySchemaError,
   fromDatetimeLocalAR,
@@ -42,9 +46,9 @@ import {
   toDatetimeLocalAR,
   updateEdicion,
   updateInstancia,
-  windowState,
 } from "../../utils/concertoCompeticion";
-import ConcertoBallot, { ParticipanteVotoIdentidad } from "./ConcertoBallot";
+import { RichTextPreview } from "../../components/repertoire/RepertoireWorkPickerModal";
+import ConcertoBallot from "./ConcertoBallot";
 import ConcertoParticipantesTable from "./ConcertoParticipantesTable";
 import { EdicionModal, InstanciaModal, ParticipanteModal } from "./ConcertoModals";
 
@@ -80,53 +84,236 @@ function errorText(error) {
   return friendlySchemaError(error);
 }
 
-function hasPromedios(rows) {
-  return (rows || []).some(
-    (row) => row?.promedio != null && row.promedio !== "" && Number(row.cantidad) > 0,
+function instrumentosDe(integrantes) {
+  const labels = [];
+  const seen = new Set();
+  for (const persona of integrantes || []) {
+    const name = String(persona?.instrumentos?.instrumento || "").trim();
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    labels.push(name);
+  }
+  return labels;
+}
+
+function puntajeDe(row) {
+  if (!row || row.promedio == null || row.promedio === "") return null;
+  if (!(Number(row.cantidad) > 0)) return null;
+  const n = Number(row.promedio);
+  return Number.isFinite(n) ? n : null;
+}
+
+function filasRanking(instancias, promedios) {
+  const rows = [];
+  for (const instancia of instancias || []) {
+    const byId = new Map(
+      (promedios?.[String(instancia.id)]?.rows || []).map((row) => [String(row.id_participante), row]),
+    );
+    for (const participante of instancia.participantes || []) {
+      const source = byId.get(String(participante.id));
+      rows.push({
+        participante,
+        promedio: puntajeDe(source),
+        cantidad: Number(source?.cantidad) || 0,
+      });
+    }
+  }
+  rows.sort((a, b) => {
+    if (a.promedio == null && b.promedio != null) return 1;
+    if (a.promedio != null && b.promedio == null) return -1;
+    if (a.promedio != null && b.promedio != null && a.promedio !== b.promedio) {
+      return b.promedio - a.promedio;
+    }
+    const an = formatParticipanteNombres(a.participante.integrantes) || "";
+    const bn = formatParticipanteNombres(b.participante.integrantes) || "";
+    const byName = an.localeCompare(bn, "es");
+    if (byName !== 0) return byName;
+    return Number(a.participante.id) - Number(b.participante.id);
+  });
+  return rows;
+}
+
+function ResultadoCard({ fila }) {
+  const [open, setOpen] = useState(false);
+  const { participante, promedio, cantidad } = fila;
+  const integrantes = participante.integrantes || [];
+  const instrumentos = instrumentosDe(integrantes);
+  const obra = participante.repertorio_obra?.obras || null;
+  const compositor = formatObraCompositores(obra);
+  const nombre = integrantes.length
+    ? integrantes.map((persona) => formatPersona(persona) || "Sin nombre").join("\n")
+    : "Sin nombre";
+  return (
+    <li className="min-w-0 overflow-hidden rounded-lg border border-slate-200">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-label={`Detalle de ${nombre.replace(/\n/g, " y ")}`}
+        onClick={() => setOpen((value) => !value)}
+        className="flex w-full min-w-0 items-start gap-2 px-3 py-2 text-left"
+      >
+        <span className="min-w-0 flex-1">
+          {integrantes.length ? (
+            integrantes.map((persona) => (
+              <span key={persona.id} className="block break-words font-medium text-slate-800">
+                {formatPersona(persona) || "Sin nombre"}
+              </span>
+            ))
+          ) : (
+            <span className="block font-medium text-slate-800">Sin nombre</span>
+          )}
+        </span>
+        <span className="shrink-0 text-right">
+          <span className="block font-semibold text-slate-800">
+            {promedio == null ? "—" : formatPuntaje(promedio)}
+          </span>
+          {cantidad > 0 ? (
+            <span className="block text-xs text-slate-500">{formatCantidadBoletas(cantidad)}</span>
+          ) : null}
+        </span>
+        {open ? (
+          <IconChevronUp size={16} className="mt-0.5 shrink-0 text-slate-400" />
+        ) : (
+          <IconChevronDown size={16} className="mt-0.5 shrink-0 text-slate-400" />
+        )}
+      </button>
+      {open ? (
+        <div className="space-y-2 border-t border-slate-100 px-3 py-3">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Instrumento</p>
+            <p className="mt-1 break-words text-sm text-slate-700">
+              {instrumentos.length ? instrumentos.join(" · ") : "—"}
+            </p>
+          </div>
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Obra</p>
+            <div className="mt-1 min-w-0 text-sm text-slate-800">
+              {obra?.titulo || compositor ? (
+                <>
+                  {compositor ? (
+                    <span className="block text-[11px] font-semibold text-slate-600">{compositor}</span>
+                  ) : null}
+                  {obra?.titulo ? (
+                    <RichTextPreview content={obra.titulo} className="[&_div]:my-0 [&_p]:my-0" />
+                  ) : null}
+                </>
+              ) : (
+                "—"
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </li>
   );
 }
 
-function Resultados({ participantes, promedios }) {
-  const pending = promedios == null;
-  const rows = promedios?.rows || [];
-  const byId = new Map(rows.map((row) => [String(row.id_participante), row]));
-  const voted = hasPromedios(rows);
+function Resultados({ instancias, promedios }) {
+  const pending = (instancias || []).some((instancia) => promedios?.[String(instancia.id)] == null);
+  const errors = (instancias || [])
+    .map((instancia) => promedios?.[String(instancia.id)]?.error)
+    .filter(Boolean);
+  const rows = pending ? [] : filasRanking(instancias, promedios);
+  const voted = rows.some((row) => row.promedio != null);
   return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between gap-2">
-        <h4 className="text-xs font-bold uppercase tracking-wide text-slate-500">Resultados</h4>
-      </div>
-      {promedios?.error ? <p className="text-sm text-rose-600">{promedios.error}</p> : null}
+    <section className="space-y-2 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500">Resultados</h3>
+      {errors.map((error) => (
+        <p key={error} className="text-sm text-rose-600">
+          {error}
+        </p>
+      ))}
       {pending ? <p className="text-sm text-slate-400">Cargando promedios…</p> : null}
       {!pending && !voted ? (
         <p className="text-sm text-slate-500">Todavía no hay puntajes.</p>
       ) : null}
-      {pending ? null : (
-      <ul className="divide-y divide-slate-100">
-        {participantes.map((participante) => {
-          const row = byId.get(String(participante.id));
-          const promedio =
-            row && row.promedio != null && row.promedio !== ""
-              ? formatPuntaje(row.promedio)
-              : "—";
-          const cantidad = Number(row?.cantidad);
-          return (
-            <li key={participante.id} className="flex items-baseline justify-between gap-3 py-2 text-sm">
-              <ParticipanteVotoIdentidad participante={participante} />
-              <p className="shrink-0 text-right text-slate-700">
-                <span className="font-semibold">{promedio}</span>
-                {Number.isFinite(cantidad) && cantidad > 0 ? (
-                  <span className="mt-0.5 block text-xs text-slate-500">
-                    {formatCantidadBoletas(cantidad)}
-                  </span>
-                ) : null}
-              </p>
-            </li>
-          );
-        })}
-      </ul>
+      {pending || rows.length === 0 ? null : (
+        <>
+        <div className="hidden max-w-full min-w-0 overflow-x-auto md:block">
+          <table className="w-full min-w-[720px] table-fixed border-collapse text-sm">
+            <colgroup>
+              <col className="w-[24%]" />
+              <col className="w-[18%]" />
+              <col className="w-[40%]" />
+              <col className="w-[18%]" />
+            </colgroup>
+            <thead>
+              <tr className="border-b border-slate-200 text-left text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                <th className="px-2 py-2">Nombre</th>
+                <th className="px-2 py-2">Instrumento</th>
+                <th className="px-2 py-2">Obra</th>
+                <th className="px-2 py-2 text-right">Puntaje</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(({ participante, promedio, cantidad }) => {
+                const integrantes = participante.integrantes || [];
+                const instrumentos = instrumentosDe(integrantes);
+                const obra = participante.repertorio_obra?.obras || null;
+                const compositor = formatObraCompositores(obra);
+                return (
+                  <tr key={participante.id} className="border-b border-slate-100 align-top">
+                    <td className="px-2 py-2 font-medium text-slate-800">
+                      {integrantes.length
+                        ? integrantes.map((persona) => (
+                            <span key={persona.id} className="block">
+                              {formatPersona(persona) || "Sin nombre"}
+                            </span>
+                          ))
+                        : "Sin nombre"}
+                    </td>
+                    <td className="px-2 py-2 text-slate-700">
+                      {instrumentos.length
+                        ? instrumentos.map((nombre) => (
+                            <span key={nombre} className="block">
+                              {nombre}
+                            </span>
+                          ))
+                        : "—"}
+                    </td>
+                    <td className="px-2 py-2 text-slate-800">
+                      {obra?.titulo || compositor ? (
+                        <>
+                          {compositor ? (
+                            <span className="block text-[11px] font-semibold text-slate-600">
+                              {compositor}
+                            </span>
+                          ) : null}
+                          {obra?.titulo ? (
+                            <RichTextPreview
+                              content={obra.titulo}
+                              className="[&_div]:my-0 [&_p]:my-0"
+                            />
+                          ) : null}
+                        </>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                    <td className="px-2 py-2 text-right text-slate-700">
+                      <span className="font-semibold">
+                        {promedio == null ? "—" : formatPuntaje(promedio)}
+                      </span>
+                      {cantidad > 0 ? (
+                        <span className="mt-0.5 block text-xs text-slate-500">
+                          {formatCantidadBoletas(cantidad)}
+                        </span>
+                      ) : null}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <ul className="space-y-2 md:hidden">
+          {rows.map((fila) => (
+            <ResultadoCard key={fila.participante.id} fila={fila} />
+          ))}
+        </ul>
+        </>
       )}
-    </div>
+    </section>
   );
 }
 
@@ -136,7 +323,6 @@ function InstanciaStaffCard({
   instancia,
   otras,
   personas,
-  promedios,
   now,
   onChanged,
   onReorder,
@@ -317,8 +503,6 @@ function InstanciaStaffCard({
     onChanged();
   };
 
-  const abierta = windowState(instancia, now) === "open" && instancia.esElectorado;
-
   return (
     <article className="space-y-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
       {dialog}
@@ -458,9 +642,7 @@ function InstanciaStaffCard({
         )}
       </div>
 
-      <Resultados participantes={instancia.participantes} promedios={promedios} />
-
-      {abierta ? (
+      {instancia.esElectorado ? (
         <section className="space-y-3 border-t border-slate-200 pt-4">
           <h4 className="text-sm font-bold text-slate-800">Tu votación</h4>
           <ConcertoBallot
@@ -499,6 +681,7 @@ export default function ConcertoCompetitionView({ supabase }) {
   const { user, roles } = useAuth();
   const isStaff = isConcertoStaff(roles);
   const userId = user?.id;
+  const [staffTab, setStaffTab] = useState("instancias");
   const [now, setNow] = useState(() => new Date());
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -833,7 +1016,7 @@ export default function ConcertoCompetitionView({ supabase }) {
               <IconRefresh size={16} />
               Actualizar
             </button>
-            {isStaff ? (
+            {isStaff && staffTab === "instancias" ? (
               <button
                 type="button"
                 onClick={() => setShowNuevaEdicion(true)}
@@ -845,6 +1028,41 @@ export default function ConcertoCompetitionView({ supabase }) {
             ) : null}
           </div>
         </div>
+
+        {isStaff && edicion && !loading ? (
+          <div
+            className="inline-flex rounded-lg border border-slate-200 bg-slate-100 p-0.5"
+            role="tablist"
+            aria-label="Concerto Competition"
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={staffTab === "instancias"}
+              onClick={() => setStaffTab("instancias")}
+              className={`rounded-md px-3 py-1.5 text-sm font-bold transition-colors ${
+                staffTab === "instancias"
+                  ? "bg-white text-indigo-700 shadow-sm"
+                  : "text-slate-600 hover:text-slate-800"
+              }`}
+            >
+              Instancias
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={staffTab === "resultados"}
+              onClick={() => setStaffTab("resultados")}
+              className={`rounded-md px-3 py-1.5 text-sm font-bold transition-colors ${
+                staffTab === "resultados"
+                  ? "bg-white text-indigo-700 shadow-sm"
+                  : "text-slate-600 hover:text-slate-800"
+              }`}
+            >
+              Resultados
+            </button>
+          </div>
+        ) : null}
 
         {loadError ? (
           <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
@@ -865,6 +1083,7 @@ export default function ConcertoCompetitionView({ supabase }) {
           </div>
         ) : (
           <>
+            <div className={isStaff && staffTab !== "instancias" ? "hidden" : "contents"}>
             {isStaff ? (
               <section className="space-y-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
                 <h2 className="text-sm font-bold text-slate-800">Edición</h2>
@@ -999,7 +1218,6 @@ export default function ConcertoCompetitionView({ supabase }) {
                       instancia={instancia}
                       otras={instancias.filter((item) => String(item.id) !== String(instancia.id))}
                       personas={personas}
-                      promedios={promedios[String(instancia.id)]}
                       now={now}
                       onChanged={reload}
                       onReorder={(participantes) => aplicarOrdenLocal(instancia.id, participantes)}
@@ -1031,6 +1249,19 @@ export default function ConcertoCompetitionView({ supabase }) {
                 )}
               </div>
             )}
+            </div>
+
+            {isStaff ? (
+              <div className={staffTab === "resultados" ? "contents" : "hidden"}>
+                {visibles.length > 0 ? (
+                  <Resultados instancias={visibles} promedios={promedios} />
+                ) : (
+                  <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500 shadow-sm">
+                    Esta edición todavía no tiene instancias.
+                  </div>
+                )}
+              </div>
+            ) : null}
           </>
         )}
       </div>

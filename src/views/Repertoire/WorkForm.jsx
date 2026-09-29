@@ -514,6 +514,7 @@ export default function WorkForm({
   const [suggestedYear, setSuggestedYear] = useState(null);
   const [loadingTitleSuggestions, setLoadingTitleSuggestions] = useState(false);
   const [suggestedTitleWithMovements, setSuggestedTitleWithMovements] = useState(null);
+  const [imslpPageUrl, setImslpPageUrl] = useState("");
   const [showYoutubePopover, setShowYoutubePopover] = useState(false);
   const enrichmentTriggerRef = useRef(null);
   const fieldStatusResetRef = useRef(null);
@@ -607,6 +608,7 @@ export default function WorkForm({
     fetchComposers();
     fetchIntegrantesArreglador();
     fetchTagsOptions();
+    setImslpPageUrl("");
     if (initialData?.id) {
       fetchParticellasCount(initialData.id);
       fetchWorkDetails(initialData.id);
@@ -819,7 +821,12 @@ export default function WorkForm({
     const opt = composersOptions.find((c) => c.id === firstId);
     const compositorApellido = opt?.label?.split(",")[0]?.trim() ?? "";
     const compositorNombre = opt?.label?.split(",")[1]?.trim() ?? "";
-    if (!titulo || !compositorApellido) {
+    const imslpUrl = imslpPageUrl.trim();
+    if (imslpUrl && !/imslp\.org\/wiki\//i.test(imslpUrl)) {
+      toast.error("Pegá un link de página de IMSLP (imslp.org/wiki/…)");
+      return;
+    }
+    if (!imslpUrl && (!titulo || !compositorApellido)) {
       toast.error("Indica título y al menos un compositor para buscar sugerencias");
       return;
     }
@@ -832,6 +839,7 @@ export default function WorkForm({
           titulo,
           compositorApellido,
           compositorNombre,
+          ...(imslpUrl ? { imslpUrl } : {}),
         },
       });
       if (error) {
@@ -852,7 +860,7 @@ export default function WorkForm({
     } finally {
       setLoadingTitleSuggestions(false);
     }
-  }, [supabase, formData.titulo, selectedComposers, composersOptions]);
+  }, [supabase, formData.titulo, selectedComposers, composersOptions, imslpPageUrl]);
 
   const checkDuplicateWorks = useCallback(
     async (rawTitulo, composerIds) => {
@@ -2515,8 +2523,10 @@ export default function WorkForm({
               onClick={fetchTitleWithMovementsSuggestion}
               disabled={
                 loadingTitleSuggestions ||
-                !stripHtml(formData.titulo) ||
-                !selectedComposers?.length
+                (
+                  !/imslp\.org\/wiki\//i.test(imslpPageUrl) &&
+                  (!stripHtml(formData.titulo) || !selectedComposers?.length)
+                )
               }
               className="text-[10px] font-medium text-indigo-600 hover:text-indigo-800 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
             >
@@ -3071,6 +3081,26 @@ export default function WorkForm({
                   </a>
                 );
               })()}
+            </div>
+            <div className="mb-1 flex shrink-0 items-center gap-1">
+              <input
+                type="url"
+                value={imslpPageUrl}
+                onChange={(e) => setImslpPageUrl(e.target.value)}
+                placeholder="Link de IMSLP (opcional)"
+                className="min-w-0 flex-1 rounded border border-slate-200 bg-white/80 px-2 py-1 text-[11px] text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500"
+                title="Si pegás una página de IMSLP, Buscar sugerencias usa esa ficha"
+              />
+              {imslpPageUrl ? (
+                <button
+                  type="button"
+                  onClick={() => setImslpPageUrl("")}
+                  className="shrink-0 rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                  title="Quitar link y volver a la búsqueda automática"
+                >
+                  <IconX size={12} />
+                </button>
+              ) : null}
             </div>
             <div className="min-h-0 flex-1 flex flex-col">
               <WysiwygEditor

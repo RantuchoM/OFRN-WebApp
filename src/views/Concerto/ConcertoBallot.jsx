@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { IconTrash } from "../../components/ui/Icons";
+import { RichTextPreview } from "../../components/repertoire/RepertoireWorkPickerModal";
+import { IconChevronDown, IconChevronUp, IconTrash } from "../../components/ui/Icons";
 import {
   SCALE_FOOT,
   SCALE_INTRO,
@@ -14,6 +15,7 @@ import {
   guardarPuntaje,
   lineaPrincipalParticipante,
   participanteIncluye,
+  tituloCortoObra,
   windowState,
 } from "../../utils/concertoCompeticion";
 
@@ -22,24 +24,166 @@ function nombresDe(participante) {
 }
 
 export function ParticipanteVotoIdentidad({ participante }) {
-  const principal = lineaPrincipalParticipante(participante);
+  const nombre = formatParticipanteNombres(participante?.integrantes) || "Sin nombre";
+  const titulo = participante?.repertorio_obra?.obras?.titulo;
   const obs = String(participante?.observaciones || "").trim();
   return (
     <div className="min-w-0">
-      <p className="text-sm font-medium text-slate-800">{principal}</p>
+      <div className="text-sm font-medium text-slate-800">
+        {nombre}
+        {titulo ? " - " : ""}
+        {titulo ? (
+          <RichTextPreview content={titulo} className="font-normal [&_p]:my-0 [&_div]:my-0" />
+        ) : null}
+      </div>
       {obs ? <p className="text-xs text-slate-500">{obs}</p> : null}
     </div>
+  );
+}
+
+function PuntajeControles({ participante, selected, onElegir, onQuitar }) {
+  const label = lineaPrincipalParticipante(participante);
+  return (
+    <div className="flex flex-wrap items-center gap-1">
+      <div className="flex flex-wrap gap-1" role="radiogroup" aria-label={`Puntaje de ${label}`}>
+        {SCORE_SCALE.map((item) => {
+          const active = mismoPuntaje(selected, item.value);
+          return (
+            <button
+              key={item.value}
+              type="button"
+              title={item.descripcion}
+              aria-pressed={active}
+              onClick={() => onElegir(participante.id, item.value)}
+              className={`min-w-[2.75rem] rounded-lg border px-2 py-1.5 text-sm font-semibold ${
+                active
+                  ? "border-indigo-600 bg-indigo-600 text-white"
+                  : "border-slate-200 bg-white text-slate-700 hover:border-indigo-300"
+              }`}
+            >
+              {item.label}
+            </button>
+          );
+        })}
+      </div>
+      {selected != null ? (
+        <button
+          type="button"
+          title="Borrar puntaje"
+          aria-label={`Borrar puntaje de ${label}`}
+          onClick={() => onQuitar(participante.id)}
+          className="rounded-lg p-1.5 text-rose-600 hover:bg-rose-50"
+        >
+          <IconTrash size={16} />
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function BoletaFila({ participante, selected, onElegir, onQuitar }) {
+  const [open, setOpen] = useState(false);
+  const nombre = nombresDe(participante);
+  const corto = tituloCortoObra(participante?.repertorio_obra?.obras?.titulo);
+  const obs = String(participante?.observaciones || "").trim();
+  return (
+    <div>
+      <article className="min-w-0 overflow-hidden rounded-lg border border-slate-200 md:hidden">
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-label={`Detalle de ${nombre}`}
+          onClick={() => setOpen((value) => !value)}
+          className="flex w-full min-w-0 items-start gap-2 px-3 py-2 text-left"
+        >
+          <span className="min-w-0 flex-1">
+            <span className="block break-words text-sm font-medium text-slate-800">{nombre}</span>
+            <span className="mt-0.5 block break-words text-sm text-slate-600">{corto || "—"}</span>
+          </span>
+          {open ? (
+            <IconChevronUp size={16} className="mt-0.5 shrink-0 text-slate-400" />
+          ) : (
+            <IconChevronDown size={16} className="mt-0.5 shrink-0 text-slate-400" />
+          )}
+        </button>
+        {open ? (
+          <div className="space-y-2 border-t border-slate-100 px-3 py-3">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Observaciones</p>
+              <p className="mt-1 break-words text-sm text-slate-600">{obs || "—"}</p>
+            </div>
+            <div>
+              <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-slate-500">Puntaje</p>
+              <PuntajeControles
+                participante={participante}
+                selected={selected}
+                onElegir={onElegir}
+                onQuitar={onQuitar}
+              />
+            </div>
+          </div>
+        ) : null}
+      </article>
+      <div className="hidden gap-2 py-3 md:flex md:items-center md:justify-between">
+        <ParticipanteVotoIdentidad participante={participante} />
+        <PuntajeControles
+          participante={participante}
+          selected={selected}
+          onElegir={onElegir}
+          onQuitar={onQuitar}
+        />
+      </div>
+    </div>
+  );
+}
+
+function BoletaCardCerrada({ participante }) {
+  const [open, setOpen] = useState(false);
+  const nombre = nombresDe(participante);
+  const corto = tituloCortoObra(participante?.repertorio_obra?.obras?.titulo);
+  const obs = String(participante?.observaciones || "").trim();
+  return (
+    <li className="min-w-0 overflow-hidden rounded-lg border border-slate-200">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-label={`Detalle de ${nombre}`}
+        onClick={() => setOpen((value) => !value)}
+        className="flex w-full min-w-0 items-start gap-2 px-3 py-2 text-left"
+      >
+        <span className="min-w-0 flex-1">
+          <span className="block break-words text-sm font-medium text-slate-800">{nombre}</span>
+          <span className="mt-0.5 block break-words text-sm text-slate-600">{corto || "—"}</span>
+        </span>
+        {open ? (
+          <IconChevronUp size={16} className="mt-0.5 shrink-0 text-slate-400" />
+        ) : (
+          <IconChevronDown size={16} className="mt-0.5 shrink-0 text-slate-400" />
+        )}
+      </button>
+      {open ? (
+        <div className="border-t border-slate-100 px-3 py-2">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Observaciones</p>
+          <p className="mt-1 break-words text-sm text-slate-600">{obs || "—"}</p>
+        </div>
+      ) : null}
+    </li>
   );
 }
 
 function ListaCerrada({ instancia, estado }) {
   return (
     <div className="space-y-3">
-      <ul className="divide-y divide-slate-100">
+      <ul className="hidden divide-y divide-slate-100 md:block">
         {instancia.participantes.map((participante) => (
           <li key={participante.id} className="py-2">
             <ParticipanteVotoIdentidad participante={participante} />
           </li>
+        ))}
+      </ul>
+      <ul className="space-y-2 md:hidden">
+        {instancia.participantes.map((participante) => (
+          <BoletaCardCerrada key={participante.id} participante={participante} />
         ))}
       </ul>
       <p className="text-sm text-slate-600">{WINDOW_COPY[estado]}</p>
@@ -242,50 +386,16 @@ function BoletaAbierta({ supabase, userId, instancia, onSaved }) {
       ) : votables.length === 0 ? (
         <p className="text-sm text-slate-500">No hay otros participantes para puntuar.</p>
       ) : (
-        <div className="divide-y divide-slate-100">
-          {votables.map((participante) => {
-            const selected = scores[String(participante.id)];
-            const label = lineaPrincipalParticipante(participante);
-            return (
-              <div key={participante.id} className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between">
-                <ParticipanteVotoIdentidad participante={participante} />
-                <div className="flex flex-wrap items-center gap-1">
-                <div className="flex flex-wrap gap-1" role="radiogroup" aria-label={`Puntaje de ${label}`}>
-                  {SCORE_SCALE.map((item) => {
-                    const active = mismoPuntaje(selected, item.value);
-                    return (
-                      <button
-                        key={item.value}
-                        type="button"
-                        title={item.descripcion}
-                        aria-pressed={active}
-                        onClick={() => elegir(participante.id, item.value)}
-                        className={`min-w-[2.75rem] rounded-lg border px-2 py-1.5 text-sm font-semibold ${
-                          active
-                            ? "border-indigo-600 bg-indigo-600 text-white"
-                            : "border-slate-200 bg-white text-slate-700 hover:border-indigo-300"
-                        }`}
-                      >
-                        {item.label}
-                      </button>
-                    );
-                  })}
-                </div>
-                {selected != null ? (
-                  <button
-                    type="button"
-                    title="Borrar puntaje"
-                    aria-label={`Borrar puntaje de ${label}`}
-                    onClick={() => quitarPuntaje(participante.id)}
-                    className="rounded-lg p-1.5 text-rose-600 hover:bg-rose-50"
-                  >
-                    <IconTrash size={16} />
-                  </button>
-                ) : null}
-                </div>
-              </div>
-            );
-          })}
+        <div className="space-y-2 md:space-y-0 md:divide-y md:divide-slate-100">
+          {votables.map((participante) => (
+            <BoletaFila
+              key={participante.id}
+              participante={participante}
+              selected={scores[String(participante.id)]}
+              onElegir={elegir}
+              onQuitar={quitarPuntaje}
+            />
+          ))}
         </div>
       )}
 

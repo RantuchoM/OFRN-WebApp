@@ -16,10 +16,10 @@ Para ahorrar tokens y evitar sobreescritura:
 ## 3. Sugerencia de título («Buscar sugerencias»)
 El botón del campo Título llama a la Edge Function `ask-ai` con `type: FIND_TITLE_WITH_MOVEMENTS` (título plano + primer compositor).
 
-La tonalidad, el catálogo y los movimientos salen de la ficha de IMSLP, no de una lista inventada. El modelo solo propone el título de la página; el servidor la abre y descarta la candidata si el compositor, el opus o el instrumento no coinciden.
-- Línea 1: género en español y solista con la nomenclatura del archivo (`Corno`, `Violoncello`), más la tonalidad (`en Sib mayor`, `en do menor`: mayor con mayúscula, menor en minúscula) y el catálogo (`Op. 91`).
-- Movimientos: los de IMSLP, en líneas con numeral romano. Se traducen las palabras que ya están (`Adagio ma non troppo` → `Lentamente pero no demasiado`; `Moderato` → `Moderado`; `Finale.` → `Final .`). No se cambia un `Andante` por `Lentamente` ni se agrega `Final` si IMSLP no lo dice.
-- Glière, Op. 91: `Concierto para Corno en Sib mayor, Op. 91` / `I. Allegro` / `II. Andante` / `III. Moderado - Allegro vivace`.
+La tonalidad, el catálogo y los movimientos salen de la ficha de IMSLP, no de una lista inventada. Si en Observaciones se pegó un link `imslp.org/wiki/…`, la sugerencia sale de esa página y no busca otra. Si el campo está vacío, el servidor busca `site:imslp.org` con el mismo criterio que el enlace del formulario (apellido y nombre + título, traducido al inglés de catálogo) y toma la primera página wiki. Un apellido compuesto coincide si IMSLP usa solo la primera parte (`Mendelssohn-Bartholdy` acepta la ficha «Mendelssohn, Felix»). En la búsqueda automática descarta la candidata si el compositor, el opus o el instrumento no coinciden.
+- Línea 1: género en español y solista con la nomenclatura del archivo (`Corno`, `Violoncello`, `Fagot`), más la tonalidad (`en Sib mayor`, `en Fa mayor`, `en do menor`: mayor con mayúscula, menor en minúscula) y el catálogo (`Op. 91`). El compositor no va en el título.
+- Movimientos: los de IMSLP, en italiano y con numeral romano. No se traducen (`Adagio ma non troppo`, `Moderato`, `Finale` quedan así).
+- Glière, Op. 91: `Concierto para Corno en Sib mayor, Op. 91` / `I. Allegro` / `II. Andante` / `III. Moderato - Allegro vivace`.
 - Si hay varias obras posibles, o el título dice arreglo/recorte, no propone la obra completa.
 - **Aplicar** pasa cada movimiento a un `<p>` con `&nbsp;&nbsp;`.
 

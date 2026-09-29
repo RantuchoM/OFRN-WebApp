@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from "react";
-import RepertoireWorkPickerModal from "../../components/repertoire/RepertoireWorkPickerModal";
+import RepertoireWorkPickerModal, {
+  RichTextPreview,
+} from "../../components/repertoire/RepertoireWorkPickerModal";
 import {
   IconAlertTriangle,
   IconChevronDown,
@@ -19,9 +21,9 @@ import {
   moveParticipante,
   moverEnLista,
   nextOrden,
-  plainWorkTitle,
   queueConcertoMutation,
   queueParticipanteReorder,
+  tituloCortoObra,
   unlinkParticipanteObra,
 } from "../../utils/concertoCompeticion";
 
@@ -36,11 +38,152 @@ function organicoDe(obra) {
   return calculateInstrumentation(obra.obras_particellas || []) || "";
 }
 
-function ObservacionesCell({ participante, editing, value, onChange }) {
+function ObraBloque({ obra, compositor, sinGira, onUnlink, onPick }) {
+  if (!obra) {
+    return (
+      <button
+        type="button"
+        disabled={sinGira}
+        title={
+          sinGira
+            ? "Asigná una gira a la instancia para vincular una obra"
+            : "Vincular obra de repertorio"
+        }
+        onClick={onPick}
+        className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-sm font-semibold text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
+      >
+        <IconSearch size={14} />
+        Vincular
+      </button>
+    );
+  }
+  return (
+    <div className="flex min-w-0 items-start gap-1">
+      <div className="min-w-0 text-slate-800">
+        {compositor ? (
+          <span className="block text-[11px] font-semibold text-slate-600">{compositor}</span>
+        ) : null}
+        {obra.titulo ? (
+          <RichTextPreview content={obra.titulo} className="[&_div]:my-0 [&_p]:my-0" />
+        ) : (
+          "Obra vinculada"
+        )}
+      </div>
+      <button
+        type="button"
+        title="Desvincular obra"
+        onClick={onUnlink}
+        className="shrink-0 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+      >
+        <IconX size={14} />
+      </button>
+    </div>
+  );
+}
+
+function ParticipanteAcciones({
+  participante,
+  index,
+  total,
+  otras,
+  moveFor,
+  setMoveFor,
+  onReorder,
+  onEdit,
+  onRemove,
+  onMove,
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-end gap-0.5">
+      <button
+        type="button"
+        disabled={index === 0}
+        title="Subir"
+        onClick={() => onReorder(participante.id, -1)}
+        className="rounded p-1 text-slate-500 hover:bg-slate-100 disabled:opacity-30"
+      >
+        <IconChevronUp size={16} />
+      </button>
+      <button
+        type="button"
+        disabled={index === total - 1}
+        title="Bajar"
+        onClick={() => onReorder(participante.id, 1)}
+        className="rounded p-1 text-slate-500 hover:bg-slate-100 disabled:opacity-30"
+      >
+        <IconChevronDown size={16} />
+      </button>
+      <button
+        type="button"
+        title="Editar integrantes"
+        onClick={() => onEdit(participante)}
+        className="rounded p-1 text-slate-500 hover:bg-slate-100"
+      >
+        <IconEdit size={16} />
+      </button>
+      {otras.length > 0 ? (
+        <div className="relative" data-concerto-move="">
+          <button
+            type="button"
+            title="Mover a otra instancia"
+            onClick={() =>
+              setMoveFor((current) =>
+                String(current) === String(participante.id) ? null : participante.id,
+              )
+            }
+            className="rounded p-1 text-slate-500 hover:bg-slate-100"
+          >
+            <IconExchange size={16} />
+          </button>
+          {String(moveFor) === String(participante.id) ? (
+            <div className="absolute right-0 z-20 mt-1 w-56 max-w-[calc(100vw-2rem)] rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
+              {otras.map((otra) => (
+                <button
+                  key={otra.id}
+                  type="button"
+                  className="block w-full px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50"
+                  onClick={() => onMove(participante, otra)}
+                >
+                  {otra.titulo || `Instancia ${otra.id}`}
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+      <button
+        type="button"
+        title="Quitar"
+        onClick={() => onRemove(participante)}
+        className="rounded p-1 text-rose-600 hover:bg-rose-50"
+      >
+        <IconTrash size={16} />
+      </button>
+    </div>
+  );
+}
+
+function DriveLink({ href }) {
+  if (!href) return null;
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      title="Abrir carpeta en Drive"
+      className="inline-flex rounded-full bg-blue-50 p-1 text-blue-600 hover:bg-blue-600 hover:text-white"
+    >
+      <IconDrive size={14} />
+    </a>
+  );
+}
+
+function ObservacionesCell({ participante, editing, value, onChange, compact = false }) {
+  const width = compact ? "min-w-0" : "min-w-[12rem]";
   if (!editing) {
     const text = String(participante.observaciones || "").trim();
     return text ? (
-      <p className="min-w-[12rem] text-sm text-slate-700">{text}</p>
+      <p className={`${width} break-words text-sm text-slate-700`}>{text}</p>
     ) : (
       <p className="text-sm text-slate-400">—</p>
     );
@@ -49,9 +192,113 @@ function ObservacionesCell({ participante, editing, value, onChange }) {
     <input
       value={value}
       onChange={(event) => onChange(event.target.value)}
-      className="w-full min-w-[12rem] rounded border border-slate-200 bg-white px-2 py-1 text-sm text-slate-700 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+      className={`w-full ${width} rounded border border-slate-200 bg-white px-2 py-1 text-sm text-slate-700 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500`}
       aria-label={`Observaciones de ${nombresDe(participante)}`}
     />
+  );
+}
+
+function ParticipanteCard({
+  participante,
+  corto,
+  obra,
+  compositor,
+  organico,
+  drive,
+  index,
+  total,
+  sinGira,
+  editing,
+  observacion,
+  onObservacion,
+  otras,
+  moveFor,
+  setMoveFor,
+  onReorder,
+  onEdit,
+  onRemove,
+  onMove,
+  onUnlink,
+  onPick,
+}) {
+  const [open, setOpen] = useState(false);
+  const nombre = nombresDe(participante);
+  return (
+    <li className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-label={`Detalle de ${nombre}`}
+        onClick={() => setOpen((value) => !value)}
+        className="flex w-full min-w-0 items-start gap-2 px-3 py-2 text-left"
+      >
+        <span className="min-w-0 flex-1">
+          <span className="block break-words font-medium text-slate-800">{nombre}</span>
+          <span className="mt-0.5 block break-words text-sm text-slate-600">{corto || "—"}</span>
+        </span>
+        {open ? (
+          <IconChevronUp size={16} className="mt-0.5 shrink-0 text-slate-400" />
+        ) : (
+          <IconChevronDown size={16} className="mt-0.5 shrink-0 text-slate-400" />
+        )}
+      </button>
+      {open ? (
+        <div className="space-y-3 border-t border-slate-100 px-3 py-3">
+          {!participante.integrantes?.length ? (
+            <p className="flex items-center gap-1 text-xs text-amber-700">
+              <IconAlertTriangle size={14} />
+              Sin integrantes asignados.
+            </p>
+          ) : null}
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Observaciones</p>
+            <div className="mt-1">
+              <ObservacionesCell
+                participante={participante}
+                editing={editing}
+                value={observacion}
+                onChange={onObservacion}
+                compact
+              />
+            </div>
+          </div>
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Obra</p>
+            <div className="mt-1">
+              <ObraBloque
+                obra={obra}
+                compositor={compositor}
+                sinGira={sinGira}
+                onUnlink={onUnlink}
+                onPick={onPick}
+              />
+            </div>
+          </div>
+          <div className="flex flex-wrap items-start gap-3">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Drive</p>
+              <div className="mt-1">{drive ? <DriveLink href={drive} /> : <span className="text-sm text-slate-400">—</span>}</div>
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Orgánico</p>
+              <p className="mt-1 break-words font-mono text-[11px] text-slate-600">{organico || "—"}</p>
+            </div>
+          </div>
+          <ParticipanteAcciones
+            participante={participante}
+            index={index}
+            total={total}
+            otras={otras}
+            moveFor={moveFor}
+            setMoveFor={setMoveFor}
+            onReorder={onReorder}
+            onEdit={onEdit}
+            onRemove={onRemove}
+            onMove={onMove}
+          />
+        </div>
+      ) : null}
+    </li>
   );
 }
 
@@ -168,7 +415,8 @@ export default function ConcertoParticipantesTable({
   };
 
   return (
-    <div className="max-w-full min-w-0 overflow-x-auto">
+    <div className="max-w-full min-w-0">
+      <div className="hidden max-w-full min-w-0 overflow-x-auto md:block">
       <table className="w-full min-w-[880px] table-fixed border-collapse text-sm">
         <colgroup>
           <col className="w-[18%]" />
@@ -191,7 +439,6 @@ export default function ConcertoParticipantesTable({
         <tbody>
           {participantes.map((participante, index) => {
             const obra = participante.repertorio_obra?.obras || null;
-            const titulo = plainWorkTitle(obra?.titulo);
             const compositor = formatObraCompositores(obra);
             const organico = organicoDe(obra);
             const drive = obra?.link_drive || "";
@@ -215,52 +462,16 @@ export default function ConcertoParticipantesTable({
                   />
                 </td>
                 <td className="px-2 py-2">
-                  {obra ? (
-                    <div className="flex items-start gap-1">
-                      <p className="min-w-0 text-slate-800">
-                        {compositor ? (
-                          <span className="block text-[11px] font-semibold text-slate-600">{compositor}</span>
-                        ) : null}
-                        {titulo || "Obra vinculada"}
-                      </p>
-                      <button
-                        type="button"
-                        title="Desvincular obra"
-                        onClick={() => desvincular(participante)}
-                        className="shrink-0 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                      >
-                        <IconX size={14} />
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      disabled={sinGira}
-                      title={
-                        sinGira
-                          ? "Asigná una gira a la instancia para vincular una obra"
-                          : "Vincular obra de repertorio"
-                      }
-                      onClick={() => setPicking(participante)}
-                      className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-sm font-semibold text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
-                    >
-                      <IconSearch size={14} />
-                      Vincular
-                    </button>
-                  )}
+                  <ObraBloque
+                    obra={obra}
+                    compositor={compositor}
+                    sinGira={sinGira}
+                    onUnlink={() => desvincular(participante)}
+                    onPick={() => setPicking(participante)}
+                  />
                 </td>
                 <td className="px-2 py-2">
-                  {drive ? (
-                    <a
-                      href={drive}
-                      target="_blank"
-                      rel="noreferrer"
-                      title="Abrir carpeta en Drive"
-                      className="inline-flex rounded-full bg-blue-50 p-1 text-blue-600 hover:bg-blue-600 hover:text-white"
-                    >
-                      <IconDrive size={14} />
-                    </a>
-                  ) : null}
+                  <DriveLink href={drive} />
                 </td>
                 <td className="overflow-hidden px-2 py-2">
                   {organico ? (
@@ -268,78 +479,60 @@ export default function ConcertoParticipantesTable({
                   ) : null}
                 </td>
                 <td className="px-2 py-2">
-                  <div className="flex items-center justify-end gap-0.5">
-                    <button
-                      type="button"
-                      disabled={index === 0}
-                      title="Subir"
-                      onClick={() => reordenar(participante.id, -1)}
-                      className="rounded p-1 text-slate-500 hover:bg-slate-100 disabled:opacity-30"
-                    >
-                      <IconChevronUp size={16} />
-                    </button>
-                    <button
-                      type="button"
-                      disabled={index === participantes.length - 1}
-                      title="Bajar"
-                      onClick={() => reordenar(participante.id, 1)}
-                      className="rounded p-1 text-slate-500 hover:bg-slate-100 disabled:opacity-30"
-                    >
-                      <IconChevronDown size={16} />
-                    </button>
-                    <button
-                      type="button"
-                      title="Editar integrantes"
-                      onClick={() => onEdit(participante)}
-                      className="rounded p-1 text-slate-500 hover:bg-slate-100"
-                    >
-                      <IconEdit size={16} />
-                    </button>
-                    {otras.length > 0 ? (
-                      <div className="relative" data-concerto-move="">
-                        <button
-                          type="button"
-                          title="Mover a otra instancia"
-                          onClick={() =>
-                            setMoveFor((current) =>
-                              String(current) === String(participante.id) ? null : participante.id,
-                            )
-                          }
-                          className="rounded p-1 text-slate-500 hover:bg-slate-100"
-                        >
-                          <IconExchange size={16} />
-                        </button>
-                        {String(moveFor) === String(participante.id) ? (
-                          <div className="absolute right-0 z-20 mt-1 w-56 rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
-                            {otras.map((otra) => (
-                              <button
-                                key={otra.id}
-                                type="button"
-                                className="block w-full px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50"
-                                onClick={() => moverA(participante, otra)}
-                              >
-                                {otra.titulo || `Instancia ${otra.id}`}
-                              </button>
-                            ))}
-                          </div>
-                        ) : null}
-                      </div>
-                    ) : null}
-                    <button
-                      type="button"
-                      title="Quitar"
-                      onClick={() => onRemove(participante)}
-                      className="rounded p-1 text-rose-600 hover:bg-rose-50"
-                    >
-                      <IconTrash size={16} />
-                    </button>
-                  </div>
+                  <ParticipanteAcciones
+                    participante={participante}
+                    index={index}
+                    total={participantes.length}
+                    otras={otras}
+                    moveFor={moveFor}
+                    setMoveFor={setMoveFor}
+                    onReorder={reordenar}
+                    onEdit={onEdit}
+                    onRemove={onRemove}
+                    onMove={moverA}
+                  />
                 </td>
               </tr>
             );
           })}
         </tbody>
       </table>
+      </div>
+      <ul className="space-y-2 md:hidden">
+        {participantes.map((participante, index) => {
+          const obra = participante.repertorio_obra?.obras || null;
+          const compositor = formatObraCompositores(obra);
+          const organico = organicoDe(obra);
+          const drive = obra?.link_drive || "";
+          const corto = tituloCortoObra(obra?.titulo);
+          return (
+            <ParticipanteCard
+              key={participante.id}
+              participante={participante}
+              corto={corto}
+              obra={obra}
+              compositor={compositor}
+              organico={organico}
+              drive={drive}
+              index={index}
+              total={participantes.length}
+              sinGira={sinGira}
+              editing={editing}
+              observacion={observaciones[String(participante.id)] ?? participante.observaciones ?? ""}
+              onObservacion={(value) => onObservacion?.(participante.id, value)}
+              otras={otras}
+              moveFor={moveFor}
+              setMoveFor={setMoveFor}
+              onReorder={reordenar}
+              onEdit={onEdit}
+              onRemove={onRemove}
+              onMove={moverA}
+              onUnlink={() => desvincular(participante)}
+              onPick={() => setPicking(participante)}
+            />
+          );
+        })}
+      </ul>
       {picking ? (
         <RepertoireWorkPickerModal
           supabase={supabase}

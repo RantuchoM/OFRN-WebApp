@@ -18,6 +18,18 @@ export function plainWorkTitle(value) {
     .trim();
 }
 
+/** Primera línea del título de catálogo, sin movimientos ni HTML. */
+export function tituloCortoObra(value) {
+  const raw = String(value || "").trim().replace(/^(?:\s*<(?:p|div)\b[^>]*>)+/i, "");
+  const first = raw.split(/<(?:p|div|br)\b[^>]*>|<\/(?:p|div)>|\n/i)[0] || "";
+  return plainWorkTitle(first)
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 /** «Apellido, Nombre», varios unidos con « / ». Vacío si la obra no tiene compositor. */
 export function formatObraCompositores(obra) {
   const rels = (obra?.obras_compositores || []).filter(
@@ -360,7 +372,7 @@ async function integrantesPorParticipante(supabase, participanteIds) {
   const { data: personas, error: personasError } = await selectIn(
     supabase,
     "integrantes",
-    "id, nombre, apellido",
+    "id, nombre, apellido, instrumentos(instrumento)",
     "id",
     integranteIds,
   );

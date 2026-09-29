@@ -29,12 +29,14 @@ description: >-
 | Transposición | **Misma silla, distinta afinación** (Re/Sib, D/Bb, `in D`/`in B`, `en Re`/`en Sib`) → **una** particella y varios links en `url_archivo`. No son slots distintos. El orgánico cuenta sillas, no PDFs |
 | Portadas | Página 1 IMSLP (título del grupo) se **excluye** al extraer |
 | `link_drive` | Carpeta original en Para acomodar; **no** `copiar_carpeta_a_archivo` |
+| `obras.titulo` | Formato de programa (tonalidad + movimientos de IMSLP). Ver abajo. No va en la carpeta ni en el nombre del PDF |
 | Spec viva | Actualizar `docs/specs/repertoire-ux-evolution.md` al cerrar |
 
 ## Flujo (checklist)
 
 ```
 - [ ] 1. Identificar obra (id, título, compositor) en Supabase
+- [ ] 1b. Armar `obras.titulo` desde la ficha IMSLP (Key, Opus, Movements/Sections)
 - [ ] 2. Listar PDFs y audio (mp3/wav) locales o en Drive; audio → `AUDIO - …`
 - [ ] 3. OCR / inspección de páginas → manifiesto split/crop
 - [ ] 4. Añadir entrada en scripts/lib/<obra>Catalog.mjs
@@ -70,7 +72,7 @@ Plantilla en `scripts/lib/fallaCatalog.mjs`:
 export const MI_OBRA_WORK = {
   sourceFolder: "Nombre viejo",
   targetFolder: "Compositor, I. - Título",
-  titulo: "Título",
+  titulo: "<p>Concierto para Corno en Sib mayor, Op. 91</p><div>&nbsp; I. Allegro</div>",
   workNumber: null, // o "op.11", "MWV N 1", "15 BIS" si aplica; nunca S/N
   composerTag: "Falla, M",
   compositor: { apellido: "Falla", nombre: "Manuel de" },
@@ -91,6 +93,48 @@ export const MI_OBRA_WORK = {
   ],
 };
 ```
+
+## Título de obra (`obras.titulo`)
+
+La carpeta y los PDF llevan el nombre corto (`Glière, R. - Concierto para Corno, Op. 91`). El campo `titulo` del catálogo y el `UPDATE`/`INSERT` de `obras.titulo` llevan el título de programa, en HTML.
+
+Fuente: ficha IMSLP (Key, Opus/Catalogue Number, Movements/Sections). No inventar movimientos. Misma regla que «Buscar sugerencias» (`FIND_TITLE_WITH_MOVEMENTS` en `supabase/functions/ask-ai/index.ts`).
+
+Texto:
+
+```
+Concierto para Corno en Sib mayor, Op. 91
+  I. Allegro
+  II. Andante
+  III. Moderato - Allegro vivace
+```
+
+HTML en el seed (un `&nbsp;` y un espacio antes del romano):
+
+```html
+<p>Concierto para Corno en Sib mayor, Op. 91</p><div>&nbsp; I. Allegro</div><div>&nbsp; II. Andante</div><div>&nbsp; III. Moderato - Allegro vivace</div>
+```
+
+Línea 1: género en español, solista con la nomenclatura del archivo, tonalidad, catálogo. Sin el compositor en ninguna parte del título (`de Weber`, `de Carl Maria von Weber`), sin «y orquesta», sin año ni editor.
+
+| IMSLP | Título |
+|-------|--------|
+| Horn / trompa | Corno |
+| Cello / violonchelo | Violoncello |
+| B-flat major | en Sib mayor |
+| C minor | en do menor |
+| E-flat major | en Mib mayor |
+| Op.91 | Op. 91 |
+
+Mayor con mayúscula (`Sib mayor`, `Re mayor`). Menor en minúscula (`do menor`, `si menor`, `fa# menor`). Bemoles: Dob, Reb, Mib, Fab, Solb, Lab, Sib. Sostenidos: `Do#`, `fa#`.
+
+Orden: `Concierto para Violoncello en si menor, Op. 104` · `Sinfonía Nro. 5 en do menor, Op. 67`. Si hay Op. y otro catálogo (B., Sz.), queda el Op.
+
+Movimientos: los `<li>` de IMSLP, en italiano, con numeral romano. No traducir (`Adagio ma non troppo` sigue así; `Moderato` no pasa a `Moderado`; `Finale` no pasa a `Final`).
+
+Quitar metrónomo `( = 116)` y paréntesis de tonalidad o compases. Si no hay lista de movimientos, guardar solo la línea 1. Un arreglo o un recorte no se reemplaza por la obra completa.
+
+Ejemplo Dvořák: `Concierto para Violoncello en si menor, Op. 104` / `I. Allegro` / `II. Adagio ma non troppo` / `III. Finale. Allegro moderato`.
 
 ## Determinar manifiesto de páginas
 
