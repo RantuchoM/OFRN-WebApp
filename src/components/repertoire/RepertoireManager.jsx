@@ -1431,7 +1431,7 @@ function QuickWorkRow({
       <td className="p-1 text-center text-slate-300">+</td>
       <td className="min-w-0 p-1 align-middle">
         <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:gap-2">
-          <div className="relative max-w-[42%] shrink-0 min-w-[7rem]">
+          <div className="relative min-w-0 max-w-[42%] shrink">
             <input
               type="text"
               value={composerInput}
@@ -1741,12 +1741,12 @@ function QuickWorkRow({
       </td>
       <td className="p-1" />
       <td className="p-1" />
-      <td className="p-1 text-right">
+      <td className="min-w-0 p-1 text-right">
         <button
           type="button"
           onClick={handleSubmit}
           disabled={saving}
-          className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-[10px] font-bold bg-fixed-indigo-600 text-white hover:bg-fixed-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed shadow-sm"
+          className="inline-flex max-w-full items-center gap-1 rounded-full bg-fixed-indigo-600 px-3 py-1 text-[10px] font-bold text-white shadow-sm hover:bg-fixed-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {saving ? <IconLoader size={12} className="animate-spin" /> : <IconCheck size={12} />}
           Guardar
@@ -3053,7 +3053,7 @@ export default function RepertoireManager({
       <tr ref={setNodeRef}>
         <td
           colSpan={colSpan}
-          className={`min-h-[28px] py-1 px-2 border-2 border-dashed rounded text-[10px] text-slate-400 transition-colors ${
+          className={`col-span-full min-h-[28px] py-1 px-2 border-2 border-dashed rounded text-[10px] text-slate-400 transition-colors ${
             isOver ? "border-indigo-400 bg-indigo-50 text-indigo-600" : "border-slate-200 bg-slate-50/50"
           }`}
         >
@@ -3662,7 +3662,7 @@ export default function RepertoireManager({
                           {renderMyPartBadge(item.obras)}
                         </div>
 
-                        <ConcertoFragmentoBloque entrada={concertoPorFila[String(item.id)]} />
+                        <ConcertoFragmentoBloque entrada={concertoPorFila[String(item.id)]} siempreAbierta />
                         {/* Fila 4: Notas (misma línea stick-it que escritorio en lectura) */}
                         {(item.notas_especificas?.trim() || isEditor) && (
                           <div className="mb-2">
@@ -3885,10 +3885,13 @@ export default function RepertoireManager({
             {/* ============================================================ */}
             <div className="hidden min-w-0 w-full max-w-none pb-4 md:grid md:grid-cols-1 md:[grid-template-columns:minmax(0,1fr)] md:overflow-x-auto md:overflow-y-visible [&>*]:max-w-none [&>*]:min-w-0">
               <table
-                className="w-full max-w-none min-w-0 table-fixed border-collapse text-left text-xs"
-                style={{ width: "100%", tableLayout: "fixed" }}
+                className={`block w-full min-w-0 max-w-full border-collapse text-left text-xs [&_thead]:block [&_thead]:w-full [&_tbody]:block [&_tbody]:w-full [&_tr]:grid [&_tr]:w-full [&_tr]:min-w-0 [&_tr]:max-w-full ${
+                  isDefinitionMode
+                    ? "[&_tr]:[grid-template-columns:26px_22px_32px_minmax(0,1fr)_140px_124px_90px_88px_62px_14rem_10.5rem_4.25rem]"
+                    : "[&_tr]:[grid-template-columns:26px_22px_32px_minmax(0,1fr)_124px_90px_88px_62px_14rem_10.5rem_4.25rem]"
+                }`}
               >
-                {/* Px estrechos + columna principal en % para que `table-layout:fixed` llene el ancho real del bloque. */}
+                {/* El ancho lo define el grid de cada fila (arriba, en la tabla). Estas col quedan como referencia. */}
                 <colgroup>
                   <col style={{ width: "26px" }} />
                   <col style={{ width: "22px" }} />
@@ -3899,13 +3902,13 @@ export default function RepertoireManager({
                   <col style={{ width: "90px" }} />
                   <col style={{ width: "88px" }} />
                   <col style={{ width: "62px" }} />
-                  <col style={{ width: "110px" }} />
-                  <col style={{ width: "118px" }} />
+                  <col />
+                  <col style={{ width: "188px" }} />
                   <col style={{ width: "32px" }} />
                 </colgroup>
 
                 <thead className={tableHeaderClasses(isCompact)}>
-                  <tr>
+                  <tr className="border-l-2 border-transparent">
                     <th className="px-0 py-1 w-[26px]" aria-label="Arrastrar" />
                     <th className="px-0 py-1 text-center">#</th>
                     <th className="px-0 py-1 text-center">GD</th>
@@ -3924,17 +3927,17 @@ export default function RepertoireManager({
                     <th className="p-1">Arr.</th>
                     <th className="p-1">Notas</th>
                     <th
-                      className="px-0 py-1 text-center text-slate-500"
+                      className="flex items-center justify-start px-0 py-1 text-slate-500"
                       title="Arcos, YouTube y acciones"
                       scope="col"
                     >
                       <span className="sr-only">Arcos, YouTube y acciones</span>
-                      <span className="inline-flex items-center justify-center gap-0 opacity-80">
+                      <span className="inline-flex items-center justify-start gap-0 opacity-80">
                         <IconViolin size={11} aria-hidden />
                         <IconYoutube size={11} className="opacity-70" aria-hidden />
                       </span>
                     </th>
-                    <th className="px-0 py-1 text-center">Excl.</th>
+                    <th className="flex items-center justify-center px-0 py-1 text-center">Excl.</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -4035,7 +4038,7 @@ export default function RepertoireManager({
                         title={stripRepertorioTitleHtml(effectiveRepertorioObraTitle(item))}
                       >
                         <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:gap-2">
-                          <div className="flex max-w-[42%] shrink-0 min-w-[7rem] flex-col items-center justify-center text-center text-slate-600">
+                          <div className="flex min-w-0 max-w-[42%] shrink basis-[6.5rem] flex-col items-center justify-center text-center text-slate-600">
                             <div className="flex w-full flex-col items-center justify-center gap-1">
                               <div
                                 className="min-w-0 w-full space-y-1"
@@ -4046,11 +4049,11 @@ export default function RepertoireManager({
                                     key={i}
                                     className={`min-w-0 ${i > 0 ? "pt-1 border-t border-slate-100" : ""}`}
                                   >
-                                    <div className="truncate text-[11px] font-semibold text-slate-700 leading-tight">
+                                    <div className="break-words text-[11px] font-semibold text-slate-700 leading-tight">
                                       {c.apellido}
                                     </div>
                                     {c.nombre ? (
-                                      <div className="truncate text-[10px] font-medium normal-case tracking-normal text-slate-500 leading-tight">
+                                      <div className="break-words text-[10px] font-medium normal-case tracking-normal text-slate-500 leading-tight">
                                         {c.nombre}
                                       </div>
                                     ) : null}
@@ -4260,8 +4263,8 @@ export default function RepertoireManager({
                       <td className="p-1 truncate text-slate-500">
                         {getArranger(item.obras)}
                       </td>
-                      <td className="p-0 border-l border-slate-100 align-middle min-w-0">
-                        <ConcertoFragmentoBloque entrada={concertoPorFila[String(item.id)]} />
+                      <td className="w-full min-w-0 border-l border-slate-100 p-0 align-top">
+                        <ConcertoFragmentoBloque entrada={concertoPorFila[String(item.id)]} siempreAbierta />
                         <NotasProgramaStickyCell
                           item={item}
                           isEditor={isEditor}
@@ -4269,7 +4272,7 @@ export default function RepertoireManager({
                           shrinkWhenEmpty
                         />
                       </td>
-                      <td className="px-0 py-0.5 align-middle">
+                      <td className="overflow-hidden px-0 py-0.5 align-middle">
                         {(() => {
                           const obraArcos =
                             arcosByWork[item.obras?.id ?? item.id_obra] ?? [];
@@ -4286,7 +4289,7 @@ export default function RepertoireManager({
                             arcoSel?.nombre ?? "Sin set de arcos";
                           const arcDriveHref = arcoSel?.link || null;
                           return (
-                            <div className="flex min-w-0 flex-nowrap items-center justify-end gap-0">
+                            <div className="flex min-w-0 flex-nowrap items-center justify-start gap-0">
                               <div
                                 className={`relative flex h-7 w-7 shrink-0 items-center justify-center rounded transition-colors ${isEditor ? "hover:bg-slate-100/90" : ""}`}
                                 title={
@@ -4434,7 +4437,7 @@ export default function RepertoireManager({
                           );
                         })()}
                       </td>
-                      <td className="p-1 text-center align-middle">
+                      <td className="flex items-center justify-center p-1 text-center">
                         {isEditor ? (
                           <input
                             type="checkbox"

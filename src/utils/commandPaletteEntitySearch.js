@@ -11,6 +11,31 @@ import { seatingApellidoNombre } from "./integranteDisplayName";
  * Con una gira abierta, sus comandos (scope "gira") van antes que
  * General, Historial y el resto, si coinciden con la búsqueda.
  */
+/** Alias de un programa: mes_letra y nomenclador, sueltos y como se ven en la gira. */
+export function programaSearchAliases(programa) {
+  const mes = String(programa?.mes_letra || "").trim();
+  const nom = String(programa?.nomenclador || "").trim();
+  const nombre = String(programa?.nombre_gira || "").trim();
+  const head = [mes, nom].filter(Boolean).join(" | ");
+  return [
+    mes,
+    nom,
+    head,
+    [nom, mes].filter(Boolean).join(" | "),
+    head && nombre ? `${head}. ${nombre}` : "",
+  ].filter(Boolean);
+}
+
+/** Rótulo de historial, igual que el encabezado de la gira: `09b | Sinf 12/26. Nombre`. */
+export function programaPaletteLabel(programa) {
+  const mes = String(programa?.mes_letra || "").trim();
+  const nom = String(programa?.nomenclador || "").trim();
+  const nombre = String(programa?.nombre_gira || "").trim();
+  const head = [mes, nom].filter(Boolean).join(" | ");
+  if (head && nombre) return `${head}. ${nombre}`;
+  return head || nombre;
+}
+
 export function rankPaletteCommands(actions, query) {
   const trimmed = String(query || "").trim();
   if (!trimmed) return actions.slice(0, 10);

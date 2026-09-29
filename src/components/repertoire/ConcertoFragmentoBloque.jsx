@@ -8,11 +8,11 @@ function Lineas({ solista, orquesta }) {
   return (
     <div className="space-y-1">
       <div>
-        <p className="text-[10px] font-bold uppercase tracking-wide text-indigo-700">Con orquesta</p>
+        <p className="text-[10px] font-bold uppercase tracking-wide text-indigo-700">Audición con orquesta</p>
         <p className="break-words text-[11px] leading-snug">{orquesta || "—"}</p>
       </div>
       <div>
-        <p className="text-[10px] font-bold uppercase tracking-wide text-indigo-700">Solista</p>
+        <p className="text-[10px] font-bold uppercase tracking-wide text-indigo-700">Audición sin orquesta</p>
         <p className="break-words text-[11px] leading-snug">{solista || "—"}</p>
       </div>
     </div>
@@ -20,19 +20,25 @@ function Lineas({ solista, orquesta }) {
 }
 
 /** Bloque de solo lectura del concurso, aparte de la nota del repertorio. */
-export default function ConcertoFragmentoBloque({ entrada }) {
+export default function ConcertoFragmentoBloque({ entrada, siempreAbierta = false }) {
   const [open, setOpen] = useState(false);
   if (!entrada) return null;
   const nombre = entrada.nombre || "Sin nombre";
+  const panel = (
+    <div className={`${panelClass} w-full px-2 py-1.5`}>
+      <p className="mb-1 flex items-start gap-1 text-[11px] font-semibold">
+        <IconTrophy size={12} className="mt-0.5 shrink-0 text-indigo-600" />
+        <span className="min-w-0 break-words">{nombre}</span>
+      </p>
+      <Lineas solista={entrada.solista} orquesta={entrada.orquesta} />
+    </div>
+  );
+  if (siempreAbierta) {
+    return <div className="mb-1 min-w-0">{panel}</div>;
+  }
   return (
     <div className="mb-1 min-w-0">
-      <div className={`${panelClass} hidden px-2 py-1.5 md:block`}>
-        <p className="mb-1 flex items-start gap-1 text-[11px] font-semibold">
-          <IconTrophy size={12} className="mt-0.5 shrink-0 text-indigo-600" />
-          <span className="min-w-0 break-words">{nombre}</span>
-        </p>
-        <Lineas solista={entrada.solista} orquesta={entrada.orquesta} />
-      </div>
+      <div className="hidden md:block">{panel}</div>
       <div className={`${panelClass} md:hidden`}>
         <button
           type="button"

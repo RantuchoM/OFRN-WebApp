@@ -29,14 +29,15 @@ export function normalizeForSearch(value) {
 }
 
 /**
- * Divide una consulta en tokens (espacios, "+" o comas) para búsqueda AND.
+ * Divide una consulta en tokens (espacios, "+", comas o "|") para búsqueda AND.
  * "López, Juan" y "Juan Lopez" producen los mismos tokens.
+ * El "|" es el separador visible de mes_letra y nomenclador (`09b | Sinf 12/26`).
  * @param {string} query
  * @returns {string[]}
  */
 export function splitSearchTokens(query) {
   return String(query || "")
-    .split(/[\s,+]+/)
+    .split(/[\s,+|]+/)
     .map((token) => normalizeForSearch(token))
     .filter(Boolean);
 }
@@ -58,7 +59,7 @@ const SCORE_ORDER_AWARE = 50_000;
  */
 function splitHaystackWords(haystack) {
   return String(haystack || "")
-    .split(/[\s,+/._-]+/)
+    .split(/[\s,+/.()|_-]+/)
     .map((w) => w.trim())
     .filter(Boolean);
 }
@@ -140,14 +141,16 @@ function scoreNormalizedHaystack(haystack, tokens) {
     score += SCORE_ORDER_AWARE;
   }
 
-  // Desempate: match más temprano y haystack más corto
+  // Desempate menor a 1: match más temprano y haystack más corto.
+  // No puede bajar de 0 ni invertir exacto > prefijo > substring
+  // (un código al final de un rótulo largo, p. ej. "(09b)", seguía siendo match).
   let firstPos = haystack.length;
   for (const token of tokens) {
     const pos = haystack.indexOf(token);
     if (pos >= 0) firstPos = Math.min(firstPos, pos);
   }
-  score -= firstPos;
-  score -= Math.min(haystack.length, 500);
+  const tie = firstPos + Math.min(haystack.length, 500);
+  score -= tie / 10000;
 
   return score;
 }

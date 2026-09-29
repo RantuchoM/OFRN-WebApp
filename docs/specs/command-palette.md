@@ -63,9 +63,12 @@ Los comandos globales replican la visibilidad del sidebar (`App.jsx` → `allMen
 | Comunicación | `/?tab=news_manager` | management |
 | Editor Manual | `/?tab=manual_admin` | management |
 | Usuarios | `/?tab=usuarios` | admin |
+| Concerto Competition | `/?tab=competition` | admin o editor, o músico del electorado en una edición visible (`musicianCanSeeConcerto`) |
 | Traducción musical | `/?tab=music_translation` | lista blanca (`musicTranslationAccess`) |
 | Manual de Usuario | `/?tab=manual` | No invitado + personal/editor/management |
 | Feedback | `/?tab=feedback` | No invitado |
+| FIMBA | `/fimba` | `isManagement` (pie del sidebar) |
+| Entradas | `/entradas` | pie del sidebar, también invitado |
 
 ## Informes de Gestión — acceso individual
 Cada informe tiene **su propia entrada** en Ctrl+K y **su propia ruta** bajo `/management`.
@@ -79,8 +82,10 @@ Cada informe tiene **su propia entrada** en Ctrl+K y **su propia ruta** bajo `/m
 | Gestión: Convocatorias | `/management/convocatorias` |
 | Gestión: Ensayos por programa | `/management/ensayos` |
 | Gestión: Asistencia a ensayos | `/management/asistencia_ensayos` |
+| Gestión: Servicios | `/management/servicios` |
 | Gestión: Conciertos | `/management/conciertos` |
 | Gestión: Audiencia | `/management/audiencia` |
+| Gestión: Seguimiento viáticos | `/management/viaticos_seguimiento` |
 
 Visibilidad: `isAdmin` o `isEditor` (misma regla que el ítem **Gestión** del sidebar).
 
@@ -101,16 +106,18 @@ No hace falta duplicar la URL en más sitios: `buildManagementPaletteCommands()`
 - [x] Coordinación con detección de coordinador de ensamble
 - [x] Historial de giras: deep-link por `giraId` carga programa fuera del filtro de fechas y abre Roster (management) o Agenda (personal)
 - [x] Búsqueda del paleta: tokens AND, sin tildes/mayúsculas (`matchesMultiTokenSearch`; spec `docs/specs/busqueda-texto.md`). Con `giraId` en la URL, los comandos de esa gira que coinciden van antes que General e Historial.
+- [x] Pestaña Comandos: historial y comandos de la gira abierta coinciden por `mes_letra` y `nomenclador` (`09b`, `Sinf 12/26`, `09b | Sinf 12/26`). El rótulo del historial es `mes_letra | nomenclador. nombre`.
 - [x] **Personas / repertorio por Tab** (sin prefetch del catálogo al abrir Ctrl+K), abriendo `MusicianForm` / `WorkForm`. No hay ítems «Buscar personas» ni «Buscar repertorio» en la lista. Tokens cruzan campos (`Tchai Ele` → Elegy + Tchaikovsky) y no distinguen tildes (`Garcia` → García). En personas, WhatsApp y mail se abren desde la fila.
 - [x] **Gira: Escenario** en contexto de gira (management), misma URL que menú Gira → Escenario
 - [x] **Tab cambia de vista** (Comandos / Personas / Repertorio) con selector visible; no mueve el foco a los resultados
+- [x] **Concerto Competition**, **FIMBA** y **Entradas** en Ctrl+K, con la misma visibilidad que el sidebar
 
 ## Búsqueda de obras y personas (dos pasos, sin volcar tablas)
 
 **Al abrir la paleta (Ctrl/Cmd+K o el botón de la barra) no se consulta `obras` ni `integrantes`.** Solo se listan comandos ya registrados (navegación, contexto, historial de giras). No hay diferencia “ínfima”: un catálogo de miles de obras no entra en memoria al pulsar Ctrl+K.
 
 ### Cómo se usa
-1. Abrir la paleta. La lista es de comandos (navegación, contexto, giras). No incluye «Buscar personas» ni «Buscar repertorio».
+1. Abrir la paleta. La lista es de comandos (navegación, contexto, giras). No incluye «Buscar personas» ni «Buscar repertorio». En Comandos, cada gira del historial se busca también por `mes_letra` y `nomenclador` (`09b`, `Sinf 12/26` o `09b | Sinf 12/26`). Si esa gira está abierta, sus comandos (Programación, Seating, etc.) coinciden con esos mismos códigos y quedan primero.
 2. **Tab** (o el segmento de arriba) pasa a Personas o Repertorio. Recién ahí se escribe. A los **2+ caracteres**, con debounce **250 ms**, cada token se busca solo (título **o** compositor; en personas, nombre **o** instrumento; tope 20 por token). El filtro de Postgres es `~*` con clases de acentos, así `Garcia` encuentra *García* y `Jose` encuentra *José*. El AND entre palabras lo hace el ranking cliente sobre los campos juntos, igual que la búsqueda rápida del repertorio móvil: `Tchai Ele` encuentra *Elegy* de Tchaikovsky. No se descarga la tabla completa.
 3. Elegir un resultado abre la ficha: `WorkForm` (`z-[9999]`) o `MusicianForm` (id numérico, `z-[100]`). En personas, si hay teléfono o mail, la fila muestra **WhatsApp** (`wa.me`, con el mismo normalizado que el resto de la app) y **mail** (`mailto:`). Un clic en esos iconos no abre la ficha. ESC limpia el texto y, si ya está vacío, vuelve a comandos; ESC de nuevo cierra.
 

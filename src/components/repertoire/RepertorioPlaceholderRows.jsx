@@ -294,7 +294,7 @@ export function RepertorioPlaceholderDesktopCells({
           <span className="text-slate-200">—</span>
         )}
       </td>
-      <td className="p-1 text-center align-middle">
+      <td className="flex items-center justify-center p-1 text-center">
         {item.excluir ? (
           <span className="text-red-600 font-bold text-[10px]">NO</span>
         ) : (

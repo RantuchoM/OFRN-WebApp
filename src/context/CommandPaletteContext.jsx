@@ -7,6 +7,7 @@ import {
 import { useAuth } from './AuthContext'; 
 import { supabase } from '../services/supabase'; 
 import { canAccessMusicTranslation } from '../constants/musicTranslationAccess';
+import { isConcertoStaff, musicianCanSeeConcerto } from '../utils/concertoCompeticion';
 import {
   MANAGEMENT_PALETTE_ENTRIES,
   managementPalettePath,
@@ -18,6 +19,8 @@ import {
   PALETTE_ENTITY_MIN_QUERY,
   formatObraComposerLabel,
   formatPersonLabel,
+  programaPaletteLabel,
+  programaSearchAliases,
   searchPaletteObras,
   searchPalettePeople,
 } from '../utils/commandPaletteEntitySearch';
@@ -28,7 +31,7 @@ import {
     IconTag, IconDatabase, IconInfo, IconCheckSquare, IconMegaphone,
     IconMusicNote, IconList, IconBell, IconBookOpen, IconEdit,
     IconBulb, IconSpiralNotebook, IconManagement, IconSettingsWheel,
-    IconHistory, IconMap, IconClipboardCheck,
+    IconHistory, IconMap, IconClipboardCheck, IconTrophy,
 } from '../components/ui/Icons';
 
 const MANAGEMENT_SECTION_ICONS = {
@@ -64,6 +67,8 @@ export const CommandPaletteProvider = ({ children }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [registeredCommands, setRegisteredCommands] = useState({});
   const [girasCommands, setGirasCommands] = useState([]);
+  const [programasCatalog, setProgramasCatalog] = useState([]);
+  const [canSeeConcerto, setCanSeeConcerto] = useState(false);
   const [entityActions, setEntityActions] = useState([]);
   const [isSearchingEntities, setIsSearchingEntities] = useState(false);
   const [entitySearchMode, setEntitySearchMode] = useState(null);
@@ -121,6 +126,25 @@ export const CommandPaletteProvider = ({ children }) => {
       .then(({ count }) => setIsEnsembleCoordinator(count > 0));
   }, [user, roles]);
 
+  useEffect(() => {
+    if (!user?.id || user.id === "guest-general") {
+      setCanSeeConcerto(false);
+      return;
+    }
+    if (isConcertoStaff(roles)) {
+      setCanSeeConcerto(true);
+      return;
+    }
+    let cancelled = false;
+    setCanSeeConcerto(false);
+    musicianCanSeeConcerto(supabase, user.id).then((ok) => {
+      if (!cancelled) setCanSeeConcerto(!!ok);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id, roles]);
+
   // LEER PARÁMETROS DE URL
   const currentTab = searchParams.get('tab');
   const currentGiraId = searchParams.get('giraId');
@@ -142,12 +166,15 @@ export const CommandPaletteProvider = ({ children }) => {
                 .order('fecha_desde', { ascending: false });
 
             if (data) {
+                setProgramasCatalog(data);
                 const cmds = data.map(gira => {
                     const year = gira.fecha_desde ? gira.fecha_desde.substring(0, 4) : '';
                     
                     return {
                         id: `goto-gira-${gira.id}`,
-                        label: `${gira.nomenclador || ''} ${gira.nombre_gira} (${gira.mes_letra || ''} ${year})`.trim(),
+                        label: programaPaletteLabel(gira),
+                        subtitle: year,
+                        aliases: programaSearchAliases(gira),
                         icon: <IconMusic size={14} className="text-indigo-500" />,
                         section: 'Historial de Giras',
                         // Al cambiar de gira, preservamos la misma "pantalla"
@@ -405,10 +432,19 @@ export const CommandPaletteProvider = ({ children }) => {
           cmds.push(...buildManagementPaletteCommands(navigate));
       }
 
-      return currentTab === "giras" && currentGiraId
-        ? cmds.map((cmd) => ({ ...cmd, scope: "gira" }))
-        : cmds;
-  }, [currentTab, currentGiraId, currentView, location.pathname, navigate, isManagement, isAdmin, isEditor]);
+      if (currentTab === "giras" && currentGiraId) {
+        const programa = programasCatalog.find(
+          (row) => String(row.id) === String(currentGiraId),
+        );
+        const aliases = programaSearchAliases(programa);
+        return cmds.map((cmd) => ({
+          ...cmd,
+          scope: "gira",
+          aliases: [...(cmd.aliases || []), ...aliases],
+        }));
+      }
+      return cmds;
+  }, [currentTab, currentGiraId, currentView, location.pathname, navigate, isManagement, isAdmin, isEditor, programasCatalog]);
 
   // ===========================================================================
   // 4. COMANDOS GLOBALES (Filtrados por Rol)
@@ -494,6 +530,25 @@ export const CommandPaletteProvider = ({ children }) => {
       });
     }
 
+    if (canSeeConcerto) {
+      cmds.push({
+        id: 'global-concerto',
+        label: 'Ir a Concerto Competition',
+        icon: <IconTrophy size={14} className="text-amber-600" />,
+        section: 'General',
+        aliases: ['competencia', 'concurso', 'competition'],
+        run: () => navigate('/?tab=competition'),
+      });
+    }
+
+    cmds.push({
+      id: 'global-entradas',
+      label: 'Ir a Entradas',
+      icon: <IconTag size={14} className="text-indigo-600" />,
+      section: 'General',
+      run: () => navigate('/entradas'),
+    });
+
     if (!isGuest) {
       cmds.push({
         id: 'global-feedback',
@@ -506,6 +561,13 @@ export const CommandPaletteProvider = ({ children }) => {
 
     if (isManagement) {
         cmds.push(
+            {
+                id: 'global-fimba',
+                label: 'Ir a FIMBA',
+                icon: <IconMusic size={14} className="text-[#94216D]" />,
+                section: 'Gestión',
+                run: () => navigate('/fimba'),
+            },
             { 
                 id: 'global-ensambles', 
                 label: 'Ir a Ensambles', 
@@ -610,6 +672,7 @@ export const CommandPaletteProvider = ({ children }) => {
     roles,
     user?.id,
     user?.mail,
+    canSeeConcerto,
   ]);
 
   // ===========================================================================

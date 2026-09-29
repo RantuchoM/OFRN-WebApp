@@ -265,19 +265,19 @@ export function ParticipanteModal({
           />
         </div>
         <label className="block text-xs font-bold uppercase text-slate-500">
-          Solista
-          <input
-            className={`${fieldClass} mt-1 normal-case`}
-            value={fragmentoSolista}
-            onChange={(event) => setFragmentoSolista(event.target.value)}
-          />
-        </label>
-        <label className="block text-xs font-bold uppercase text-slate-500">
-          Con orquesta
+          Audición con orquesta
           <input
             className={`${fieldClass} mt-1 normal-case`}
             value={fragmentoOrquesta}
             onChange={(event) => setFragmentoOrquesta(event.target.value)}
+          />
+        </label>
+        <label className="block text-xs font-bold uppercase text-slate-500">
+          Audición sin orquesta
+          <input
+            className={`${fieldClass} mt-1 normal-case`}
+            value={fragmentoSolista}
+            onChange={(event) => setFragmentoSolista(event.target.value)}
           />
         </label>
         <ModalError message={error} />

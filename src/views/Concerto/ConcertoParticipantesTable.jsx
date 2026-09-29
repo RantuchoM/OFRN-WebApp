@@ -198,29 +198,29 @@ export function FragmentosCampos({
   return (
     <div className="space-y-1.5">
       <label className="block">
-        <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Solista</span>
-        {editing ? (
-          <input
-            value={solista}
-            onChange={(event) => onChange?.("solista", event.target.value)}
-            className={inputClass}
-            aria-label={`Solista de ${nombresDe(participante)}`}
-          />
-        ) : (
-          <p className={`${width} break-words text-sm text-slate-700`}>{String(solista || "").trim() || "—"}</p>
-        )}
-      </label>
-      <label className="block">
-        <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Con orquesta</span>
+        <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Audición con orquesta</span>
         {editing ? (
           <input
             value={orquesta}
             onChange={(event) => onChange?.("orquesta", event.target.value)}
             className={inputClass}
-            aria-label={`Con orquesta de ${nombresDe(participante)}`}
+            aria-label={`Audición con orquesta de ${nombresDe(participante)}`}
           />
         ) : (
           <p className={`${width} break-words text-sm text-slate-700`}>{String(orquesta || "").trim() || "—"}</p>
+        )}
+      </label>
+      <label className="block">
+        <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Audición sin orquesta</span>
+        {editing ? (
+          <input
+            value={solista}
+            onChange={(event) => onChange?.("solista", event.target.value)}
+            className={inputClass}
+            aria-label={`Audición sin orquesta de ${nombresDe(participante)}`}
+          />
+        ) : (
+          <p className={`${width} break-words text-sm text-slate-700`}>{String(solista || "").trim() || "—"}</p>
         )}
       </label>
     </div>
@@ -454,8 +454,8 @@ export default function ConcertoParticipantesTable({
           <tr className="border-b border-slate-200 text-left text-[10px] font-bold uppercase tracking-wide text-slate-500">
             <th className="px-2 py-2">Participantes</th>
             <th className="px-2 py-2">
-              <span className="block">Solista</span>
-              <span className="block">Con orquesta</span>
+              <span className="block">Audición con orquesta</span>
+              <span className="block">Audición sin orquesta</span>
             </th>
             <th className="px-2 py-2">Obra de repertorio</th>
             <th className="px-2 py-2">Drive</th>

@@ -9,7 +9,7 @@ Todas las búsquedas de texto de la app deben ser **indistintas a tildes/diacrí
 | Helper | Uso |
 |--------|-----|
 | `normalizeForSearch` | Minúsculas + NFD sin marcas combinantes (`Martín`/`Martin`/`Màrtin` → `martin`; `ñ` → `n`) |
-| `splitSearchTokens` | Parte por espacios, `+` y comas |
+| `splitSearchTokens` | Parte por espacios, `+`, comas y `\|` |
 | `matchesMultiTokenSearch(parts, query)` | Match cliente: todos los tokens aparecen (vía score ≥ 0) |
 | `scoreMultiTokenSearch(parts, query)` | Relevancia numérica (mayor = mejor; `-1` = no match) |
 | `compareMultiTokenSearch(partsA, partsB, query)` | Comparador para `sort` (mejor primero) |
@@ -27,7 +27,7 @@ Score sobre cada fragmento y sobre el haystack unido; se queda el **máximo**. P
 3. **Todos prefijos** — cada token es prefijo de una palabra (`+200_000`); ej. `José G` → `José` + `Gómez…`
 4. **Orden / Apellido–Nombre** — tokens encajan en secuencia (o invertida) como prefijo/exacto (`+50_000`)
 5. **Por token** — palabra exacta `1000` > prefijo `400` > substring a mitad `50`
-6. Desempate: match más temprano y haystack más corto
+6. Desempate (menor a 1, no anula un match): posición más temprana y haystack más corto. Paréntesis y `|` separan palabras, así `(09b)` cuenta como la palabra `09b`.
 
 Ejemplo: query `José G` → `Gómez, José` (prefijo de apellido + orden) antes que un match donde `G` solo aparece a mitad de otra palabra.
 

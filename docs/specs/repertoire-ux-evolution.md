@@ -1190,6 +1190,22 @@ Scripts: `scripts/lib/gliereCornoCatalog.mjs`, `scripts/process-gliere-corno-loc
 
 ---
 
+### Completado (2026-09-29) — Villa-Lobos, Cuarteto de Cuerdas Nro. 1, W099 (solicitud 3650)
+
+Obra ya existente **3650**. Pasó de `Solicitud` a **Oficial** al vincular Drive y las 4 particellas. Ya estaba en ECAS 04/26 (`repertorio_obras` **667**, bloque Repertorio); esa fila no se tocó. El título de programa quedó en español con los 6 movimientos de IMSLP.
+
+Fuente: [String Quartet No.1, W099](https://imslp.org/wiki/String_Quartet_No.1,_W099_(Villa-Lobos,_Heitor)). Partes CC BY 4.0 (typeset Mvrasaki) [#608902](https://imslp.org/wiki/Special:ReverseLookup/608902)–[#608905](https://imslp.org/wiki/Special:ReverseLookup/608905). SCORE Southern 1953, placa 158-25, Complete Score [#327723](https://imslp.org/wiki/Special:ReverseLookup/327723) (`File:PMLP530411-Villa-Lobos_-_String_Quartet_No._1_(score).pdf`). IMSLP lo marca Non-PD US/EU; en esta jurisdicción (Sudamérica) se cargó. 25 páginas; la 1 ya es música (Cantilena, p. impresa 2) y la última cierra el VI. Saltando (p. impresa 26): **sin recorte de portada**. `link_drive` = carpeta en Para acomodar (**no** `copiar_carpeta_a_archivo`).
+
+**5 PDFs** canónicos → **5** filas en `obras_particellas` (SCORE + 4 sillas). Duración `1173` s. Año 1946. Orgánico `Str` (el SCORE no suma sillas). Al pasar a Oficial se sincronizó Drive del programa ECAS 04/26 (`sync_repertoire_shortcuts`, `programId` 118).
+
+- [x] PDFs `%PDF-`, tamaño > 0; 5/5 en Drive y en `obras_particellas`
+- [x] Obra 3650 **Oficial**; `link_drive` = Para acomodar; `repertorio_obras` 667 intacto
+- [x] SCORE Southern #327723 (25 p.), sin recortar portada
+
+Scripts: `scripts/lib/villaLobosSq1Catalog.mjs`, `scripts/process-villa-lobos-sq1-local.mjs`, `scripts/generate-villa-lobos-sq1-sync.mjs`.
+
+---
+
 ### Completado (2026-09-28) — Sugerencia de vinculación 1:1 en ProgramSeating
 
 - [x] Si en el roster visible hay **un solo** músico de un instrumento y en la obra hay **una sola** particella asignable de ese mismo `id_instrumento`, y esa parte sigue libre, la celda vacía muestra la sugerencia bombilla (chip ámbar + «Aceptar todas»). Misma regla para cualquier instrumento, no solo oboe.
