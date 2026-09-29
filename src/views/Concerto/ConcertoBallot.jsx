@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { RichTextPreview } from "../../components/repertoire/RepertoireWorkPickerModal";
 import { FragmentosCampos } from "./ConcertoParticipantesTable";
-import { IconChevronDown, IconChevronUp, IconTrash } from "../../components/ui/Icons";
+import { IconTrash } from "../../components/ui/Icons";
 import {
   SCALE_FOOT,
   SCALE_INTRO,
@@ -16,7 +16,6 @@ import {
   guardarPuntaje,
   lineaPrincipalParticipante,
   participanteIncluye,
-  tituloCortoObra,
   windowState,
 } from "../../utils/concertoCompeticion";
 
@@ -84,46 +83,11 @@ function PuntajeControles({ participante, selected, onElegir, onQuitar }) {
 }
 
 function BoletaFila({ participante, selected, onElegir, onQuitar }) {
-  const [open, setOpen] = useState(false);
-  const nombre = nombresDe(participante);
-  const corto = tituloCortoObra(participante?.repertorio_obra?.obras?.titulo);
   return (
-    <div>
-      <article className="min-w-0 overflow-hidden rounded-lg border border-slate-200 md:hidden">
-        <button
-          type="button"
-          aria-expanded={open}
-          aria-label={`Detalle de ${nombre}`}
-          onClick={() => setOpen((value) => !value)}
-          className="flex w-full min-w-0 items-start gap-2 px-3 py-2 text-left"
-        >
-          <span className="min-w-0 flex-1">
-            <span className="block break-words text-sm font-medium text-slate-800">{nombre}</span>
-            <span className="mt-0.5 block break-words text-sm text-slate-600">{corto || "—"}</span>
-          </span>
-          {open ? (
-            <IconChevronUp size={16} className="mt-0.5 shrink-0 text-slate-400" />
-          ) : (
-            <IconChevronDown size={16} className="mt-0.5 shrink-0 text-slate-400" />
-          )}
-        </button>
-        {open ? (
-          <div className="space-y-2 border-t border-slate-100 px-3 py-3">
-            <FragmentosCampos participante={participante} compact />
-            <div>
-              <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-slate-500">Puntaje</p>
-              <PuntajeControles
-                participante={participante}
-                selected={selected}
-                onElegir={onElegir}
-                onQuitar={onQuitar}
-              />
-            </div>
-          </div>
-        ) : null}
-      </article>
-      <div className="hidden gap-2 py-3 md:flex md:items-center md:justify-between">
-        <ParticipanteVotoIdentidad participante={participante} />
+    <div className="space-y-3 rounded-lg border border-slate-200 px-3 py-3 md:flex md:items-center md:justify-between md:gap-2 md:space-y-0 md:rounded-none md:border-0 md:px-0 md:py-3">
+      <ParticipanteVotoIdentidad participante={participante} />
+      <div className="min-w-0">
+        <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-slate-500 md:sr-only">Puntaje</p>
         <PuntajeControles
           participante={participante}
           selected={selected}
@@ -135,51 +99,14 @@ function BoletaFila({ participante, selected, onElegir, onQuitar }) {
   );
 }
 
-function BoletaCardCerrada({ participante }) {
-  const [open, setOpen] = useState(false);
-  const nombre = nombresDe(participante);
-  const corto = tituloCortoObra(participante?.repertorio_obra?.obras?.titulo);
-  return (
-    <li className="min-w-0 overflow-hidden rounded-lg border border-slate-200">
-      <button
-        type="button"
-        aria-expanded={open}
-        aria-label={`Detalle de ${nombre}`}
-        onClick={() => setOpen((value) => !value)}
-        className="flex w-full min-w-0 items-start gap-2 px-3 py-2 text-left"
-      >
-        <span className="min-w-0 flex-1">
-          <span className="block break-words text-sm font-medium text-slate-800">{nombre}</span>
-          <span className="mt-0.5 block break-words text-sm text-slate-600">{corto || "—"}</span>
-        </span>
-        {open ? (
-          <IconChevronUp size={16} className="mt-0.5 shrink-0 text-slate-400" />
-        ) : (
-          <IconChevronDown size={16} className="mt-0.5 shrink-0 text-slate-400" />
-        )}
-      </button>
-      {open ? (
-        <div className="border-t border-slate-100 px-3 py-2">
-          <FragmentosCampos participante={participante} compact />
-        </div>
-      ) : null}
-    </li>
-  );
-}
-
 function ListaCerrada({ instancia, estado }) {
   return (
     <div className="space-y-3">
-      <ul className="hidden divide-y divide-slate-100 md:block">
+      <ul className="divide-y divide-slate-100">
         {instancia.participantes.map((participante) => (
           <li key={participante.id} className="py-2">
             <ParticipanteVotoIdentidad participante={participante} />
           </li>
-        ))}
-      </ul>
-      <ul className="space-y-2 md:hidden">
-        {instancia.participantes.map((participante) => (
-          <BoletaCardCerrada key={participante.id} participante={participante} />
         ))}
       </ul>
       <p className="text-sm text-slate-600">{WINDOW_COPY[estado]}</p>

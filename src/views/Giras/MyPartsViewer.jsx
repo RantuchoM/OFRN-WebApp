@@ -296,7 +296,7 @@ const MobilePartCard = ({ item, dimmed = false, onPlayWork, canPlay = false, con
       </div>
       {concertoEntrada ? (
         <div className="pl-2">
-          <ConcertoFragmentoBloque entrada={concertoEntrada} />
+          <ConcertoFragmentoBloque entrada={concertoEntrada} siempreAbierta />
         </div>
       ) : null}
       {item.notas_especificas?.trim() ? (
@@ -1165,6 +1165,7 @@ export default function MyPartsViewer({
                               </div>
                               <ConcertoFragmentoBloque
                                 entrada={concertoPorFila[String(row.uniqueId)] || null}
+                                siempreAbierta
                               />
                             </div>
                             {onPlayWork && playableObraIds?.has(String(row.id)) ? (

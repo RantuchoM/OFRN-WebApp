@@ -1079,7 +1079,7 @@ Fuente Drive [Orquesta particellas](https://drive.google.com/drive/folders/1HuUg
 | **3642** | Vater unser | Pärt, Arvo (255) | **7** (SCORE + piano + cuerdas) | `Key - Str` | [1xWff483Dvqt1DGC6c9zrsxvgYsfyh1-p](https://drive.google.com/open?id=1xWff483Dvqt1DGC6c9zrsxvgYsfyh1-p) |
 | **3643** | Messiah [cuerdas y órgano] | Händel, G.F. (160) | **5** PDFs → **6** particellas | `Key - Str` | [1WolhjGr3Aw0NsHMLVISjYUOidMkPMIjy](https://drive.google.com/open?id=1WolhjGr3Aw0NsHMLVISjYUOidMkPMIjy) |
 
-**Gira 130** *Navidad Coral* (18–19 dic 2026, Ensamble): bloque existente **Repertorio** (`programas_repertorios.id=100`). No se duplicó el bloque ni se tocó Rutter **3196** (orden 1). Altas: 3640 orden 2, 3641 orden 3, 3642 orden 4, 3643 orden 5.
+**Gira 130** *Navidad Coral* (18–19 dic 2026, Ensamble): bloque existente **Repertorio** (`programas_repertorios.id=100`). No se duplicó el bloque. Altas: 3640 orden 2, 3641 orden 3, 3642 orden 4, 3643 orden 5. Rutter **3196** (orden 1) no se tocó en esa carga; el 2026-09-29 se restauraron los nombres de los números en `obras.titulo` y en `titulo_concierto` de `repertorio_obras` **636**.
 
 | Artefacto | Rol |
 |-----------|-----|
@@ -1203,6 +1203,18 @@ Fuente: [String Quartet No.1, W099](https://imslp.org/wiki/String_Quartet_No.1,_
 - [x] SCORE Southern #327723 (25 p.), sin recortar portada
 
 Scripts: `scripts/lib/villaLobosSq1Catalog.mjs`, `scripts/process-villa-lobos-sq1-local.mjs`, `scripts/generate-villa-lobos-sq1-sync.mjs`.
+
+---
+
+### Completado (2026-09-29) — Rutter, Suite para Cuerdas (obra 3196): nombres de números
+
+En BD se habían perdido los nombres de los movimientos II y IV (quedaban `1. A-Roving` y `3. O waly waly`, con huecos). La obra no está en IMSLP (copyright). Nombres restaurados desde el [catálogo oficial de John Rutter](https://johnrutter.com/music/printed-music/catalogue/suite-for-strings) (confirmado por Goodmusic GMCO022): I. A-Roving · II. I have a bonnet trimmed with blue · III. O waly, waly · IV. Dashing away with the smoothing iron.
+
+`obras.titulo` pasó a HTML de programa (`<p>` + `<div>&nbsp; I. …</div>`), género en español, movimientos en inglés original. Mismo HTML en `repertorio_obras.titulo_concierto` **636** (gira 130 *Navidad Coral*). Particellas (Violín 1/2, Viola, Violoncello, Contrabajo) no tenían nombres de números; no se tocaron. No hay seed de esta obra que revierta el título.
+
+- [x] `obras.id` **3196**, compositor Rutter, John (292)
+- [x] Cuatro números restaurados; no se inventaron movimientos
+- [x] Particellas intactas
 
 ---
 
