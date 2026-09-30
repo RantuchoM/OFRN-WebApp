@@ -99,6 +99,13 @@ export const WINDOW_COPY = {
   undefined: "Falta que definan la ventana de votación.",
 };
 
+export function systemRolesOf(person) {
+  const raw = person?.rol_sistema;
+  if (raw == null) return [];
+  const list = Array.isArray(raw) ? raw : [raw];
+  return list.map((role) => String(role).toLowerCase().trim()).filter(Boolean);
+}
+
 export function isConcertoStaff(roles) {
   return (
     Array.isArray(roles) &&

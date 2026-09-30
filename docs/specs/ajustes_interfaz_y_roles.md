@@ -108,3 +108,8 @@
   - Caché: una sola clave `agenda_cache_*_v11`. El snapshot es `{ from, to, items }` (meta de ventana, sin keys extra). Arrays v11 legacy de agenda general se ignoran (truncados). Si el rango pedido es más amplio que `from`/`to` guardados, se salta la caché y se pisa el mismo key.
   - Roster: no se embebe `giras_integrantes` completo en cada evento (cuota / payload). Se pide la fila del usuario por gira y se adjunta.
 - **Implementación:** `dates.js`, `useAgendaData.js`, `UnifiedAgenda.jsx`.
+
+## 15. Super-admin por mail
+- **Marca:** la cuenta cuyo mail es `ofrn.archivo@gmail.com` (`integrantes.mail`). No hay un `rol_sistema` aparte: tiene el rol `admin` que ya existe.
+- **Permisos:** un admin, en Gestión de usuarios, no puede bajarle los roles. El control queda en candado (`UsersManager`, `isProtectedIntegrante`). El trigger `integrantes_protect_owner_accounts` rechaza cambiar `rol_sistema` o el mail y rechaza borrar esa fila. Misma lista en `src/utils/protectedIntegrantes.js` y `integrantes_is_protected_email`.
+- **Boletas:** con «Ver como…», es la única sesión real que ve la boleta de la persona impersonada. Un admin común no la carga. Detalle en `concerto-competicion-votacion.md`.

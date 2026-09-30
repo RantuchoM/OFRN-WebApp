@@ -111,6 +111,7 @@ No hace falta duplicar la URL en más sitios: `buildManagementPaletteCommands()`
 - [x] **Gira: Escenario** en contexto de gira (management), misma URL que menú Gira → Escenario
 - [x] **Tab cambia de vista** (Comandos / Personas / Repertorio) con selector visible; no mueve el foco a los resultados
 - [x] **Concerto Competition**, **FIMBA** y **Entradas** en Ctrl+K, con la misma visibilidad que el sidebar
+- [x] Repertorio en Ctrl+K: el título se muestra sin etiquetas HTML del texto enriquecido
 
 ## Búsqueda de obras y personas (dos pasos, sin volcar tablas)
 
@@ -133,7 +134,7 @@ El cambio es visual, no un salto de foco:
 
 | Modo | Qué busca | Al elegir |
 |------|-----------|-----------|
-| **Buscar repertorio** | Título, compositor/arreglador o id numérico | `WorkForm` con `{ id }`, `context="archive"` |
+| **Buscar repertorio** | Título, compositor/arreglador o id numérico. El título del catálogo puede ser HTML; la fila muestra el texto plano (`stripRepertorioTitleHtml`) | `WorkForm` con `{ id }`, `context="archive"` |
 | **Buscar personas** | Nombre, apellido, preferencia, instrumento o id numérico | `MusicianForm` con id **INT** de `integrantes` (nunca UUID) |
 
 Visibilidad de las pestañas Personas y Repertorio (misma regla que «Ir a Repertorio» / «Ir a Personas»):

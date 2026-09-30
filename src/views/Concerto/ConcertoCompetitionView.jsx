@@ -28,6 +28,7 @@ import {
   fetchIntegrantesOptions,
   fetchProgramasOptions,
   fetchPromedios,
+  girasElectorado,
   formatCantidadBoletas,
   formatDateTimeAR,
   formatGiraLabel,
@@ -39,6 +40,8 @@ import {
   friendlySchemaError,
   fromDatetimeLocalAR,
   isConcertoStaff,
+  isEstableReal,
+  systemRolesOf,
   nextOrden,
   pickDefaultEdition,
   saveFragmentos,
@@ -51,6 +54,7 @@ import { RichTextPreview } from "../../components/repertoire/RepertoireWorkPicke
 import ConcertoBallot from "./ConcertoBallot";
 import ConcertoParticipantesTable from "./ConcertoParticipantesTable";
 import { EdicionModal, InstanciaModal, ParticipanteModal } from "./ConcertoModals";
+import { isProtectedIntegrante } from "../../utils/protectedIntegrantes";
 
 const fieldClass =
   "w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500";
@@ -320,6 +324,7 @@ function Resultados({ instancias, promedios }) {
 function InstanciaStaffCard({
   supabase,
   userId,
+  mostrarBoleta,
   instancia,
   otras,
   personas,
@@ -664,7 +669,7 @@ function InstanciaStaffCard({
         )}
       </div>
 
-      {instancia.esElectorado ? (
+      {mostrarBoleta ? (
         <section className="space-y-3 border-t border-slate-200 pt-4">
           <h4 className="text-sm font-bold text-slate-800">Tu votación</h4>
           <ConcertoBallot
@@ -701,9 +706,14 @@ function InstanciaStaffCard({
 }
 
 export default function ConcertoCompetitionView({ supabase }) {
-  const { user, roles } = useAuth();
-  const isStaff = isConcertoStaff(roles);
-  const userId = user?.id;
+  const { user, realUser, roles, isImpersonating } = useAuth();
+  const actor = isImpersonating ? realUser : user;
+  const actorRoles = isImpersonating ? systemRolesOf(realUser) : roles;
+  const isStaff = isConcertoStaff(actorRoles);
+  const userId = actor?.id;
+  const verBoletaAjena = isImpersonating && isProtectedIntegrante(realUser);
+  const ocultarBoletaAjena = isImpersonating && !verBoletaAjena;
+  const [boletaAjenaGiras, setBoletaAjenaGiras] = useState(null);
   const [staffTab, setStaffTab] = useState("instancias");
   const [now, setNow] = useState(() => new Date());
   const [loading, setLoading] = useState(true);
@@ -872,6 +882,33 @@ export default function ConcertoCompetitionView({ supabase }) {
   }, [isStaff, supabase]);
 
   const instanciaKey = instancias.map((instancia) => instancia.id).join(",");
+
+  useEffect(() => {
+    if (!verBoletaAjena || user?.id == null) {
+      setBoletaAjenaGiras(null);
+      return;
+    }
+    const giraIds = instancias.map((instancia) => instancia.id_gira).filter((id) => id != null);
+    let cancelled = false;
+    (async () => {
+      const { data: me, error: meError } = await supabase
+        .from("integrantes")
+        .select("id, condicion, es_simulacion")
+        .eq("id", user.id)
+        .maybeSingle();
+      if (cancelled) return;
+      if (meError || !isEstableReal(me)) {
+        setBoletaAjenaGiras(new Set());
+        return;
+      }
+      const { giras, error } = await girasElectorado(supabase, user.id, giraIds);
+      if (cancelled) return;
+      setBoletaAjenaGiras(error ? new Set() : giras);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [verBoletaAjena, user?.id, instanciaKey, supabase, instancias]);
 
   useEffect(() => {
     if (!isStaff || !userId || !instanciaKey) {
@@ -1237,7 +1274,12 @@ export default function ConcertoCompetitionView({ supabase }) {
                     <InstanciaStaffCard
                       key={instancia.id}
                       supabase={supabase}
-                      userId={userId}
+                      userId={verBoletaAjena ? user?.id : userId}
+                      mostrarBoleta={
+                        verBoletaAjena
+                          ? boletaAjenaGiras?.has(String(instancia.id_gira)) === true
+                          : !ocultarBoletaAjena && !!instancia.esElectorado
+                      }
                       instancia={instancia}
                       otras={instancias.filter((item) => String(item.id) !== String(instancia.id))}
                       personas={personas}

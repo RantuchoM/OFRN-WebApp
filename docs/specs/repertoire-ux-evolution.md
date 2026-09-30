@@ -1224,4 +1224,10 @@ En BD se habían perdido los nombres de los movimientos II y IV (quedaban `1. A-
 - [x] Dos músicos del mismo id, o dos partes (`Oboe 1` / `Oboe 2`), no disparan esta regla. No pisa una sugerencia ya armada por propagación entre obras. Oboe y Corno Inglés siguen siendo ids distintos.
 - [x] Spec viva: `docs/program-seating-smart-suggestions.md`. Función: `uniqueUnassignedInstrumentPartId` en `src/utils/seatingUniqueInstrumentSuggestion.js`.
 
+### Completado (2026-09-29) — Para acomodar: Beethoven op. 103 y Weill op. 12
+
+- [x] **Beethoven, octeto op. 103** (obra **3651**): 8 partes de viento + SCORE. Breitkopf / Beethoven Werke (IMSLP PMLP27872). Carpeta `Beethoven, L. - Octeto, Op. 103`.
+- [x] **Weill, concierto para violín op. 12** (obra **3652**): 14 particellas + SCORE. Universal Edition U.E. 8340 (IMSLP PMLP659197). Flauta 2 lleva el piccolo; clarinetes Sib/La en la misma parte; batería en un solo PDF. Carpeta `Weill, K. - Concierto para Violín, Op. 12`.
+- [x] `link_drive` queda en Para acomodar. Seed `supabase/seed_temporada_2027_octet_weill_sync.sql`.
+
 

@@ -51,6 +51,7 @@ import { canAccessMusicTranslation } from "./constants/musicTranslationAccess";
 import {
   isConcertoStaff,
   musicianCanSeeConcerto,
+  systemRolesOf,
 } from "./utils/concertoCompeticion";
 import {
   IconLayoutDashboard,
@@ -677,7 +678,9 @@ const ProtectedApp = ({ initialTab }) => {
 
   const [isEnsembleCoordinator, setIsEnsembleCoordinator] = useState(false);
   const [catalogoInstrumentos, setCatalogoInstrumentos] = useState([]);
-  const concertoStaff = isConcertoStaff(roles);
+  const concertoStaff = isConcertoStaff(
+    isImpersonating ? systemRolesOf(realUser) : roles,
+  );
   const [concertoAccess, setConcertoAccess] = useState(
     concertoStaff ? "yes" : "pending",
   );

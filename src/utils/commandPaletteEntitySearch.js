@@ -3,6 +3,7 @@ import {
   normalizeForSearch,
   splitSearchTokens,
 } from "./sanitize";
+import { stripRepertorioTitleHtml } from "./repertorioRowDisplay";
 import { seatingApellidoNombre } from "./integranteDisplayName";
 
 /**
@@ -226,9 +227,18 @@ export async function searchPaletteObras(supabase, query) {
 
   return filterAndRankMultiTokenSearch(
     merged,
-    (obra) => [obra.titulo, formatObraComposerLabel(obra), String(obra.id)],
+    (obra) => [
+      stripRepertorioTitleHtml(obra.titulo),
+      formatObraComposerLabel(obra),
+      String(obra.id),
+    ],
     trimmed,
-  ).slice(0, PALETTE_ENTITY_LIMIT);
+  )
+    .slice(0, PALETTE_ENTITY_LIMIT)
+    .map((obra) => ({
+      ...obra,
+      titulo: stripRepertorioTitleHtml(obra.titulo) || `Obra ${obra.id}`,
+    }));
 }
 
 /**

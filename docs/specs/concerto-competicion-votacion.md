@@ -102,7 +102,7 @@ La boleta no colapsa: con la ventana abierta cada fila muestra de una el nombre,
 
 ## Editor y admin
 
-El rol (`admin` o `editor`, no curador) decide pestañas, edición y resultados. La boleta no depende del rol: si el usuario está en el electorado de esa instancia, la ve igual que un músico.
+El rol (`admin` o `editor`, no curador) decide pestañas, edición y resultados. La boleta no depende del rol: si el usuario está en el electorado de esa instancia, la ve igual que un músico. Con «Ver como…» activo, un admin que no es `ofrn.archivo@gmail.com` no pide `concerto_mi_boleta` ni muestra puntajes ni tachito de la persona impersonada; el ranking de promedios sigue. Esa cuenta, por la sesión real y no por el id que pinta «Ver como», es la única que sí ve esa boleta. Sin «Ver como», cada uno ve solo la suya.
 
 Dos pestañas, estilo interruptor (fondo `slate-100`, pestaña activa blanca): «Instancias» y «Resultados».
 
