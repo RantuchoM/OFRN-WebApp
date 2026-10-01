@@ -230,7 +230,7 @@ export function buildEnsambleServiciosPdfTables(
         ? `${pendingRows.length} en conflicto`
         : "",
       empty: "No hay ensayos de este ensamble en el rango.",
-      noneConflict: `${report.ensayosNeto ?? report.ensayosTotal || 0} ensayo${
+      noneConflict: `${report.ensayosNeto ?? report.ensayosTotal ?? 0} ensayo${
         (report.ensayosNeto ?? report.ensayosTotal) === 1 ? "" : "s"
       }. Ninguno en conflicto.`,
       pending: pendingRows.map(conflictoPdfRow),
