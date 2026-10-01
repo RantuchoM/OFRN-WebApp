@@ -31,6 +31,8 @@ Ejemplo: gira **13** *La Fuerza del Legado* (Sinfónico, familias Cuerdas/Madera
 
 **Ensayos vs esa gira (universal, no solo ECAS):** si el ensamble/CF/familia está convocado y **no** hay EXCL → **Ensayo en conflicto** (en memoria: overlap + `giras_fuentes`; **sin** seating en Agenda). Si hay EXCL (o no se convocó ensamble/CF/familia) pero quedan personas en el roster de seating → **Tutti - N**, **solo** en Coordinación → Lista (`EnsayoTuttiMinusTag`), con **una** `fetchRosterForGira` por gira candidata (serie + memo). UnifiedAgenda no muestra Tutti-N ni dispara seating.
 
+**Colocación del chip Tutti-N (Lista):** misma fila de metadatos inferior que el chip tradicional **Tutti** (junto a locación y chips de ensamble, p. ej. ECAS). No va en la fila del horario / tipo de evento (`ENSAYO ENSAMBLE`). El tag ámbar **Ensayo en conflicto** sí permanece en esa fila de cabecera.
+
 **Tutti-N checkboxes (Lista):** tildar = esa persona **asiste igual al ensayo** a pesar de estar convocada a la gira. Default **destildado** (se espera en la gira, no en el ensayo). Persistido en `eventos_asistencia_custom.tipo = asiste_igual` (ID numérico de integrante). El formulario de ensayo no borra esas filas. Texto de ayuda: «Tildá si asiste igual al ensayo a pesar de estar convocado a la gira.»
 
 Implementación: `fetchCoordinatorPrograms` en `src/utils/rehearsalProgramas.js` (query `useCoordinatorPrograms`). No usa `resolveGiraRosterIds` para este filtro: ese motor sacaba a los excluidos por ensamble aunque tuvieran override manual.

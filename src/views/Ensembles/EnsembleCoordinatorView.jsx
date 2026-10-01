@@ -90,6 +90,7 @@ import {
   ensayoConflictoCardTint,
   isPendingFullEnsayoImpact,
 } from "../../components/ensayos/EnsayoImpactTags";
+import EnsayoTuttiMinusTag from "../../components/ensayos/EnsayoTuttiMinusTag";
 import {
   CONFLICTO_KIND,
   getEnsayoImpact,
@@ -375,7 +376,6 @@ const RehearsalCardItem = React.memo(function RehearsalCardItem({
                   canAct={canActConflicto}
                   onChanged={onConflictoChanged}
                   compact
-                  showTuttiN
                 />
               )}
             </div>
@@ -465,6 +465,14 @@ const RehearsalCardItem = React.memo(function RehearsalCardItem({
                     ? "Todos"
                     : `${count} músicos`}
             </span>
+          )}
+          {!isDeleted && (
+            <EnsayoTuttiMinusTag
+              impact={impact}
+              supabase={supabase}
+              canAct={canActConflicto}
+              eventId={evt.id}
+            />
           )}
           {evt.eventos_ensambles?.length > 0 && (
             <div className="flex items-center gap-1 border-l border-slate-200 pl-2 overflow-x-auto no-scrollbar max-w-[100px]">
