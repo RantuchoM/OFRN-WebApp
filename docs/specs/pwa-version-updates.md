@@ -21,6 +21,7 @@ El control **«Actualizar versión»** (banner) a menudo **no hacía nada en el 
 | Staff cambia de ruta, sin dirty | Misma ruta fiable de apply (no reload prematuro) |
 | Staff cambia de ruta o pulsa Actualizar **con dirty** | No auto-aplica; confirm si el usuario fuerza Actualizar |
 | `/entradas/*`, `/viaticos-manual`, `/rendiciones-manual` (público) | Al cargar, si `version.json` o el service worker traen un build nuevo, se aplica y se recarga la página sin banner, overlay ni toast. Mismo camino si el build nuevo aparece con la pestaña abierta. Tope anti-bucle: 2 recargas en 15 s. |
+| `/transporte-scrn` | Al cargar (o al detectar build nuevo con la pestaña abierta), si hay versión nueva se dispara el **mismo** `beginApplyUpdate` / `applyPwaUpdate` del botón, sin esperar el click. El botón queda para reintentar, con estética SCRN (borde `#c5d0dc`, azul `#0054a6`, `IconRefresh`, `scrn-btn-primary`). Viáticos y rendiciones no usan este banner. Anti-bucle: sello `sessionStorage` `ofrn:transporte-auto-apply-at` (60 s, se limpia al salir de la ruta o cuando el build coincide) más el tope de 2 recargas en 15 s. No se hace unregister si la versión ya está al día. |
 | `vite:preloadError` | Overlay «Hay una versión nueva. Recargando…» + reload (tope anti-bucle) |
 | Entry `/assets/index-*.js` 404/MIME tras deploy | Rewrite Vercel solo si `Accept` incluye `text/html`; SW `navigateFallbackDenylist` incluye `/assets/`; script inline en `index.html` recarga una vez |
 
@@ -80,3 +81,4 @@ Detección de build: `VITE_APP_BUILD_ID` embebido + poll de `/version.json` (foc
 - [x] Poll de versión menos agresivo (15 min + skip hidden + cache 60 s) para bajar Edge Requests de Hobby/Pro
 - [x] Un tap en «Actualizar versión» espera waiting + skipWaiting + controllerchange (o last resort); toast si falla
 - [x] **Viáticos y rendiciones manuales (2026-09-25):** `/viaticos-manual` y `/rendiciones-manual` actualizan en silencio al detectar versión nueva (`isSilentVersionUpdateRoute`), igual que `/entradas`. El formulario vive en `localStorage`, así que la recarga no descarta lo ya escrito. El staff sigue con banner.
+- [x] **Transporte SCRN (2026-10-01):** `/transporte-scrn` auto-aplica la versión nueva al entrar (`isTransporteScrnRoute`), con el mismo apply del botón y banner restilado. En `npm run dev` no hay banner ni reload: se llama `applyPwaUpdate({ allowNuke: false, reload: () => false })` una vez por entrada para no disparar el falso positivo de `version.json`.

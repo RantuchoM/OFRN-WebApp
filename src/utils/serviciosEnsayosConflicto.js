@@ -21,7 +21,13 @@ import {
 } from "./serviciosConflictoActions";
 
 export { isEnsamblePruebaLabel };
-
+const TIPOS_PROGRAMA_CONFLICTO = new Set([
+  "Sinfónico",
+  "Sinfonica",
+  "Sinfónica",
+  "Camerata Filarmónica",
+  "Camerata Filarmonica",
+]);
 function isConvocadoGiraMark(mark) {
   return mark === "counted" || mark === "reemplazo" || mark === "licencia";
 }
@@ -61,12 +67,18 @@ export function matrixRosterFromGiraRoster(roster) {
   }
   return { counted, preAlta, reemplazo, licencia };
 }
+function isProgramaTipoConflicto(program) {
+  const tipo = String(program?.tipo || "").trim();
+  return TIPOS_PROGRAMA_CONFLICTO.has(tipo);
+}
 
 function overlappingGirasForDate(programas, fecha) {
   const day = String(fecha || "").slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return [];
   return (programas || []).filter((p) => {
     if (!p?.id || isProgramBorrador(p)) return false;
+    // Solo programas de tipo Sinfónica y Camerata Filarmónica
+    if (!isProgramaTipoConflicto(p)) return false;
     return programOverlapsDateRange(p, day, day, undefined, {
       calendarOnly: true,
     });

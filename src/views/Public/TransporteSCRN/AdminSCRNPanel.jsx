@@ -50,6 +50,7 @@ import {
   parsePlazasPasajerosFormValue,
   topeTransportePasajeros,
 } from "./scrnPlazasCapacidad";
+import { erroresRecorrido, mensajeErrorGeneral } from "./scrnFormFeedback";
 
 const initialTransporteForm = {
   nombre: "",
@@ -148,7 +149,9 @@ function DgEmojiField({
 
 function formatDateTime(value) {
   if (!value) return "-";
-  return new Date(value).toLocaleString("es-AR", {
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString("es-AR", {
     dateStyle: "medium",
     timeStyle: "short",
   });
@@ -238,6 +241,8 @@ export default function AdminSCRNPanel({
   const [datosGeneralesTab, setDatosGeneralesTab] = useState("transportes");
   const [showNuevoTransporteForm, setShowNuevoTransporteForm] = useState(false);
   const [showNuevoRecorridoForm, setShowNuevoRecorridoForm] = useState(false);
+  const [nuevoViajeErrores, setNuevoViajeErrores] = useState({});
+  const [editViajeErrores, setEditViajeErrores] = useState({});
   const [verHistorialRecorridos, setVerHistorialRecorridos] = useState(false);
   const [syncingTransportId, setSyncingTransportId] = useState(null);
   const [syncStatusByTransport, setSyncStatusByTransport] = useState({});
@@ -804,7 +809,7 @@ export default function AdminSCRNPanel({
 
     setSavingTransporte(false);
     if (error) {
-      alert(`Error creando transporte: ${error.message}`);
+      alert(mensajeErrorGeneral(error, "No se pudo crear el transporte."));
       return;
     }
     setTransporteForm(initialTransporteForm);
@@ -836,7 +841,7 @@ export default function AdminSCRNPanel({
     setSavingTransportId(null);
 
     if (error) {
-      alert(`No se pudo guardar el transporte: ${error.message}`);
+      alert(mensajeErrorGeneral(error, "No se pudo guardar el transporte."));
       return;
     }
     onDataChanged?.();
@@ -845,27 +850,21 @@ export default function AdminSCRNPanel({
 
   const createViaje = async (event) => {
     event.preventDefault();
-    if (!viajeForm.origen?.trim() || !viajeForm.destino_final?.trim()) {
-      alert("Elegí origen y destino en la lista (con búsqueda).");
-      return;
-    }
-    if (!viajeForm.id_chofer) {
-      alert("Seleccioná el chofer del recorrido.");
-      return;
-    }
-    setSavingViaje(true);
     const t =
       viajeForm.id_transporte &&
       transportes.find((x) => String(x.id) === String(viajeForm.id_transporte));
+    const errores = erroresRecorrido(viajeForm, { requireChofer: true });
     const { plazas_pasajeros, error: pzErr } = parsePlazasPasajerosFormValue(
       viajeForm.plazas_pasajeros,
       t,
     );
-    if (pzErr) {
-      alert(pzErr);
-      setSavingViaje(false);
+    if (pzErr) errores.plazas_pasajeros = pzErr;
+    if (Object.keys(errores).length) {
+      setNuevoViajeErrores(errores);
       return;
     }
+    setNuevoViajeErrores({});
+    setSavingViaje(true);
     const payload = {
       id_transporte: Number(viajeForm.id_transporte),
       id_chofer: viajeForm.id_chofer,
@@ -887,7 +886,9 @@ export default function AdminSCRNPanel({
       .single();
     setSavingViaje(false);
     if (error) {
-      alert(`Error creando viaje: ${error.message}`);
+      setNuevoViajeErrores({
+        _form: mensajeErrorGeneral(error, "No se pudo crear el recorrido."),
+      });
       return;
     }
     setViajeForm(initialViajeForm);
@@ -901,20 +902,21 @@ export default function AdminSCRNPanel({
   const updateViaje = async (id) => {
     const draft = viajeEdits[id];
     if (!draft) return;
-    const original = (viajes || []).find((v) => Number(v.id) === Number(id)) || null;
     const newTransporteId = Number(draft.id_transporte);
-
-    setSavingViajeId(id);
     const t = transportes.find((x) => String(x.id) === String(draft.id_transporte));
+    const errores = erroresRecorrido(draft, { requireChofer: true });
     const { plazas_pasajeros, error: pzErr } = parsePlazasPasajerosFormValue(
       draft.plazas_pasajeros,
       t,
     );
-    if (pzErr) {
-      alert(pzErr);
-      setSavingViajeId(null);
+    if (pzErr) errores.plazas_pasajeros = pzErr;
+    if (Object.keys(errores).length) {
+      setEditViajeErrores(errores);
       return;
     }
+    setEditViajeErrores({});
+
+    setSavingViajeId(id);
     const { error } = await supabase
       .from("scrn_viajes")
       .update({
@@ -934,7 +936,9 @@ export default function AdminSCRNPanel({
     setSavingViajeId(null);
 
     if (error) {
-      alert(`No se pudo guardar el recorrido: ${error.message}`);
+      setEditViajeErrores({
+        _form: mensajeErrorGeneral(error, "No se pudo guardar el recorrido."),
+      });
       return;
     }
     setEditingViajeId(null);
@@ -944,6 +948,7 @@ export default function AdminSCRNPanel({
 
   const cancelEditViaje = (item) => {
     setEditingViajeId(null);
+    setEditViajeErrores({});
     setViajeEdits((prev) => ({
       ...prev,
       [item.id]: viajeDraftFromItem(item),
@@ -967,19 +972,19 @@ export default function AdminSCRNPanel({
       .eq("id_viaje", id);
     if (ePaq && !isMissingTableError(ePaq)) {
       setEliminandoViajeId(null);
-      alert(`No se pudo quitar envíos vinculados: ${ePaq.message}`);
+      alert(mensajeErrorGeneral(ePaq, "No se pudieron quitar los envíos vinculados."));
       throw new Error("scrn_solicitudes_paquete");
     }
     const { error: eRes } = await supabase.from("scrn_reservas").delete().eq("id_viaje", id);
     if (eRes) {
       setEliminandoViajeId(null);
-      alert(`No se pudo quitar reservas: ${eRes.message}`);
+      alert(mensajeErrorGeneral(eRes, "No se pudieron quitar las reservas."));
       throw new Error("scrn_reservas");
     }
     const { error: eV } = await supabase.from("scrn_viajes").delete().eq("id", id);
     setEliminandoViajeId(null);
     if (eV) {
-      alert(`No se pudo eliminar el recorrido: ${eV.message}`);
+      alert(mensajeErrorGeneral(eV, "No se pudo eliminar el recorrido."));
       throw new Error("scrn_viajes");
     }
     setEditingViajeId((cur) => (Number(cur) === id ? null : cur));
@@ -1016,7 +1021,7 @@ export default function AdminSCRNPanel({
       .eq("id", id);
     setSavingLocalidadId(null);
     if (error) {
-      alert(`No se pudo guardar la localidad: ${error.message}`);
+      alert(mensajeErrorGeneral(error, "No se pudo guardar la localidad."));
       return false;
     }
     onDataChanged?.();
@@ -1046,7 +1051,7 @@ export default function AdminSCRNPanel({
       .eq("id", id);
     setSavingTipoId(null);
     if (error) {
-      alert(`No se pudo guardar el tipo de transporte: ${error.message}`);
+      alert(mensajeErrorGeneral(error, "No se pudo guardar el tipo de transporte."));
       return false;
     }
     onDataChanged?.();
@@ -1086,7 +1091,7 @@ export default function AdminSCRNPanel({
       .eq("id", id);
     setSavingUxId(null);
     if (error) {
-      alert(`No se pudo guardar el perfil de usuario: ${error.message}`);
+      alert(mensajeErrorGeneral(error, "No se pudo guardar el perfil."));
       return false;
     }
     onDataChanged?.();
@@ -1105,7 +1110,7 @@ export default function AdminSCRNPanel({
     const { error } = await supabase.from("localidades").insert({ localidad: name });
     setDgCreatingLocalidad(false);
     if (error) {
-      alert(`No se pudo crear: ${error.message}`);
+      alert(mensajeErrorGeneral(error, "No se pudo crear."));
       return false;
     }
     setDgNuevaLocalidad("");
@@ -1127,7 +1132,7 @@ export default function AdminSCRNPanel({
       .insert({ nombre, emoji: dgNuevoTipoEmoji.trim() || null });
     setDgCreatingTipo(false);
     if (error) {
-      alert(`No se pudo crear: ${error.message}`);
+      alert(mensajeErrorGeneral(error, "No se pudo crear."));
       return false;
     }
     setDgNuevoTipoNombre("");
@@ -1163,7 +1168,7 @@ export default function AdminSCRNPanel({
     const resPerfil = await ensureScrnPerfilForNewEmail(body);
     setDgCreatingPerfil(false);
     if (resPerfil.error) {
-      alert(`No se pudo crear el perfil: ${resPerfil.error}`);
+      alert(mensajeErrorGeneral(resPerfil.error, "No se pudo crear el perfil."));
       return false;
     }
     setDgNuevoPerfil({
@@ -1231,7 +1236,7 @@ export default function AdminSCRNPanel({
     if (t.type === "localidad") {
       const { error } = await supabase.from("localidades").delete().eq("id", t.id);
       if (error) {
-        alert(`No se pudo eliminar: ${error.message}`);
+        alert(mensajeErrorGeneral(error, "No se pudo eliminar."));
         throw new Error("delete-failed");
       }
     } else if (t.type === "tipo") {
@@ -1241,13 +1246,13 @@ export default function AdminSCRNPanel({
       }
       const { error } = await supabase.from("scrn_tipos_transporte").delete().eq("id", t.id);
       if (error) {
-        alert(`No se pudo eliminar: ${error.message}`);
+        alert(mensajeErrorGeneral(error, "No se pudo eliminar."));
         throw new Error("delete-failed");
       }
     } else if (t.type === "ux") {
       const { error } = await supabase.from("scrn_perfiles").delete().eq("id", t.id);
       if (error) {
-        alert(`No se pudo eliminar: ${error.message}`);
+        alert(mensajeErrorGeneral(error, "No se pudo eliminar."));
         throw new Error("delete-failed");
       }
     }
@@ -1313,7 +1318,7 @@ export default function AdminSCRNPanel({
 
     setResolvingId(null);
     if (error) {
-      alert(`No se pudo actualizar la reserva: ${error.message}`);
+      alert(mensajeErrorGeneral(error, "No se pudo actualizar la reserva."));
       return;
     }
 
@@ -1392,7 +1397,7 @@ export default function AdminSCRNPanel({
 
     if (eV || !vRow?.id) {
       setResolviendoPropId(null);
-      alert(`No se pudo crear el recorrido: ${eV?.message || "error"}`);
+      alert(mensajeErrorGeneral(eV, "No se pudo crear el recorrido."));
       return;
     }
 
@@ -1415,7 +1420,7 @@ export default function AdminSCRNPanel({
     if (eR || !rRow?.id) {
       await supabase.from("scrn_viajes").delete().eq("id", vRow.id);
       setResolviendoPropId(null);
-      alert(`No se pudo crear la reserva: ${eR?.message || "error"}`);
+      alert(mensajeErrorGeneral(eR, "No se pudo crear la reserva."));
       return;
     }
 
@@ -1448,7 +1453,7 @@ export default function AdminSCRNPanel({
         await supabase.from("scrn_reservas").delete().eq("id", rRow.id);
         await supabase.from("scrn_viajes").delete().eq("id", vRow.id);
         setResolviendoPropId(null);
-        alert(`No se pudieron guardar las demás personas: ${eP.message}`);
+        alert(mensajeErrorGeneral(eP, "No se pudieron guardar las demás personas."));
         return;
       }
     }
@@ -1465,7 +1470,10 @@ export default function AdminSCRNPanel({
 
     if (eU) {
       alert(
-        `El recorrido y la reserva se crearon, pero no se pudo marcar la propuesta como aprobada: ${eU.message}.`,
+        mensajeErrorGeneral(
+          eU,
+          "El recorrido y la reserva se crearon, pero no se pudo marcar la propuesta como aprobada.",
+        ),
       );
     }
 
@@ -1530,7 +1538,7 @@ export default function AdminSCRNPanel({
       .eq("estado", "pendiente");
     setResolviendoPropId(null);
     if (error) {
-      alert(`No se pudo rechazar: ${error.message}`);
+      alert(mensajeErrorGeneral(error, "No se pudo rechazar la propuesta."));
       return;
     }
     onDataChanged?.();
@@ -1744,7 +1752,10 @@ export default function AdminSCRNPanel({
                               <div className="shrink-0 flex flex-col sm:flex-row lg:flex-col gap-2 lg:justify-center lg:min-w-[10.5rem]">
                                 <button
                                   type="button"
-                                  onClick={() => setEditingViajeId(item.id)}
+                                  onClick={() => {
+                                    setEditViajeErrores({});
+                                    setEditingViajeId(item.id);
+                                  }}
                                   className="w-full sm:flex-1 lg:flex-none flex items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-bold uppercase tracking-wide text-slate-800 hover:bg-slate-50 hover:border-slate-400"
                                 >
                                   <IconEdit size={16} />
@@ -1823,13 +1834,26 @@ export default function AdminSCRNPanel({
                           </div>
                           <ViajeFormFields
                             values={draft}
-                            onFieldChange={(field, value) => updateViajeEdit(item.id, field, value)}
+                            onFieldChange={(field, value) => {
+                              updateViajeEdit(item.id, field, value);
+                              setEditViajeErrores((prev) => {
+                                if (!prev[field] && !prev._form) return prev;
+                                const next = { ...prev };
+                                delete next[field];
+                                delete next._form;
+                                return next;
+                              });
+                            }}
                             localidades={localidades}
                             transportes={transportes}
                             choferOptions={choferOptions}
                             showChoferField
                             fieldIdPrefix={`edit-viaje-${item.id}`}
+                            fieldErrors={editViajeErrores}
                           />
+                          {editViajeErrores._form ? (
+                            <p className="text-xs font-semibold text-rose-700">{editViajeErrores._form}</p>
+                          ) : null}
                           <div className="flex flex-wrap justify-end gap-2 pt-2 border-t border-slate-200">
                             <button
                               type="button"
@@ -1919,15 +1943,26 @@ export default function AdminSCRNPanel({
               </p>
               <ViajeFormFields
                 values={viajeForm}
-                onFieldChange={(field, value) =>
-                  setViajeForm((prev) => ({ ...prev, [field]: value }))
-                }
+                onFieldChange={(field, value) => {
+                  setViajeForm((prev) => ({ ...prev, [field]: value }));
+                  setNuevoViajeErrores((prev) => {
+                    if (!prev[field] && !prev._form) return prev;
+                    const next = { ...prev };
+                    delete next[field];
+                    delete next._form;
+                    return next;
+                  });
+                }}
                 localidades={localidades}
                 transportes={transportes}
                 choferOptions={choferOptions}
                 showChoferField
                 fieldIdPrefix="nuevo-viaje"
+                fieldErrors={nuevoViajeErrores}
               />
+              {nuevoViajeErrores._form ? (
+                <p className="text-xs font-semibold text-rose-700">{nuevoViajeErrores._form}</p>
+              ) : null}
               <div className="pt-2">
                 <button
                   type="submit"

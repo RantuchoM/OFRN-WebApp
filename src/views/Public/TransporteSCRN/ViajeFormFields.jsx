@@ -22,6 +22,7 @@ export const initialViajeForm = {
 export function toLocalInputDateTime(value) {
   if (!value) return "";
   const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
   const tzOffset = date.getTimezoneOffset() * 60000;
   return new Date(date.getTime() - tzOffset).toISOString().slice(0, 16);
 }
@@ -64,6 +65,7 @@ export function ViajeFormFields({
   choferOptions = [],
   showChoferField = false,
   fieldIdPrefix = "viaje",
+  fieldErrors = {},
 }) {
   const locOptions = useMemo(
     () => localidadesToSearchableOptions(localidades),
@@ -98,6 +100,9 @@ export function ViajeFormFields({
             placeholder="Ej: Traslado ensayo general"
             className={inputClass}
           />
+          {fieldErrors.motivo ? (
+            <p className="text-[11px] font-semibold text-rose-700">{fieldErrors.motivo}</p>
+          ) : null}
         </div>
         <div className="space-y-1">
           <div className="flex items-center gap-2 flex-wrap">
@@ -129,6 +134,9 @@ export function ViajeFormFields({
               </option>
             ))}
           </select>
+          {fieldErrors.id_transporte ? (
+            <p className="text-[11px] font-semibold text-rose-700">{fieldErrors.id_transporte}</p>
+          ) : null}
           {transporteSeleccionado ? (
             <p className="text-[11px] text-slate-500 leading-snug">
               Plazas para pasajeros:{" "}
@@ -162,6 +170,9 @@ export function ViajeFormFields({
                 </option>
               ))}
             </select>
+            {fieldErrors.id_chofer ? (
+              <p className="text-[11px] font-semibold text-rose-700">{fieldErrors.id_chofer}</p>
+            ) : null}
           </div>
         ) : null}
         <div className="space-y-1 min-w-0">
@@ -181,6 +192,9 @@ export function ViajeFormFields({
             }
             className={inputClass}
           />
+          {fieldErrors.plazas_pasajeros ? (
+            <p className="text-[11px] font-semibold text-rose-700">{fieldErrors.plazas_pasajeros}</p>
+          ) : null}
           <p className="text-[10px] text-slate-500 leading-snug">
             Opcional: limitá plazas si un asiento no se usa. Vacío = tope del transporte.
           </p>
@@ -221,6 +235,9 @@ export function ViajeFormFields({
             className={locSelectClass}
             dropdownMinWidth={280}
           />
+          {fieldErrors.origen ? (
+            <p className="text-[11px] font-semibold text-rose-700">{fieldErrors.origen}</p>
+          ) : null}
         </div>
         <div className="space-y-1">
           <label htmlFor={`${fieldIdPrefix}-fecha_salida`} className={labelClass}>
@@ -231,6 +248,7 @@ export function ViajeFormFields({
             required
             value={values.fecha_salida || ""}
             onChange={(next) => onFieldChange("fecha_salida", next)}
+            error={fieldErrors.fecha_salida || ""}
           />
         </div>
       </div>
@@ -247,6 +265,9 @@ export function ViajeFormFields({
             className={locSelectClass}
             dropdownMinWidth={280}
           />
+          {fieldErrors.destino_final ? (
+            <p className="text-[11px] font-semibold text-rose-700">{fieldErrors.destino_final}</p>
+          ) : null}
         </div>
         <div className="space-y-1">
           <label htmlFor={`${fieldIdPrefix}-fecha_llegada_estimada`} className={labelClass}>
@@ -257,6 +278,7 @@ export function ViajeFormFields({
             required
             value={values.fecha_llegada_estimada || ""}
             onChange={(next) => onFieldChange("fecha_llegada_estimada", next)}
+            error={fieldErrors.fecha_llegada_estimada || ""}
           />
           <p className="text-[10px] text-slate-500 leading-snug">
             Cuando el vehículo vuelve al origen y queda libre.
@@ -271,6 +293,7 @@ export function ViajeFormFields({
             id={`${fieldIdPrefix}-fecha_retorno`}
             value={values.fecha_retorno || ""}
             onChange={(next) => onFieldChange("fecha_retorno", next)}
+            error={fieldErrors.fecha_retorno || ""}
           />
           <p className="text-[10px] text-slate-500 leading-snug">
             Tramo de vuelta para quien solo toma la ida y vuelta.

@@ -14,6 +14,12 @@ import {
 } from "./useScrnParadasViaje";
 import { initialViajeForm, ViajeFormFields } from "./ViajeFormFields";
 import {
+  erroresRecorrido,
+  isoDesdeFechaHoraLocal,
+  mensajeErrorGeneral,
+  ScrnCampoError,
+} from "./scrnFormFeedback";
+import {
   buildTransporteOcupadoAlerta,
   findConflictingViajesForTransporte,
   propuestaOcupacionWindowFromForm,
@@ -55,6 +61,7 @@ export default function ProponerNuevoViajeModal({
   const [perfilSelectKey, setPerfilSelectKey] = useState(0);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
   const [transporteOcupadoMsg, setTransporteOcupadoMsg] = useState(null);
   const [paradasCustom, setParadasCustom] = useState(false);
   const [titularViaticosOpciones, setTitularViaticosOpciones] = useState(() => ({
@@ -118,6 +125,7 @@ export default function ProponerNuevoViajeModal({
     setPerfilSelectKey((k) => k + 1);
     setDraftManual({ nombre: "", apellido: "", email: "" });
     setError("");
+    setFieldErrors({});
     setTransporteOcupadoMsg(null);
     setParadasCustom(false);
     setTitularViaticosOpciones({ ...EMPTY_VIATICOS_OPCIONES });
@@ -157,9 +165,14 @@ export default function ProponerNuevoViajeModal({
     const a = draftManual.apellido.trim();
     const e = draftManual.email.trim();
     if (!n || !a || !e) {
-      setError("Completá nombre, apellido y email de la persona.");
+      setFieldErrors((prev) => ({
+        ...prev,
+        persona: "Completá nombre, apellido y email de la persona.",
+      }));
+      setError("");
       return;
     }
+    setFieldErrors((prev) => ({ ...prev, persona: "" }));
     setError("");
     setExtra((list) => [
       ...list,
@@ -188,48 +201,42 @@ export default function ProponerNuevoViajeModal({
     if (!user?.id) return;
 
     setError("");
-    if (!viajeForm.id_transporte) {
-      setError("Elegí un transporte.");
-      return;
-    }
+    const errores = erroresRecorrido(viajeForm, { requireChofer: false });
     const tramoRes = paradasCustom ? paradas.tramo : "ambos";
     const su = (paradasCustom ? paradas.localidad_subida : viajeForm.origen || "").trim();
     const bj = (paradasCustom ? paradas.localidad_bajada : viajeForm.destino_final || "").trim();
-    if (!su || !bj) {
-      setError(
-        "Faltan origen/destino del recorrido o subida/bajada. Elegí paradas personalizadas si hace falta.",
-      );
+    if (!su) errores.localidad_subida = "Elegí la localidad de subida.";
+    if (!bj) errores.localidad_bajada = "Elegí la localidad de bajada.";
+    if (paradasCustom && hasRutaCatalog && su && bj && !esParadaParValida(caminoPorId, su, bj)) {
+      errores.localidad_bajada = MSG_PARADA_PAR_INVALIDA;
+    }
+    if (plazasNecesarias > capSeleccionada) {
+      errores.plazas_pasajeros = `Ese transporte admite ${capSeleccionada} plaza(s) para pasajeros como máximo; estás pidiendo ${plazasNecesarias}.`;
+    }
+    if (Object.keys(errores).length) {
+      setFieldErrors(errores);
       return;
     }
-    if (paradasCustom && hasRutaCatalog && !esParadaParValida(caminoPorId, su, bj)) {
-      setError(MSG_PARADA_PAR_INVALIDA);
-      return;
-    }
+    setFieldErrors({});
 
     const win = propuestaOcupacionWindowFromForm(
       viajeForm.fecha_salida,
       viajeForm.fecha_llegada_estimada,
       viajeForm.fecha_retorno || null,
     );
-    if (!win) {
-      setError("Revisá salida, “Llega a Origen” y, si aplica, retorno para solo vuelta.");
+    if (!win || Number.isNaN(win.start.getTime()) || Number.isNaN(win.end.getTime())) {
+      setFieldErrors({
+        fecha_salida: "Revisá la salida.",
+        fecha_llegada_estimada: "Revisá la llegada a origen y, si aplica, el retorno.",
+      });
       return;
     }
     const tStart = win.start;
     const tEnd = win.end;
-    if (Number.isNaN(tStart.getTime()) || Number.isNaN(tEnd.getTime())) {
-      setError("Revisá salida, “Llega a Origen” y, si aplica, retorno para solo vuelta.");
-      return;
-    }
     if (tEnd < tStart) {
-      setError("La franja de uso del transporte no puede terminar antes de la salida.");
-      return;
-    }
-
-    if (plazasNecesarias > capSeleccionada) {
-      setError(
-        `Ese transporte admite ${capSeleccionada} plaza(s) para pasajeros como máximo (chofer y cupo fijo descontado); estás pidiendo ${plazasNecesarias} (vos inscribís + otras personas).`,
-      );
+      setFieldErrors({
+        fecha_llegada_estimada: "La franja de uso del transporte no puede terminar antes de la salida.",
+      });
       return;
     }
 
@@ -261,7 +268,7 @@ export default function ProponerNuevoViajeModal({
       });
       if (res.error) {
         setSaving(false);
-        setError(res.error);
+        setError(mensajeErrorGeneral(res.error, "No se pudo crear el perfil de la persona."));
         return;
       }
       extraConPerfil.push({ ...row, id_perfil: res.id, email: null });
@@ -284,9 +291,12 @@ export default function ProponerNuevoViajeModal({
         origen: viajeForm.origen.trim(),
         destino_final: viajeForm.destino_final.trim(),
         fecha_salida: tStart.toISOString(),
-        fecha_llegada_estimada: new Date(viajeForm.fecha_llegada_estimada).toISOString(),
+        fecha_llegada_estimada: isoDesdeFechaHoraLocal(viajeForm.fecha_llegada_estimada, {
+          required: true,
+          etiqueta: "la llegada a origen",
+        }).iso,
         fecha_retorno: viajeForm.fecha_retorno
-          ? new Date(viajeForm.fecha_retorno).toISOString()
+          ? isoDesdeFechaHoraLocal(viajeForm.fecha_retorno, { etiqueta: "el retorno" }).iso
           : null,
         observaciones: viajeForm.observaciones.trim() || null,
         tramo: tramoRes,
@@ -301,12 +311,7 @@ export default function ProponerNuevoViajeModal({
 
     if (insertError) {
       setSaving(false);
-      setError(
-        insertError.message +
-          (insertError.message?.includes("relation") || insertError.code === "42P01"
-            ? "\n(¿Se ejecutó docs/transporte-scrn-solicitud-nuevo-viaje.sql en Supabase?)"
-            : ""),
-      );
+      setError(mensajeErrorGeneral(insertError, "No se pudo enviar la propuesta."));
       return;
     }
 
@@ -372,12 +377,19 @@ export default function ProponerNuevoViajeModal({
         <form onSubmit={handleSubmit} className="p-5 space-y-5">
           <ViajeFormFields
             values={viajeForm}
-            onFieldChange={(field, value) =>
-              setViajeForm((prev) => ({ ...prev, [field]: value }))
-            }
+            onFieldChange={(field, value) => {
+              setViajeForm((prev) => ({ ...prev, [field]: value }));
+              setFieldErrors((prev) => {
+                if (!prev[field]) return prev;
+                const next = { ...prev };
+                delete next[field];
+                return next;
+              });
+            }}
             localidades={localidades}
             transportes={transportes}
             fieldIdPrefix="prop-viaje"
+            fieldErrors={fieldErrors}
           />
 
           <div className="space-y-3 border-t border-slate-200 pt-4">
@@ -465,6 +477,7 @@ export default function ProponerNuevoViajeModal({
                       placeholder="Buscar localidad de subida…"
                       className="text-sm"
                     />
+                    <ScrnCampoError>{fieldErrors.localidad_subida}</ScrnCampoError>
                   </div>
                   <div className="space-y-1">
                     <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
@@ -479,6 +492,7 @@ export default function ProponerNuevoViajeModal({
                       placeholder="Buscar localidad de bajada…"
                       className="text-sm"
                     />
+                    <ScrnCampoError>{fieldErrors.localidad_bajada}</ScrnCampoError>
                   </div>
                   <div className="space-y-1 md:col-span-2">
                     <label className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
@@ -564,6 +578,7 @@ export default function ProponerNuevoViajeModal({
                 >
                   Añadir persona
                 </button>
+                <ScrnCampoError>{fieldErrors.persona}</ScrnCampoError>
               </div>
             </div>
             {extra.length > 0 && (

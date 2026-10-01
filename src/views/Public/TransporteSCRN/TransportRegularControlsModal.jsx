@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import "./scrnTransporteLayout.css";
+import { mensajeErrorGeneral, ScrnCampoError } from "./scrnFormFeedback";
 
 export default function TransportRegularControlsModal({
   supabase,
@@ -7,6 +9,7 @@ export default function TransportRegularControlsModal({
   onClose,
 }) {
   const [errorMsg, setErrorMsg] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
   const [controlesFecha, setControlesFecha] = useState([]);
   const [controlesKm, setControlesKm] = useState([]);
   const [kmActual, setKmActual] = useState(null);
@@ -47,7 +50,7 @@ export default function TransportRegularControlsModal({
           .maybeSingle(),
       ]);
     if (fErr || kmErr || kmActErr) {
-      setErrorMsg(fErr?.message || kmErr?.message || kmActErr?.message || "Error cargando");
+      setErrorMsg(mensajeErrorGeneral(fErr || kmErr || kmActErr, "No se pudieron cargar los controles."));
       return;
     }
     setControlesFecha(fRows || []);
@@ -61,7 +64,15 @@ export default function TransportRegularControlsModal({
   }, [transporte?.id]);
 
   const addControlFecha = async () => {
-    if (!nuevoFecha.tipo.trim() || !nuevoFecha.vence_at) return;
+    const errores = {};
+    if (!nuevoFecha.tipo.trim()) errores.tipo_fecha = "Completá el tipo de control.";
+    if (!nuevoFecha.vence_at) errores.vence_at = "Completá la fecha de vencimiento.";
+    if (Object.keys(errores).length) {
+      setFieldErrors((prev) => ({ ...prev, ...errores }));
+      setErrorMsg("");
+      return;
+    }
+    setFieldErrors((prev) => ({ ...prev, tipo_fecha: "", vence_at: "" }));
     const { error } = await supabase.from("scrn_controles_vehiculos_fecha").insert({
       id_transporte: transporte.id,
       tipo: nuevoFecha.tipo.trim(),
@@ -69,13 +80,23 @@ export default function TransportRegularControlsModal({
       vence_at: nuevoFecha.vence_at,
       alertar_dias_antes: Number(nuevoFecha.alertar_dias_antes || 0),
     });
-    if (error) return setErrorMsg(error.message || "No se pudo crear control por fecha");
+    if (error) return setErrorMsg(mensajeErrorGeneral(error, "No se pudo crear el control por fecha."));
     setNuevoFecha({ tipo: "", descripcion: "", vence_at: "", alertar_dias_antes: 30 });
     await loadAll();
   };
 
   const addControlKm = async () => {
-    if (!nuevoKm.tipo.trim() || nuevoKm.proximo_km === "") return;
+    const errores = {};
+    if (!nuevoKm.tipo.trim()) errores.tipo_km = "Completá el tipo de control.";
+    if (nuevoKm.proximo_km === "" || !Number.isFinite(Number(nuevoKm.proximo_km))) {
+      errores.proximo_km = "Indicá el próximo kilometraje.";
+    }
+    if (Object.keys(errores).length) {
+      setFieldErrors((prev) => ({ ...prev, ...errores }));
+      setErrorMsg("");
+      return;
+    }
+    setFieldErrors((prev) => ({ ...prev, tipo_km: "", proximo_km: "" }));
     const { error } = await supabase.from("scrn_controles_vehiculos_kilometros").insert({
       id_transporte: transporte.id,
       tipo: nuevoKm.tipo.trim(),
@@ -83,7 +104,7 @@ export default function TransportRegularControlsModal({
       proximo_km: Number(nuevoKm.proximo_km),
       alertar_km_antes: Number(nuevoKm.alertar_km_antes || 0),
     });
-    if (error) return setErrorMsg(error.message || "No se pudo crear control por km");
+    if (error) return setErrorMsg(mensajeErrorGeneral(error, "No se pudo crear el control por kilometraje."));
     setNuevoKm({ tipo: "", descripcion: "", proximo_km: "", alertar_km_antes: 0 });
     await loadAll();
   };
@@ -111,7 +132,7 @@ export default function TransportRegularControlsModal({
       .from("scrn_controles_vehiculos_fecha")
       .update({ vence_at: nextDate, ultimo_hecho_at: new Date().toISOString() })
       .eq("id", item.id);
-    if (error) return setErrorMsg(error.message || "No se pudo renovar control por fecha");
+    if (error) return setErrorMsg(mensajeErrorGeneral(error, "No se pudo renovar el control por fecha."));
     await loadAll();
   };
 
@@ -130,13 +151,13 @@ export default function TransportRegularControlsModal({
         ultimo_hecho_km: kmActual == null ? null : Number(kmActual),
       })
       .eq("id", item.id);
-    if (error) return setErrorMsg(error.message || "No se pudo renovar control por km");
+    if (error) return setErrorMsg(mensajeErrorGeneral(error, "No se pudo renovar el control por kilometraje."));
     await loadAll();
   };
 
-  return (
+  return createPortal(
     <div
-      className="fixed inset-0 z-[230] bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4"
+      className="fixed inset-0 z-[100] bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4"
       onClick={onClose}
     >
       <div
@@ -161,6 +182,7 @@ export default function TransportRegularControlsModal({
               <input type="number" min={0} value={nuevoFecha.alertar_dias_antes} onChange={(e) => setNuevoFecha((p) => ({ ...p, alertar_dias_antes: e.target.value }))} placeholder="Alertar días antes" className="rounded border border-slate-300 px-2 py-1.5 text-sm" />
               <button type="button" onClick={() => void addControlFecha()} className="rounded border border-blue-300 bg-blue-50 text-blue-800 text-xs font-bold">Agregar</button>
             </div>
+            <ScrnCampoError>{fieldErrors.tipo_fecha || fieldErrors.vence_at}</ScrnCampoError>
             <div className="space-y-2">
               {controlesFecha.map((c) => {
                 const dias = Math.ceil((new Date(`${c.vence_at}T00:00:00`).getTime() - Date.now()) / 86400000);
@@ -183,6 +205,7 @@ export default function TransportRegularControlsModal({
               <input type="number" min={0} value={nuevoKm.alertar_km_antes} onChange={(e) => setNuevoKm((p) => ({ ...p, alertar_km_antes: e.target.value }))} placeholder="Alertar km antes" className="rounded border border-slate-300 px-2 py-1.5 text-sm" />
               <button type="button" onClick={() => void addControlKm()} className="rounded border border-blue-300 bg-blue-50 text-blue-800 text-xs font-bold">Agregar</button>
             </div>
+            <ScrnCampoError>{fieldErrors.tipo_km || fieldErrors.proximo_km}</ScrnCampoError>
             <div className="space-y-2">
               {controlesKm.map((c) => {
                 const restantes = c.proximo_km - Number(kmActual || 0);
@@ -197,6 +220,7 @@ export default function TransportRegularControlsModal({
           </section>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

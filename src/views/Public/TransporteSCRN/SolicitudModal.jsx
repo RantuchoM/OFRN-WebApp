@@ -18,6 +18,7 @@ import ScrnViaticosOpcionesFields, {
   normalizeViaticosOpciones,
 } from "./ScrnViaticosOpcionesFields";
 import { useConfirmDialog } from "../../../hooks/useConfirmDialog";
+import { mensajeErrorGeneral, ScrnCampoError } from "./scrnFormFeedback";
 
 const initialFormState = {
   tramo: "ambos",
@@ -37,13 +38,10 @@ function rowKeyForPerfil(id) {
 
 function buildPaqueteEstadoConstraintHint(error) {
   const msg = String(error?.message || "");
-  if (!/scrn_solic_paq_estado_check|check constraint/i.test(msg)) {
-    return msg || "No se pudo cancelar el paquete.";
+  if (/scrn_solic_paq_estado_check|check constraint/i.test(msg)) {
+    return "No se pudo cancelar el paquete: ese estado no está permitido.";
   }
-  return (
-    "No se pudo cancelar el paquete porque la base todavía no acepta el estado 'cancelada'.\n" +
-    "Ejecutá nuevamente: docs/transporte-scrn-solicitud-paquete.sql"
-  );
+  return mensajeErrorGeneral(error, "No se pudo cancelar el paquete.");
 }
 
 export default function SolicitudModal({
@@ -67,6 +65,7 @@ export default function SolicitudModal({
   const [perfilSelectKey, setPerfilSelectKey] = useState(0);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
   const [paradasCustom, setParadasCustom] = useState(false);
   const [existingReserva, setExistingReserva] = useState(null);
   const [existingPaquete, setExistingPaquete] = useState(null);
@@ -285,10 +284,7 @@ export default function SolicitudModal({
       .eq("id", existingReserva.id);
     if (cancelErr) {
       setSaving(false);
-      setError(
-        cancelErr.message ||
-          "No se pudo cancelar. Si sos UX, revisá políticas RLS para cancelar reservas.",
-      );
+      setError(mensajeErrorGeneral(cancelErr, "No se pudo cancelar la solicitud."));
       return;
     }
     const paxRes = await supabase
@@ -403,6 +399,7 @@ export default function SolicitudModal({
     setPerfilSelectKey((k) => k + 1);
     setDraftManual({ nombre: "", apellido: "", email: "" });
     setError("");
+    setFieldErrors({});
     setParadasCustom(false);
     setTitularViaticosOpciones({ ...EMPTY_VIATICOS_OPCIONES });
     onClose?.();
@@ -420,7 +417,11 @@ export default function SolicitudModal({
     if (!perfilId) return;
     const countHaciaCupo = existingReserva ? filasNuevas.length : extra.length;
     if (countHaciaCupo >= maxPersonas) {
-      setError("No podés añadir más personas: no hay plazas disponibles.");
+      setFieldErrors((prev) => ({
+        ...prev,
+        persona: "No podés añadir más personas: no hay plazas disponibles.",
+      }));
+      setError("");
       return;
     }
     const p = scrnPerfiles.find((x) => x.id === perfilId);
@@ -444,16 +445,25 @@ export default function SolicitudModal({
   const addManual = () => {
     const countHaciaCupo = existingReserva ? filasNuevas.length : extra.length;
     if (countHaciaCupo >= maxPersonas) {
-      setError("No podés añadir más personas: no hay plazas disponibles.");
+      setFieldErrors((prev) => ({
+        ...prev,
+        persona: "No podés añadir más personas: no hay plazas disponibles.",
+      }));
+      setError("");
       return;
     }
     const n = draftManual.nombre.trim();
     const a = draftManual.apellido.trim();
     const e = draftManual.email.trim();
     if (!n || !a || !e) {
-      setError("Completá nombre, apellido y email de la persona.");
+      setFieldErrors((prev) => ({
+        ...prev,
+        persona: "Completá nombre, apellido y email de la persona.",
+      }));
+      setError("");
       return;
     }
+    setFieldErrors((prev) => ({ ...prev, persona: "" }));
     setError("");
     setExtra((list) => [
       ...list,
@@ -487,21 +497,24 @@ export default function SolicitudModal({
       : extra;
     const need = toInsert.length;
     if (need <= 0) {
-      setError(
-        yaEstoyEnTransporte
+      setFieldErrors({
+        persona: yaEstoyEnTransporte
           ? "Agregá al menos una persona nueva para sumar a esta solicitud."
           : "Agregá al menos una persona en “Solicitar plaza para”.",
-      );
+      });
+      setError("");
       return;
     }
     if (typeof viaje.plazasDisponibles === "number" && need > viaje.plazasDisponibles) {
-      setError(
-        `Solo hay ${viaje.plazasDisponibles} plaza(s) disponible(s) en este recorrido (pedís ${need}).`,
-      );
+      setFieldErrors({
+        persona: `Solo hay ${viaje.plazasDisponibles} plaza(s) disponible(s) en este recorrido (pedís ${need}).`,
+      });
+      setError("");
       return;
     }
     if (!yaEstoyEnTransporte && typeof viaje.plazasDisponibles === "number" && viaje.plazasDisponibles <= 0) {
-      setError("Este transporte ya no tiene plazas disponibles.");
+      setFieldErrors({ persona: "Este transporte ya no tiene plazas disponibles." });
+      setError("");
       return;
     }
 
@@ -519,12 +532,17 @@ export default function SolicitudModal({
     ).trim();
     if (!su || !bj) {
       setSaving(false);
-      setError("Faltan subida o bajada. Activá “Cambiar paradas” y elegilas, o revisá el viaje.");
+      setFieldErrors({
+        localidad_subida: !su ? "Elegí la localidad de subida." : "",
+        localidad_bajada: !bj ? "Elegí la localidad de bajada." : "",
+      });
+      setError("");
       return;
     }
     if (paradasCustom && hasRutaCatalog && !esParadaParValida(caminoPorId, su, bj)) {
       setSaving(false);
-      setError(MSG_PARADA_PAR_INVALIDA);
+      setFieldErrors({ localidad_bajada: MSG_PARADA_PAR_INVALIDA });
+      setError("");
       return;
     }
 
@@ -548,7 +566,7 @@ export default function SolicitudModal({
 
       if (insertError || !resRow?.id) {
         setSaving(false);
-        setError(insertError?.message || "No se pudo crear la reserva.");
+        setError(mensajeErrorGeneral(insertError, "No se pudo crear la reserva."));
         return;
       }
       reservaId = resRow.id;
@@ -588,7 +606,7 @@ export default function SolicitudModal({
         });
         if (res.error) {
           setSaving(false);
-          setError(res.error);
+          setError(mensajeErrorGeneral(res.error, "No se pudo crear el perfil de la persona."));
           return;
         }
         toInsertConPerfil.push({ ...row, id_perfil: res.id, email: null });
@@ -611,12 +629,7 @@ export default function SolicitudModal({
         .insert(rows);
       if (paxError) {
         setSaving(false);
-        setError(
-          `${paxError.message}\n` +
-            (paxError.message?.includes("scrn_reserva_pasajeros")
-              ? "¿Ejecutaste el SQL de docs/transporte-scrn-pasajeros.sql en Supabase?"
-              : ""),
-        );
+        setError(mensajeErrorGeneral(paxError, "No se pudieron guardar las personas de la reserva."));
         return;
       }
     }
@@ -812,6 +825,9 @@ export default function SolicitudModal({
               >
                 Cambiar subida, bajada o tramo
               </button>
+              <ScrnCampoError>
+                {fieldErrors.localidad_subida || fieldErrors.localidad_bajada}
+              </ScrnCampoError>
             </div>
           ) : (
             <div className="space-y-3 border border-amber-200/80 rounded-none p-3 bg-amber-50/40">
@@ -877,6 +893,7 @@ export default function SolicitudModal({
                   placeholder="Buscar localidad de subida…"
                   className="text-sm"
                 />
+                <ScrnCampoError>{fieldErrors.localidad_subida}</ScrnCampoError>
               </div>
               <div className="space-y-1">
                 <label className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
@@ -901,6 +918,7 @@ export default function SolicitudModal({
                   placeholder="Buscar localidad de bajada…"
                   className="text-sm"
                 />
+                <ScrnCampoError>{fieldErrors.localidad_bajada}</ScrnCampoError>
               </div>
               <div className="space-y-1">
                 <label className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
@@ -1057,12 +1075,17 @@ export default function SolicitudModal({
                       >
                         Añadir persona
                       </button>
+                      <ScrnCampoError>{fieldErrors.persona}</ScrnCampoError>
                     </div>
                   </div>
                 </>
               )}
             </div>
           )}
+
+          {fieldErrors.persona && !showPasajeroForm ? (
+            <ScrnCampoError>{fieldErrors.persona}</ScrnCampoError>
+          ) : null}
 
           {!noHayLugarParaMiNuevaReserva && !sinLugarParaAcompanantes ? (
             <ScrnViaticosOpcionesFields

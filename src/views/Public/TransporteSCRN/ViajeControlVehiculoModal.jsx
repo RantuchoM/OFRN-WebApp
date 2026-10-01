@@ -1,10 +1,18 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import "./scrnTransporteLayout.css";
 import { exportControlVehiculoToPDF } from "../../../utils/pdfFormExporter";
-import { IconCheckCircle, IconClock, IconEdit, IconLoader } from "../../../components/ui/Icons";
+import { IconCheckCircle, IconClock, IconEdit, IconLoader, IconX } from "../../../components/ui/Icons";
 import DateInput from "../../../components/ui/DateInput";
 import TimeInput from "../../../components/ui/TimeInput";
 import ScrnDateTimeField from "./ScrnDateTimeField";
+import { cupoPasajerosViaje } from "./scrnPlazasCapacidad";
+import {
+  etiquetaFechaHora,
+  isoDesdeFechaHoraLocal,
+  mensajeErrorGeneral,
+  mensajeFechaHoraLocal,
+} from "./scrnFormFeedback";
 
 const PRE_ITEMS = [
   "aceite",
@@ -216,6 +224,23 @@ function mergeAcroformPayload(existing, fallback) {
   return merged;
 }
 
+const LIMPIEZA_ESTADO_LABEL = {
+  pendiente: "Pendiente",
+  programado: "Programado",
+  realizado: "Realizado",
+  cancelado: "Cancelado",
+};
+
+function DatoRecorrido({ label, value }) {
+  const text = value == null || String(value).trim() === "" ? "—" : String(value);
+  return (
+    <div className="min-w-0">
+      <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{label}</dt>
+      <dd className="text-sm text-slate-800 break-words">{text}</dd>
+    </div>
+  );
+}
+
 const toNullableInt = (value) => {
   if (value === "" || value == null) return null;
   const parsed = Number(value);
@@ -239,6 +264,7 @@ export default function ViajeControlVehiculoModal({
   const [editingLimpieza, setEditingLimpieza] = useState(false);
   const [previousTripKm, setPreviousTripKm] = useState(null);
   const [previousTripDate, setPreviousTripDate] = useState("");
+  const [choferNombre, setChoferNombre] = useState("");
   const autoSaveTimerRef = useRef(null);
   const isHydratingRef = useRef(true);
   const lastLimpiezaHashRef = useRef("");
@@ -287,6 +313,7 @@ export default function ViajeControlVehiculoModal({
       acroformPayload.general.vehiculo = transporte?.nombre || acroformPayload.general.vehiculo || "";
       acroformPayload.general.patente = transporte?.patente || acroformPayload.general.patente || "";
       if (choferNombre) acroformPayload.general.chofer = choferNombre;
+      setChoferNombre(choferNombre);
 
       setForm({
         control_previo_completo: !!controlRow?.control_previo_completo,
@@ -338,7 +365,7 @@ export default function ViajeControlVehiculoModal({
         setPreviousTripDate("");
       }
     } catch (e) {
-      setErrorMsg(e?.message || "Error cargando controles");
+      setErrorMsg(mensajeErrorGeneral(e, "No se pudieron cargar los controles."));
     } finally {
       setLoading(false);
     }
@@ -354,9 +381,9 @@ export default function ViajeControlVehiculoModal({
     id_transporte: transporte.id,
     km_retiro: toNullableInt(form.acroform_payload?.previo?.meta?.km_retiro),
     km_entrega: toNullableInt(form.acroform_payload?.posterior?.meta?.km_entrega),
-    limpieza_turno_at: form.limpieza_turno_at
-      ? new Date(form.limpieza_turno_at).toISOString()
-      : null,
+    limpieza_turno_at: isoDesdeFechaHoraLocal(form.limpieza_turno_at, {
+      etiqueta: "el turno de limpieza",
+    }).iso,
     limpieza_estado: form.limpieza_estado || "pendiente",
     limpieza_notas: (form.limpieza_notas || "").trim() || null,
     acroform_payload: {
@@ -407,23 +434,40 @@ export default function ViajeControlVehiculoModal({
     if (prevKm == null) return null;
 
     if (payload.km_retiro != null && payload.km_retiro < prevKm) {
-      return `km_retiro (${payload.km_retiro}) no puede ser menor al km del viaje anterior (${prevKm})`;
+      return {
+        field: "km_retiro",
+        message: `El km de retiro no puede ser menor al del viaje anterior (${formatKm(prevKm)} km).`,
+      };
     }
     if (payload.km_entrega != null && payload.km_entrega < prevKm) {
-      return `km_entrega (${payload.km_entrega}) no puede ser menor al km del viaje anterior (${prevKm})`;
+      return {
+        field: "km_entrega",
+        message: `El km de entrega no puede ser menor al del viaje anterior (${formatKm(prevKm)} km).`,
+      };
     }
     if (
       payload.km_retiro != null &&
       payload.km_entrega != null &&
       payload.km_entrega < payload.km_retiro
     ) {
-      return "km_entrega no puede ser menor a km_retiro";
+      return {
+        field: "km_entrega",
+        message: "El km de entrega no puede ser menor al km de retiro.",
+      };
     }
     return null;
   };
 
   const saveViajeControl = async ({ silent = false } = {}) => {
     if (!viaje?.id || !transporte?.id) return;
+    const turnoMsg = mensajeFechaHoraLocal(form.limpieza_turno_at, {
+      etiqueta: "el turno de limpieza",
+    });
+    if (turnoMsg) {
+      setErrorMsg("");
+      setSyncUiState((prev) => (prev === "error" ? "idle" : prev));
+      return;
+    }
     if (!silent) setSaving(true);
     setSyncUiState("saving");
     setErrorMsg("");
@@ -455,7 +499,10 @@ export default function ViajeControlVehiculoModal({
       }
       const kmValidationError = await validateKmBeforeSave(payload);
       if (kmValidationError) {
-        throw new Error(kmValidationError);
+        hadError = true;
+        setErrorMsg("");
+        setSyncUiState("idle");
+        return;
       }
       const limpiezaHash = JSON.stringify({
         turno: payload.limpieza_turno_at || null,
@@ -486,9 +533,7 @@ export default function ViajeControlVehiculoModal({
       }
     } catch (e) {
       hadError = true;
-      const details = [e?.message, e?.details, e?.hint].filter(Boolean).join(" · ");
-      setErrorMsg(details || "Error guardando control");
-      // Deja trazabilidad útil en consola para diagnóstico de triggers SQL
+      setErrorMsg(mensajeErrorGeneral(e, "No se pudo guardar el control."));
       console.error("Error guardando scrn_viajes_controles", e);
       setSyncUiState("error");
     } finally {
@@ -513,16 +558,6 @@ export default function ViajeControlVehiculoModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form]);
 
-
-  const updateGeneral = (field, value) => {
-    setForm((prev) => ({
-      ...prev,
-      acroform_payload: {
-        ...prev.acroform_payload,
-        general: { ...(prev.acroform_payload?.general || {}), [field]: value },
-      },
-    }));
-  };
 
   const updateChecklist = (block, itemKey, field, value) => {
     setForm((prev) => ({
@@ -589,14 +624,27 @@ export default function ViajeControlVehiculoModal({
   const lastEditedText = form.last_edited_at
     ? `Última vez editado por: ${form.last_edited_by_nombre || "Usuario"} en ${formatAuditDateTime(form.last_edited_at)}`
     : "Sin ediciones registradas";
+  const turnoCampoError = mensajeFechaHoraLocal(form.limpieza_turno_at, {
+    etiqueta: "el turno de limpieza",
+  });
+  const plazasPasajeros = cupoPasajerosViaje(viaje, transporte);
+  const vehiculoLabel = [transporte?.nombre, transporte?.tipo].filter(Boolean).join(" · ");
+  const kmRetiroMensaje = kmRetiroInvalid
+    ? `El km de retiro no puede ser menor al del viaje anterior (${formatKm(previousTripKm)} km).`
+    : "";
+  const kmEntregaMensaje = kmOrderInvalid
+    ? "El km de entrega no puede ser menor al km de retiro."
+    : kmEntregaInvalid
+      ? `El km de entrega no puede ser menor al del viaje anterior (${formatKm(previousTripKm)} km).`
+      : "";
 
   const toggleNote = (key) => {
     setOpenNotes((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
-  return (
+  return createPortal(
     <div
-      className="fixed inset-0 z-[220] bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4"
+      className="fixed inset-0 z-[100] bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4"
       onClick={onClose}
     >
       <div
@@ -630,9 +678,10 @@ export default function ViajeControlVehiculoModal({
           <button
             type="button"
             onClick={onClose}
-            className="h-8 w-8 rounded-full border border-slate-300 text-slate-600 hover:bg-slate-50"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-300 text-slate-600 hover:bg-slate-50"
+            aria-label="Cerrar"
           >
-            ×
+            <IconX size={16} />
           </button>
         </div>
         <div className="p-4 space-y-4 overflow-y-auto max-h-[calc(92vh-64px)]">
@@ -645,33 +694,32 @@ export default function ViajeControlVehiculoModal({
 
           <div className="grid md:grid-cols-2 gap-4">
             <section className="rounded-none border border-slate-200 p-3 space-y-3">
-              <h4 className="text-xs font-black uppercase text-slate-700">Control por viaje</h4>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="text-[11px] font-semibold text-slate-500">Vehículo</label>
-                  <input
-                    value={form.acroform_payload?.general?.vehiculo || ""}
-                    readOnly
-                    className="w-full rounded border border-slate-300 bg-slate-100 px-2 py-1.5 text-sm text-slate-700"
-                  />
-                </div>
-                <div>
-                  <label className="text-[11px] font-semibold text-slate-500">Patente</label>
-                  <input
-                    value={form.acroform_payload?.general?.patente || ""}
-                    readOnly
-                    className="w-full rounded border border-slate-300 bg-slate-100 px-2 py-1.5 text-sm text-slate-700"
-                  />
-                </div>
-                <div>
-                  <label className="text-[11px] font-semibold text-slate-500">Chofer</label>
-                  <input
-                    value={form.acroform_payload?.general?.chofer || ""}
-                    readOnly
-                    className="w-full rounded border border-slate-300 bg-slate-100 px-2 py-1.5 text-sm text-slate-700"
-                  />
-                </div>
-              </div>
+              <h4 className="text-xs font-black uppercase text-slate-700">Datos del recorrido</h4>
+              <dl className="grid grid-cols-2 gap-x-3 gap-y-2">
+                <DatoRecorrido label="Origen" value={viaje?.origen} />
+                <DatoRecorrido label="Destino" value={viaje?.destino_final} />
+                <DatoRecorrido label="Salida" value={etiquetaFechaHora(viaje?.fecha_salida, "—")} />
+                <DatoRecorrido
+                  label="Llega a origen"
+                  value={etiquetaFechaHora(viaje?.fecha_llegada_estimada, "—")}
+                />
+                {viaje?.fecha_retorno ? (
+                  <DatoRecorrido label="Retorno" value={etiquetaFechaHora(viaje.fecha_retorno, "—")} />
+                ) : null}
+                <DatoRecorrido label="Vehículo" value={vehiculoLabel} />
+                <DatoRecorrido label="Patente" value={transporte?.patente} />
+                <DatoRecorrido label="Chofer" value={choferNombre} />
+                <DatoRecorrido label="Plazas" value={`${plazasPasajeros} pasajeros`} />
+                <DatoRecorrido
+                  label="Bodega"
+                  value={viaje?.paquetes_bodega_llena ? "Llena" : "Con lugar"}
+                />
+              </dl>
+              {viaje?.observaciones?.trim() ? (
+                <p className="text-[11px] text-slate-600 border-t border-slate-100 pt-2 whitespace-pre-wrap">
+                  {viaje.observaciones.trim()}
+                </p>
+              ) : null}
             </section>
 
             <section className="rounded-none border border-slate-200 p-3 space-y-3">
@@ -688,11 +736,17 @@ export default function ViajeControlVehiculoModal({
               <div className="rounded border border-slate-200 bg-slate-50 p-2 text-xs text-slate-700">
                 <div>
                   <span className="text-slate-500">Turno: </span>
-                  <span className="font-semibold">{form.limpieza_turno_at || "Sin turno asignado"}</span>
+                  <span className="font-semibold">
+                    {form.limpieza_turno_at
+                      ? etiquetaFechaHora(form.limpieza_turno_at, "Sin turno asignado")
+                      : "Sin turno asignado"}
+                  </span>
                 </div>
                 <div>
                   <span className="text-slate-500">Estado: </span>
-                  <span className="font-semibold">{form.limpieza_estado || "-"}</span>
+                  <span className="font-semibold">
+                    {LIMPIEZA_ESTADO_LABEL[form.limpieza_estado] || form.limpieza_estado || "—"}
+                  </span>
                 </div>
                 <div className="mt-1 flex items-center gap-1">
                   {form.limpieza_google_calendar_event_id ? (
@@ -710,10 +764,13 @@ export default function ViajeControlVehiculoModal({
                 </div>
                 {form.limpieza_google_calendar_synced_at ? (
                   <div className="text-[11px] text-slate-500 mt-1">
-                    Última sync: {new Date(form.limpieza_google_calendar_synced_at).toLocaleString("es-AR")}
+                    Última sync: {etiquetaFechaHora(form.limpieza_google_calendar_synced_at, "—")}
                   </div>
                 ) : null}
               </div>
+              {turnoCampoError && !editingLimpieza ? (
+                <p className="text-[11px] font-semibold text-rose-700">{turnoCampoError}</p>
+              ) : null}
               {editingLimpieza && (
                 <>
                   <div>
@@ -723,6 +780,7 @@ export default function ViajeControlVehiculoModal({
                       onChange={(next) =>
                         setForm((prev) => ({ ...prev, limpieza_turno_at: next }))
                       }
+                      error={turnoCampoError}
                     />
                   </div>
                   <div>
@@ -885,9 +943,14 @@ export default function ViajeControlVehiculoModal({
                 </div>
                 {previousTripKm != null && (
                   <p className={`text-[11px] ${kmRetiroInvalid ? "text-rose-700 font-semibold" : "text-slate-500"}`}>
-                    Debe ser mayor al último registro: {formatKm(previousTripKm)} km, fecha {formatShortDateTime(previousTripDate) || "-"}. Retiro cargado: {formatKm(kmRetiroValue)} km.
+                    {kmRetiroInvalid
+                      ? kmRetiroMensaje
+                      : `Debe ser mayor al último registro: ${formatKm(previousTripKm)} km, fecha ${formatShortDateTime(previousTripDate) || "—"}. Retiro cargado: ${formatKm(kmRetiroValue)} km.`}
                   </p>
                 )}
+                {kmRetiroInvalid && previousTripKm == null ? (
+                  <p className="text-[11px] font-semibold text-rose-700">{kmRetiroMensaje}</p>
+                ) : null}
                 <div className="rounded border border-slate-200 overflow-hidden">
                   <div className="w-full">
                     <div className="md:grid md:grid-cols-[minmax(0,1fr)_320px] md:gap-2 bg-slate-50 border-b border-slate-200 text-[10px] md:text-[12px] font-black uppercase text-slate-600">
@@ -1045,14 +1108,12 @@ export default function ViajeControlVehiculoModal({
                     placeholder="KM entrega"
                   />
                 </div>
-                {previousTripKm != null && (
-                  <p className={`text-[11px] ${kmEntregaInvalid ? "text-rose-700 font-semibold" : "text-slate-500"}`}>
-                    Debe ser mayor al último registro: {formatKm(previousTripKm)} km, fecha {formatShortDateTime(previousTripDate) || "-"}. Retiro: {formatKm(kmRetiroValue)} km. Entrega: {formatKm(kmEntregaValue)} km.
-                  </p>
-                )}
-                {kmOrderInvalid && (
-                  <p className="text-[11px] text-rose-700 font-semibold">
-                    KM entrega ({formatKm(kmEntregaValue)}) debe ser mayor o igual a KM retiro ({formatKm(kmRetiroValue)}).
+                {kmEntregaMensaje ? (
+                  <p className="text-[11px] font-semibold text-rose-700">{kmEntregaMensaje}</p>
+                ) : null}
+                {previousTripKm != null && !kmEntregaMensaje && (
+                  <p className="text-[11px] text-slate-500">
+                    Debe ser mayor al último registro: {formatKm(previousTripKm)} km, fecha {formatShortDateTime(previousTripDate) || "—"}. Retiro: {formatKm(kmRetiroValue)} km. Entrega: {formatKm(kmEntregaValue)} km.
                   </p>
                 )}
                 <div className="rounded border border-slate-200 overflow-hidden">
@@ -1180,6 +1241,7 @@ export default function ViajeControlVehiculoModal({
 
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

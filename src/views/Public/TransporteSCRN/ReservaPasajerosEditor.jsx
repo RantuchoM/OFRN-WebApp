@@ -3,6 +3,7 @@ import { supabaseOficinaExterna as supabase } from "../../../services/supabase";
 import { ensureScrnPerfilForNewEmail } from "../../../services/scrnCreatePerfil";
 import AlertModal from "../../../components/ui/AlertModal";
 import ConfirmModal from "../../../components/ui/ConfirmModal";
+import { mensajeErrorGeneral } from "./scrnFormFeedback";
 import {
   paxEmailMostrar,
   paxNombreCompleto,
@@ -64,7 +65,7 @@ export default function ReservaPasajerosEditor({
       .insert(rowReservaPaxDesdePerfil({ id_reserva: reserva.id, id_perfil: p.id }));
     setBusy(false);
     if (error) {
-      setAlertModal({ title: "No se pudo añadir", message: error.message });
+      setAlertModal({ title: "No se pudo añadir", message: mensajeErrorGeneral(error, "No se pudo añadir la persona.") });
       return;
     }
     setPerfilKey((k) => k + 1);
@@ -98,7 +99,7 @@ export default function ReservaPasajerosEditor({
       .insert(rowReservaPaxDesdePerfil({ id_reserva: reserva.id, id_perfil: created.id }));
     setBusy(false);
     if (error) {
-      setAlertModal({ title: "No se pudo añadir", message: error.message });
+      setAlertModal({ title: "No se pudo añadir", message: mensajeErrorGeneral(error, "No se pudo añadir la persona.") });
       return;
     }
     setManual({ nombre: "", apellido: "", email: "" });
@@ -141,7 +142,7 @@ export default function ReservaPasajerosEditor({
       );
     setBusy(false);
     if (error) {
-      setAlertModal({ title: "No se pudo añadir la ficha", message: error.message });
+      setAlertModal({ title: "No se pudo añadir la ficha", message: mensajeErrorGeneral(error, "No se pudo añadir la ficha.") });
       return;
     }
     setFicha({ nombre: "", apellido: "", email: "", dni: "" });
@@ -157,7 +158,7 @@ export default function ReservaPasajerosEditor({
       .eq("id", paxId);
     setBusy(false);
     if (error) {
-      setAlertModal({ title: "No se pudo eliminar", message: error.message });
+      setAlertModal({ title: "No se pudo eliminar", message: mensajeErrorGeneral(error, "No se pudo eliminar.") });
       return;
     }
     setPaxIdToLiberar(null);

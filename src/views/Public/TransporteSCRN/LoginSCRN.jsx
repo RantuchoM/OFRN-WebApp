@@ -5,6 +5,7 @@ import {
 } from "../../../services/oficinaExternaAuthService";
 import OficinaExternaAccessForm from "../../../components/public/OficinaExternaAccessForm";
 import "./scrnTransporteLayout.css";
+import { mensajeErrorGeneral } from "./scrnFormFeedback";
 
 const initialProfileForm = {
   nombre: "",
@@ -28,14 +29,8 @@ export default function LoginSCRN({ user, profile, onProfileSaved, bootError = "
   );
 
   const getFriendlyProfileError = (insertError) => {
-    const rawMessage = insertError?.message || "No se pudo guardar el perfil.";
-    if (insertError?.code === "42501" || /row-level security/i.test(rawMessage)) {
-      return "No se pudo guardar por permisos RLS en Supabase. Faltan politicas INSERT/UPDATE para scrn_perfiles.";
-    }
-    if (insertError?.code === "23505") {
-      return "Ese DNI ya existe en otro perfil.";
-    }
-    return rawMessage;
+    if (insertError?.code === "23505") return "Ese DNI ya existe en otro perfil.";
+    return mensajeErrorGeneral(insertError, "No se pudo guardar el perfil.");
   };
 
   const handleProfileInput = (field) => (event) => {

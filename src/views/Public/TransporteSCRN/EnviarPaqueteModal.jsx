@@ -3,6 +3,7 @@ import "./scrnTransporteLayout.css";
 import { createPortal } from "react-dom";
 import { supabaseOficinaExterna as supabase } from "../../../services/supabase";
 import { scrnTransporteColorFromEntity } from "./scrnTransporteColor";
+import { mensajeErrorGeneral, ScrnCampoError } from "./scrnFormFeedback";
 
 const empty = {
   dimensiones_aprox: "",
@@ -21,11 +22,13 @@ export default function EnviarPaqueteModal({
   const [form, setForm] = useState(empty);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
 
   useEffect(() => {
     if (!isOpen) return;
     setForm(empty);
     setError("");
+    setFieldErrors({});
   }, [isOpen, viaje?.id]);
 
   if (!isOpen || !viaje) return null;
@@ -39,10 +42,16 @@ export default function EnviarPaqueteModal({
     const dim = String(form.dimensiones_aprox || "").trim();
     const desc = String(form.descripcion || "").trim();
     const pesoN = parseFloat(String(form.peso_kg).replace(",", "."));
-    if (!dim || !desc || Number.isNaN(pesoN) || pesoN <= 0) {
-      setError("Completá dimensiones, peso (mayor a 0) y descripción.");
+    const errores = {};
+    if (!dim) errores.dimensiones_aprox = "Completá las dimensiones.";
+    if (!desc) errores.descripcion = "Completá la descripción.";
+    if (Number.isNaN(pesoN) || pesoN <= 0) errores.peso_kg = "Indicá un peso mayor a 0.";
+    if (Object.keys(errores).length) {
+      setFieldErrors(errores);
+      setError("");
       return;
     }
+    setFieldErrors({});
     setSaving(true);
     setError("");
     const payload = {
@@ -57,7 +66,7 @@ export default function EnviarPaqueteModal({
     const { error: upErr } = await supabase.from("scrn_solicitudes_paquete").insert(payload);
     setSaving(false);
     if (upErr) {
-      setError(upErr.message || "No se pudo guardar el envío.");
+      setError(mensajeErrorGeneral(upErr, "No se pudo guardar el envío."));
       return;
     }
     onSubmitted?.();
@@ -112,6 +121,7 @@ export default function EnviarPaqueteModal({
               className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
               disabled={bodegaLlena}
             />
+            <ScrnCampoError>{fieldErrors.dimensiones_aprox}</ScrnCampoError>
           </div>
           <div>
             <label className="block text-[10px] font-bold uppercase text-slate-500 mb-0.5">
@@ -127,6 +137,7 @@ export default function EnviarPaqueteModal({
               className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
               disabled={bodegaLlena}
             />
+            <ScrnCampoError>{fieldErrors.peso_kg}</ScrnCampoError>
           </div>
           <div>
             <label className="block text-[10px] font-bold uppercase text-slate-500 mb-0.5">
@@ -141,6 +152,7 @@ export default function EnviarPaqueteModal({
               className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm min-h-24"
               disabled={bodegaLlena}
             />
+            <ScrnCampoError>{fieldErrors.descripcion}</ScrnCampoError>
           </div>
 
           {error ? (

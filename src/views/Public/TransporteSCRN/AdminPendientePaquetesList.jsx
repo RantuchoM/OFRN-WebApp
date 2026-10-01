@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { supabaseOficinaExterna as supabase } from "../../../services/supabase";
 import AlertModal from "../../../components/ui/AlertModal";
 import { scrnTransporteColorFromEntity } from "./scrnTransporteColor";
+import { mensajeErrorGeneral } from "./scrnFormFeedback";
 
 const ESTADO_OPTS = [
   { value: "pendiente", label: "Pendiente" },
@@ -65,7 +66,7 @@ export default function AdminPendientePaquetesList({ onDataChanged }) {
         setLoading(false);
         return;
       }
-      setLoadErr(pe.message);
+      setLoadErr(mensajeErrorGeneral(pe, "No se pudieron cargar los envíos."));
       setRows([]);
       setLoading(false);
       return;
@@ -131,7 +132,7 @@ export default function AdminPendientePaquetesList({ onDataChanged }) {
     if (error) {
       setAlertModal({
         title: "No se pudo guardar",
-        message: error.message || "Error al actualizar el paquete.",
+        message: mensajeErrorGeneral(error, "No se pudo actualizar el paquete."),
       });
       return;
     }

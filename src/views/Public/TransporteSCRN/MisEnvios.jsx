@@ -5,6 +5,7 @@ import { badgeClassEstadoPaquete, labelEstadoPaquete } from "./scrnPaqueteEstado
 import { isSalidaHoyOFutura } from "./viajeSalidaTemporal";
 import AlertModal from "../../../components/ui/AlertModal";
 import ConfirmModal from "../../../components/ui/ConfirmModal";
+import { mensajeErrorGeneral } from "./scrnFormFeedback";
 
 function formatDateTime(value) {
   if (!value) return "-";
@@ -16,13 +17,10 @@ function formatDateTime(value) {
 
 function buildPaqueteEstadoConstraintHint(error) {
   const msg = String(error?.message || "");
-  if (!/scrn_solic_paq_estado_check|check constraint/i.test(msg)) {
-    return msg || "No se pudo cancelar el envío.";
+  if (/scrn_solic_paq_estado_check|check constraint/i.test(msg)) {
+    return "No se pudo cancelar el envío: ese estado no está permitido.";
   }
-  return (
-    "No se pudo cancelar porque la base todavía no acepta el estado 'cancelada' en paquetería.\n" +
-    "Ejecutá nuevamente: docs/transporte-scrn-solicitud-paquete.sql"
-  );
+  return mensajeErrorGeneral(error, "No se pudo cancelar el envío.");
 }
 
 export default function MisEnvios({ user, reloadKey = 0, onGestionCambiada }) {

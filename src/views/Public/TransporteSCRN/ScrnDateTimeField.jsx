@@ -33,12 +33,13 @@ export function joinLocalDateTime(date, time) {
  * Fecha + hora con DateInput/TimeInput (limpiar y aceptar en el selector).
  * El valor sigue siendo el string de datetime-local que ya guardan los formularios SCRN.
  */
-export default function ScrnDateTimeField({ id, value, onChange, required = false }) {
+export default function ScrnDateTimeField({ id, value, onChange, required = false, error = "" }) {
   const { date, time } = splitLocalDateTime(value);
   const complete = Boolean(date && time && time.length === 5);
 
   return (
-    <div className="flex items-center gap-2">
+    <div>
+    <div className={`flex items-center gap-2 ${error ? "rounded-lg ring-1 ring-rose-400" : ""}`}>
       <div className="min-w-0 flex-1">
         <DateInput
           value={date}
@@ -76,6 +77,8 @@ export default function ScrnDateTimeField({ id, value, onChange, required = fals
           className="sr-only"
         />
       ) : null}
+    </div>
+    {error ? <p className="mt-1 text-[11px] font-semibold text-rose-700">{error}</p> : null}
     </div>
   );
 }

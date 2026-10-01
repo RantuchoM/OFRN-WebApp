@@ -24,6 +24,11 @@ export function isSilentVersionUpdateRoute(pathname = "") {
   );
 }
 
+/** Oficina de flota. No es ruta silenciosa: el banner sigue, con auto-apply al entrar. */
+export function isTransporteScrnRoute(pathname = "") {
+  return String(pathname || "").startsWith("/transporte-scrn");
+}
+
 export function postSkipWaiting(worker) {
   if (!worker || typeof worker.postMessage !== "function") return false;
   try {

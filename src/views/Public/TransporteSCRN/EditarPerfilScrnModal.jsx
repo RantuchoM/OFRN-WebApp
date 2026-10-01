@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import "./scrnTransporteLayout.css";
 import { supabaseOficinaExterna as supabase } from "../../../services/supabase";
 import { IconX } from "../../../components/ui/Icons";
+import { mensajeErrorGeneral, ScrnCampoError } from "./scrnFormFeedback";
 
 function toInputDate(value) {
   if (!value) return "";
@@ -28,6 +29,7 @@ export default function EditarPerfilScrnModal({
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
   const [message, setMessage] = useState("");
 
   useEffect(() => {
@@ -41,6 +43,7 @@ export default function EditarPerfilScrnModal({
       genero: (profile.genero || "-").trim() || "-",
     });
     setError("");
+    setFieldErrors({});
     setMessage("");
   }, [isOpen, profile]);
 
@@ -53,6 +56,15 @@ export default function EditarPerfilScrnModal({
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!user?.id || !profile) return;
+    const errores = {};
+    if (!form.nombre.trim()) errores.nombre = "Completá el nombre.";
+    if (!form.apellido.trim()) errores.apellido = "Completá el apellido.";
+    if (Object.keys(errores).length) {
+      setFieldErrors(errores);
+      setError("");
+      return;
+    }
+    setFieldErrors({});
     setSaving(true);
     setError("");
     setMessage("");
@@ -74,7 +86,7 @@ export default function EditarPerfilScrnModal({
 
     setSaving(false);
     if (upError) {
-      setError(upError.message || "No se pudo guardar.");
+      setError(mensajeErrorGeneral(upError, "No se pudo guardar el perfil."));
       return;
     }
     setMessage("Cambios guardados.");
@@ -118,6 +130,7 @@ export default function EditarPerfilScrnModal({
             placeholder="Nombre"
             autoComplete="given-name"
           />
+          <ScrnCampoError>{fieldErrors.nombre}</ScrnCampoError>
           <input
             required
             value={form.apellido}
@@ -126,6 +139,7 @@ export default function EditarPerfilScrnModal({
             placeholder="Apellido"
             autoComplete="family-name"
           />
+          <ScrnCampoError>{fieldErrors.apellido}</ScrnCampoError>
           <div>
             <label className="block text-[10px] font-bold uppercase text-slate-500 mb-0.5">
               DNI (opcional)

@@ -137,7 +137,7 @@ la reserva SCRN.
 ## 4b. Navegación, export y usuarios (2026-09-25)
 
 - Tabs **Transporte · Viáticos · Rendiciones** en el header de las tres rutas (`OficinaExternaNav`).
-- En desktop, `/transporte-scrn` muestra además Inicio · Explorar · Mis viajes · Mis paquetes (en móvil sigue la barra inferior).
+- En `/transporte-scrn` la barra de flota (desktop y bottom nav móvil) muestra Inicio · Explorar · Mis viajes · Mis paquetes, con los íconos de las tarjetas, y **Gestión** solo si `es_admin`. Sigue visible dentro de Gestión. No aparece en viáticos ni rendiciones manuales.
 - Fecha y hora de recorridos y del turno de limpieza: `DateInput` + `TimeInput` (`ScrnDateTimeField`), con **Limpiar** y **Aceptar**. El valor guardado sigue siendo `YYYY-MM-DDTHH:mm`.
 - **Mis viajes** tiene **Exportar viático** junto a Completar viático. Abre `/viaticos-manual?prefill=scrn&export=1`.
 - En Viáticos, el selector **Elegir un viaje propio para exportar** lista recorridos del usuario (titular o pasajero) y carga la planilla. El PDF se baja con el botón PDF.

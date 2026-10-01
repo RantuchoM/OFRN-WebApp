@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { supabaseOficinaExterna as supabase } from "../../../services/supabase";
 import AlertModal from "../../../components/ui/AlertModal";
+import { mensajeErrorGeneral } from "./scrnFormFeedback";
 
 const ESTADO_OPTS = [
   { value: "pendiente", label: "Pendiente" },
@@ -56,7 +57,7 @@ export default function ViajePaquetesPanel({ viajeId, onDataChanged }) {
         setRows([]);
         return;
       }
-      setLoadErr(ve.message);
+      setLoadErr(mensajeErrorGeneral(ve, "No se pudo cargar el recorrido."));
     } else {
       setBodegaLlena(Boolean(v?.paquetes_bodega_llena));
     }
@@ -73,7 +74,7 @@ export default function ViajePaquetesPanel({ viajeId, onDataChanged }) {
         setRows([]);
         return;
       }
-      setLoadErr(pe.message);
+      setLoadErr(mensajeErrorGeneral(pe, "No se pudieron cargar los envíos."));
       setRows([]);
       return;
     }
@@ -124,7 +125,7 @@ export default function ViajePaquetesPanel({ viajeId, onDataChanged }) {
     if (error) {
       setAlertModal({
         title: "No se pudo guardar",
-        message: error.message || "Error al actualizar el paquete.",
+        message: mensajeErrorGeneral(error, "No se pudo actualizar el paquete."),
       });
       return;
     }
@@ -149,7 +150,7 @@ export default function ViajePaquetesPanel({ viajeId, onDataChanged }) {
     if (error) {
       setAlertModal({
         title: "No se pudo actualizar",
-        message: error.message,
+        message: mensajeErrorGeneral(error, "No se pudo actualizar la bodega."),
       });
       return;
     }

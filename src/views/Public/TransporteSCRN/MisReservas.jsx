@@ -13,6 +13,7 @@ import {
 } from "./useScrnParadasViaje";
 import ReservaPasajerosEditor from "./ReservaPasajerosEditor";
 import { requeueAceptadaToPendiente } from "./reservaGestionUtils";
+import { mensajeErrorGeneral } from "./scrnFormFeedback";
 import {
   getFilaVal,
   normEstado,
@@ -316,7 +317,7 @@ export default function MisReservas({
         .eq("id", reserva.id);
       if (error) {
         setSavingParadas(false);
-        alert(`No se pudo guardar: ${error.message}`);
+        alert(mensajeErrorGeneral(error, "No se pudo guardar."));
         return;
       }
       if (estadoAlInicio === "aceptada") {
@@ -348,7 +349,7 @@ export default function MisReservas({
         .update({ estado: "cancelada" })
         .eq("id", id);
       if (error) {
-        alert(`No se pudo anular: ${error.message}\n` + (error.message?.includes("check") || error.message?.includes("constraint") ? "¿Existe el estado 'cancelada' en la base?" : ""));
+        alert(mensajeErrorGeneral(error, "No se pudo anular la reservación."));
         return;
       }
       cerrarEdicion();
@@ -391,10 +392,7 @@ export default function MisReservas({
       .eq("id_perfil", user.id);
     if (error) {
       setSavingPaxRow(false);
-      alert(
-        `No se pudo guardar: ${error.message}\n` +
-          (error.message?.includes("column") ? "¿Corriste docs/transporte-scrn-pasajeros-paradas.sql?" : ""),
-      );
+      alert(mensajeErrorGeneral(error, "No se pudo guardar."));
       return;
     }
     if (reserva.estado === "aceptada") {

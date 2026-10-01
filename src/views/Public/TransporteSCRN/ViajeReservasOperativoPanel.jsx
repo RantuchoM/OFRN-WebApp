@@ -2,6 +2,7 @@ import React, { Fragment, useCallback, useEffect, useMemo, useState } from "reac
 import { supabaseOficinaExterna as supabase } from "../../../services/supabase";
 import AlertModal from "../../../components/ui/AlertModal";
 import ConfirmModal from "../../../components/ui/ConfirmModal";
+import { mensajeErrorGeneral } from "./scrnFormFeedback";
 import {
   getFilaVal,
   isFilaDirty,
@@ -308,7 +309,7 @@ export default function ViajeReservasOperativoPanel({
     if (error) {
       setAlertModal({
         title: "No se pudo crear la reserva",
-        message: error.message || "Error al insertar en scrn_reservas.",
+        message: mensajeErrorGeneral(error, "No se pudo crear la reserva."),
       });
       return;
     }
@@ -352,7 +353,7 @@ export default function ViajeReservasOperativoPanel({
     if (error) {
       setAlertModal({
         title: "No se pudo guardar",
-        message: error.message || "Error desconocido al actualizar la reserva.",
+        message: mensajeErrorGeneral(error, "No se pudo actualizar la reserva."),
       });
       return;
     }
@@ -431,9 +432,7 @@ export default function ViajeReservasOperativoPanel({
     if (error) {
       setAlertModal({
         title: "No se pudo guardar",
-        message:
-          error.message ||
-          "Error al actualizar la persona. ¿Corriste docs/transporte-scrn-pasajeros-paradas.sql?",
+        message: mensajeErrorGeneral(error, "No se pudo guardar la persona."),
       });
       return;
     }
@@ -495,7 +494,7 @@ export default function ViajeReservasOperativoPanel({
     const { error } = await supabase.from("scrn_reserva_pasajeros").delete().eq("id", paxId);
     setSavingKey(null);
     if (error) {
-      setAlertModal({ title: "No se pudo quitar", message: error.message });
+      setAlertModal({ title: "No se pudo quitar", message: mensajeErrorGeneral(error, "No se pudo quitar.") });
       return;
     }
     setPaxIdToDelete(null);
@@ -518,13 +517,13 @@ export default function ViajeReservasOperativoPanel({
       .eq("id_reserva", id);
     if (pErr) {
       setSavingKey(null);
-      setAlertModal({ title: "No se pudo eliminar", message: pErr.message });
+      setAlertModal({ title: "No se pudo eliminar", message: mensajeErrorGeneral(pErr, "No se pudo eliminar.") });
       return;
     }
     const { error: rErr } = await supabase.from("scrn_reservas").delete().eq("id", id);
     setSavingKey(null);
     if (rErr) {
-      setAlertModal({ title: "No se pudo eliminar la reserva", message: rErr.message });
+      setAlertModal({ title: "No se pudo eliminar la reserva", message: mensajeErrorGeneral(rErr, "No se pudo eliminar la reserva.") });
       return;
     }
     setEdits((prev) => {

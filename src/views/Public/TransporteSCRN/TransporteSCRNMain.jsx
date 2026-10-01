@@ -153,6 +153,69 @@ const USER_AREAS = ["inicio", "explorar", "viajes", "envios"];
 const ADMIN_VIEWS = ["pendientes", "recorridos", "usuarios", "datos_generales"];
 const PENDIENTE_SECCION = ["viajes", "pasajeros", "paquetes"];
 
+function buildScrnFleetNav({
+  isAdmin,
+  userArea,
+  viewMode,
+  goHome,
+  goExplorar,
+  goViajes,
+  goEnvios,
+  goGestion,
+}) {
+  const inGestion = viewMode === "gestion";
+  const items = [
+    {
+      id: "inicio",
+      label: "Inicio",
+      shortLabel: "Inicio",
+      icon: IconHome,
+      iconClass: "text-[#0054a6]",
+      onClick: goHome,
+      active: !inGestion && userArea === "inicio",
+    },
+    {
+      id: "explorar",
+      label: "Explorar",
+      shortLabel: "Explorar",
+      icon: IconSearch,
+      iconClass: "text-[#0054a6]",
+      onClick: goExplorar,
+      active: !inGestion && userArea === "explorar",
+    },
+    {
+      id: "viajes",
+      label: "Mis viajes",
+      shortLabel: "Viajes",
+      icon: IconCar,
+      iconClass: "text-emerald-600",
+      onClick: goViajes,
+      active: !inGestion && userArea === "viajes",
+    },
+    {
+      id: "envios",
+      label: "Mis paquetes",
+      shortLabel: "Paquetes",
+      icon: IconSend,
+      iconClass: "text-rose-600",
+      onClick: goEnvios,
+      active: !inGestion && userArea === "envios",
+    },
+  ];
+  if (isAdmin) {
+    items.push({
+      id: "gestion",
+      label: "Gestión",
+      shortLabel: "Gestión",
+      icon: IconManagement,
+      iconClass: "text-sky-700",
+      onClick: goGestion,
+      active: inGestion,
+    });
+  }
+  return items;
+}
+
 function scrnPendienteBadgeClass(count, selected = false) {
   const n = Math.max(0, Number(count) || 0);
   if (n <= 0) {
@@ -477,6 +540,27 @@ export default function TransporteSCRNMain({
     setUserArea("envios");
     if (viewMode === "gestion") setViewMode("calendario");
   }, [viewMode]);
+
+  const goGestion = useCallback(() => {
+    if (!isAdmin) return;
+    setGestionLandingOpen(true);
+    setViewMode("gestion");
+  }, [isAdmin]);
+
+  const fleetNav = useMemo(
+    () =>
+      buildScrnFleetNav({
+        isAdmin,
+        userArea,
+        viewMode,
+        goHome,
+        goExplorar,
+        goViajes,
+        goEnvios,
+        goGestion,
+      }),
+    [isAdmin, userArea, viewMode, goHome, goExplorar, goViajes, goEnvios, goGestion],
+  );
 
   const refreshPendienteCounts = useCallback(async () => {
     if (!isAdmin) {
@@ -881,47 +965,30 @@ export default function TransporteSCRNMain({
         <div className="border-t border-slate-200/80 bg-white">
           <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-2 px-3 py-2 sm:px-4">
             <OficinaExternaNav tone="scrn" />
-            {viewMode !== "gestion" && (
-              <div
-                className="hidden flex-wrap gap-1 md:inline-flex"
-                aria-label="Secciones de transporte"
-              >
-                {[
-                  { id: "inicio", label: "Inicio", onClick: goHome, active: userArea === "inicio" },
-                  {
-                    id: "explorar",
-                    label: "Explorar",
-                    onClick: goExplorar,
-                    active: userArea === "explorar",
-                  },
-                  {
-                    id: "viajes",
-                    label: "Mis viajes",
-                    onClick: goViajes,
-                    active: userArea === "viajes",
-                  },
-                  {
-                    id: "envios",
-                    label: "Mis paquetes",
-                    onClick: goEnvios,
-                    active: userArea === "envios",
-                  },
-                ].map((item) => (
+            <div
+              className="hidden flex-wrap gap-1 md:inline-flex"
+              aria-label="Secciones de transporte"
+            >
+              {fleetNav.map((item) => {
+                const Icon = item.icon;
+                return (
                   <button
                     key={item.id}
                     type="button"
                     onClick={item.onClick}
-                    className={`rounded-lg px-2.5 py-1.5 text-[11px] font-bold uppercase tracking-wide ${
+                    aria-current={item.active ? "page" : undefined}
+                    className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-[11px] font-bold uppercase tracking-wide ${
                       item.active
                         ? "bg-[#e8f1fa] text-[#003d7a]"
                         : "text-slate-600 hover:bg-slate-50"
                     }`}
                   >
+                    <Icon size={13} className={item.iconClass} />
                     {item.label}
                   </button>
-                ))}
-              </div>
-            )}
+                );
+              })}
+            </div>
           </div>
         </div>
 
@@ -1076,7 +1143,8 @@ export default function TransporteSCRNMain({
                     </h2>
                     <p className="max-w-2xl text-sm leading-relaxed text-slate-600">
                       Usá las pestañas de arriba para ir a Transporte, Viáticos o Rendiciones, y
-                      Inicio, Explorar, Mis viajes o Mis paquetes para moverte dentro de la flota.
+                      Inicio, Explorar, Mis viajes{isAdmin ? ", Mis paquetes o Gestión" : " o Mis paquetes"}{" "}
+                      para moverte dentro de la flota.
                     </p>
                   </div>
                 </section>
@@ -1850,64 +1918,38 @@ export default function TransporteSCRNMain({
         )}
       </main>
 
-      {/* Navegación inferior — móvil */}
-      {viewMode !== "gestion" && (
-        <nav
-          className="scrn-bottom-nav fixed inset-x-0 bottom-0 z-40 px-1 pb-[max(0.35rem,env(safe-area-inset-bottom))] pt-0 md:hidden"
-          aria-label="Navegación principal"
+      {/* Navegación inferior — móvil. Misma flota que la barra de escritorio, también en Gestión. */}
+      <nav
+        className="scrn-bottom-nav fixed inset-x-0 bottom-0 z-40 px-1 pb-[max(0.35rem,env(safe-area-inset-bottom))] pt-0 md:hidden"
+        aria-label="Navegación principal"
+      >
+        <div
+          className={`mx-auto grid max-w-lg gap-0.5 ${
+            fleetNav.length > 4 ? "grid-cols-5" : "grid-cols-4"
+          }`}
         >
-          <div className="mx-auto grid max-w-lg grid-cols-4 gap-0.5">
-            {[
-              {
-                id: "inicio",
-                label: "Inicio",
-                icon: IconHome,
-                active: userArea === "inicio",
-                onClick: goHome,
-              },
-              {
-                id: "explorar",
-                label: "Explorar",
-                icon: IconSearch,
-                active: userArea === "explorar",
-                onClick: goExplorar,
-              },
-              {
-                id: "viajes",
-                label: "Viajes",
-                icon: IconCar,
-                active: userArea === "viajes",
-                onClick: goViajes,
-              },
-              {
-                id: "envios",
-                label: "Paquetes",
-                icon: IconSend,
-                active: userArea === "envios",
-                onClick: goEnvios,
-              },
-            ].map((item) => {
-              const Icon = item.icon;
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={item.onClick}
-                  data-active={item.active ? "true" : "false"}
-                  className={`flex flex-col items-center gap-0.5 rounded-none px-1 py-2 text-[10px] font-bold uppercase tracking-wide transition-colors ${
-                    item.active
-                      ? "bg-[#e8f1fa] text-[#003d7a]"
-                      : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"
-                  }`}
-                >
-                  <Icon size={18} />
-                  {item.label}
-                </button>
-              );
-            })}
-          </div>
-        </nav>
-      )}
+          {fleetNav.map((item) => {
+            const Icon = item.icon;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={item.onClick}
+                data-active={item.active ? "true" : "false"}
+                aria-current={item.active ? "page" : undefined}
+                className={`flex flex-col items-center gap-0.5 rounded-none px-1 py-2 text-[10px] font-bold uppercase tracking-wide transition-colors ${
+                  item.active
+                    ? "bg-[#e8f1fa] text-[#003d7a]"
+                    : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"
+                }`}
+              >
+                <Icon size={18} className={item.iconClass} />
+                {item.shortLabel}
+              </button>
+            );
+          })}
+        </div>
+      </nav>
 
       <SolicitudModal
         isOpen={modalOpen}

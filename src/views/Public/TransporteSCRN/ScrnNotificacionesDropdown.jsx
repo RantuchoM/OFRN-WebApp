@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import "./scrnTransporteLayout.css";
 import { supabaseOficinaExterna as supabase } from "../../../services/supabase";
 import { IconBell, IconX } from "../../../components/ui/Icons";
+import { mensajeErrorGeneral } from "./scrnFormFeedback";
 
 function isMissingTableError(error) {
   if (!error) return false;
@@ -86,10 +87,7 @@ export default function ScrnNotificacionesDropdown({ user, reloadToken = 0 }) {
       } else {
         console.error("scrn_notificaciones:", error);
         setMissingTable(false);
-        setLoadError(
-          String(error.message || error.details || "").trim() ||
-            "No se pudieron cargar las notificaciones (revisá permisos en Supabase).",
-        );
+        setLoadError(mensajeErrorGeneral(error, "No se pudieron cargar las notificaciones."));
         setRows([]);
       }
       setLoading(false);
