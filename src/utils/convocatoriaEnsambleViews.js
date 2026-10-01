@@ -25,6 +25,11 @@ export function isJazzBandEnsambleLabel(name) {
   return normalizeEnsambleLabel(name) === "jazz band";
 }
 
+/** Ensamble de prueba: fuera de informes de convocatoria / conflicto. */
+export function isEnsamblePruebaLabel(name) {
+  return normalizeEnsambleLabel(name) === "prueba";
+}
+
 /** Camerata: prefijo CF o Jazz Band. */
 export function isCamerataEnsambleRow(row) {
   const name = row?.ensamble ?? "";

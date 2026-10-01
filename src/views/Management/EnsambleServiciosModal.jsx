@@ -18,6 +18,7 @@ import { downloadEnsambleServiciosPdf } from "../../utils/serviciosEnsamblePdf";
 import ConflictoEnsayoActions, {
   ConflictoEnsayoLayout,
 } from "./ConflictoEnsayoActions";
+import { EnsayoConflictoOverlapTitle } from "../../components/ensayos/EnsayoImpactTags";
 import {
   applySessionResolvedToEnsambleRows,
   partitionConflictoEnsayos,
@@ -136,7 +137,7 @@ function ConcertItem({ evt }) {
   );
 }
 
-function ConflictoEventMeta({ evt }) {
+function ConflictoEventMeta({ evt, conflicto }) {
   const dur = formatEventDurationLabel(evt);
   const durText = dur && dur !== "—" ? dur : "";
   return (
@@ -151,7 +152,8 @@ function ConflictoEventMeta({ evt }) {
           </span>
         ) : null}
       </div>
-      <div className="text-xs text-slate-600">{eventTitle(evt)}</div>
+      <div className="text-xs italic text-slate-500">{eventTitle(evt)}</div>
+      <EnsayoConflictoOverlapTitle impact={conflicto} />
       {durText ? (
         <div className="text-[10px] text-slate-400">{durText}</div>
       ) : null}
@@ -177,6 +179,7 @@ function EnsambleConflictoItem({
         giras={conflicto.overlappingGiras}
         people={conflicto.people}
         resolvedKind={conflicto.resolvedKind}
+        justificacion={conflicto.justificacion}
         countButton={
           <button
             type="button"
@@ -197,7 +200,7 @@ function EnsambleConflictoItem({
           />
         }
       >
-        <ConflictoEventMeta evt={event} />
+        <ConflictoEventMeta evt={event} conflicto={conflicto} />
       </ConflictoEnsayoLayout>
     </li>
   );
@@ -285,13 +288,21 @@ export default function EnsambleServiciosModal({
     }
   };
 
-  const handleRowChanged = (event, conflicto, kind) => {
+  const handleRowChanged = (event, conflicto, kind, extra) => {
+    const justificacion =
+      extra?.justificacion ?? conflicto?.justificacion ?? null;
     onSessionResolved?.({
       eventId: event.id,
       ensambleId: report?.ensamble?.id,
       ensambleName: report?.ensambleName,
       kind,
-      ensayo: { ...conflicto, eventId: event.id, resolvedKind: kind },
+      justificacion,
+      ensayo: {
+        ...conflicto,
+        eventId: event.id,
+        resolvedKind: kind,
+        justificacion,
+      },
     });
     onChanged?.(kind);
   };
@@ -434,7 +445,9 @@ export default function EnsambleServiciosModal({
               <section className="overflow-hidden rounded-lg border border-slate-200">
                 <h4 className="flex flex-wrap items-center gap-x-2 bg-slate-50 px-3 py-1.5 text-sm font-bold text-slate-800">
                   Ensayos de ensamble
-                  <SectionCount>{report.ensayosTotal}</SectionCount>
+                  <SectionCount>
+                    {report.ensayosNeto ?? report.ensayosTotal}
+                  </SectionCount>
                   {pendingCount ? (
                     <span className="text-xs font-medium text-amber-700">
                       {pendingCount} en conflicto
@@ -459,8 +472,8 @@ export default function EnsambleServiciosModal({
                             supabase={supabase}
                             ensambles={ensambles}
                             onOpenPeople={() => setPeopleEnsayo(conflicto)}
-                            onChanged={(kind) =>
-                              handleRowChanged(event, conflicto, kind)
+                            onChanged={(kind, extra) =>
+                              handleRowChanged(event, conflicto, kind, extra)
                             }
                           />
                         ))}
@@ -490,8 +503,11 @@ export default function EnsambleServiciosModal({
                   </>
                 ) : (
                   <p className="px-3 py-3 text-xs text-slate-500">
-                    {report.ensayosTotal} ensayo
-                    {report.ensayosTotal === 1 ? "" : "s"}. Ninguno en
+                    {report.ensayosNeto ?? report.ensayosTotal} ensayo
+                    {(report.ensayosNeto ?? report.ensayosTotal) === 1
+                      ? ""
+                      : "s"}
+                    . Ninguno en
                     conflicto.
                   </p>
                 )}

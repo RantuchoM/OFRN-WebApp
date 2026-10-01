@@ -64,7 +64,7 @@ import {
   buildEnsambleServiciosReport,
   listEnsamblesForServiciosReport,
 } from "../../utils/serviciosEnsambleReport";
-import { buildEnsayosConflictoGroups } from "../../utils/serviciosEnsayosConflicto";
+import { buildEnsayosConflictoGroups, groupsWithFullConflicto, pendingFullConflictoEventIdSet } from "../../utils/serviciosEnsayosConflicto";
 import {
   SERVICIO_COLUMN_DEFS,
   SERVICIO_POR_MES_COLUMN,
@@ -728,8 +728,13 @@ export default function ServiciosCantidadReport({ supabase }) {
     };
   }, [supabase]);
 
+  const selectedCountForConflicto = (
+    selectedIntegranteIdsByMode[ensambleViewMode] || new Set()
+  ).size;
+
   useEffect(() => {
-    if (!conflictoOpen || !supabase) return undefined;
+    const needCount = selectedCountForConflicto > 0;
+    if ((!conflictoOpen && !needCount) || !supabase) return undefined;
     let cancelled = false;
     (async () => {
       setConflictoLoading(conflictoGroups.length === 0);
@@ -748,8 +753,8 @@ export default function ServiciosCantidadReport({ supabase }) {
       setConflictoGroups(
         buildEnsayosConflictoGroups({
           events: res.events,
-          ensambles,
-          integrantes,
+          ensambles: ensambles.length ? ensambles : res.ensambles,
+          integrantes: integrantes.length ? integrantes : res.integrantes,
           memberships: res.memberships,
           customRows: res.customRows,
           programas: res.programas,
@@ -763,6 +768,7 @@ export default function ServiciosCantidadReport({ supabase }) {
     };
   }, [
     conflictoOpen,
+    selectedCountForConflicto,
     supabase,
     fechaDesde,
     fechaHasta,
@@ -1027,6 +1033,11 @@ export default function ServiciosCantidadReport({ supabase }) {
     return `Estimar futuros · ${formatGiraAveragePlain(giraAverage)}`;
   }, [estimarFuturos, giraAverage]);
 
+  const pendingConflictoEventIds = useMemo(
+    () => pendingFullConflictoEventIdSet(conflictoGroups),
+    [conflictoGroups],
+  );
+
   const computeCtx = useMemo(
     () =>
       buildServiciosComputeContext({
@@ -1044,6 +1055,7 @@ export default function ServiciosCantidadReport({ supabase }) {
         estimableGiraIds,
         giraAverage,
         programasById,
+        pendingConflictoEventIds,
       }),
     [
       rosterByGiraId,
@@ -1059,6 +1071,7 @@ export default function ServiciosCantidadReport({ supabase }) {
       estimableGiraIds,
       giraAverage,
       programasById,
+      pendingConflictoEventIds,
     ],
   );
 
@@ -1084,7 +1097,9 @@ export default function ServiciosCantidadReport({ supabase }) {
 
   const bucketsByIntegranteId = useMemo(() => {
     const out = {};
-    if (!hasSelection || periodLoading || rosterLoading) return out;
+    if (!hasSelection || periodLoading || rosterLoading || conflictoLoading) {
+      return out;
+    }
     for (const row of visibleRows) {
       const iid = integranteKey(row.id);
       out[iid] = accumulateServiciosForIntegrante(iid, events, computeCtx);
@@ -1097,6 +1112,7 @@ export default function ServiciosCantidadReport({ supabase }) {
     hasSelection,
     periodLoading,
     rosterLoading,
+    conflictoLoading,
   ]);
 
   const rowGroups = useMemo(() => {
@@ -2123,7 +2139,7 @@ export default function ServiciosCantidadReport({ supabase }) {
 
       {conflictoOpen && (
         <EnsayosConflictoModal
-          groups={conflictoGroups}
+          groups={groupsWithFullConflicto(conflictoGroups)}
           loading={conflictoLoading}
           error={conflictoError}
           fechaDesde={fechaDesde}

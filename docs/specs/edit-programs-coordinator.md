@@ -38,8 +38,8 @@ Permitir que los coordinadores de ensamble editen la configuración de sus progr
 
 ### 8. Badge de convocados del ensamble
 - `ConvokedMembersBadge` se renderiza vía `dateAccessory` de `GiraCard`, **arriba de las fechas** (columna izquierda en desktop; sobre el bloque de fecha en móvil).
-- Textos: **Participan todos** si casi todos los miembros activos están convocados; **Participa 1 persona** / **Participan n personas** en caso contrario.
-- Al hacer clic (si hay convocados) muestra toast con la lista de nombres.
+- Textos: **Participan todos** solo si el roster incluye a **todos** los miembros activos del ensamble; **Participa 1 persona** / **Participan n personas** en caso contrario.
+- Al hacer clic (si hay convocados) abre un **modal** (portal `document.body`, `z-[100]`) con la lista de personas: roster de `useGiraRosterQuery` filtrado a los integrantes del ensamble coordinado (`estado_gira !== 'ausente'`). No se usa un toast ni se asume convocatoria por fuente ENSAMBLE.
 - **Alcance:** solo se muestra y se calcula el roster (`useGiraRosterQuery`) cuando hay **1 a 3 ensambles activos**. En Coordinación general / admin con todos los ensambles (o más de 3) el badge se oculta y no se dispara el fetch.
 
 ### 9. Herramientas de repertorio (Arcos / Importar / Drive)
@@ -49,6 +49,11 @@ Permitir que los coordinadores de ensamble editen la configuración de sus progr
   - **Importar Repertorio**.
   - **Sincronizar Drive**.
 - Editores y management conservan el acceso previo (Arcos para `isEditor`/`isManagement`; Importar/Sync para `isEditor` o `canEdit`).
+
+### 10. Filtro de programas visibles para el coordinador
+- Lista: `fetchCoordinatorPrograms` (`src/utils/rehearsalProgramas.js`).
+- Incluye (1) fuente `ENSAMBLE` del ensamble coordinado sin `EXCL_ENSAMBLE` de ese id, y (2) programas donde al menos un integrante está en el roster de `fetchRosterForGira` (FAMILIA, otro ensamble, o `giras_integrantes` no ausente).
+- Gira 13 *La Fuerza del Legado*: Sinfónico con FAMILIA y `EXCL_ENSAMBLE` ECAS; entra por los ECAS en `giras_integrantes`. El chip no dice «Participan todos» si solo van algunos.
 
 ## Flujo de Datos
 - `ProgramCardItem` recibe la función `onEdit`.

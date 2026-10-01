@@ -20,7 +20,7 @@ const ID_TIPO_ENSAYO_ENSAMBLE = 13;
 
 /** Select de lista. No embeber `eventos_logs` (historial se pide por evento). */
 const EVENT_SELECT = `
-    id, fecha, hora_inicio, hora_fin, tecnica, descripcion, observaciones_internas, observaciones_aforo, convocados, id_tipo_evento, id_locacion, id_gira, id_gira_transporte, id_repertorio, visible_agenda, audiencia_ofrn, created_at, created_by, creation_source, updated_at, is_deleted, deleted_at, id_estado_venue, es_didactico,
+    id, fecha, hora_inicio, hora_fin, tecnica, descripcion, observaciones_internas, observaciones_aforo, convocados, id_tipo_evento, id_locacion, id_gira, id_gira_transporte, id_repertorio, visible_agenda, audiencia_ofrn, created_at, created_by, creation_source, updated_at, is_deleted, deleted_at, ensayo_pese_conflicto, ensayo_pese_conflicto_justificacion, id_estado_venue, es_didactico,
     creador:integrantes!eventos_created_by_fkey ( id, nombre, apellido ),
     backline_descripcion, backline_monto, backline_estado, planta_escenario_url, planta_escenario_nombre, backline_incluido,
     giras_transportes ( id, detalle, transportes ( nombre, color, icon ) ),
@@ -113,12 +113,14 @@ function matchesGiraFuente(sources, userProfile, ensamblesRows, progFd) {
 }
 
 const AGENDA_CACHE_PREFIX = "agenda_cache_";
-/** Bump when the persisted snapshot shape changes (slim v11: no roster/logs/rider). */
-const AGENDA_CACHE_VERSION = "v11";
+/** Bump when the persisted snapshot shape changes (v13: ensayo_pese_conflicto_justificacion). */
+const AGENDA_CACHE_VERSION = "v13";
 /** PostgREST default max-rows is 1000; page until the date window is complete. */
 const AGENDA_PAGE_SIZE = 1000;
 const AGENDA_MAX_PAGES = 30;
 const GIRA_IDS_IN_CHUNK = 200;
+/** Ignore realtime echo of our own save for this window. */
+const LOCAL_REALTIME_ECHO_MS = 15_000;
 
 function isAbortLikeError(error, signal) {
   if (signal?.aborted) return true;
@@ -566,12 +568,13 @@ export function useAgendaData({
   const [isOfflineMode, setIsOfflineMode] = useState(!navigator.onLine);
   const [lastUpdate, setLastUpdate] = useState(() => new Date());
   const [realtimeStatus, setRealtimeStatus] = useState("CONNECTING");
+  const [hasRemoteAgendaChanges, setHasRemoteAgendaChanges] = useState(false);
 
   const abortControllerRef = useRef(null);
   const cacheWriteGenRef = useRef(0);
   const refreshTimeoutRef = useRef(null);
-  const mergeSingleEventFromRealtimeRef = useRef(null);
-  const locallyMutatedIdsRef = useRef(new Set());
+  const locallyMutatedAtRef = useRef(new Map());
+  const remoteDirtyGenRef = useRef(0);
   const itemsRef = useRef(items);
   useEffect(() => {
     itemsRef.current = items;
@@ -618,6 +621,8 @@ export function useAgendaData({
 
       if (!isBackground) setLoading(true);
       else setIsRefreshing(true);
+
+      const dirtyGenAtStart = remoteDirtyGenRef.current;
 
       const CACHE_KEY = getAgendaCacheKey(
         effectiveUserId,
@@ -1135,6 +1140,9 @@ export function useAgendaData({
         setRecentlyUpdatedEventIds(new Set());
         setIsOfflineMode(false);
         setLastUpdate(new Date());
+        if (remoteDirtyGenRef.current === dirtyGenAtStart) {
+          setHasRemoteAgendaChanges(false);
+        }
         const cacheGen = ++cacheWriteGenRef.current;
         setTimeout(() => {
           if (cacheWriteGenRef.current !== cacheGen) return;
@@ -1332,14 +1340,6 @@ export function useAgendaData({
           return merged;
         });
         setRecentlyUpdatedEventIds((prev) => new Set(prev).add(id));
-        const isOwnMutation = locallyMutatedIdsRef.current.has(id);
-        locallyMutatedIdsRef.current.delete(id);
-        if (!isOwnMutation) {
-          toast.success("Evento actualizado", {
-            id: "event-updated",
-            duration: 2000,
-          });
-        }
         return true;
       } catch (err) {
         console.warn("Error al fusionar evento en tiempo real:", err);
@@ -1360,11 +1360,14 @@ export function useAgendaData({
     ],
   );
 
-  mergeSingleEventFromRealtimeRef.current = mergeSingleEventFromRealtime;
-
   const markLocalEventMutation = useCallback((id) => {
-    if (id != null) locallyMutatedIdsRef.current.add(id);
+    if (id != null) locallyMutatedAtRef.current.set(String(id), Date.now());
   }, []);
+
+  const applyRemoteAgendaChanges = useCallback(() => {
+    setHasRemoteAgendaChanges(false);
+    return fetchAgenda(true);
+  }, [fetchAgenda]);
 
   const refreshEventById = useCallback(
     (id, { eventType = "UPDATE" } = {}) =>
@@ -1384,11 +1387,23 @@ export function useAgendaData({
         "postgres_changes",
         { event: "*", schema: "public", table: "eventos" },
         (payload) => {
+          const eventType = payload.eventType;
+          const id =
+            eventType === "DELETE" ? payload.old?.id : payload.new?.id;
+          if (id != null) {
+            const key = String(id);
+            const ts = locallyMutatedAtRef.current.get(key);
+            if (ts != null) {
+              locallyMutatedAtRef.current.delete(key);
+              if (Date.now() - ts < LOCAL_REALTIME_ECHO_MS) return;
+            }
+          }
           if (refreshTimeoutRef.current)
             clearTimeout(refreshTimeoutRef.current);
           refreshTimeoutRef.current = setTimeout(() => {
             refreshTimeoutRef.current = null;
-            mergeSingleEventFromRealtimeRef.current?.(payload);
+            remoteDirtyGenRef.current += 1;
+            setHasRemoteAgendaChanges(true);
           }, 500);
         },
       )
@@ -1418,6 +1433,8 @@ export function useAgendaData({
     lastUpdate,
     setLastUpdate,
     realtimeStatus,
+    hasRemoteAgendaChanges,
+    applyRemoteAgendaChanges,
     processCategories,
     markLocalEventMutation,
     refreshEventById,

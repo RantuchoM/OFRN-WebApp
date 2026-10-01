@@ -14,8 +14,19 @@ import {
     isEnsayoEnsambleEvent,
     stripHtml,
 } from '../../utils/eventDisplayUtils';
+import { EnsayoImpactTags, EnsayoConflictoOverlapTitle, EnsayoPeseJustificacionNote, ensayoConflictoCardTint, isPendingFullEnsayoImpact } from '../../components/ensayos/EnsayoImpactTags';
 
-export default function EventQuickView({ event, onClose, onEdit, onDelete }) {
+export default function EventQuickView({
+    event,
+    onClose,
+    onEdit,
+    onDelete,
+    impact = null,
+    supabase = null,
+    ensembleOptions = [],
+    canActConflicto = false,
+    onConflictoChanged,
+}) {
     if (!event) return null;
 
     const dateStr = format(parseISO(event.fecha), "EEEE d 'de' MMMM", { locale: es });
@@ -27,7 +38,8 @@ export default function EventQuickView({ event, onClose, onEdit, onDelete }) {
     const absents = customs.filter(c => c.tipo === 'ausente');
 
     const programs = getLinkedPrograms(event);
-    const ensambles = getEventEnsambles(event);
+    const linkedEnsambles = getEventEnsambles(event);
+    const tint = event.is_deleted ? null : ensayoConflictoCardTint(impact);
     const plainDescription = stripHtml(event.descripcion);
     const richDescription = hasHtmlMarkup(event.descripcion);
 
@@ -36,23 +48,37 @@ export default function EventQuickView({ event, onClose, onEdit, onDelete }) {
         : plainDescription || (event.tipos_evento?.nombre || "Evento");
 
     return (
-        <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-black/20 backdrop-blur-[2px]" onClick={onClose}>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/20 backdrop-blur-[2px]" onClick={onClose}>
             <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-sm overflow-hidden animate-in fade-in zoom-in duration-200" onClick={e => e.stopPropagation()}>
                 
-                <div className="h-2 w-full" style={{ backgroundColor: event.tipos_evento?.color || '#6366f1' }}></div>
+                <div className="h-2 w-full" style={{ backgroundColor: tint?.color || event.tipos_evento?.color || '#6366f1' }}></div>
                 
                 <div className="p-5">
                     <div className="flex justify-between items-start mb-3">
                         <div className="min-w-0 flex-1 pr-2">
-                            <h3 className="font-bold text-lg text-slate-800 leading-tight">
+                            <h3 className={`leading-tight ${isPendingFullEnsayoImpact(impact) ? "font-medium italic text-lg text-slate-500" : "font-bold text-lg text-slate-800"}`}>
                                 {heading}
                             </h3>
+                            {isEnsayoEnsambleEvent(event) ? (
+                                <>
+                                    <EnsayoConflictoOverlapTitle impact={impact} />
+                                    <EnsayoPeseJustificacionNote justificacion={impact?.justificacion} />
+                                </>
+                            ) : null}
                             <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100 mt-1 inline-block">
                                 {event.tipos_evento?.nombre}
                             </span>
-                            {isEnsayoEnsambleEvent(event) && ensambles.length > 0 && (
+                            {isEnsayoEnsambleEvent(event) && (
                                 <div className="flex flex-wrap gap-1 mt-2">
-                                    {ensambles.map((ens) => (
+                                    <EnsayoImpactTags
+                                        eventId={event.id}
+                                        impact={impact}
+                                        supabase={supabase}
+                                        ensambles={ensembleOptions}
+                                        canAct={canActConflicto}
+                                        onChanged={onConflictoChanged}
+                                    />
+                                    {linkedEnsambles.map((ens) => (
                                         <span
                                             key={ens.id}
                                             className="text-[11px] font-semibold uppercase text-slate-600 bg-slate-100 border border-slate-200 px-2 py-1 rounded"

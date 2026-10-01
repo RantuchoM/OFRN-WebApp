@@ -353,6 +353,17 @@ export function resolveServicioForIntegrante(evt, integranteId, ctx) {
   if (!eventMatchesGiraFilter(evt, giraIdFilter)) return null;
 
   if (classified.kind.startsWith("ensayo_ensamble")) {
+    const pending = ctx.pendingConflictoEventIds;
+    if (pending instanceof Set && pending.size) {
+      const eid = evt?.id;
+      if (
+        pending.has(Number(eid)) ||
+        pending.has(eid) ||
+        pending.has(String(eid))
+      ) {
+        return null;
+      }
+    }
     if (evt.id_gira != null && draftGiraIds.has(evt.id_gira)) return null;
     if (
       !isIntegranteConvocadoToEnsayo(

@@ -1230,4 +1230,23 @@ En BD se habían perdido los nombres de los movimientos II y IV (quedaban `1. A-
 - [x] **Weill, concierto para violín op. 12** (obra **3652**): 14 particellas + SCORE. Universal Edition U.E. 8340 (IMSLP PMLP659197). Flauta 2 lleva el piccolo; clarinetes Sib/La en la misma parte; batería en un solo PDF. Carpeta `Weill, K. - Concierto para Violín, Op. 12`.
 - [x] `link_drive` queda en Para acomodar. Seed `supabase/seed_temporada_2027_octet_weill_sync.sql`.
 
+---
+
+### Completado (2026-09-30) — Villa-Lobos, Bachiana brasileira Nro. 9, W449 (obra 3654)
+
+Obra ya existente **3654** (Heitor Villa-Lobos, compositor 348). No se creó otra. Sigue en `repertorio_obras` **674** (`id_repertorio` 87, bloque «Repertorio»); `titulo_concierto` es null, así que el programa toma `obras.titulo`. No se tocó esa fila ni la obra **3254** (solo el preludio, otra carpeta).
+
+Fuente: [Bachianas brasileiras No.9, W449](https://imslp.org/wiki/Bachianas_brasileiras_No.9,_W449_(Villa-Lobos,_Heitor)). Partes de cuerdas IMSLP [#569700](https://imslp.org/wiki/Special:ReverseLookup/569700)–[#569705](https://imslp.org/wiki/Special:ReverseLookup/569705) (PMLP898487). El score dice «Para orquestra des vozes ou de cordes» (New York, 1945); este juego es el de cuerdas (violín I/II, viola, violonchelo, contrabajo) e incluye Prelúdio y Fuga. Viola y contrabajo: la página 1 es solo el título, sin música, y se excluyó. SCORE (20 p.), violines y violonchelo empiezan en música: sin recorte. `link_drive` = carpeta en Para acomodar (**no** `copiar_carpeta_a_archivo`).
+
+Carpeta [Para acomodar](https://drive.google.com/open?id=13yY39hrqFNPyECR3J2oQ2y_twyhsK-pe), renombrada a `Villa-Lobos, H. - Bachiana brasileira Nro. 9`. **6 PDFs** canónicos `… - W449. Bachiana brasileira Nro. 9 - Villa-Lobos, H.pdf` → **6** filas en `obras_particellas` (SCORE + 5 sillas). Sin audio. Año 1945 y duración 540 s se dejaron como estaban. El trigger dejó `instrumentacion` = `Str`. Seed ejecutado en el proyecto linked: `supabase/seed_bachiana9_sync.sql`.
+
+`obras.titulo` pasó de `<p>…</p><p>&nbsp;&nbsp;I. …</p>` al HTML de programa con `<div>&nbsp; I. …</div>`.
+
+- [x] PDFs `%PDF-`, tamaño > 0; viola 4 p. y contrabajo 3 p. empiezan en «Vagaroso e Mistico»
+- [x] 6/6 en Drive y en `obras_particellas` (ids 17302–17307), con `url_archivo`
+- [x] Obra 3654 Oficial; `link_drive` = Para acomodar; `repertorio_obras` 674 intacto
+- [ ] Obra 3254 sigue con 6 partes viejas del preludio en otra carpeta (`1Gx0CCc8mjJnETLIGCqjjqjHeUfzWP2kH`)
+
+Scripts: `scripts/lib/bachiana9Catalog.mjs`, `scripts/process-bachiana9-local.mjs`, `scripts/generate-bachiana9-sync.mjs`.
+
 

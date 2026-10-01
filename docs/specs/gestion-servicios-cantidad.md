@@ -108,14 +108,25 @@ HTML, PDF (listado/detalle/lote) y Excel muestran el 10. El detalle lista filas 
 
 Modal **«Ensayos en conflicto»** (botón en la barra de Servicios; Portal `z-[100]`, `IconAlertTriangle`). **No** espera la selección de integrantes: carga al abrir, con spinner.
 
-**Conflicto:** un ensayo de ensamble (`id_tipo_evento = 13`, no técnico, no borrado) tiene al menos un **miembro** convocado a una **gira** cuyo `fecha_desde`–`fecha_hasta` solapa la fecha del ensayo (`programOverlapsDateRange` `calendarOnly`).
+**Conflicto pleno:** un ensayo de ensamble (`id_tipo_evento = 13`, no técnico, no borrado) solapa el calendario de una gira (`programOverlapsDateRange` `calendarOnly` sobre `fecha_desde`/`fecha_hasta`) **y** el ensamble **como grupo** está convocado: `classifyProgramaEnsambleConvocatoria` = `convocado` (fuente `ENSAMBLE` de ese id, o `FAMILIA` = `ensambles.id_familia`, o `CF` vía `ensambles_cf`) **sin** `EXCL_ENSAMBLE` de ese id. **No** hace falta que haya gente en el roster. Agenda/Lista lo calculan en memoria (eventos + **un** bulk de `programas`+`giras_fuentes` + catálogo ensambles/CF). **Nunca** `fetchRosterForGira` por fila ni en UnifiedAgenda.
+
+**Tutti - N (no es conflicto pleno):** el criterio pleno es **falso**, pero hay integrantes de **ese** ensamble en el roster real de seating (`fetchRosterForGira` / `useGiraRoster`: counted / R / L; `ausente` no cuenta): (1) el ensamble **está** `EXCL_ENSAMBLE` y quedan overrides personales, o (2) **no** se convocó ni ensamble ni CF ni familia, y aun así hay gente en el roster. Universal (cualquier ensamble/gira). **UI solo en Coordinación → Lista**. Seating: **una** query por gira candidata del rango visible, **en serie** y memoizada — no por ensayo. **No** se muestra en UnifiedAgenda ni en Coordinación Calendario. No entra al modal de conflictos ni a la cantidad (Tutti-N **sí** cuenta).
+
+En el modal Tutti-N, los checkboxes **no** marcan quién falta: tildar = **asiste igual al ensayo** pese a estar convocado a la gira. Default destildado. Persistencia: `eventos_asistencia_custom.tipo = asiste_igual`. Helper: «Tildá si asiste igual al ensayo a pesar de estar convocado a la gira.»
 
 - Miembro: `membershipActiveOnProgramDate` en ese ensamble el día del ensayo, más invitados/adicionales de `isIntegranteConvocadoToEnsayo`.
-- Convocado a gira: `resolveGiraRosterForMatrix` + `getAsistenciaMatrixCellMark` counted / R / L. Ausente sin abono y pre-alta **no**. Borrador no entra.
+- Roster de conflicto pleno: no se usa seating. Tutti-N (solo Lista): `fetchRosterForGira` lite, una gira a la vez. La matriz de Servicios de gira sigue usando `resolveGiraRosterForMatrix`. Ausente sin abono y pre-alta **no**. Borrador no entra.
 - Ensambles: `filterEnsamblesForConvocatoriaView` (ensambles + cameratas). **Prueba** excluido.
+
 - Agrupado por ensamble. Cada fila: a la izquierda fecha `dd/MM/yyyy, weekday` en minúsculas (`formatDdMmYyyyWeekday`, p. ej. `18/02/2026, miércoles`) + horario, título (`stripHtml`) y duración; **arriba a la derecha**, el nombre del programa/gira superpuesto en texto compacto secundario (`text-[10px]`, `nomenclador` + `nombre_gira`); debajo, los 3 botones de acción y el **número clickeable** de personas (triángulo). El número abre un segundo Portal `z-[110]` con nombre + `nomenclador` + `nombre_gira`. Si hay varias giras, se listan (la principal = más personas afectadas; el badge sigue siendo el conteo de personas).
 - Pendientes arriba. Resueltos abajo, con encabezado **«Se ensayó igual»** (solo ese kind) o **«Resueltos»** (si hay borrados/reprogramados en la sesión). `ensayo_pese_conflicto` sigue viniendo del query tras recargar. «No se ensayó» / «Otro día» se guardan en estado local de sesión (`conflictoSessionByEventId` en `ServiciosCantidadReport`) y se reinsertan si el refetch ya no los trae; desaparecen al recargar la página (o al cambiar el rango de fechas).
 - Rango = el mismo desde/hasta de Servicios.
+
+**Cantidad:** un ensayo en **conflicto pleno pendiente** no suma (0) aunque dure ≥2 h. Tras **Se ensayó igual** aplica la fórmula normal (1 / ½ / 0). **No se ensayó** = 0 (borrado). **Otro día** = el evento nuevo cuenta si ya no está en conflicto pleno. Tutti-N **sí** cuenta (no es conflicto pleno). `resolveServicioForIntegrante` recibe `pendingConflictoEventIds`. El total neto del informe de ensamble (`ensayosNeto`) resta solo pendientes plenos. HTML, Excel y PDF (listado, detalle, informe ensamble) usan el mismo ctx.
+
+**Agenda / Coordinación:** el mismo util. Tag ámbar **«Ensayo en conflicto»** (color de tarjeta distinto) + clic → `ConflictoEnsayoActions` (No se ensayó / Se ensayó igual / Otro día). Título del evento en cursiva gris **solo** si el conflicto pleno está pendiente; al lado/debajo, el nombre de gira superpuesto (`nomenclador` + `nombre_gira`, más grande que el tag). Superficies de conflicto: UnifiedAgenda (móvil y escritorio), Coordinación Lista, Coordinación Calendario + `EventQuickView`. Tutti-N **solo** Coordinación Lista. Staff y coordinador del ensamble pueden actuar; el músico ve el tag de conflicto.
+
+Modal **«Ensayos en conflicto»** (botón en la barra de Servicios; Portal `z-[100]`, `IconAlertTriangle`). **No** espera la selección de integrantes: carga al abrir, con spinner.
 
 ## Informe de un ensamble
 
@@ -144,7 +155,7 @@ Staff (admin/editor, misma pantalla Servicios). En el modal de conflictos y en e
 | Acción | Persistencia | Efecto |
 |--------|--------------|--------|
 | **No se ensayó** | `eventos.is_deleted` + `deleted_at` (mismo path que Agenda / `IndependentRehearsalForm`) + `notifyEnsayoEventoSoftDeleted` | En sesión queda como resuelto; al recargar desaparece (el query filtra `is_deleted`) |
-| **Se ensayó igual** | `eventos.ensayo_pese_conflicto = true` (default false). Migración `20260927002345_eventos_ensayo_pese_conflicto.sql` | El evento queda; el query de conflicto lo **incluye** con `resolvedKind = kept` y se lista bajo **«Se ensayó igual»** |
+| **Se ensayó igual** | `eventos.ensayo_pese_conflicto = true` **y** `ensayo_pese_conflicto_justificacion` (texto no vacío). Migraciones `20260927002345` + `20260930190100`. El trigger ignora un UPDATE **solo** del flag; flag+justificación pisa `updated_at` de **ese** evento. | El evento queda; el query de conflicto lo **incluye** con `resolvedKind = kept` y se lista bajo **«Se ensayó igual»** con la justificación. Confirmación: textarea obligatorio (`ConfirmModal` Portal `z-[110]`). |
 | **Se ensayó otro día** | `IndependentRehearsalForm` (mismo save que Coordinación/Agenda: fecha, hora, locación) | En sesión queda como resuelto; al recargar, si la fecha nueva ya no solapa giras, no vuelve |
 
 Confirmaciones Portal `z-[110]` sobre el modal `z-[100]`. No hay tabla extra: un flag por evento, como `is_deleted`.
@@ -153,8 +164,9 @@ Confirmaciones Portal `z-[110]` sobre el modal `z-[100]`. No hay tabla extra: un
 
 | Pieza | Ruta |
 |-------|------|
-| UI | `src/views/Management/ServiciosCantidadReport.jsx`, `EnsayosConflictoModal.jsx`, `EnsambleServiciosModal.jsx`, `ConflictoEnsayoActions.jsx`; familia/CF en `EnsemblesView.jsx` |
-| Cálculo | `src/utils/serviciosCantidad.js`, `src/utils/serviciosEnsayosConflicto.js`, `src/utils/serviciosEnsambleReport.js`, `src/utils/serviciosConflictoActions.js` |
+| UI | `ServiciosCantidadReport.jsx`, `EnsayosConflictoModal.jsx`, `EnsambleServiciosModal.jsx`, `ConflictoEnsayoActions.jsx`; agenda: `EnsayoImpactTags.jsx` / `EnsayoConflictoTag.jsx` / `EnsayoTuttiMinusTag.jsx`; Coordinación: `EnsembleCoordinatorView.jsx`, `EnsembleCalendar.jsx`, `EventQuickView.jsx` |
+| Cálculo | `serviciosCantidad.js`, `serviciosEnsayosConflicto.js`, `serviciosEnsambleReport.js`, `serviciosConflictoActions.js` |
+| Hook agenda/coordinación | `src/hooks/useEnsayosConflictoImpact.js` (`fetchConflictoAgendaContext`, Tutti-N serial) |
 | Fetch período / Excel / PDF listado-detalle | `src/services/serviciosCantidadService.js` |
 | PDF informe ensamble | `src/utils/serviciosEnsamblePdf.js` + `src/utils/serviciosPdf.js` (`toServiciosPdfText`) |
 | Descarga móvil y escritorio | `src/utils/downloadBlob.js` |
@@ -187,6 +199,13 @@ Confirmaciones Portal `z-[110]` sobre el modal `z-[100]`. No hay tabla extra: un
 | Familia/CF persistidos (`id_familia`, `ensambles_cf` N:N) en Ensambles | Completado |
 | Acciones de ensayo en conflicto (borrar / se ensayó / otro día) | Completado |
 | Fila de conflicto: fecha+weekday a la izquierda; gira superpuesta compacta arriba a la derecha; resueltos visibles | Completado |
+| Pendiente pleno no suma a cantidad (HTML/PDF/Excel/informe ensamble) | Completado (2026-09-30) |
+| Conflicto pleno vs Tutti-N (EXCL + overrides de roster) | Completado (2026-09-30) |
+| Tag + acciones de conflicto en UnifiedAgenda y Coordinación (Lista, Calendario) | Completado (2026-09-30) |
+| Tutti-N solo Coordinación → Lista (seating serial por gira, no por fila) | Completado (2026-09-30) |
+| Tutti-N: tildar = asiste igual; default destildado; `asiste_igual` | Completado (2026-09-30) |
+| Agenda: conflicto en memoria + 1 bulk fuentes; sin N getSession | Completado (2026-09-30) |
+| Justificación obligatoria «Se ensayó igual» (`ensayo_pese_conflicto_justificacion`) | Completado (2026-09-30) |
 
 ## Deuda / abierto
 
@@ -204,9 +223,10 @@ Confirmaciones Portal `z-[110]` sobre el modal `z-[100]`. No hay tabla extra: un
 - El 10 fijo no refleja giras cortas (p. ej. Navidad Coral); solo pisa sinfónicas futuras.
 - El estimado reparte 10 en Conc./≥2h (1+9); no mete bloques de 15/30 min.
 - `computeGiraServiciosAverage` queda en el util por si se vuelve a la media empírica; el informe ya no la usa.
-- Ensayos en conflicto: al abrir pide nómina de **todas** las giras no-borrador que solapan el rango (puede tardar). No cruza hora del ensayo con hora de viaje (solo calendario `fecha_desde`/`fecha_hasta`). Ensambles Prod. quedan fuera por el filtro de convocatoria.
+- Ensayos en conflicto: Agenda no pide seating. El modal de Servicios arma grupos sin N `fetchRosterForGira` (pleno = classify + overlap). No cruza hora del ensayo con hora de viaje (solo calendario `fecha_desde`/`fecha_hasta`). Ensambles Prod. quedan fuera por el filtro de convocatoria.
 - Informe de ensamble: familia/CF salen de `ensambles.id_familia` / `ensambles_cf` (el staff las carga; varias regionales aún sin CF). El bundle pide de nuevo nómina de giras. No se inventan membresías a Jazz Band. Conciertos de programa Ensamble se anidan por `id_gira` / `eventos_programas_asociados`; `eventos_ensambles` no los cubre (ensayos independientes). `eventos_giras_asociadas` existe en schema y no se usa. El PDF no incluye Coordinación (no está en el HTML). Helvetica dibuja acentos latinos pero no flechas; `toServiciosPdfText` sigue siendo obligatorio. El recuadro de tipos de programa del PDF persona no se replica aquí (el informe de ensamble no es por músico).
 - `ensayo_pese_conflicto` no tiene historial ni autor; revertir es poner el flag en false (no hay UI de deshacer).
-- Alta de `ensayo_pese_conflicto` (`20260927002345`): catalog-only, no pisó `updated_at`. Los triggers de agenda **ignoran** un UPDATE que solo cambia ese flag (`20260927005059`), para no marcar toda la agenda como recién editada.
+- Tutti-N `asiste_igual` no cambia convocatoria ni cantidad: es un override de coordinación (quién asiste al ensayo pese a la gira). `IndependentRehearsalForm` preserva esas filas al guardar invitados/ausentes.
+- Alta de `ensayo_pese_conflicto` (`20260927002345`): catalog-only, no pisó `updated_at`. Los triggers de agenda **ignoran** un UPDATE que solo cambia ese flag (`20260927005059`), para no marcar toda la agenda como recién editada. `ensayo_pese_conflicto_justificacion` (`20260930190100`, text NULL) **no** entra en esa lista: guardar «Se ensayó igual» (flag + texto) pulsa **ese** evento.
 - «Otro día» abre el formulario completo de ensayo (ensambles/programas/asistencia), no un editor mínimo de fecha.
 - Filas «No se ensayó» / «Otro día» resueltas viven solo en estado de sesión del informe (`conflictoSessionByEventId`); no hay bitácora. Cerrar el modal no las borra; recargar la página sí. Un «Se ensayó igual» de otra pestaña no aparece hasta refetch/reload.

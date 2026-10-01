@@ -2,6 +2,8 @@ import ExcelJS from "exceljs";
 import { XLSX_MIME } from "../utils/downloadBlob";
 import autoTable from "jspdf-autotable";
 import { resolveGiraRosterForMatrix } from "./giraService";
+import { fetchRosterForGira } from "../hooks/useGiraRoster";
+import { matrixRosterFromGiraRoster } from "../utils/serviciosEnsayosConflicto";
 import { formatDdMmYyyy } from "../utils/dates";
 import {
   PDF_BORDER,
@@ -40,14 +42,18 @@ import {
 import { currentYearBounds } from "../utils/girasYearSummary";
 import { integranteKey } from "../utils/integranteIds";
 import { formatProgramSelectLabel } from "../utils/giraUtils";
+import { attachEnsambleCfIds } from "../utils/serviciosEnsambleReport";
 
 const PAGE_SIZE = 1000;
 const MAX_PAGES = 40;
 const IN_CHUNK = 200;
 const ROSTER_CONCURRENCY = 8;
 
+const PROGRAMAS_FUENTES_SELECT = `id, nomenclador, mes_letra, nombre_gira, subtitulo, tipo, fecha_desde, fecha_hasta, zona, estado,
+            giras_fuentes ( id, tipo, valor_id, valor_texto )`;
+
 const EVENT_SELECT = `
-  id, fecha, hora_inicio, hora_fin, tecnica, is_deleted, ensayo_pese_conflicto, id_tipo_evento, id_gira, id_locacion, es_didactico, descripcion,
+  id, fecha, hora_inicio, hora_fin, tecnica, is_deleted, ensayo_pese_conflicto, ensayo_pese_conflicto_justificacion, id_tipo_evento, id_gira, id_locacion, es_didactico, descripcion,
   tipos_evento ( id, nombre ),
   locaciones ( id, nombre ),
   eventos_ensambles ( id_ensamble ),
@@ -240,8 +246,117 @@ export async function resolveRostersForPrograms(supabase, programas) {
 }
 
 /**
- * Ensayos de ensamble (tipo 13) + membresías + giras que solapan el rango
- * y su nómina (counted / R / L). Se pide al abrir el modal de conflictos.
+ * Catálogo ensambles+CF + programas con `giras_fuentes` que solapan el rango.
+ * Una sola tanda (no N queries). Sirve para detectar conflicto pleno en memoria.
+ */
+export async function fetchConflictoAgendaContext(
+  supabase,
+  { fechaDesde, fechaHasta } = {},
+) {
+  if (!supabase) {
+    return { programas: [], ensambles: [], error: null };
+  }
+  const range = normalizeDateRange(fechaDesde, fechaHasta);
+  try {
+    const programasRaw = await fetchAllPaged(() =>
+      supabase
+        .from("programas")
+        .select(PROGRAMAS_FUENTES_SELECT)
+        .lte("fecha_desde", range.fechaHasta)
+        .or(`fecha_hasta.gte.${range.fechaDesde},fecha_hasta.is.null`),
+    );
+    const ensamblesRaw = await supabase
+      .from("ensambles")
+      .select("id, ensamble, id_familia")
+      .order("ensamble");
+    const ensCfRaw = await supabase
+      .from("ensambles_cf")
+      .select("id_ensamble, id_ensamble_cf");
+    if (ensamblesRaw.error) throw ensamblesRaw.error;
+    if (ensCfRaw.error) throw ensCfRaw.error;
+    return {
+      programas: (programasRaw || []).filter((p) => !isProgramBorrador(p)),
+      ensambles: attachEnsambleCfIds(
+        ensamblesRaw.data || [],
+        ensCfRaw.data || [],
+      ),
+      error: null,
+      ...range,
+    };
+  } catch (e) {
+    console.error("[serviciosCantidad] conflicto agenda context:", e);
+    return { programas: [], ensambles: [], error: e, ...range };
+  }
+}
+
+const liteSeatingRosterMemo = new Map();
+
+/**
+ * Nómina de seating por programa, **en serie** (evita storm de getSession).
+ * Memo por id de gira. Solo Tutti-N (Lista), nunca Agenda.
+ */
+export async function resolveSeatingRostersSequential(supabase, programas) {
+  const out = {};
+  for (const g of programas || []) {
+    const id = Number(g?.id);
+    if (!Number.isFinite(id)) continue;
+    if (liteSeatingRosterMemo.has(id)) {
+      const cached = liteSeatingRosterMemo.get(id);
+      out[id] = cached;
+      out[g.id] = cached;
+      out[String(id)] = cached;
+      continue;
+    }
+    const { roster } = await fetchRosterForGira(supabase, g, { lite: true });
+    const matrix = matrixRosterFromGiraRoster(roster);
+    liteSeatingRosterMemo.set(id, matrix);
+    out[id] = matrix;
+    out[g.id] = matrix;
+    out[String(id)] = matrix;
+  }
+  return out;
+}
+
+/** @deprecated Usar `resolveSeatingRostersSequential`. Concurrencia 1. */
+export async function resolveSeatingRostersForPrograms(supabase, programas) {
+  return resolveSeatingRostersSequential(supabase, programas);
+}
+
+export async function fetchTuttiNMembershipContext(supabase, ensambleIds) {
+  const ids = [...new Set((ensambleIds || []).map(Number).filter(Number.isFinite))];
+  if (!supabase || !ids.length) {
+    return { memberships: [], integrantes: [] };
+  }
+  const memberships = await fetchInIdChunks(
+    supabase,
+    "integrantes_ensambles",
+    "id_ensamble, id_integrante, fecha_desde, fecha_hasta",
+    "id_ensamble",
+    ids,
+  );
+  const integranteIds = [
+    ...new Set(
+      (memberships || [])
+        .map((row) => row.id_integrante)
+        .filter((id) => id != null),
+    ),
+  ];
+  const integrantes = integranteIds.length
+    ? await fetchInIdChunks(
+        supabase,
+        "integrantes",
+        "id, nombre, apellido, id_instr",
+        "id",
+        integranteIds,
+      )
+    : [];
+  return { memberships: memberships || [], integrantes: integrantes || [] };
+}
+
+/**
+ * Ensayos de ensamble (tipo 13) + membresías + giras que solapan el rango.
+ * Conflicto pleno = classify + overlap (sin seating). Roster seating NO se
+ * baja aquí (evita N getSession); Tutti-N lo pide Coordinación Lista aparte.
  */
 export async function fetchEnsayosConflictoPeriod(
   supabase,
@@ -253,6 +368,8 @@ export async function fetchEnsayosConflictoPeriod(
       customRows: [],
       memberships: [],
       programas: [],
+      ensambles: [],
+      integrantes: [],
       rosterByGiraId: {},
       error: null,
     };
@@ -273,7 +390,14 @@ export async function fetchEnsayosConflictoPeriod(
     const events = eventsRaw || [];
     const eventIds = events.map((e) => e.id).filter(Boolean);
 
-    const [customRows, memberships, programasRaw] = await Promise.all([
+    const [
+      customRows,
+      memberships,
+      programasRaw,
+      ensamblesRaw,
+      ensCfRaw,
+      integrantesRaw,
+    ] = await Promise.all([
       eventIds.length
         ? fetchInIdChunks(
             supabase,
@@ -291,25 +415,34 @@ export async function fetchEnsayosConflictoPeriod(
       fetchAllPaged(() =>
         supabase
           .from("programas")
-          .select(
-            "id, nomenclador, mes_letra, nombre_gira, subtitulo, tipo, fecha_desde, fecha_hasta, zona, estado",
-          )
+          .select(PROGRAMAS_FUENTES_SELECT)
           .lte("fecha_desde", range.fechaHasta)
           .or(`fecha_hasta.gte.${range.fechaDesde},fecha_hasta.is.null`),
       ),
+      supabase
+        .from("ensambles")
+        .select("id, ensamble, id_familia")
+        .order("ensamble"),
+      supabase.from("ensambles_cf").select("id_ensamble, id_ensamble_cf"),
+      supabase.from("integrantes").select("id, nombre, apellido, id_instr"),
     ]);
+    if (ensamblesRaw.error) throw ensamblesRaw.error;
+    if (ensCfRaw.error) throw ensCfRaw.error;
+    if (integrantesRaw.error) throw integrantesRaw.error;
 
     const programas = (programasRaw || []).filter((p) => !isProgramBorrador(p));
-    const rosterByGiraId = programas.length
-      ? await resolveRostersForPrograms(supabase, programas)
-      : {};
 
     return {
       events,
       customRows: customRows || [],
       memberships: memberships || [],
       programas,
-      rosterByGiraId,
+      ensambles: attachEnsambleCfIds(
+        ensamblesRaw.data || [],
+        ensCfRaw.data || [],
+      ),
+      integrantes: integrantesRaw.data || [],
+      rosterByGiraId: {},
       error: null,
       ...range,
     };
@@ -320,6 +453,8 @@ export async function fetchEnsayosConflictoPeriod(
       customRows: [],
       memberships: [],
       programas: [],
+      ensambles: [],
+      integrantes: [],
       rosterByGiraId: {},
       error: e,
       ...range,
@@ -439,6 +574,7 @@ export function buildServiciosComputeContext({
   estimableGiraIds = null,
   giraAverage = null,
   programasById = null,
+  pendingConflictoEventIds = null,
 }) {
   return {
     rosterByGiraId: rosterByGiraId || {},
@@ -455,6 +591,10 @@ export function buildServiciosComputeContext({
     estimableGiraIds: estimableGiraIds instanceof Set ? estimableGiraIds : new Set(),
     giraAverage: giraAverage || null,
     programasById: programasById || new Map(),
+    pendingConflictoEventIds:
+      pendingConflictoEventIds instanceof Set
+        ? pendingConflictoEventIds
+        : new Set(),
   };
 }
 

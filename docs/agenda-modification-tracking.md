@@ -6,7 +6,7 @@ Permitir que los músicos visualicen cambios recientes (24h) y habilitar una "Pa
 ## Especificaciones Técnicas
 
 ### 1. Base de Datos (Tabla `eventos`)
-- `updated_at` (TIMESTAMPTZ): Lo pisa `tr_set_eventos_updated_at` / `handle_eventos_updated_at` en cada `UPDATE` **editorial**. No se toca si el único cambio es `ensayo_pese_conflicto` (ni un UPDATE no-op). UnifiedAgenda usa este campo, no `last_modified_at`.
+- `updated_at` (TIMESTAMPTZ): Lo pisa `tr_set_eventos_updated_at` / `handle_eventos_updated_at` en cada `UPDATE` **editorial**. No se toca si el único cambio es `ensayo_pese_conflicto` (ni un UPDATE no-op). Un UPDATE de `ensayo_pese_conflicto` **junto con** `ensayo_pese_conflicto_justificacion` sí pisa `updated_at` de esa fila. UnifiedAgenda usa este campo, no `last_modified_at`.
 - `last_modified_at` (TIMESTAMPTZ): Misma regla vía `tr_eventos_update_timestamp` / `update_last_modified_column`. La agenda no lo lee para el pulso.
 - `is_deleted` (BOOLEAN): Indica si el evento ha sido enviado a la papelera.
 - `deleted_at` (TIMESTAMPTZ): Timestamp del momento del borrado.
@@ -31,6 +31,14 @@ Permitir que los músicos visualicen cambios recientes (24h) y habilitar una "Pa
 1. El usuario borra un evento -> Se activa `is_deleted` y `deleted_at`.
 2. El sistema muestra el evento tachado a todos los usuarios por 24 horas.
 3. Un editor puede "Restaurar" seteando `is_deleted = false`.
+
+## Realtime (no auto-refresh)
+
+La suscripción a `eventos` en `useAgendaData` **sigue activa**. Un cambio remoto (de otro usuario) **no** fusiona ni recarga la lista: solo pone un flag sucio.
+
+Barra fija arriba de la UI de agenda (columna flex, debajo del nav principal, escritorio y móvil), copia exacta: **Hubo cambios. Actualizar.** El clic llama `fetchAgenda` de la ventana actual y limpia el aviso. Si hay un modal/formulario abierto, el aviso se ve igual; no hay recarga automática debajo.
+
+El eco de un guardado propio (`markLocalEventMutation`) no enciende la barra (~15 s). Los edits locales siguen usando `refreshEventById` (merge de un evento).
 
 ## Integración en GiraCard y edición de programa
 

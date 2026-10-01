@@ -25,6 +25,7 @@ import {
   buildRehearsalFormFromEvent,
   eventHasEmbeddedRelations,
 } from "../../utils/rehearsalProgramas";
+import { ENSAYO_CUSTOM_TIPO_ASISTE_IGUAL } from "../../utils/serviciosConflictoActions";
 import { useRehearsalProgramasOptions } from "../../hooks/useRehearsalProgramasOptions";
 import RepertorioPreparacionSelect from "../../components/ensembles/RepertorioPreparacionSelect";
 import {
@@ -402,7 +403,9 @@ export default function IndependentRehearsalForm({
               [],
           };
           finalCustom =
-            relsCustom.data?.map((c) => ({
+            relsCustom.data
+              ?.filter((c) => c.tipo !== ENSAYO_CUSTOM_TIPO_ASISTE_IGUAL)
+              .map((c) => ({
               id_integrante: c.id_integrante,
               tipo: c.tipo,
               nota: c.nota || "",
@@ -568,7 +571,8 @@ export default function IndependentRehearsalForm({
             supabase
               .from("eventos_asistencia_custom")
               .delete()
-              .eq("id_evento", eventId),
+              .eq("id_evento", eventId)
+              .neq("tipo", ENSAYO_CUSTOM_TIPO_ASISTE_IGUAL),
             supabase.from("eventos_grupos").delete().eq("id_evento", eventId),
           ]);
         }

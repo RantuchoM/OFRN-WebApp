@@ -59,14 +59,16 @@ export function ConflictoOverlapNames({ giras, people }) {
   );
 }
 
-export function ConflictoResolvedChip({ kind }) {
+export function ConflictoResolvedChip({ kind, justificacion }) {
   const meta = RESOLVED_CHIP[kind];
   const label = CONFLICTO_RESOLVED_LABEL[kind];
   if (!meta || !label) return null;
   const Icon = meta.icon;
+  const just = String(justificacion || "").trim();
   return (
     <span
       className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-1 text-[10px] font-bold ${meta.className}`}
+      title={just || undefined}
     >
       <Icon size={12} />
       {label}
@@ -80,9 +82,11 @@ export function ConflictoEnsayoLayout({
   giras,
   people,
   resolvedKind,
+  justificacion,
   countButton,
   actions,
 }) {
+  const just = String(justificacion || "").trim();
   return (
     <div className="flex items-start justify-between gap-3">
       <div className="min-w-0 flex-1">{children}</div>
@@ -90,12 +94,17 @@ export function ConflictoEnsayoLayout({
         <ConflictoOverlapNames giras={giras} people={people} />
         <div className="flex flex-wrap items-center justify-end gap-1">
           {resolvedKind ? (
-            <ConflictoResolvedChip kind={resolvedKind} />
+            <ConflictoResolvedChip kind={resolvedKind} justificacion={just} />
           ) : (
             actions
           )}
           {countButton}
         </div>
+        {resolvedKind && just ? (
+          <p className="max-w-[14rem] text-right text-[11px] leading-snug text-slate-600 whitespace-pre-wrap">
+            {just}
+          </p>
+        ) : null}
       </div>
     </div>
   );
@@ -115,16 +124,23 @@ export default function ConflictoEnsayoActions({
   const [busy, setBusy] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmKept, setConfirmKept] = useState(false);
+  const [keptJustificacion, setKeptJustificacion] = useState("");
   const [editEvent, setEditEvent] = useState(null);
 
-  const run = async (key, fn, okMsg) => {
+  const closeKept = () => {
+    setConfirmKept(false);
+    setKeptJustificacion("");
+  };
+
+  const run = async (key, fn, okMsg, extra) => {
     setBusy(key);
     try {
       await fn();
       toast.success(okMsg);
-      onChanged?.(ACTION_KIND[key] || key);
+      onChanged?.(ACTION_KIND[key] || key, extra);
     } catch (err) {
       toast.error(err.message || "No se pudo guardar");
+      throw err;
     } finally {
       setBusy(null);
     }
@@ -166,7 +182,10 @@ export default function ConflictoEnsayoActions({
       <button
         type="button"
         disabled={!!busy}
-        onClick={() => setConfirmKept(true)}
+        onClick={() => {
+          setKeptJustificacion("");
+          setConfirmKept(true);
+        }}
         className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-1.5 py-1 text-[10px] font-bold text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
         title="Se ensayó igual: queda marcado como resuelto"
       >
@@ -207,19 +226,37 @@ export default function ConflictoEnsayoActions({
       />
       <ConfirmModal
         isOpen={confirmKept}
-        onClose={() => setConfirmKept(false)}
+        onClose={closeKept}
         overlayClassName="z-[110]"
         title="Se ensayó igual"
-        message="El ensayo queda en agenda y se marca como resuelto (Se ensayó igual)."
+        message="El ensayo queda en agenda y se marca como resuelto. Escribí por qué se ensayó igual (obligatorio)."
         confirmText="Se ensayó igual"
-        onConfirm={() =>
-          run(
+        confirmDisabled={!keptJustificacion.trim()}
+        onConfirm={() => {
+          const text = keptJustificacion.trim();
+          return run(
             "kept",
-            () => markEnsayoPeseConflicto(supabase, eventId),
+            () => markEnsayoPeseConflicto(supabase, eventId, text),
             "Marcado: se ensayó igual",
-          )
-        }
-      />
+            { justificacion: text },
+          );
+        }}
+      >
+        <label className="mt-3 block">
+          <span className="mb-1 block text-xs font-bold text-slate-700">
+            Justificación
+          </span>
+          <textarea
+            value={keptJustificacion}
+            onChange={(e) => setKeptJustificacion(e.target.value)}
+            rows={3}
+            required
+            autoFocus
+            placeholder="¿Por qué se ensayó igual?"
+            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+          />
+        </label>
+      </ConfirmModal>
 
       {editEvent
         ? createPortal(

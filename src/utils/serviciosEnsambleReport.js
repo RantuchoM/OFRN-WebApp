@@ -1,12 +1,12 @@
 import {
   filterEnsamblesForConvocatoriaView,
   isCamerataEnsambleRow,
+  isEnsamblePruebaLabel,
   isJazzBandEnsambleLabel,
   isRegionalConvocatoriaEnsamble,
 } from "./convocatoriaEnsambleViews";
 import { programOverlapsDateRange } from "./giraDateRange";
 import { isProgramBorrador } from "./girasYearSummary";
-import { isEnsamblePruebaLabel } from "./serviciosEnsayosConflicto";
 import {
   ID_TIPO_CONCIERTO,
   ID_TIPO_ENSAYO_ENSAMBLE,
@@ -333,8 +333,13 @@ export function buildEnsambleServiciosReport({
       event: evt,
       conflicto: conflictoByEventId.get(evt.id) || null,
     }))
-    .filter((row) => row.conflicto);
+    .filter(
+      (row) =>
+        row.conflicto &&
+        (row.conflicto.conflictKind || "full") === "full",
+    );
   for (const row of conflictoGroup?.ensayos || []) {
+    if ((row.conflictKind || "full") !== "full") continue;
     if (ensayosConflicto.some((x) => Number(x.event?.id) === Number(row.eventId))) {
       continue;
     }
@@ -350,6 +355,16 @@ export function buildEnsambleServiciosReport({
       conflicto: row,
     });
   }
+
+  const pendingFullIds = new Set(
+    ensayosConflicto
+      .filter((row) => !row.conflicto?.resolvedKind)
+      .map((row) => Number(row.event?.id))
+      .filter(Number.isFinite),
+  );
+  const ensayosNeto = ensayos.filter(
+    (evt) => !pendingFullIds.has(Number(evt.id)),
+  ).length;
 
   const programasPropios = sortPrograms([...propiosById.values()]).map(
     (row) => ({
@@ -373,6 +388,7 @@ export function buildEnsambleServiciosReport({
     programasPropios,
     conciertosSueltos: sortEvents(conciertosSueltos),
     ensayosTotal: ensayos.length,
+    ensayosNeto,
     ensayosConflicto,
     conflictoCount: ensayosConflicto.filter((row) => !row.conflicto?.resolvedKind)
       .length,

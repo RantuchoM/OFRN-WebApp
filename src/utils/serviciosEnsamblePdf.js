@@ -142,6 +142,7 @@ function conflictoPdfRow({ event, conflicto }) {
     giras: overlapGirasPdfLabel(conflicto),
     resolvedKind: resolvedKind || "",
     resolvedLabel: RESOLVED_LABEL[resolvedKind] || "",
+    justificacion: String(conflicto?.justificacion || "").trim(),
   };
 }
 
@@ -224,13 +225,13 @@ export function buildEnsambleServiciosPdfTables(
     },
     ensayos: {
       title: "Ensayos de ensamble",
-      count: report.ensayosTotal || 0,
+      count: report.ensayosNeto ?? report.ensayosTotal ?? 0,
       pendingExtra: pendingRows.length
         ? `${pendingRows.length} en conflicto`
         : "",
       empty: "No hay ensayos de este ensamble en el rango.",
-      noneConflict: `${report.ensayosTotal || 0} ensayo${
-        report.ensayosTotal === 1 ? "" : "s"
+      noneConflict: `${report.ensayosNeto ?? report.ensayosTotal || 0} ensayo${
+        (report.ensayosNeto ?? report.ensayosTotal) === 1 ? "" : "s"
       }. Ninguno en conflicto.`,
       pending: pendingRows.map(conflictoPdfRow),
       resolvedHeading: resolvedRows.length ? resolvedHeading || "Resueltos" : "",
@@ -422,9 +423,12 @@ function drawEnsambleEnsayosTable(doc, startY, section) {
   }
   const body = [];
   const pushRow = (row) => {
-    const tipo = row.resolvedLabel
-      ? `${row.tipo} (${row.resolvedLabel})`
-      : row.tipo;
+    const tipo = [
+      row.resolvedLabel ? `${row.tipo} (${row.resolvedLabel})` : row.tipo,
+      row.justificacion,
+    ]
+      .filter(Boolean)
+      .join(" — ");
     body.push([
       toServiciosPdfText(row.fecha),
       toServiciosPdfText(row.horario, { padHyphen: false }),

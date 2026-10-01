@@ -8,6 +8,12 @@ import {
   getEventEnsambles,
   isEnsayoEnsambleEvent,
 } from '../../utils/eventDisplayUtils';
+import {
+  CONFLICTO_KIND,
+  ENSAYO_CONFLICTO_COLOR,
+  getEnsayoImpact,
+} from '../../utils/serviciosEnsayosConflicto';
+import { ensayoConflictoOverlapLabels } from '../../components/ensayos/EnsayoImpactTags';
 
 import 'react-big-calendar/lib/css/react-big-calendar.css';
 import 'react-big-calendar/lib/addons/dragAndDrop/styles.css';
@@ -36,7 +42,7 @@ function buildEventTooltip(evt, title) {
 }
 
 const EnsembleCalendar = forwardRef(function EnsembleCalendar(
-  { events, onEventUpdate, onSelectEvent, date, onNavigate, view, onView },
+  { events, impactByEventId, onEventUpdate, onSelectEvent, date, onNavigate, view, onView },
   ref,
 ) {
   const calendarEvents = useMemo(() => {
@@ -62,19 +68,27 @@ const EnsembleCalendar = forwardRef(function EnsembleCalendar(
 
         const eventTitle = getCalendarEventTitle(evt);
         const tooltipText = buildEventTooltip(evt, eventTitle);
+        const impact = getEnsayoImpact(impactByEventId, evt.id);
+        const pendingFull =
+          impact?.conflictKind === CONFLICTO_KIND.full && !impact?.resolvedKind;
+        const overlapLabels = ensayoConflictoOverlapLabels(impact);
 
         return {
             id: evt.id,
             title: eventTitle,
             start, 
             end: visualEnd,
-            resource: { ...evt, realEnd: end },
-            color: evt.tipos_evento?.color || '#6366f1', 
+            resource: { ...evt, realEnd: end, impact, pendingFull, overlapLabels },
+            color: pendingFull
+              ? ENSAYO_CONFLICTO_COLOR
+              : evt.tipos_evento?.color || '#6366f1',
             isDraggable: !!evt.isMyRehearsal,
-            tooltip: tooltipText
+            tooltip: pendingFull
+              ? `${tooltipText}\nEnsayo en conflicto${overlapLabels.length ? `\n${overlapLabels.join(" · ")}` : ""}`
+              : tooltipText,
         };
     });
-  }, [events]);
+  }, [events, impactByEventId]);
 
   const { formats } = useMemo(() => ({
     formats: {
@@ -92,9 +106,14 @@ const EnsembleCalendar = forwardRef(function EnsembleCalendar(
 
       return (
           <div className="flex flex-col h-full overflow-hidden px-1 py-0.5 leading-tight select-none gap-0.5">
-              <div className="text-[10px] font-bold truncate">
+              <div className={`text-[10px] font-bold truncate ${event.resource.pendingFull ? "italic opacity-90" : ""}`}>
                   {event.title}
               </div>
+              {event.resource.overlapLabels?.length > 0 && (
+                  <div className="text-[11px] font-semibold leading-tight truncate">
+                      {event.resource.overlapLabels.join(" · ")}
+                  </div>
+              )}
               {showEnsambleTags && (
                 <div className="flex flex-wrap gap-1 max-h-[2.8em] overflow-hidden">
                   {ensambles.map((ens) => (
@@ -106,6 +125,11 @@ const EnsembleCalendar = forwardRef(function EnsembleCalendar(
                     </span>
                   ))}
                 </div>
+              )}
+              {event.resource.pendingFull && duration >= 30 && (
+                  <div className="text-[9px] font-black uppercase tracking-tight truncate">
+                      Ensayo en conflicto
+                  </div>
               )}
               {duration >= 50 && (
                   <div className="text-[9px] opacity-90 truncate font-normal">

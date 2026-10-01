@@ -5,6 +5,7 @@ import React, {
   useMemo,
   useRef,
 } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { useClickOutside } from "../../hooks/useClickOutside";
@@ -69,7 +70,9 @@ import RehearsalVirtualList from "../../components/ensembles/RehearsalVirtualLis
 import GiraCard from "../Giras/GiraCard";
 import { getTransportEventAffectedSummary } from "../../utils/transportLogisticsWarning";
 import { integranteKey } from "../../utils/integranteIds";
+import { seatingApellidoNombre } from "../../utils/integranteDisplayName";
 import { membershipActiveOnProgramDate } from "../../utils/ensembleMembership";
+import { countInvolvedEnsembleMembers } from "../../hooks/useProgramParticipationMap";
 import {
   mapCoordinatorEventsForAgendaPdf,
   stripHtml,
@@ -79,6 +82,18 @@ import { useCoordinatorPrograms } from "../../hooks/useCoordinatorPrograms";
 import { GIRAS_LIST_SELECT } from "../../hooks/useGirasList";
 import { programOverlapsDateRange } from "../../utils/giraDateRange";
 import { getEventProgramIds } from "../../utils/rehearsalProgramas";
+import { useEnsayosConflictoImpact } from "../../hooks/useEnsayosConflictoImpact";
+import {
+  EnsayoImpactTags,
+  EnsayoConflictoOverlapTitle,
+  EnsayoPeseJustificacionNote,
+  ensayoConflictoCardTint,
+  isPendingFullEnsayoImpact,
+} from "../../components/ensayos/EnsayoImpactTags";
+import {
+  CONFLICTO_KIND,
+  getEnsayoImpact,
+} from "../../utils/serviciosEnsayosConflicto";
 import { getDefaultSelectedEnsembleIds } from "../../utils/ensayosPorProgramaReport";
 import RepertorioPreparacionSelect from "../../components/ensembles/RepertorioPreparacionSelect";
 
@@ -240,6 +255,11 @@ const RehearsalCardItem = React.memo(function RehearsalCardItem({
   listIndex,
   feriados = [],
   programRoster = null,
+  impact = null,
+  supabase = null,
+  ensambles = [],
+  canActConflicto = false,
+  onConflictoChanged,
 }) {
   const { day, num, month } = formatDateBox(evt.fecha);
   const feriado = findFeriado(evt.fecha, feriados);
@@ -264,7 +284,11 @@ const RehearsalCardItem = React.memo(function RehearsalCardItem({
 
   const isFull =
     activeMembersSet.size > 0 && count >= activeMembersSet.size * 0.9;
-  const eventColor = evt.tipos_evento?.color || "#64748b";
+  const conflictoTint = !evt.is_deleted
+    ? ensayoConflictoCardTint(impact)
+    : null;
+  const eventColor =
+    conflictoTint?.color || evt.tipos_evento?.color || "#64748b";
   const tagStyle = {
     color: eventColor,
     backgroundColor: `${eventColor}15`,
@@ -288,7 +312,12 @@ const RehearsalCardItem = React.memo(function RehearsalCardItem({
 
   return (
     <div
-      className={`flex items-start p-2 md:p-2.5 border rounded-lg shadow-sm transition-all bg-white ${isSelected ? "border-indigo-500 ring-1 ring-indigo-500 bg-indigo-50/40" : "border-slate-200"} ${!isMyEvent ? "opacity-60 grayscale-[0.5] border-dashed" : ""} ${isDeleted ? "line-through opacity-50 grayscale" : ""}`}
+      className={`flex items-start p-2 md:p-2.5 border rounded-lg shadow-sm transition-all ${isSelected ? "border-indigo-500 ring-1 ring-indigo-500 bg-indigo-50/40" : "border-slate-200"} ${!isMyEvent ? "opacity-60 grayscale-[0.5] border-dashed" : ""} ${isDeleted ? "line-through opacity-50 grayscale" : ""}`}
+      style={
+        !isDeleted && !isSelected && conflictoTint
+          ? { backgroundColor: conflictoTint.backgroundColor }
+          : undefined
+      }
     >
       {/* COLUMNA IZQUIERDA: CHECKBOX + FECHA */}
       <div className="flex flex-col items-center gap-1.5 md:gap-2 mr-2 md:mr-3 shrink-0 relative">
@@ -337,12 +366,34 @@ const RehearsalCardItem = React.memo(function RehearsalCardItem({
               >
                 {evt.tipos_evento?.nombre}
               </span>
+              {!isDeleted && (
+                <EnsayoImpactTags
+                  eventId={evt.id}
+                  impact={impact}
+                  supabase={supabase}
+                  ensambles={ensambles}
+                  canAct={canActConflicto}
+                  onChanged={onConflictoChanged}
+                  compact
+                  showTuttiN
+                />
+              )}
             </div>
             <h3
-              className={`font-bold text-[13px] md:text-sm mt-0.5 md:mt-1 truncate ${isMyEvent ? "text-slate-800" : "text-slate-600 italic"}`}
+              className={`mt-0.5 md:mt-1 truncate text-[13px] md:text-sm ${
+                isPendingFullEnsayoImpact(impact)
+                  ? "font-medium italic text-slate-500"
+                  : isMyEvent
+                    ? "font-bold text-slate-800"
+                    : "text-slate-600"
+              }`}
             >
               {stripHtml(evt.descripcion) || "Evento"}
             </h3>
+            <EnsayoConflictoOverlapTitle impact={impact} />
+            <EnsayoPeseJustificacionNote
+              justificacion={impact?.justificacion}
+            />
             {isDeleted && (
               <span className="text-[10px] text-amber-600 font-medium mt-0.5 block">
                 Se elimina definitivamente en 24 h
@@ -388,7 +439,8 @@ const RehearsalCardItem = React.memo(function RehearsalCardItem({
             <IconMapPin size={12} className="text-slate-400 shrink-0" />{" "}
             {locationStr}
           </span>
-          {(isMyEvent || (evt.programas && activeMembersSet.size > 0)) && (
+          {(isMyEvent || (evt.programas && activeMembersSet.size > 0)) &&
+            impact?.conflictKind !== CONFLICTO_KIND.partial && (
             <span
               className={`flex items-center gap-1 font-bold ${
                 isMyEvent
@@ -454,31 +506,127 @@ const RehearsalCardItem = React.memo(function RehearsalCardItem({
   );
 });
 
+function instrumentoLabel(member) {
+  const inst = Array.isArray(member?.instrumentos)
+    ? member.instrumentos[0]
+    : member?.instrumentos;
+  return inst?.abreviatura || inst?.instrumento || "";
+}
+
+const ConvokedMembersModal = ({
+  open,
+  onClose,
+  members,
+  giraName,
+  ensembleSize,
+}) => {
+  useEffect(() => {
+    if (!open) return undefined;
+    const onKey = (event) => {
+      if (event.key === "Escape") onClose?.();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  const count = members.length;
+  const sorted = [...members].sort((a, b) =>
+    seatingApellidoNombre(a).localeCompare(seatingApellidoNombre(b), "es"),
+  );
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/55 p-3 backdrop-blur-sm animate-in fade-in duration-200 sm:p-4"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose?.();
+      }}
+    >
+      <div
+        className="w-full max-w-md overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-2xl animate-in zoom-in-95 duration-200"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="convoked-members-title"
+      >
+        <div className="flex items-start gap-3 border-b border-slate-100 bg-slate-50 px-5 py-4">
+          <div className="rounded-2xl bg-indigo-600 p-2.5 text-white shadow-md">
+            <IconUsers size={18} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h2
+              id="convoked-members-title"
+              className="text-base font-black text-slate-900"
+            >
+              Integrantes convocados
+            </h2>
+            <p className="mt-0.5 truncate text-xs font-semibold text-slate-500">
+              {giraName || "Programa"}
+            </p>
+            <p className="mt-1 text-[11px] font-bold uppercase tracking-wide text-slate-400">
+              {count}{" "}
+              {count === 1 ? "persona" : "personas"}
+              {ensembleSize > 0 ? ` · ${count} de ${ensembleSize} del ensamble` : ""}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            title="Cerrar"
+          >
+            <IconX size={16} />
+          </button>
+        </div>
+        <ul className="max-h-[min(60vh,24rem)] overflow-y-auto p-3 space-y-1.5">
+          {sorted.map((member) => {
+            const inst = instrumentoLabel(member);
+            return (
+              <li
+                key={integranteKey(member.id)}
+                className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-white px-3 py-2.5 shadow-sm"
+              >
+                <span className="min-w-0 truncate text-sm font-bold text-slate-800">
+                  {seatingApellidoNombre(member)}
+                </span>
+                {inst ? (
+                  <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                    {inst}
+                  </span>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+    </div>,
+    document.body,
+  );
+};
+
 const ConvokedMembersBadge = ({
   roster,
   loading,
   activeMembersSet,
+  giraName = "",
   className = "",
 }) => {
-  const myInvolvedMembers = (roster || []).filter(
-    (m) =>
-      activeMembersSet.has(integranteKey(m.id)) && m.estado_gira !== "ausente",
+  const [open, setOpen] = useState(false);
+  const myInvolvedMembers = countInvolvedEnsembleMembers(
+    roster,
+    activeMembersSet,
   );
   const count = myInvolvedMembers.length;
   const isFull =
     !loading &&
     activeMembersSet.size > 0 &&
-    count >= activeMembersSet.size * 0.9;
+    count === activeMembersSet.size;
 
-  const showMembersList = (e) => {
+  const openModal = (e) => {
     e.stopPropagation();
     if (count === 0) return;
-    const names = myInvolvedMembers
-      .map((m) => `• ${m.nombre} ${m.apellido}`)
-      .join("\n");
-    toast.success(`Integrantes convocados (${count}):\n${names}`, {
-      duration: 8000,
-    });
+    setOpen(true);
   };
 
   const label = loading
@@ -490,16 +638,25 @@ const ConvokedMembersBadge = ({
         : `Participan ${count} personas`;
 
   return (
-    <button
-      type="button"
-      onClick={showMembersList}
-      disabled={loading || count === 0}
-      className={`flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold shadow-md border bg-white/95 backdrop-blur-sm whitespace-nowrap disabled:opacity-50 pointer-events-auto ${isFull ? "text-green-700 border-green-200" : "text-amber-700 border-amber-200"} ${className}`}
-      title="Integrantes del ensamble convocados en esta gira"
-    >
-      <IconUsers size={12} />
-      {label}
-    </button>
+    <>
+      <button
+        type="button"
+        onClick={openModal}
+        disabled={loading || count === 0}
+        className={`flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold shadow-md border bg-white/95 backdrop-blur-sm whitespace-nowrap disabled:opacity-50 pointer-events-auto ${isFull ? "text-green-700 border-green-200" : "text-amber-700 border-amber-200"} ${className}`}
+        title="Integrantes del ensamble convocados en esta gira"
+      >
+        <IconUsers size={12} />
+        {label}
+      </button>
+      <ConvokedMembersModal
+        open={open}
+        onClose={() => setOpen(false)}
+        members={myInvolvedMembers}
+        giraName={giraName}
+        ensembleSize={activeMembersSet.size}
+      />
+    </>
   );
 };
 
@@ -548,6 +705,7 @@ const CoordinatorProgramGiraCard = ({
             roster={roster}
             loading={loading}
             activeMembersSet={activeMembersSet}
+            giraName={gira?.nombre_gira || ""}
           />
         ) : null
       }
@@ -2598,7 +2756,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
         .select(
           `
             eventos (
-              id, fecha, hora_inicio, hora_fin, descripcion, id_tipo_evento, id_locacion, id_gira, is_deleted,
+              id, fecha, hora_inicio, hora_fin, descripcion, id_tipo_evento, id_locacion, id_gira, is_deleted, ensayo_pese_conflicto, ensayo_pese_conflicto_justificacion,
               locaciones ( nombre, localidades(localidad) ),
               tipos_evento ( nombre, color, id_categoria ),
               programas ( id, nombre_gira, mes_letra, nomenclador, zona ),
@@ -2665,7 +2823,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
           .from("eventos")
           .select(
             `
-                id, fecha, hora_inicio, hora_fin, descripcion, id_tipo_evento, id_locacion, is_deleted,
+                id, fecha, hora_inicio, hora_fin, descripcion, id_tipo_evento, id_locacion, is_deleted, ensayo_pese_conflicto, ensayo_pese_conflicto_justificacion,
                 locaciones ( nombre, localidades(localidad) ),
                 tipos_evento!inner ( nombre, color, id_categoria ),
                 programas ( id, nombre_gira, mes_letra, nomenclador, zona ),
@@ -2786,6 +2944,23 @@ export default function EnsembleCoordinatorView({ supabase }) {
     activeEnsembles.length > 0 &&
     rehearsalsPending &&
     rehearsals.length === 0;
+
+  const {
+    impactByEventId,
+    refresh: refreshEnsayoConflicto,
+  } = useEnsayosConflictoImpact({
+    supabase,
+    events: rehearsals,
+    fechaDesde: dateFilter.start,
+    fechaHasta: dateFilter.end,
+    enabled: Boolean(supabase) && activeEnsembles.length > 0,
+    includeTuttiN: activeTab === "ensayos",
+  });
+
+  const handleEnsayoConflictoChanged = useCallback(() => {
+    refreshEnsayoConflicto();
+    queryClient.invalidateQueries({ queryKey: ["rehearsals"] });
+  }, [refreshEnsayoConflicto, queryClient]);
 
   const minSelectedRehearsalDate = useMemo(() => {
     if (!selectedIds.length || !rehearsals.length) return null;
@@ -3342,6 +3517,13 @@ export default function EnsembleCoordinatorView({ supabase }) {
             ? rostersByProgramId.get(evt.programas.id) ?? null
             : null
         }
+        impact={getEnsayoImpact(impactByEventId, evt.id)}
+        supabase={supabase}
+        ensambles={activeEnsembles}
+        canActConflicto={
+          Boolean(evt.isMyRehearsal) || isGlobalEditor || isSuperUser
+        }
+        onConflictoChanged={handleEnsayoConflictoChanged}
       />
     ),
     [
@@ -3352,6 +3534,12 @@ export default function EnsembleCoordinatorView({ supabase }) {
       handleEditRehearsal,
       handleDeleteRehearsal,
       rostersByProgramId,
+      impactByEventId,
+      supabase,
+      activeEnsembles,
+      isGlobalEditor,
+      isSuperUser,
+      handleEnsayoConflictoChanged,
     ],
   );
 
@@ -4069,6 +4257,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
                 <EnsembleCalendar
                   ref={calendarExportRef}
                   events={rehearsals}
+                  impactByEventId={impactByEventId}
                   onEventUpdate={handleCalendarUpdate}
                   onSelectEvent={(evt) => {
                     setViewingEvent(evt);
@@ -4531,6 +4720,18 @@ export default function EnsembleCoordinatorView({ supabase }) {
       {viewingEvent && (
         <EventQuickView
           event={viewingEvent}
+          impact={getEnsayoImpact(impactByEventId, viewingEvent.id)}
+          supabase={supabase}
+          ensembleOptions={activeEnsembles}
+          canActConflicto={
+            Boolean(viewingEvent.isMyRehearsal) ||
+            isGlobalEditor ||
+            isSuperUser
+          }
+          onConflictoChanged={() => {
+            setViewingEvent(null);
+            handleEnsayoConflictoChanged();
+          }}
           onClose={() => setViewingEvent(null)}
           onDelete={(id) => {
             setViewingEvent(null);

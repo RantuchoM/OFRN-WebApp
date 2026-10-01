@@ -1,7 +1,8 @@
 import { format } from "date-fns";
 import { integranteKey, integranteIdForDb } from "./integranteIds";
 import { getProgramTypeColor, formatProgramSelectLabel } from "./giraUtils";
-import { resolveGiraRosterIds } from "../services/giraService";
+import { fetchRosterForGira } from "../hooks/useGiraRoster";
+import { ENSAYO_CUSTOM_TIPO_ASISTE_IGUAL } from "./serviciosConflictoActions";
 
 /** Tipos excluidos del selector de repertorio/preparación en ensayos */
 export const EXCLUDED_REHEARSAL_PROGRAM_TYPES = new Set(["Comisión"]);
@@ -32,6 +33,12 @@ export function getTypesForActiveFilters(activeTypeKeys) {
   return types;
 }
 
+function familiaFromInstrumentos(instrumentos) {
+  if (!instrumentos) return null;
+  const row = Array.isArray(instrumentos) ? instrumentos[0] : instrumentos;
+  return row?.familia || null;
+}
+
 async function resolveEnsembleMemberKeys(supabase, ensIds, memberKeys) {
   if (memberKeys.size > 0 || ensIds.length === 0) return memberKeys;
 
@@ -55,12 +62,21 @@ function memberIdsForDbQuery(memberKeys) {
     .filter((id) => id != null);
 }
 
-async function collectCoordinatorProgramIds(
-  supabase,
-  { ensIds, memberKeys },
-) {
+function addGiraId(target, id) {
+  if (id != null) target.add(id);
+}
+
+/**
+ * Candidatos a la lista de Coordinación:
+ * - confirmados: ensamble fuente explícito (sin EXCL de ese ensamble) o integrante
+ *   en giras_integrantes (no ausente). No hace falta resolver el roster entero.
+ * - por roster: FAMILIA u otros ENSAMBLE de los miembros, si el ensamble coordinado
+ *   no está excluido. Se confirma con fetchRosterForGira (mismo motor que el badge).
+ */
+async function collectCoordinatorProgramIds(supabase, { ensIds, memberKeys }) {
   const memberIdList = memberIdsForDbQuery(memberKeys);
-  const fuenteEnsambleIds = new Set(ensIds);
+  const coordinatorEns = new Set(ensIds.map(Number).filter(Number.isFinite));
+  const fuenteEnsambleIds = new Set(coordinatorEns);
   let memberFamilies = [];
 
   if (memberIdList.length > 0) {
@@ -85,60 +101,96 @@ async function collectCoordinatorProgramIds(
     memberFamilies = [
       ...new Set(
         (membersRes.data || [])
-          .map((member) => member.instrumentos?.familia)
+          .map((member) => familiaFromInstrumentos(member.instrumentos))
           .filter(Boolean),
       ),
     ];
   }
 
   const fuenteEnsIds = Array.from(fuenteEnsambleIds);
-  const [fuentesEnsRes, fuentesFamRes, giRes] = await Promise.all([
-    fuenteEnsIds.length > 0
-      ? supabase
-          .from("giras_fuentes")
-          .select("id_gira")
-          .eq("tipo", "ENSAMBLE")
-          .in("valor_id", fuenteEnsIds)
-      : Promise.resolve({ data: [] }),
-    memberFamilies.length > 0
-      ? supabase
-          .from("giras_fuentes")
-          .select("id_gira")
-          .eq("tipo", "FAMILIA")
-          .in("valor_texto", memberFamilies)
-      : Promise.resolve({ data: [] }),
-    memberIdList.length > 0
-      ? supabase
-          .from("giras_integrantes")
-          .select("id_gira, id_integrante, estado")
-          .in("id_integrante", memberIdList)
-      : Promise.resolve({ data: [] }),
-  ]);
+  const coordinatorEnsIds = Array.from(coordinatorEns);
+  const [fuentesEnsRes, fuentesExclRes, fuentesFamRes, giRes] =
+    await Promise.all([
+      fuenteEnsIds.length > 0
+        ? supabase
+            .from("giras_fuentes")
+            .select("id_gira, valor_id")
+            .eq("tipo", "ENSAMBLE")
+            .in("valor_id", fuenteEnsIds)
+        : Promise.resolve({ data: [] }),
+      coordinatorEnsIds.length > 0
+        ? supabase
+            .from("giras_fuentes")
+            .select("id_gira")
+            .eq("tipo", "EXCL_ENSAMBLE")
+            .in("valor_id", coordinatorEnsIds)
+        : Promise.resolve({ data: [] }),
+      memberFamilies.length > 0
+        ? supabase
+            .from("giras_fuentes")
+            .select("id_gira")
+            .eq("tipo", "FAMILIA")
+            .in("valor_texto", memberFamilies)
+        : Promise.resolve({ data: [] }),
+      memberIdList.length > 0
+        ? supabase
+            .from("giras_integrantes")
+            .select("id_gira, id_integrante, estado")
+            .in("id_integrante", memberIdList)
+        : Promise.resolve({ data: [] }),
+    ]);
 
   if (fuentesEnsRes.error) throw fuentesEnsRes.error;
+  if (fuentesExclRes.error) throw fuentesExclRes.error;
   if (fuentesFamRes.error) throw fuentesFamRes.error;
   if (giRes.error) throw giRes.error;
 
-  const programIds = new Set();
-  for (const source of [
-    fuentesEnsRes.data,
-    fuentesFamRes.data,
-  ]) {
-    (source || []).forEach((row) => {
-      if (row.id_gira != null) programIds.add(row.id_gira);
-    });
-  }
+  const excludedIds = new Set();
+  (fuentesExclRes.data || []).forEach((row) => addGiraId(excludedIds, row.id_gira));
+
+  const confirmedIds = new Set();
+  const needsRosterCheck = new Set();
+
+  (fuentesEnsRes.data || []).forEach((row) => {
+    if (row.id_gira == null) return;
+    const ensambleId = Number(row.valor_id);
+    if (coordinatorEns.has(ensambleId) && !excludedIds.has(row.id_gira)) {
+      confirmedIds.add(row.id_gira);
+      return;
+    }
+    if (!excludedIds.has(row.id_gira)) needsRosterCheck.add(row.id_gira);
+  });
+
+  (fuentesFamRes.data || []).forEach((row) => {
+    if (row.id_gira == null) return;
+    // EXCL_ENSAMBLE manda sobre FAMILIA: sin override en giras_integrantes no hay gente.
+    if (excludedIds.has(row.id_gira)) return;
+    needsRosterCheck.add(row.id_gira);
+  });
+
   (giRes.data || []).forEach((row) => {
     if (row.estado === "ausente") return;
     if (
       row.id_gira != null &&
       memberKeys.has(integranteKey(row.id_integrante))
     ) {
-      programIds.add(row.id_gira);
+      confirmedIds.add(row.id_gira);
     }
   });
 
-  return programIds;
+  needsRosterCheck.forEach((id) => {
+    if (confirmedIds.has(id)) needsRosterCheck.delete(id);
+  });
+
+  return { confirmedIds, needsRosterCheck };
+}
+
+function programHasEnsembleMemberOnRoster(roster, memberKeys) {
+  return (roster || []).some(
+    (member) =>
+      memberKeys.has(integranteKey(member.id)) &&
+      member.estado_gira !== "ausente",
+  );
 }
 
 async function filterProgramsWithMemberParticipation(
@@ -146,24 +198,38 @@ async function filterProgramsWithMemberParticipation(
   programs,
   memberKeys,
 ) {
-  if (!programs?.length || memberKeys.size === 0) return programs || [];
+  if (!programs?.length || memberKeys.size === 0) return [];
 
-  const participation = await Promise.all(
-    programs.map(async (program) => {
-      const rosterIds = await resolveGiraRosterIds(supabase, program.id);
-      const participates = rosterIds.some((id) =>
-        memberKeys.has(integranteKey(id)),
-      );
-      return participates ? program : null;
-    }),
+  const confirmed = [];
+  const chunkSize = 6;
+  for (let i = 0; i < programs.length; i += chunkSize) {
+    const chunk = programs.slice(i, i + chunkSize);
+    const part = await Promise.all(
+      chunk.map(async (program) => {
+        const { roster } = await fetchRosterForGira(supabase, program, {
+          lite: true,
+        });
+        return programHasEnsembleMemberOnRoster(roster, memberKeys)
+          ? program
+          : null;
+      }),
+    );
+    confirmed.push(...part.filter(Boolean));
+  }
+  return confirmed;
+}
+
+function sortProgramsByFecha(programs) {
+  return [...programs].sort((a, b) =>
+    String(a?.fecha_desde || "").localeCompare(String(b?.fecha_desde || "")),
   );
-
-  return participation.filter(Boolean);
 }
 
 /**
- * Programas visibles en Coordinación: todos los que tienen al menos un integrante
- * del ensamble en el roster resuelto (fuentes, familias, overrides y ausencias).
+ * Programas visibles en Coordinación:
+ * 1) el ensamble está fuente ENSAMBLE (y no EXCL_ENSAMBLE de ese ensamble);
+ * 2) al menos un integrante del ensamble está en el roster de useGiraRoster
+ *    (FAMILIA, otro ensamble, o override en giras_integrantes; ausente no cuenta).
  */
 export async function fetchCoordinatorPrograms(
   supabase,
@@ -178,27 +244,43 @@ export async function fetchCoordinatorPrograms(
 
   memberKeys = await resolveEnsembleMemberKeys(supabase, ensIds, memberKeys);
 
-  const programIds = await collectCoordinatorProgramIds(supabase, {
-    ensIds,
-    memberKeys,
-  });
-  if (programIds.size === 0) return [];
+  const { confirmedIds, needsRosterCheck } = await collectCoordinatorProgramIds(
+    supabase,
+    { ensIds, memberKeys },
+  );
+
+  const allIds = [...new Set([...confirmedIds, ...needsRosterCheck])];
+  if (allIds.length === 0) return [];
 
   const { data: programs, error } = await supabase
     .from("programas")
     .select(
       "id, nombre_gira, fecha_desde, fecha_hasta, mes_letra, nomenclador, tipo, estado, zona",
     )
-    .in("id", Array.from(programIds))
+    .in("id", allIds)
     .order("fecha_desde", { ascending: true });
 
   if (error) throw error;
 
-  return filterProgramsWithMemberParticipation(
+  const byId = new Map((programs || []).map((p) => [Number(p.id), p]));
+  const confirmedPrograms = [...confirmedIds]
+    .map((id) => byId.get(Number(id)))
+    .filter(Boolean);
+  const toResolve = [...needsRosterCheck]
+    .map((id) => byId.get(Number(id)))
+    .filter(Boolean);
+
+  const rosterConfirmed = await filterProgramsWithMemberParticipation(
     supabase,
-    programs || [],
+    toResolve,
     memberKeys,
   );
+
+  const merged = new Map();
+  for (const program of [...confirmedPrograms, ...rosterConfirmed]) {
+    merged.set(program.id, program);
+  }
+  return sortProgramsByFecha([...merged.values()]);
 }
 
 /**
@@ -320,14 +402,16 @@ export function buildRehearsalFormFromEvent(initialData, myEnsembles = []) {
     selectedProgramas.push(initialData.id_gira);
   }
 
-  const customAttendance = (initialData?.eventos_asistencia_custom || []).map((c) => ({
-    id_integrante: c.id_integrante,
-    tipo: c.tipo,
-    nota: c.nota || "",
-    label: c.integrantes
-      ? `${c.integrantes.apellido}, ${c.integrantes.nombre}`
-      : c.label || "",
-  }));
+  const customAttendance = (initialData?.eventos_asistencia_custom || [])
+    .filter((c) => c.tipo !== ENSAYO_CUSTOM_TIPO_ASISTE_IGUAL)
+    .map((c) => ({
+      id_integrante: c.id_integrante,
+      tipo: c.tipo,
+      nota: c.nota || "",
+      label: c.integrantes
+        ? `${c.integrantes.apellido}, ${c.integrantes.nombre}`
+        : c.label || "",
+    }));
 
   const form = {
     fecha: initialData?.fecha || "",

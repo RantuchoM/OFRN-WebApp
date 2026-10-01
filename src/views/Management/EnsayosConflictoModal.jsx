@@ -16,6 +16,7 @@ import {
 import ConflictoEnsayoActions, {
   ConflictoEnsayoLayout,
 } from "./ConflictoEnsayoActions";
+import { EnsayoConflictoOverlapTitle } from "../../components/ensayos/EnsayoImpactTags";
 
 function ensayoTitle(ensayo) {
   const tipo = stripHtml(ensayo.tipoNombre) || "Ensayo de ensamble";
@@ -134,7 +135,8 @@ function EnsayoLeft({ ensayo }) {
           </span>
         ) : null}
       </div>
-      <div className="text-xs text-slate-600">{ensayoTitle(ensayo)}</div>
+      <div className="text-xs italic text-slate-500">{ensayoTitle(ensayo)}</div>
+      <EnsayoConflictoOverlapTitle impact={ensayo} />
       {dur ? <div className="text-[10px] text-slate-400">{dur}</div> : null}
     </div>
   );
@@ -157,6 +159,7 @@ function ConflictoEnsayoListItem({
         giras={ensayo.overlappingGiras}
         people={ensayo.people}
         resolvedKind={ensayo.resolvedKind}
+        justificacion={ensayo.justificacion}
         countButton={
           <button
             type="button"
@@ -212,13 +215,16 @@ export default function EnsayosConflictoModal({
     return { pendingCount: pending, resolvedCount: resolved };
   }, [displayGroups]);
 
-  const handleRowChanged = (group, ensayo, kind) => {
+  const handleRowChanged = (group, ensayo, kind, extra) => {
+    const justificacion =
+      extra?.justificacion ?? ensayo.justificacion ?? null;
     onSessionResolved?.({
       eventId: ensayo.eventId,
       ensambleId: group.ensambleId,
       ensambleName: group.ensambleName,
       kind,
-      ensayo: { ...ensayo, resolvedKind: kind },
+      justificacion,
+      ensayo: { ...ensayo, resolvedKind: kind, justificacion },
     });
     onChanged?.(kind);
   };
@@ -256,7 +262,9 @@ export default function EnsayosConflictoModal({
             </h3>
             <p className="text-xs text-slate-500">
               Ensayos de ensamble con al menos un miembro convocado a una gira
-              cuyo calendario solapa esa fecha.
+              cuyo calendario solapa esa fecha (el ensamble como grupo está
+              convocado). Si el ensamble está excluido y solo hay overrides
+              individuales, no entra aquí (Tutti - N en agenda).
               {fechaDesde && fechaHasta
                 ? ` ${formatDdMmYyyy(fechaDesde)} - ${formatDdMmYyyy(fechaHasta)}.`
                 : ""}
@@ -324,8 +332,8 @@ export default function EnsayosConflictoModal({
                               ensambleName: group.ensambleName,
                             })
                           }
-                          onChanged={(kind) =>
-                            handleRowChanged(group, ensayo, kind)
+                          onChanged={(kind, extra) =>
+                            handleRowChanged(group, ensayo, kind, extra)
                           }
                         />
                       ))}

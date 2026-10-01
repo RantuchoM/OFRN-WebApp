@@ -1,6 +1,7 @@
 import { getAsistenciaMatrixCellMark } from "./asistenciaMatrixExport";
 import {
   filterEnsamblesForConvocatoriaView,
+  isEnsamblePruebaLabel,
 } from "./convocatoriaEnsambleViews";
 import { membershipActiveOnProgramDate } from "./ensembleMembership";
 import { programOverlapsDateRange } from "./giraDateRange";
@@ -14,15 +15,51 @@ import {
   ID_TIPO_ENSAYO_ENSAMBLE,
   formatProgramNomencladorNombre,
 } from "./serviciosCantidad";
+import { classifyProgramaEnsambleConvocatoria } from "./serviciosEnsambleReport";
+import {
+  asisteIgualIdsFromCustomRows,
+} from "./serviciosConflictoActions";
 
-export function isEnsamblePruebaLabel(name) {
-  return String(name ?? "")
-    .trim()
-    .toLowerCase() === "prueba";
-}
+export { isEnsamblePruebaLabel };
 
 function isConvocadoGiraMark(mark) {
   return mark === "counted" || mark === "reemplazo" || mark === "licencia";
+}
+
+/**
+ * Pleno: la gira convoca a este ensamble, su CF o su familia
+ * (`classifyProgramaEnsambleConvocatoria` = convocado) y NO hay EXCL_ENSAMBLE.
+ * Tutti-N: status excluido o no, pero hay gente en el roster real.
+ */
+export function isEnsambleGrupoConvocadoAGira(program, ensamble) {
+  const cls = classifyProgramaEnsambleConvocatoria(program, ensamble);
+  return cls.status === "convocado";
+}
+
+/**
+ * Marcas counted/R/L a partir del roster de seating (`fetchRosterForGira`).
+ * `ausente` no cuenta salvo que abone reemplazo o licencia.
+ */
+export function matrixRosterFromGiraRoster(roster) {
+  const counted = new Set();
+  const reemplazo = new Set();
+  const licencia = new Set();
+  const preAlta = new Set();
+  for (const person of roster || []) {
+    const id = integranteKey(person.id ?? person.id_integrante);
+    if (!id) continue;
+    const estado = String(person.estado_gira || person.estado || "")
+      .toLowerCase()
+      .trim();
+    if (estado === "ausente") {
+      if (person.abona_reemplazo) reemplazo.add(id);
+      else if (person.abona_licencia) licencia.add(id);
+      continue;
+    }
+    if (estado === "baja" || estado === "no_convocado") continue;
+    counted.add(id);
+  }
+  return { counted, preAlta, reemplazo, licencia };
 }
 
 function overlappingGirasForDate(programas, fecha) {
@@ -34,6 +71,193 @@ function overlappingGirasForDate(programas, fecha) {
       calendarOnly: true,
     });
   });
+}
+
+function ensambleMapForConflicto(ensambles) {
+  const ensambleById = new Map();
+  const usable = [
+    ...filterEnsamblesForConvocatoriaView(ensambles, "ensambles"),
+    ...filterEnsamblesForConvocatoriaView(ensambles, "cameratas"),
+  ];
+  for (const en of usable) {
+    if (isEnsamblePruebaLabel(en?.ensamble)) continue;
+    ensambleById.set(Number(en.id), en);
+  }
+  return ensambleById;
+}
+
+function ensambleIdsOnEvent(evt) {
+  return [
+    ...new Set(
+      (evt?.eventos_ensambles || [])
+        .map((row) => Number(row.id_ensamble ?? row.ensambles?.id))
+        .filter(Number.isFinite),
+    ),
+  ];
+}
+
+function giraOverlapLabel(program) {
+  return (
+    formatProgramNomencladorNombre(program) || `Programa ${program?.id}`
+  );
+}
+
+function fullConflictoGirasForEvent(evt, ensambleById, programas) {
+  const overlapping = overlappingGirasForDate(programas, evt.fecha);
+  if (!overlapping.length) return [];
+  const seen = new Set();
+  const full = [];
+  for (const eid of ensambleIdsOnEvent(evt)) {
+    const ensamble = ensambleById.get(eid);
+    if (!ensamble) continue;
+    for (const program of overlapping) {
+      if (!isEnsambleGrupoConvocadoAGira(program, ensamble)) continue;
+      const pid = Number(program.id);
+      if (seen.has(pid)) continue;
+      seen.add(pid);
+      full.push(program);
+    }
+  }
+  return full;
+}
+
+/**
+ * Conflicto pleno en memoria: gira que solapa la fecha + ensamble/CF/familia
+ * convocado y no EXCL. No usa roster ni queries por evento.
+ */
+export function buildFullConflictoImpactByEventId({
+  events,
+  ensambles,
+  programas,
+} = {}) {
+  const ensambleById = ensambleMapForConflicto(ensambles);
+  const map = new Map();
+  for (const evt of events || []) {
+    if (!evt || evt.is_deleted || evt.tecnica) continue;
+    if (Number(evt.id_tipo_evento) !== ID_TIPO_ENSAYO_ENSAMBLE) continue;
+    const fullPrograms = fullConflictoGirasForEvent(
+      evt,
+      ensambleById,
+      programas,
+    );
+    if (!fullPrograms.length) continue;
+    const eventId = Number(evt.id);
+    if (!Number.isFinite(eventId)) continue;
+    map.set(eventId, {
+      eventId,
+      conflictKind: CONFLICTO_KIND.full,
+      overlappingGiras: fullPrograms.map((p) => ({
+        id: p.id,
+        label: giraOverlapLabel(p),
+        count: 1,
+      })),
+      people: [],
+      pullouts: [],
+      count: 0,
+      resolvedKind: evt.ensayo_pese_conflicto
+        ? CONFLICTO_RESOLVED_KIND.kept
+        : null,
+      justificacion: evt.ensayo_pese_conflicto_justificacion || null,
+    });
+  }
+  return map;
+}
+
+/** Giras superpuestas a ensayos tipo 13 que NO son conflicto pleno (candidatas Tutti-N). */
+export function uniqueTuttiNProgramasForEvents({
+  events,
+  ensambles,
+  programas,
+  fullImpactByEventId,
+} = {}) {
+  const ensambleById = ensambleMapForConflicto(ensambles);
+  const byId = new Map();
+  for (const evt of events || []) {
+    if (!evt || evt.is_deleted || evt.tecnica) continue;
+    if (Number(evt.id_tipo_evento) !== ID_TIPO_ENSAYO_ENSAMBLE) continue;
+    if (fullImpactByEventId?.has(Number(evt.id))) continue;
+    const overlapping = overlappingGirasForDate(programas, evt.fecha);
+    for (const eid of ensambleIdsOnEvent(evt)) {
+      const ensamble = ensambleById.get(eid);
+      if (!ensamble) continue;
+      for (const program of overlapping) {
+        if (isEnsambleGrupoConvocadoAGira(program, ensamble)) continue;
+        byId.set(Number(program.id), program);
+      }
+    }
+  }
+  return [...byId.values()];
+}
+
+export function applyTuttiNImpacts(
+  fullMap,
+  {
+    events,
+    ensambles,
+    programas,
+    rosterByGiraId,
+    memberships,
+    integrantes,
+  } = {},
+) {
+  const map = new Map(fullMap || []);
+  if (!rosterByGiraId || !Object.keys(rosterByGiraId).length) return map;
+  const ensambleById = ensambleMapForConflicto(ensambles);
+  const integranteByKey = new Map(
+    (integrantes || []).map((p) => [integranteKey(p.id), p]),
+  );
+  for (const evt of events || []) {
+    if (!evt || evt.is_deleted || evt.tecnica) continue;
+    if (Number(evt.id_tipo_evento) !== ID_TIPO_ENSAYO_ENSAMBLE) continue;
+    const eventId = Number(evt.id);
+    if (!Number.isFinite(eventId) || map.has(eventId)) continue;
+    const overlapping = overlappingGirasForDate(programas, evt.fecha);
+    if (!overlapping.length) continue;
+    const pulloutPeople = [];
+    const seenPerson = new Set();
+    for (const eid of ensambleIdsOnEvent(evt)) {
+      const ensamble = ensambleById.get(eid);
+      if (!ensamble) continue;
+      const peopleIds = memberIdsForEnsambleOnDate(
+        memberships,
+        eid,
+        evt.fecha,
+      );
+      for (const iid of peopleIds) {
+        if (seenPerson.has(iid)) continue;
+        const hits = girasWhereConvocado(iid, overlapping, rosterByGiraId);
+        const girasPartial = hits.filter(
+          (hit) => !isEnsambleGrupoConvocadoAGira(hit.program, ensamble),
+        );
+        if (!girasPartial.length) continue;
+        seenPerson.add(iid);
+        const integrante = integranteByKey.get(iid) || { id: iid };
+        pulloutPeople.push({
+          id: iid,
+          integrante,
+          name: personName(integrante, iid),
+          giras: girasPartial,
+        });
+      }
+    }
+    if (!pulloutPeople.length) continue;
+    const listed = sortPeople(pulloutPeople);
+    map.set(eventId, {
+      eventId,
+      conflictKind: CONFLICTO_KIND.partial,
+      people: listed,
+      pullouts: listed,
+      count: listed.length,
+      overlappingGiras: overlappingGirasFromPeople(listed),
+      resolvedKind: null,
+      justificacion: null,
+      asisteIgualIds: [
+        ...asisteIgualIdsFromCustomRows(evt.eventos_asistencia_custom),
+      ],
+      eventCustom: evt.eventos_asistencia_custom || [],
+    });
+  }
+  return map;
 }
 
 function girasWhereConvocado(integranteId, giras, rosterByGiraId) {
@@ -96,6 +320,16 @@ export const CONFLICTO_RESOLVED_LABEL = {
   rescheduled: "Otro día",
 };
 
+/** Pleno: el ensamble está convocado a la gira que solapa. Parcial: EXCL/no convocado pero hay gente en roster. */
+export const CONFLICTO_KIND = {
+  full: "full",
+  partial: "partial",
+};
+
+/** Color de tarjeta / barra para ensayo en conflicto pendiente. */
+export const ENSAYO_CONFLICTO_COLOR = "#d97706";
+export const ENSAYO_CONFLICTO_BG = "#fffbeb";
+
 function sessionKey(eventId) {
   return eventId == null ? "" : String(eventId);
 }
@@ -152,7 +386,11 @@ export function applySessionResolvedToGroups(groups, sessionByEventId) {
       const hit = sessionHit(session, ensayo.eventId);
       if (!hit) return ensayo;
       used.add(sessionKey(ensayo.eventId));
-      return { ...ensayo, resolvedKind: hit.kind };
+      return {
+        ...ensayo,
+        resolvedKind: hit.kind,
+        justificacion: hit.justificacion ?? ensayo.justificacion,
+      };
     });
     for (const entry of entries) {
       if (Number(entry.ensambleId) !== Number(group.ensambleId)) continue;
@@ -199,7 +437,11 @@ export function applySessionResolvedToEnsambleRows(
     used.add(sessionKey(id));
     return {
       ...row,
-      conflicto: { ...(row.conflicto || {}), resolvedKind: hit.kind },
+      conflicto: {
+        ...(row.conflicto || {}),
+        resolvedKind: hit.kind,
+        justificacion: hit.justificacion ?? row.conflicto?.justificacion,
+      },
     };
   });
   for (const entry of entries) {
@@ -243,11 +485,77 @@ export function overlappingGirasFromPeople(people) {
   });
 }
 
+function mergeOverlappingGiraRows(a, b) {
+  const byKey = new Map();
+  for (const g of [...(a || []), ...(b || [])]) {
+    const label = String(g?.label || "").trim();
+    if (!label) continue;
+    const key = g.id != null ? `id:${g.id}` : `label:${label}`;
+    if (!byKey.has(key)) byKey.set(key, { ...g, label, count: g.count || 1 });
+  }
+  return [...byKey.values()];
+}
+
+/** Programas ya embebidos en eventos de agenda (sin query extra). */
+export function collectEmbeddedProgramas(events) {
+  const byId = new Map();
+  const take = (p) => {
+    if (!p?.id) return;
+    const id = Number(p.id);
+    if (!Number.isFinite(id)) return;
+    const prev = byId.get(id);
+    const fuentes = Array.isArray(p.giras_fuentes) ? p.giras_fuentes : [];
+    if (!prev) {
+      byId.set(id, p);
+      return;
+    }
+    const prevFuentes = Array.isArray(prev.giras_fuentes)
+      ? prev.giras_fuentes
+      : [];
+    if (fuentes.length && !prevFuentes.length) byId.set(id, { ...prev, ...p });
+  };
+  for (const evt of events || []) {
+    take(evt.programas);
+    for (const row of evt.eventos_programas_asociados || []) {
+      take(row.programas);
+    }
+  }
+  return [...byId.values()];
+}
+
+export function mergeProgramasById(...lists) {
+  const byId = new Map();
+  for (const list of lists) {
+    for (const p of list || []) {
+      if (!p?.id) continue;
+      const id = Number(p.id);
+      if (!Number.isFinite(id)) continue;
+      const prev = byId.get(id);
+      const fuentes = Array.isArray(p.giras_fuentes) ? p.giras_fuentes : [];
+      if (!prev) {
+        byId.set(id, p);
+        continue;
+      }
+      const prevFuentes = Array.isArray(prev.giras_fuentes)
+        ? prev.giras_fuentes
+        : [];
+      if (fuentes.length && !prevFuentes.length) {
+        byId.set(id, { ...prev, ...p });
+      }
+    }
+  }
+  return [...byId.values()];
+}
+
 /**
- * Ensayos de ensamble (tipo 13) en conflicto: algún miembro (membresía activa
- * ese día, o invitado/adicional via `isIntegranteConvocadoToEnsayo`) está
- * convocado a una gira (marca counted / R / L) cuyo calendario solapa la fecha
- * del ensayo. Ensamble Prueba excluido. Ausente sin abono no es convocado.
+ * Ensayos de ensamble (tipo 13) en conflicto pleno o Tutti-N.
+ * Un miembro (membresía activa ese día, o invitado/adicional) está en el
+ * roster real de seating de una gira cuyo calendario solapa la fecha
+ * (`fetchRosterForGira`: counted / R / L; ausente sin abono no).
+ * Pleno = `classifyProgramaEnsambleConvocatoria` convocado (ENSAMBLE, FAMILIA
+ * o CF) y el ensamble NO está EXCL_ENSAMBLE. Tutti-N = EXCL o sin convocatoria
+ * de ensamble/CF/familia, pero hay gente en el roster (override individual).
+ * Ensamble Prueba excluido.
  */
 export function buildEnsayosConflictoGroups({
   events,
@@ -258,15 +566,7 @@ export function buildEnsayosConflictoGroups({
   programas,
   rosterByGiraId,
 } = {}) {
-  const ensambleById = new Map();
-  const usable = [
-    ...filterEnsamblesForConvocatoriaView(ensambles, "ensambles"),
-    ...filterEnsamblesForConvocatoriaView(ensambles, "cameratas"),
-  ];
-  for (const en of usable) {
-    if (isEnsamblePruebaLabel(en?.ensamble)) continue;
-    ensambleById.set(Number(en.id), en);
-  }
+  const ensambleById = ensambleMapForConflicto(ensambles);
   const integranteByKey = new Map(
     (integrantes || []).map((p) => [integranteKey(p.id), p]),
   );
@@ -284,13 +584,9 @@ export function buildEnsayosConflictoGroups({
     if (!evt || evt.is_deleted || evt.tecnica) continue;
     if (Number(evt.id_tipo_evento) !== ID_TIPO_ENSAYO_ENSAMBLE) continue;
 
-    const ensambleIds = [
-      ...new Set(
-        (evt.eventos_ensambles || [])
-          .map((row) => Number(row.id_ensamble))
-          .filter(Number.isFinite),
-      ),
-    ].filter((id) => ensambleById.has(id));
+    const ensambleIds = ensambleIdsOnEvent(evt).filter((id) =>
+      ensambleById.has(id),
+    );
     if (!ensambleIds.length) continue;
 
     const overlapping = overlappingGirasForDate(programas, evt.fecha);
@@ -309,34 +605,52 @@ export function buildEnsayosConflictoGroups({
     }
 
     for (const ensambleId of ensambleIds) {
+      const ensamble = ensambleById.get(ensambleId);
+      const fullPrograms = overlapping.filter((p) =>
+        isEnsambleGrupoConvocadoAGira(p, ensamble),
+      );
       const peopleIds = memberIdsForEnsambleOnDate(
         memberships,
         ensambleId,
         evt.fecha,
       );
       for (const extra of extraIds) peopleIds.add(extra);
-      if (!peopleIds.size) continue;
 
-      const people = [];
+      const conflictPeople = [];
+      const pulloutPeople = [];
       for (const iid of peopleIds) {
-        const giras = girasWhereConvocado(iid, overlapping, rosterByGiraId);
-        if (!giras.length) continue;
+        const allHits = girasWhereConvocado(iid, overlapping, rosterByGiraId);
+        if (!allHits.length) continue;
+        const girasFull = [];
+        const girasPartial = [];
+        for (const hit of allHits) {
+          if (isEnsambleGrupoConvocadoAGira(hit.program, ensamble)) {
+            girasFull.push(hit);
+          } else {
+            girasPartial.push(hit);
+          }
+        }
         const integrante = integranteByKey.get(iid) || { id: iid };
-        people.push({
+        const row = {
           id: iid,
           integrante,
           name: personName(integrante, iid),
-          giras,
-        });
+        };
+        if (girasFull.length) {
+          conflictPeople.push({ ...row, giras: girasFull });
+        } else if (girasPartial.length) {
+          pulloutPeople.push({ ...row, giras: girasPartial });
+        }
       }
-      if (!people.length) continue;
 
-      const sortedPeople = sortPeople(people);
+      const isFull = fullPrograms.length > 0;
+      if (!isFull && !pulloutPeople.length) continue;
+
+      const listed = sortPeople(isFull ? conflictPeople : pulloutPeople);
       if (!groupsMap.has(ensambleId)) {
-        const en = ensambleById.get(ensambleId);
         groupsMap.set(ensambleId, {
           ensambleId,
-          ensambleName: en?.ensamble || `Ensamble ${ensambleId}`,
+          ensambleName: ensamble?.ensamble || `Ensamble ${ensambleId}`,
           ensayos: [],
         });
       }
@@ -347,12 +661,22 @@ export function buildEnsayosConflictoGroups({
         horaFin: evt.hora_fin || "",
         descripcion: evt.descripcion || "",
         tipoNombre: evt.tipos_evento?.nombre || "Ensayo de ensamble",
-        people: sortedPeople,
-        count: sortedPeople.length,
-        overlappingGiras: overlappingGirasFromPeople(sortedPeople),
-        resolvedKind: evt.ensayo_pese_conflicto
-          ? CONFLICTO_RESOLVED_KIND.kept
-          : null,
+        conflictKind: isFull ? CONFLICTO_KIND.full : CONFLICTO_KIND.partial,
+        people: listed,
+        pullouts: sortPeople(pulloutPeople),
+        count: isFull ? listed.length || fullPrograms.length : listed.length,
+        overlappingGiras: isFull
+          ? fullPrograms.map((p) => ({
+              id: p.id,
+              label: giraOverlapLabel(p),
+              count: 1,
+            }))
+          : overlappingGirasFromPeople(listed),
+        justificacion: evt.ensayo_pese_conflicto_justificacion || null,
+        resolvedKind:
+          isFull && evt.ensayo_pese_conflicto
+            ? CONFLICTO_RESOLVED_KIND.kept
+            : null,
       });
     }
   }
@@ -368,4 +692,138 @@ export function buildEnsayosConflictoGroups({
   }));
   groups.sort((a, b) => a.ensambleName.localeCompare(b.ensambleName, "es"));
   return groups;
+}
+
+export function isPendingFullConflicto(ensayo) {
+  return (
+    ensayo?.conflictKind === CONFLICTO_KIND.full && !ensayo?.resolvedKind
+  );
+}
+
+export function groupsWithFullConflicto(groups) {
+  return (groups || [])
+    .map((g) => ({
+      ...g,
+      ensayos: (g.ensayos || []).filter(
+        (e) => e.conflictKind === CONFLICTO_KIND.full,
+      ),
+    }))
+    .filter((g) => (g.ensayos || []).length > 0);
+}
+
+export function pendingFullConflictoEventIdSet(groupsOrMap) {
+  const ids = new Set();
+  if (groupsOrMap instanceof Map) {
+    for (const [id, impact] of groupsOrMap) {
+      if (!isPendingFullConflicto(impact)) continue;
+      ids.add(Number(id));
+    }
+    return ids;
+  }
+  for (const group of groupsOrMap || []) {
+    for (const ensayo of group.ensayos || []) {
+      if (!isPendingFullConflicto(ensayo) || ensayo.eventId == null) continue;
+      ids.add(Number(ensayo.eventId));
+    }
+  }
+  return ids;
+}
+
+function mergePersonRows(a, b) {
+  const byId = new Map();
+  for (const row of [...(a || []), ...(b || [])]) {
+    const key = integranteKey(row?.id) || String(row?.id ?? "");
+    if (!key) continue;
+    const prev = byId.get(key);
+    if (!prev) {
+      byId.set(key, { ...row, giras: [...(row.giras || [])] });
+      continue;
+    }
+    const seen = new Set(
+      (prev.giras || []).map((g) => g.program?.id ?? g.label),
+    );
+    const giras = [...(prev.giras || [])];
+    for (const g of row.giras || []) {
+      const gk = g.program?.id ?? g.label;
+      if (seen.has(gk)) continue;
+      seen.add(gk);
+      giras.push(g);
+    }
+    byId.set(key, { ...prev, giras });
+  }
+  return sortPeople([...byId.values()]);
+}
+
+/**
+ * Un impacto por evento: pleno gana a Tutti-N. Varios ensambles del mismo
+ * ensayo se fusionan (personas y giras).
+ */
+export function ensayoImpactByEventId(groups) {
+  const map = new Map();
+  for (const group of groups || []) {
+    for (const ensayo of group.ensayos || []) {
+      const id = Number(ensayo.eventId);
+      if (!Number.isFinite(id)) continue;
+      const prev = map.get(id);
+      const ensambleIds = [group.ensambleId];
+      if (!prev) {
+        map.set(id, { ...ensayo, ensambleIds });
+        continue;
+      }
+      const nextIds = [...new Set([...(prev.ensambleIds || []), ...ensambleIds])];
+      if (ensayo.conflictKind === CONFLICTO_KIND.full) {
+        if (prev.conflictKind !== CONFLICTO_KIND.full) {
+          map.set(id, { ...ensayo, ensambleIds: nextIds });
+          continue;
+        }
+        const people = mergePersonRows(prev.people, ensayo.people);
+        const fromPeople = overlappingGirasFromPeople(people);
+        map.set(id, {
+          ...prev,
+          people,
+          count: people.length,
+          overlappingGiras: fromPeople.length
+            ? fromPeople
+            : mergeOverlappingGiraRows(
+                prev.overlappingGiras,
+                ensayo.overlappingGiras,
+              ),
+          ensambleIds: nextIds,
+          resolvedKind: prev.resolvedKind || ensayo.resolvedKind,
+          justificacion: prev.justificacion || ensayo.justificacion,
+        });
+        continue;
+      }
+      if (prev.conflictKind === CONFLICTO_KIND.full) {
+        map.set(id, { ...prev, ensambleIds: nextIds });
+        continue;
+      }
+      const people = mergePersonRows(prev.people, ensayo.people);
+      map.set(id, {
+        ...prev,
+        people,
+        pullouts: mergePersonRows(prev.pullouts, ensayo.pullouts),
+        count: people.length,
+        overlappingGiras: overlappingGirasFromPeople(people),
+        ensambleIds: nextIds,
+      });
+    }
+  }
+  return map;
+}
+
+export function getEnsayoImpact(map, eventId) {
+  if (!map || eventId == null) return null;
+  return (
+    map.get(Number(eventId)) ||
+    map.get(eventId) ||
+    map.get(String(eventId)) ||
+    null
+  );
+}
+
+export function eventIdInPendingConflictoSet(pendingIds, eventId) {
+  if (!pendingIds || eventId == null) return false;
+  const n = Number(eventId);
+  return pendingIds.has(n) || pendingIds.has(eventId) || pendingIds.has(String(eventId));
 }

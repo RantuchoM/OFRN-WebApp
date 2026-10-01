@@ -142,6 +142,15 @@ import {
   resolveEventHoraFinForSave,
 } from "../../utils/mealLogistics";
 import { resolveEventFormSaveData } from "../../utils/hotelStayEvents";
+import { useEnsayosConflictoImpact } from "../../hooks/useEnsayosConflictoImpact";
+import {
+  EnsayoImpactTags,
+  EnsayoConflictoOverlapTitle,
+  EnsayoPeseJustificacionNote,
+  ensayoConflictoCardTint,
+  isPendingFullEnsayoImpact,
+} from "../ensayos/EnsayoImpactTags";
+import { getEnsayoImpact } from "../../utils/serviciosEnsayosConflicto";
 
 const DELETED_FILTERS_STORAGE_KEY_PREFIX = "unified_agenda_deleted_filters_v1_";
 const RECENT_CHANGES_ACK_STORAGE_KEY_PREFIX =
@@ -1094,6 +1103,8 @@ export default function UnifiedAgenda({
     lastUpdate,
     setLastUpdate,
     realtimeStatus,
+    hasRemoteAgendaChanges,
+    applyRemoteAgendaChanges,
     processCategories,
     markLocalEventMutation,
     refreshEventById,
@@ -1115,6 +1126,22 @@ export default function UnifiedAgenda({
     includeDeletedBeyond24h: isAdmin && showDeletedEvents,
     includeAssociatedEnsembleRehearsals,
   });
+
+  const {
+    impactByEventId,
+    refresh: refreshEnsayoConflicto,
+  } = useEnsayosConflictoImpact({
+    supabase,
+    events: items,
+    fechaDesde: filterDateFrom,
+    fechaHasta: filterDateTo,
+    enabled: Boolean(supabase),
+  });
+
+  const handleEnsayoConflictoChanged = useCallback(() => {
+    refreshEnsayoConflicto();
+    fetchAgenda(true);
+  }, [refreshEnsayoConflicto, fetchAgenda]);
 
   /** Columna de chips: grupos OFRN y/o artistas FIMBA tagueados. */
   const showGruposColumn = useMemo(() => {
@@ -2849,10 +2876,24 @@ export default function UnifiedAgenda({
     <div className="relative flex h-full min-h-0 min-w-0 max-w-full flex-col overflow-x-hidden bg-slate-50 animate-in fade-in">
       {dialog}
       {isOfflineMode && (
-        <div className="bg-amber-100 border-b border-amber-200 px-4 py-1 text-[10px] sm:text-xs font-bold text-amber-800 text-center flex items-center justify-center gap-2 sticky top-0 z-40">
+        <div className="bg-amber-100 border-b border-amber-200 px-4 py-1 text-[10px] sm:text-xs font-bold text-amber-800 text-center flex items-center justify-center gap-2 shrink-0">
           <IconAlertTriangle size={14} />
           <span>Sin conexión a internet. Mostrando copia guardada.</span>
         </div>
+      )}
+      {hasRemoteAgendaChanges && (
+        <button
+          type="button"
+          onClick={() => applyRemoteAgendaChanges()}
+          disabled={isRefreshing}
+          className="shrink-0 w-full bg-sky-600 hover:bg-sky-700 disabled:opacity-70 text-white px-4 py-1.5 text-xs sm:text-sm font-bold text-center flex items-center justify-center gap-2"
+        >
+          <IconRefresh
+            size={14}
+            className={isRefreshing ? "animate-spin" : ""}
+          />
+          Hubo cambios. Actualizar.
+        </button>
       )}
 
       <div className="bg-white border-b border-slate-200 shadow-sm sticky top-0 z-30 shrink-0 min-w-0">
@@ -3399,7 +3440,17 @@ export default function UnifiedAgenda({
                     }
 
                     // ... Lógica de estilos y props de la tarjeta ...
-                    const eventColor = evt.tipos_evento?.color || "#6366f1";
+                    const ensayoImpact = getEnsayoImpact(
+                      impactByEventId,
+                      evt.id,
+                    );
+                    const conflictoTint = !evt.is_deleted
+                      ? ensayoConflictoCardTint(ensayoImpact)
+                      : null;
+                    const eventColor =
+                      conflictoTint?.color ||
+                      evt.tipos_evento?.color ||
+                      "#6366f1";
                     const isMeal =
                       [7, 8, 9, 10].includes(evt.id_tipo_evento) ||
                       evt.tipos_evento?.nombre
@@ -3478,7 +3529,9 @@ export default function UnifiedAgenda({
                       { isMeal, isTransport: isTransportEvent },
                     );
 
-                    const cardStyle = { backgroundColor: `${eventColor}10` };
+                    const cardStyle = conflictoTint
+                      ? { backgroundColor: conflictoTint.backgroundColor }
+                      : { backgroundColor: `${eventColor}10` };
 
                     const feriado = feriados.find((f) => f.fecha === evt.fecha);
 
@@ -3688,6 +3741,24 @@ export default function UnifiedAgenda({
                                             Borrador
                                           </span>
                                         )}
+                                        {!isDeleted && (
+                                          <EnsayoImpactTags
+                                            eventId={evt.id}
+                                            impactByEventId={impactByEventId}
+                                            supabase={supabase}
+                                            ensambles={myEnsembleObjects}
+                                            canAct={
+                                              isEditor ||
+                                              isAdmin ||
+                                              isManagement ||
+                                              canUserEditEvent(evt)
+                                            }
+                                            onChanged={
+                                              handleEnsayoConflictoChanged
+                                            }
+                                            compact
+                                          />
+                                        )}
                                         {(canEditAgendaTechVisibility ||
                                           isTechnician) && (
                                           <AgendaEventAdminToggle
@@ -3729,13 +3800,29 @@ export default function UnifiedAgenda({
                                       {/* Descripción con chips de ensamble al costado */}
                                       <div className="flex min-w-0 items-start gap-2">
                                         <div
-                                          className={`flex-1 text-sm leading-tight break-words ${isDeleted ? "text-orange-700" : shouldDim ? "text-slate-400" : "text-slate-800"}`}
+                                          className={`flex-1 text-sm leading-tight break-words ${
+                                            isDeleted
+                                              ? "text-orange-700"
+                                              : shouldDim
+                                                ? "text-slate-400"
+                                                : isPendingFullEnsayoImpact(
+                                                      ensayoImpact,
+                                                    )
+                                                  ? "italic font-medium text-slate-500"
+                                                  : "text-slate-800"
+                                          }`}
                                         >
                                           {evt.descripcion ? (
                                             <AgendaEventDescripcionHtml
                                               html={evt.descripcion}
                                               query={agendaSearchQuery}
-                                              htmlClassName="whitespace-pre-wrap font-medium [&>b]:font-bold [&>strong]:font-bold [&>mark]:bg-yellow-200 [&>mark]:text-yellow-900"
+                                              htmlClassName={`whitespace-pre-wrap font-medium [&>b]:font-bold [&>strong]:font-bold [&>mark]:bg-yellow-200 [&>mark]:text-yellow-900${
+                                                isPendingFullEnsayoImpact(
+                                                  ensayoImpact,
+                                                )
+                                                  ? " italic"
+                                                  : ""
+                                              }`}
                                             />
                                           ) : (
                                             <span>
@@ -3745,6 +3832,14 @@ export default function UnifiedAgenda({
                                               />
                                             </span>
                                           )}
+                                          <EnsayoConflictoOverlapTitle
+                                            impact={ensayoImpact}
+                                          />
+                                          <EnsayoPeseJustificacionNote
+                                            justificacion={
+                                              ensayoImpact?.justificacion
+                                            }
+                                          />
                                         </div>
 
                                         <div className="flex min-w-0 max-w-[48%] flex-wrap gap-1">
@@ -4232,6 +4327,22 @@ export default function UnifiedAgenda({
                                         Borrador
                                       </span>
                                     )}
+                                    {!isDeleted && (
+                                      <EnsayoImpactTags
+                                        eventId={evt.id}
+                                        impactByEventId={impactByEventId}
+                                        supabase={supabase}
+                                        ensambles={myEnsembleObjects}
+                                        canAct={
+                                          isEditor ||
+                                          isAdmin ||
+                                          isManagement ||
+                                          canUserEditEvent(evt)
+                                        }
+                                        onChanged={handleEnsayoConflictoChanged}
+                                        compact
+                                      />
+                                    )}
                                     {(canEditAgendaTechVisibility ||
                                       isTechnician) && (
                                       <AgendaEventAdminToggle
@@ -4298,20 +4409,40 @@ export default function UnifiedAgenda({
                                 >
                                   <div className="flex items-start gap-2">
                                     <div
-                                      className={`flex-1 text-sm leading-tight break-words ${isDeleted ? "text-orange-700" : shouldDim ? "text-slate-400" : "text-slate-800"}`}
+                                      className={`flex-1 text-sm leading-tight break-words ${
+                                        isDeleted
+                                          ? "text-orange-700"
+                                          : shouldDim
+                                            ? "text-slate-400"
+                                            : isPendingFullEnsayoImpact(
+                                                  ensayoImpact,
+                                                )
+                                              ? "italic font-medium text-slate-500"
+                                              : "text-slate-800"
+                                      }`}
                                     >
                                       {evt.descripcion ? (
                                         <AgendaEventDescripcionHtml
                                           html={evt.descripcion}
                                           query={agendaSearchQuery}
-                                          htmlClassName="whitespace-pre-wrap font-medium [&>b]:font-bold [&>strong]:font-bold [&>mark]:bg-yellow-200 [&>mark]:text-yellow-900 text-sm"
+                                          htmlClassName={`whitespace-pre-wrap font-medium [&>b]:font-bold [&>strong]:font-bold [&>mark]:bg-yellow-200 [&>mark]:text-yellow-900 text-sm${
+                                            isPendingFullEnsayoImpact(
+                                              ensayoImpact,
+                                            )
+                                              ? " italic"
+                                              : ""
+                                          }`}
                                         />
                                       ) : (
                                         <span
                                           className={
                                             isDeleted
                                               ? "font-bold text-orange-700"
-                                              : "font-bold text-slate-800"
+                                              : isPendingFullEnsayoImpact(
+                                                    ensayoImpact,
+                                                  )
+                                                ? "italic font-medium text-slate-500"
+                                                : "font-bold text-slate-800"
                                           }
                                         >
                                           <AgendaSearchHighlight
@@ -4320,6 +4451,18 @@ export default function UnifiedAgenda({
                                           />
                                         </span>
                                       )}
+                                      {evt.id_tipo_evento === 13 ? (
+                                        <>
+                                          <EnsayoConflictoOverlapTitle
+                                            impact={ensayoImpact}
+                                          />
+                                          <EnsayoPeseJustificacionNote
+                                            justificacion={
+                                              ensayoImpact?.justificacion
+                                            }
+                                          />
+                                        </>
+                                      ) : null}
                                     </div>
 
                                     {/* Chip(es) de ensamble al lado de la descripción */}
