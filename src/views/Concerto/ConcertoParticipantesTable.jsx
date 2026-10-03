@@ -16,6 +16,7 @@ import {
 import { calculateInstrumentation } from "../../utils/instrumentation";
 import {
   formatObraCompositores,
+  formatParticipanteInstrumentos,
   formatParticipanteNombres,
   linkParticipanteObra,
   moveParticipante,
@@ -229,7 +230,6 @@ export function FragmentosCampos({
 
 function ParticipanteCard({
   participante,
-  corto,
   obra,
   compositor,
   organico,
@@ -252,6 +252,8 @@ function ParticipanteCard({
 }) {
   const [open, setOpen] = useState(false);
   const nombre = nombresDe(participante);
+  const instrumentos = formatParticipanteInstrumentos(participante.integrantes);
+  const tituloLinea = tituloCortoObra(obra?.titulo);
   return (
     <li className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white">
       <button
@@ -263,7 +265,19 @@ function ParticipanteCard({
       >
         <span className="min-w-0 flex-1">
           <span className="block break-words font-medium text-slate-800">{nombre}</span>
-          <span className="mt-0.5 block break-words text-sm text-slate-600">{corto || "—"}</span>
+          {instrumentos ? (
+            <span className="mt-0.5 block break-words text-xs text-slate-500">{instrumentos}</span>
+          ) : null}
+          {compositor ? (
+            <span className="mt-0.5 block break-words text-[11px] font-semibold text-slate-600">
+              {compositor}
+            </span>
+          ) : null}
+          {tituloLinea ? (
+            <span className="mt-0.5 block break-words text-sm text-slate-600">{tituloLinea}</span>
+          ) : (
+            <span className="mt-0.5 block break-words text-sm text-slate-600">—</span>
+          )}
         </span>
         {open ? (
           <IconChevronUp size={16} className="mt-0.5 shrink-0 text-slate-400" />
@@ -467,12 +481,16 @@ export default function ConcertoParticipantesTable({
           {participantes.map((participante, index) => {
             const obra = participante.repertorio_obra?.obras || null;
             const compositor = formatObraCompositores(obra);
+            const instrumentos = formatParticipanteInstrumentos(participante.integrantes);
             const organico = organicoDe(obra);
             const drive = obra?.link_drive || "";
             return (
               <tr key={participante.id} className="border-b border-slate-100 align-top">
                 <td className="px-2 py-2">
                   <p className="font-medium text-slate-800">{nombresDe(participante)}</p>
+                  {instrumentos ? (
+                    <p className="mt-0.5 text-xs text-slate-500">{instrumentos}</p>
+                  ) : null}
                   {!participante.integrantes?.length ? (
                     <p className="mt-1 flex items-center gap-1 text-xs text-amber-700">
                       <IconAlertTriangle size={14} />
@@ -531,12 +549,10 @@ export default function ConcertoParticipantesTable({
           const compositor = formatObraCompositores(obra);
           const organico = organicoDe(obra);
           const drive = obra?.link_drive || "";
-          const corto = tituloCortoObra(obra?.titulo);
           return (
             <ParticipanteCard
               key={participante.id}
               participante={participante}
-              corto={corto}
               obra={obra}
               compositor={compositor}
               organico={organico}

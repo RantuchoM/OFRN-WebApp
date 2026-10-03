@@ -166,6 +166,11 @@ function ResultadoCard({ fila }) {
           ) : (
             <span className="block font-medium text-slate-800">Sin nombre</span>
           )}
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+              {instrumentos.length ? instrumentos.join(" · ") : "—"}
+            </p>
+          </div>
         </span>
         <span className="shrink-0 text-right">
           <span className="block font-semibold text-slate-800">
@@ -183,12 +188,7 @@ function ResultadoCard({ fila }) {
       </button>
       {open ? (
         <div className="space-y-2 border-t border-slate-100 px-3 py-3">
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Instrumento</p>
-            <p className="mt-1 break-words text-sm text-slate-700">
-              {instrumentos.length ? instrumentos.join(" · ") : "—"}
-            </p>
-          </div>
+          
           <div>
             <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Obra</p>
             <div className="mt-1 min-w-0 text-sm text-slate-800">

@@ -24,16 +24,30 @@ export function plainWorkTitle(value) {
     .trim();
 }
 
-/** Primera línea del título de catálogo, sin movimientos ni HTML. */
-export function tituloCortoObra(value) {
-  const raw = String(value || "").trim().replace(/^(?:\s*<(?:p|div)\b[^>]*>)+/i, "");
-  const first = raw.split(/<(?:p|div|br)\b[^>]*>|<\/(?:p|div)>|\n/i)[0] || "";
-  return plainWorkTitle(first)
+function decodeTitleEntities(value) {
+  return String(value || "")
     .replace(/&nbsp;/gi, " ")
     .replace(/&amp;/gi, "&")
+    .replace(/&(?:quot|ldquo|rdquo|lsquo|rsquo|laquo|raquo);/gi, " ")
+    .replace(/&#39;|&apos;/gi, "'")
     .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
-    .replace(/\s+/g, " ")
-    .trim();
+    .replace(/&#x([0-9a-f]+);/gi, (_, code) => String.fromCharCode(parseInt(code, 16)));
+}
+
+/**
+ * Primera línea visible del título, en texto plano.
+ * Corta por bloque (`p`, `div`, `br` o salto de línea) y se queda con el primer
+ * tramo que tiene texto. No usa recorte visual.
+ */
+export function tituloCortoObra(value) {
+  const raw = String(value || "");
+  if (!raw.trim()) return "";
+  const parts = raw.split(/<(?:p|div|br)\b[^>]*>|<\/(?:p|div)>|\n/i);
+  for (const part of parts) {
+    const line = plainWorkTitle(decodeTitleEntities(part)).replace(/\s+/g, " ").trim();
+    if (line) return line;
+  }
+  return "";
 }
 
 /** «Apellido, Nombre», varios unidos con « / ». Vacío si la obra no tiene compositor. */
@@ -141,6 +155,21 @@ export function formatParticipanteNombres(integrantes) {
   return `${names[0]} y ${names[1]}`;
 }
 
+/** Instrumento de `integrantes.id_instr`. Dúo con instrumentos distintos: los dos. */
+export function formatParticipanteInstrumentos(integrantes) {
+  const labels = [];
+  const seen = new Set();
+  for (const persona of integrantes || []) {
+    const raw = persona?.instrumentos;
+    const instrumento = Array.isArray(raw) ? raw[0] : raw;
+    const name = String(instrumento?.instrumento || "").trim();
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    labels.push(name);
+  }
+  return labels.join(" · ");
+}
+
 export function textoFragmento(value) {
   return String(value ?? "").trim();
 }
@@ -157,7 +186,7 @@ export function formatPuntaje(value) {
 export function formatCantidadBoletas(value) {
   const n = Number(value);
   if (!Number.isFinite(n)) return "";
-  return n === 1 ? "1 boleta" : `${n} boletas`;
+  return n === 1 ? "1 voto" : `${n} votos`;
 }
 
 export function formatGiraLabel(gira) {

@@ -12,6 +12,8 @@ import {
   borrarPuntaje,
   fetchBoleta,
   formatDateTimeAR,
+  formatObraCompositores,
+  formatParticipanteInstrumentos,
   formatParticipanteNombres,
   guardarPuntaje,
   lineaPrincipalParticipante,
@@ -25,32 +27,29 @@ function nombresDe(participante) {
 
 export function ParticipanteVotoIdentidad({ participante }) {
   const nombre = formatParticipanteNombres(participante?.integrantes) || "Sin nombre";
-  const titulo = participante?.repertorio_obra?.obras?.titulo;
-  
-  // Extraer los compositores vinculados a la obra (asumiendo la estructura clásica del repertorio)
-  const compositores = participante?.repertorio_obra?.obras?.obras_compositores
-    ?.filter((oc) => oc.rol === "compositor" || !oc.rol)
-    ?.map((oc) => `${oc.compositores?.apellido}, ${oc.compositores?.nombre}`)
-    .filter(Boolean)
-    .join(" / ");
+  const instrumentos = formatParticipanteInstrumentos(participante?.integrantes);
+  const obra = participante?.repertorio_obra?.obras || null;
+  const compositor = formatObraCompositores(obra);
 
   return (
     <div className="min-w-0">
-      <div className="text-sm font-medium text-slate-800">
-        {nombre}
-      </div>
-      <div className="mt-1">
-        {/* Compositor arriba del título de la obra */}
-        {compositores ? (
-          <div className="text-xs font-bold text-slate-500 uppercase tracking-wide">
-            {compositores}
-          </div>
-        ) : null}
-        
-        {titulo ? (
-          <RichTextPreview content={titulo} className="font-normal text-slate-700 [&_p]:my-0 [&_div]:my-0" />
-        ) : null}
-      </div>
+      <div className="text-sm font-medium text-slate-800">{nombre}</div>
+      {instrumentos ? (
+        <div className="mt-0.5 text-xs text-slate-500">{instrumentos}</div>
+      ) : null}
+      {compositor || obra?.titulo ? (
+        <div className="mt-1">
+          {compositor ? (
+            <div className="text-[11px] font-semibold text-slate-600">{compositor}</div>
+          ) : null}
+          {obra?.titulo ? (
+            <RichTextPreview
+              content={obra.titulo}
+              className="font-normal text-slate-700 [&_p]:my-0 [&_div]:my-0"
+            />
+          ) : null}
+        </div>
+      ) : null}
       <div className="mt-1">
         <FragmentosCampos participante={participante} compact />
       </div>
