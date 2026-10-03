@@ -26,13 +26,29 @@ function nombresDe(participante) {
 export function ParticipanteVotoIdentidad({ participante }) {
   const nombre = formatParticipanteNombres(participante?.integrantes) || "Sin nombre";
   const titulo = participante?.repertorio_obra?.obras?.titulo;
+  
+  // Extraer los compositores vinculados a la obra (asumiendo la estructura clásica del repertorio)
+  const compositores = participante?.repertorio_obra?.obras?.obras_compositores
+    ?.filter((oc) => oc.rol === "compositor" || !oc.rol)
+    ?.map((oc) => `${oc.compositores?.apellido}, ${oc.compositores?.nombre}`)
+    .filter(Boolean)
+    .join(" / ");
+
   return (
     <div className="min-w-0">
       <div className="text-sm font-medium text-slate-800">
         {nombre}
-        {titulo ? " - " : ""}
+      </div>
+      <div className="mt-1">
+        {/* Compositor arriba del título de la obra */}
+        {compositores ? (
+          <div className="text-xs font-bold text-slate-500 uppercase tracking-wide">
+            {compositores}
+          </div>
+        ) : null}
+        
         {titulo ? (
-          <RichTextPreview content={titulo} className="font-normal [&_p]:my-0 [&_div]:my-0" />
+          <RichTextPreview content={titulo} className="font-normal text-slate-700 [&_p]:my-0 [&_div]:my-0" />
         ) : null}
       </div>
       <div className="mt-1">
