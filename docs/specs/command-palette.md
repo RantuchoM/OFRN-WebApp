@@ -71,7 +71,7 @@ Los comandos globales replican la visibilidad del sidebar (`App.jsx` → `allMen
 | Entradas | `/entradas` | pie del sidebar, también invitado |
 
 ## Informes de Gestión — acceso individual
-Cada informe tiene **su propia entrada** en Ctrl+K y **su propia ruta** bajo `/management`.
+Cada informe tiene **su propia entrada** en Ctrl+K. Salvo **Horas**, cada uno tiene ruta bajo `/management`.
 
 | Comando Ctrl+K | Ruta |
 |----------------|------|
@@ -86,6 +86,9 @@ Cada informe tiene **su propia entrada** en Ctrl+K y **su propia ruta** bajo `/m
 | Gestión: Conciertos | `/management/conciertos` |
 | Gestión: Audiencia | `/management/audiencia` |
 | Gestión: Seguimiento viáticos | `/management/viaticos_seguimiento` |
+| Horas | `/?tab=musicos&vista=horas` |
+
+`Horas` no es un informe bajo `/management`: abre la administración de horas que ya vive en Personas. También matchea «gestión de horas», «administración de horas» y «nómina de horas». Visible para `isAdmin` o `isEditor`, los mismos que ven el módulo Gestión y que ya pueden abrir esa pantalla desde Personas.
 
 Visibilidad: `isAdmin` o `isEditor` (misma regla que el ítem **Gestión** del sidebar).
 

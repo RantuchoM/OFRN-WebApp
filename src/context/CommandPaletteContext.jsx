@@ -10,7 +10,7 @@ import { canAccessMusicTranslation } from '../constants/musicTranslationAccess';
 import { isConcertoStaff, musicianCanSeeConcerto } from '../utils/concertoCompeticion';
 import {
   MANAGEMENT_PALETTE_ENTRIES,
-  managementPalettePath,
+  managementPaletteDestination,
 } from '../constants/managementPalette';
 import CommandPalette from '../components/ui/CommandPalette';
 import CommandPaletteEntityOverlays from '../components/ui/CommandPaletteEntityOverlays';
@@ -31,7 +31,7 @@ import {
     IconTag, IconDatabase, IconInfo, IconCheckSquare, IconMegaphone,
     IconMusicNote, IconList, IconBell, IconBookOpen, IconEdit,
     IconBulb, IconSpiralNotebook, IconManagement, IconSettingsWheel,
-    IconHistory, IconMap, IconClipboardCheck, IconTrophy,
+    IconHistory, IconMap, IconClipboardCheck, IconTrophy, IconClock,
 } from '../components/ui/Icons';
 
 const MANAGEMENT_SECTION_ICONS = {
@@ -45,18 +45,24 @@ const MANAGEMENT_SECTION_ICONS = {
   conciertos: IconCalendar,
   audiencia: IconUsers,
   viaticos_seguimiento: IconDollarSign,
+  horas: IconClock,
 };
 
 function buildManagementPaletteCommands(navigate) {
   return MANAGEMENT_PALETTE_ENTRIES.map((entry) => {
     const IconComponent =
-      entry.slug == null ? IconManagement : MANAGEMENT_SECTION_ICONS[entry.slug];
+      entry.id === "mgmt-horas"
+        ? IconClock
+        : entry.slug == null
+          ? IconManagement
+          : MANAGEMENT_SECTION_ICONS[entry.slug];
     return {
       id: entry.id,
       label: entry.label,
+      aliases: entry.aliases,
       icon: <IconComponent size={14} className="text-indigo-500" />,
       section: entry.section,
-      run: () => navigate(managementPalettePath(entry.slug)),
+      run: () => navigate(managementPaletteDestination(entry)),
     };
   });
 }

@@ -53,6 +53,7 @@ Igual que antes: totales por conceptos, registro previo mismo origen; `horas_cam
 **Novedad:** diferencia, por concepto y por origen (`CULTURA` / `EDUCACION`), entre las horas vigentes de ese mes y las del mes calendario anterior. El saldo de un mes es el registro cuyo **mes de vigencia** (`anio_inicio` / `mes_inicio`) es el más reciente que ya empezó, no el de `created_at` más nuevo. `created_at` solo desempata dos filas del mismo mes de inicio. `n` es el valor vigente; `m` es ese delta.
 
 - [x] Administración de Horas tiene URL propia: `/?tab=musicos&vista=horas`. Abrir la pantalla hace push de ese query; **Volver** lo saca con `replace`. El listado de Personas queda en `/?tab=musicos` sin `vista`. Cambiar de sección borra `vista` para no arrastrarla.
+- [x] **Gestión → Horas** (menú de informes, orden alfabético en español) y Ctrl+K «Horas» abren esa misma URL. No hay una vista nueva bajo `/management`. Lo ven `admin` y `editor` (incluido curador, que ya entra a Personas).
 
 **Detalle** (`formatNovedadDetalleLine`): solo rubros con delta distinto de cero. Cada rubro lleva signo (`+3 coord`, `-9 des`). El neto de afuera es la suma algebraica de esos deltas. Etiquetas cortas en minúscula (`básico`, `ens`, `ensamb`, `cat`, `coord`, `des`, `otros`).
 - Cambio (había horas y sigue habiendo): `Apellido, Nombre. Antes: 30 hs. Ahora: 33 hs. +3 hs (+3 coord)`. `Ahora = Antes + neto`.

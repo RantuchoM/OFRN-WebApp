@@ -19,6 +19,7 @@ import {
   IconChevronDown,
   IconCheck,
   IconDollarSign,
+  IconClock,
 } from "../../components/ui/Icons";
 import { VenuesManager } from "../../components/management/VenuesManager";
 import SeatingReports from "./SeatingReports";
@@ -55,6 +56,27 @@ function parseManagementSection(pathname) {
 
 function managementSectionPath(section) {
   return section === HOME_VIEW ? "/management" : `/management/${section}`;
+}
+
+function menuDestination(sectionKey) {
+  const href = SECTION_CONFIG[sectionKey]?.href;
+  if (!href) return managementSectionPath(sectionKey);
+  const url = new URL(href, "http://local");
+  return { pathname: url.pathname || "/", search: url.search };
+}
+
+function compareGestionTitle(a, b) {
+  return (SECTION_CONFIG[a]?.title || "").localeCompare(
+    SECTION_CONFIG[b]?.title || "",
+    "es",
+    { sensitivity: "base" },
+  );
+}
+
+function gestionMenuKeys(enabledSections) {
+  const keys = SECTION_ORDER.filter((section) => enabledSections.has(section));
+  keys.push("horas");
+  return keys.sort(compareGestionTitle);
 }
 
 const SECTION_ORDER = [
@@ -201,6 +223,20 @@ const SECTION_CONFIG = {
       "bg-lime-50 text-lime-700 group-hover:bg-lime-600 group-hover:text-white",
     titleClasses: "text-lime-900 group-hover:text-lime-800",
   },
+  horas: {
+    title: "Horas",
+    tabLabel: "Horas",
+    subtitle: "Nómina y administración de horas",
+    description:
+      "Abre la administración de horas cátedra, la misma pantalla que desde Personas.",
+    icon: IconClock,
+    href: "/?tab=musicos&vista=horas",
+    cardClasses:
+      "border-fuchsia-100 hover:border-fuchsia-300 hover:shadow-md focus-visible:ring-fuchsia-300",
+    iconClasses:
+      "bg-fuchsia-50 text-fuchsia-700 group-hover:bg-fuchsia-600 group-hover:text-white",
+    titleClasses: "text-fuchsia-900 group-hover:text-fuchsia-800",
+  },
 };
 
 /** Selector compacto de informe (reemplaza la fila de pestañas). */
@@ -333,7 +369,7 @@ export default function ManagementView({
     [managementSections],
   );
   const availableSections = useMemo(
-    () => SECTION_ORDER.filter((section) => enabledSections.has(section)),
+    () => gestionMenuKeys(enabledSections),
     [enabledSections],
   );
 
@@ -345,6 +381,11 @@ export default function ManagementView({
 
   const setActiveTab = useCallback(
     (tab) => {
+      const href = SECTION_CONFIG[tab]?.href;
+      if (href) {
+        navigate(menuDestination(tab));
+        return;
+      }
       navigate(managementSectionPath(tab));
     },
     [navigate],
@@ -442,7 +483,7 @@ export default function ManagementView({
                   return (
                     <ManagementSectionCard
                       key={sectionKey}
-                      to={managementSectionPath(sectionKey)}
+                      to={menuDestination(sectionKey)}
                       title={sectionConfig.title}
                       subtitle={sectionConfig.subtitle}
                       description={sectionConfig.description}

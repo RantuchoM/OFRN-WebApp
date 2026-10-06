@@ -73,8 +73,24 @@ export const MANAGEMENT_PALETTE_ENTRIES = [
     label: "Gestión: Seguimiento viáticos",
     section: "Informes de Gestión",
   },
+  {
+    id: "mgmt-horas",
+    label: "Horas",
+    section: "Informes de Gestión",
+    href: "/?tab=musicos&vista=horas",
+    aliases: [
+      "gestión de horas",
+      "administración de horas",
+      "nómina de horas",
+    ],
+  },
 ];
 
 export function managementPalettePath(slug) {
   return slug ? `/management/${slug}` : "/management";
+}
+
+/** Destino de un comando. `href` abre otra pantalla; si no, la ruta del informe. */
+export function managementPaletteDestination(entry) {
+  return entry?.href || managementPalettePath(entry?.slug);
 }
