@@ -804,6 +804,7 @@ const ProtectedApp = ({ initialTab }) => {
       }
 
       const newParams = new URLSearchParams(searchParams);
+      newParams.delete("vista");
       const targetTab = modeToTab[newMode];
       if (targetTab) newParams.set("tab", targetTab);
       else newParams.delete("tab");
@@ -813,7 +814,7 @@ const ProtectedApp = ({ initialTab }) => {
         if (viewParam) newParams.set("view", viewParam);
         if (subTabParam) newParams.set("subTab", subTabParam);
       } else {
-        ["giraId", "view", "subTab"].forEach((p) => newParams.delete(p));
+        ["giraId", "view", "subTab", "vista"].forEach((p) => newParams.delete(p));
       }
 
       const search = newParams.toString();
@@ -828,6 +829,7 @@ const ProtectedApp = ({ initialTab }) => {
             ? "/management"
             : (() => {
                 const newParams = new URLSearchParams(searchParams);
+                newParams.delete("vista");
                 const targetTab = modeToTab[newMode];
                 if (targetTab) newParams.set("tab", targetTab);
                 else newParams.delete("tab");
@@ -836,7 +838,7 @@ const ProtectedApp = ({ initialTab }) => {
                   if (viewParam) newParams.set("view", viewParam);
                   if (subTabParam) newParams.set("subTab", subTabParam);
                 } else {
-                  ["giraId", "view", "subTab"].forEach((p) =>
+                  ["giraId", "view", "subTab", "vista"].forEach((p) =>
                     newParams.delete(p),
                   );
                 }

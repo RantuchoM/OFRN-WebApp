@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
+import { useSearchParams } from "react-router-dom";
 import { createPortal } from "react-dom";
 import {
   IconPlus,
@@ -1174,7 +1175,19 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
   const [searchText, setSearchText] = useState("");
   const [selectedInstruments, setSelectedInstruments] = useState(new Set());
   const [conditionFilters, setConditionFilters] = useState(new Set());
-  const [showHorasDashboard, setShowHorasDashboard] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const showHorasDashboard = searchParams.get("vista") === "horas";
+  const openHorasDashboard = () => {
+    const next = new URLSearchParams(searchParams);
+    next.set("tab", "musicos");
+    next.set("vista", "horas");
+    setSearchParams(next);
+  };
+  const closeHorasDashboard = () => {
+    const next = new URLSearchParams(searchParams);
+    next.delete("vista");
+    setSearchParams(next, { replace: true });
+  };
 
   const [onlyVigente, setOnlyVigente] = useState(false);
   const [missingFieldsFilters, setMissingFieldsFilters] = useState(new Set());
@@ -1898,7 +1911,7 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
       <div className="h-screen flex flex-col bg-white">
         <div className="p-4 border-b flex items-center gap-4">
           <button
-            onClick={() => setShowHorasDashboard(false)}
+            onClick={closeHorasDashboard}
             className="text-slate-400 hover:text-slate-600 font-bold text-xs uppercase flex items-center gap-1"
           >
             <IconChevronDown className="rotate-90" /> Volver
@@ -2079,7 +2092,7 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
               <span className="md:hidden text-xs font-bold">Nuevo</span>
             </button>
             <button
-              onClick={() => setShowHorasDashboard(true)}
+              onClick={openHorasDashboard}
               className="flex-1 md:flex-none flex justify-center items-center gap-2 bg-white border border-slate-200 text-slate-600 px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider hover:bg-slate-50 shadow-sm"
             >
               <IconInfo size={16} className="text-indigo-500" />{" "}

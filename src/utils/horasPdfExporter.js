@@ -3,6 +3,7 @@ import PizZip from "pizzip";
 import mammoth from "mammoth";
 import { saveAs } from "file-saver";
 import jsPDF from "jspdf";
+import { getHorasVigentes } from "./horasNominaReport";
 
 /** Carpeta destino en Google Drive para notas de horas cátedra (Secretaría de Cultura). */
 export const HORAS_NOTAS_DRIVE_FOLDER_ID = "1kPOHAfOo_pNWSLbqhuVQ87WSij2f4_A_";
@@ -112,19 +113,9 @@ export function getPreviousHorasRecord(records, registroActual) {
   return anterior;
 }
 
-/** Misma regla que el dashboard: registro vigente para ese mes calendario y origen. */
+/** Misma regla que la grilla: saldo vigente por mes de inicio, no por `created_at`. */
 function getHoursForDate(records, date, origen) {
-  const y = date.getFullYear();
-  const mo = date.getMonth() + 1;
-  const validRecords = (records || []).filter((r) => {
-    if (r.origen !== origen) return false;
-    const startOk = r.anio_inicio < y || (r.anio_inicio === y && r.mes_inicio <= mo);
-    const endOk =
-      !r.anio_fin || r.anio_fin > y || (r.anio_fin === y && r.mes_fin >= mo);
-    return startOk && endOk;
-  });
-  validRecords.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-  return validRecords[0] || null;
+  return getHorasVigentes(records, date.getFullYear(), date.getMonth() + 1, origen);
 }
 
 function syntheticZeroRegistro(origen, year, month) {

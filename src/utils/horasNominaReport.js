@@ -41,9 +41,15 @@ export function horasAreaFileToken(origen) {
   return origen === "EDUCACION" ? "Educacion" : "Cultura";
 }
 
+function vigenciaOrdinal(record) {
+  return (Number(record?.anio_inicio) || 0) * 12 + (Number(record?.mes_inicio) || 0);
+}
+
 /**
  * Registro de horas vigente para un mes calendario y un origen.
- * Gana el `created_at` más reciente entre los que cubren ese mes.
+ * Entre los que cubren ese mes, gana el de mes de vigencia más reciente
+ * (`anio_inicio` / `mes_inicio`), el mismo orden que el historial.
+ * `created_at` solo desempata dos registros del mismo mes de inicio.
  */
 export function getHorasVigentes(records, year, month, origen) {
   const validRecords = (records || []).filter((r) => {
@@ -54,7 +60,11 @@ export function getHorasVigentes(records, year, month, origen) {
       !r.anio_fin || r.anio_fin > year || (r.anio_fin === year && r.mes_fin >= month);
     return startOk && endOk;
   });
-  validRecords.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  validRecords.sort((a, b) => {
+    const byStart = vigenciaOrdinal(b) - vigenciaOrdinal(a);
+    if (byStart !== 0) return byStart;
+    return new Date(b.created_at) - new Date(a.created_at);
+  });
   return validRecords[0] || null;
 }
 

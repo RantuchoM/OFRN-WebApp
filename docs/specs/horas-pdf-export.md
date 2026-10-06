@@ -50,7 +50,9 @@ Igual que antes: totales por conceptos, registro previo mismo origen; `horas_cam
 - [x] Checkbox **Detalle de novedades**, tildado por defecto. Si está destildado, el PDF con listado sale sin la sección. En Solo novedades queda tildado y deshabilitado: cada PDF es ese detalle. El detalle va debajo de cada listado (cada mes / cada sección) en los otros modos.
 - [x] La grilla y la tabla del PDF muestran en cada celda con novedad `n (+m)` o `n (-m)`. Si el delta es 0, queda el valor vigente sin sufijo.
 
-**Novedad:** diferencia, por concepto y por origen (`CULTURA` / `EDUCACION`), entre las horas vigentes de ese mes (el `horas_catedra` más reciente cuyo rango cubre el mes) y las del mes calendario anterior. `n` es el valor vigente; `m` es ese delta.
+**Novedad:** diferencia, por concepto y por origen (`CULTURA` / `EDUCACION`), entre las horas vigentes de ese mes y las del mes calendario anterior. El saldo de un mes es el registro cuyo **mes de vigencia** (`anio_inicio` / `mes_inicio`) es el más reciente que ya empezó, no el de `created_at` más nuevo. `created_at` solo desempata dos filas del mismo mes de inicio. `n` es el valor vigente; `m` es ese delta.
+
+- [x] Administración de Horas tiene URL propia: `/?tab=musicos&vista=horas`. Abrir la pantalla hace push de ese query; **Volver** lo saca con `replace`. El listado de Personas queda en `/?tab=musicos` sin `vista`. Cambiar de sección borra `vista` para no arrastrarla.
 
 **Detalle** (`formatNovedadDetalleLine`): solo rubros con delta distinto de cero. Cada rubro lleva signo (`+3 coord`, `-9 des`). El neto de afuera es la suma algebraica de esos deltas. Etiquetas cortas en minúscula (`básico`, `ens`, `ensamb`, `cat`, `coord`, `des`, `otros`).
 - Cambio (había horas y sigue habiendo): `Apellido, Nombre. Antes: 30 hs. Ahora: 33 hs. +3 hs (+3 coord)`. `Ahora = Antes + neto`.
