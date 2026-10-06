@@ -1421,10 +1421,35 @@ export function isOrchestraMealRow(row) {
   return mealRowGrupoIds(row).length === 0;
 }
 
-/** Evento con ÃÂÃÂ¢ÃÂÃÂÃÂÃÂ¥1 grupo de convocatoria. */
+/** Evento con al menos un grupo de convocatoria. */
 export function isGrupoMealRow(row) {
   if (!row || row.isTemp) return false;
   return mealRowGrupoIds(row).length > 0;
+}
+
+/** Tags `ENS:<id>` en convocados (ensamble de la comida, no `eventos_grupos`). */
+export function mealRowEnsambleTags(row) {
+  return (row?.convocados || [])
+    .map((tag) => String(tag))
+    .filter((tag) => tag.startsWith("ENS:"));
+}
+
+/**
+ * Comida con tag de ensamble. Misma prioridad de resta que un grupo:
+ * sus elegibles salen de las comidas más amplias del mismo turno.
+ * La membresía sigue siendo `ENS:` (`personMatchesEnsConvocadoTag` / motor de reglas).
+ */
+export function isEnsambleTaggedMealRow(row) {
+  if (!row || row.isTemp) return false;
+  return mealRowEnsambleTags(row).length > 0;
+}
+
+/**
+ * Comida que puede perder comensales: sin grupo y sin tag `ENS:`.
+ * Ensamble (fuerza 4) y grupo (fuerza 3) ganan a Solo alojados / categorías.
+ */
+export function isBroadMealRow(row) {
+  return isOrchestraMealRow(row) && !isEnsambleTaggedMealRow(row);
 }
 
 /**
@@ -1773,9 +1798,9 @@ export function buildMealAttendanceTurnColumns(events = []) {
 }
 
 /**
- * Evento del turno donde la persona realmente come (post-deducciÃÂÃÂÃÂÃÂ³n /
- * elegibilidad). Preferencia: comida de grupo ÃÂÃÂ¢ÃÂÃÂÃÂÃÂ primer evento por orden
- * estable (`compareMealManagerRows`).
+ * Evento del turno donde la persona realmente come (post-deducción /
+ * elegibilidad). Preferencia: comida con tag de ensamble, luego comida de
+ * grupo, luego el primer evento por orden estable (`compareMealManagerRows`).
  *
  * @param {object[]} turnoEvents
  * @param {object} person
@@ -1792,8 +1817,10 @@ export function resolveAttendanceEventForPerson(
   );
   if (eligible.length === 0) return null;
   if (eligible.length === 1) return eligible[0];
+  const ensamble = eligible.filter(isEnsambleTaggedMealRow);
   const grupo = eligible.filter(isGrupoMealRow);
-  const pool = grupo.length > 0 ? grupo : eligible;
+  const pool =
+    ensamble.length > 0 ? ensamble : grupo.length > 0 ? grupo : eligible;
   return [...pool].sort(compareMealManagerRows)[0] || null;
 }
 
@@ -1812,27 +1839,30 @@ export function mergeAttendanceStatuses(statuses = []) {
 }
 
 /**
- * Comidas de grupo que coinciden en el mismo turno (`mealTurnoKey` =
- * fecha|servicio) con un evento orquesta/general ÃÂÃÂ¢ÃÂÃÂÃÂÃÂ aunque la locaciÃÂÃÂÃÂÃÂ³n difiera.
- * El grupo tiene prioridad; la orquesta resta esos comensales.
+ * Comidas prioritarias del mismo turno (`mealTurnoKey` = fecha|servicio)
+ * que restan gente a una comida amplia — aunque la locación difiera.
+ * Prioritarias: grupo de convocatoria, o tag `ENS:` (ensamble).
+ * No restan entre sí (dos ensambles, o ensamble y grupo, quedan en aviso
+ * de sobre-inclusión si comparten persona).
  */
-export function findCoincidingGrupoMealRows(orchestraRow, allRows = []) {
-  if (!isOrchestraMealRow(orchestraRow)) return [];
-  const key = mealTurnoKey(orchestraRow);
+export function findCoincidingGrupoMealRows(broadRow, allRows = []) {
+  if (!isBroadMealRow(broadRow)) return [];
+  const key = mealTurnoKey(broadRow);
   if (!key) return [];
   return (allRows || []).filter(
     (r) =>
       r &&
       !r.isTemp &&
-      String(r.id) !== String(orchestraRow.id) &&
-      isGrupoMealRow(r) &&
+      String(r.id) !== String(broadRow.id) &&
+      (isGrupoMealRow(r) || isEnsambleTaggedMealRow(r)) &&
       mealTurnoKey(r) === key,
   );
 }
 
 /**
- * Resta del headcount/listado orquesta a quienes ya comen en un evento de grupo
- * del mismo turno (fecha + servicio; locaciÃÂÃÂÃÂÃÂ³n irrelevante). Ausentes ya fuera vÃÂÃÂÃÂÃÂ­a roster.
+ * Resta del headcount de la comida amplia a quienes ya comen en un grupo
+ * o en una comida tagueada con ensamble del mismo turno (fecha + servicio;
+ * locación irrelevante). Ausentes ya quedan fuera vía roster.
  *
  * @param {Array} orchestraEligible ÃÂÃÂ¢ÃÂÃÂÃÂÃÂ personas elegibles de la fila orquesta
  * @param {Array} coincidingGrupoRows

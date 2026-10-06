@@ -46,7 +46,7 @@ import {
   CATERING_SERVICE,
   fetchMealRelatedEventTypes,
   isMealRelatedEvent,
-  isOrchestraMealRow,
+  isBroadMealRow,
   findCoincidingGrupoMealRows,
   deductGrupoMembersFromOrchestraEligible,
   fimbaArtistMealPax,
@@ -721,7 +721,7 @@ function ComensalesDetailModal({
         {deducted.length > 0 && (
           <div className="px-4 py-2 border-b border-amber-100 bg-amber-50/40 shrink-0">
             <div className="text-[10px] font-bold uppercase tracking-wide text-amber-700 mb-1">
-              Descontados (comen en grupo · misma comida/lugar)
+              Descontados (comen en grupo o ensamble · mismo turno)
             </div>
             <p className="text-[11px] text-amber-800 mb-1">
               {deductedDetail.total} persona
@@ -1599,6 +1599,13 @@ export default function MealsManager({
    */
   mealFilters = null,
   onMealFiltersChange = null,
+  /**
+   * Cambia al entrar o al pasar entre Agenda / Asistencia / Reporte.
+   * Fuerza una relectura de `giras_logistica_reglas` (una vez, no por fila).
+   */
+  mealNavEpoch = 0,
+  /** Recalcula el resumen de reglas (`useLogistics`) una vez por subpestaña. */
+  onLogisticsRefresh = null,
 }) {
   const { confirm, dialog } = useConfirmDialog();
   /**
@@ -1691,6 +1698,9 @@ export default function MealsManager({
   const [mealTypesEditorOpen, setMealTypesEditorOpen] = useState(false);
   const [resettingNames, setResettingNames] = useState(false);
   const debounceRef = useRef({});
+  /** Primera pasada la cubre `fetchAllData`; los cambios siguientes releen reglas. */
+  const skipMealNavRulesRefresh = useRef(true);
+  const skipSegmentRulesRefresh = useRef(true);
   const [activeSegmentIdx, setActiveSegmentIdx] = useState(0);
   const {
     cortes,
@@ -1852,6 +1862,30 @@ export default function MealsManager({
       .eq("id_gira", gira.id);
     calculateGrid(mealOnly, rules || []);
   };
+
+  // Pestaña Agenda/Asistencia/Reporte o tramo: una relectura de reglas, no por fila.
+  useEffect(() => {
+    if (!gira?.id) return;
+    if (skipMealNavRulesRefresh.current) {
+      skipMealNavRulesRefresh.current = false;
+      return;
+    }
+    refreshGridData();
+    onLogisticsRefresh?.();
+    // refreshGridData cierra sobre el render actual; no es identidad estable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mealNavEpoch]);
+
+  useEffect(() => {
+    if (!gira?.id) return;
+    if (skipSegmentRulesRefresh.current) {
+      skipSegmentRulesRefresh.current = false;
+      return;
+    }
+    refreshGridData();
+    onLogisticsRefresh?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSegmentIdx]);
 
   const makeTempMealRow = (fecha, servicio, opts = {}) => {
     const idTipo =
@@ -2128,13 +2162,14 @@ export default function MealsManager({
   );
 
   /**
-   * Elegibles OFRN + deducción orquesta↔grupo (mismo turno: fecha|servicio).
-   * Grupo tiene prioridad aunque la locación difiera. Artistas FIMBA aditivos.
+   * Elegibles OFRN + deducción: grupo o tag ENS: restan a la comida amplia
+   * del mismo turno (fecha|servicio), aunque la locación difiera.
+   * Artistas FIMBA aditivos.
    */
   const getEligibleBreakdown = useCallback(
     (row) => {
       const raw = getEligiblePeopleRaw(row);
-      if (!row || row.isTemp || !isOrchestraMealRow(row)) {
+      if (!row || row.isTemp || !isBroadMealRow(row)) {
         return { people: raw, deducted: [], deductedCount: 0 };
       }
       const coinciding = findCoincidingGrupoMealRows(row, grid);

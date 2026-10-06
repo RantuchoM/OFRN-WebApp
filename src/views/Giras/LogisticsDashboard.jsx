@@ -140,6 +140,8 @@ export default function LogisticsDashboard({
     return data;
   }, [summary, showTramoSelector, segments, activeTramoIdx, segmentRows]);
 
+  const [mealNavEpoch, setMealNavEpoch] = useState(0);
+
   const handleTabChange = (newTab) => {
     setSearchParams((prev) => {
       const newParams = new URLSearchParams(prev);
@@ -147,17 +149,21 @@ export default function LogisticsDashboard({
       return newParams;
     });
     setIsMealsMenuOpen(false);
+    if (["meals", "attendance", "report"].includes(newTab)) {
+      setMealNavEpoch((n) => n + 1);
+    }
   };
 
   // Cobertura usa su propio useLogistics; al ir a comidas/asistencia/reporte
-  // hay que refrescar el summary del dashboard para no mostrar reglas stale.
+  // (y al pasar entre esas subpestañas) hay que recalcular reglas.
+  // Una vez por cambio de pestaña, no por fila.
   useEffect(() => {
     if (["meals", "attendance", "report"].includes(activeTab)) {
       refreshLogistics();
     }
-    // Solo al cambiar de pestaña (refreshLogistics no es identity-estable).
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- tab enter only
-  }, [activeTab]);
+    // Una vez por subTab (o re-click). refreshLogistics no es identidad estable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- tab / epoch only
+  }, [activeTab, mealNavEpoch]);
 
   return (
     <div className="flex flex-col h-full bg-slate-50 animate-in fade-in">
@@ -455,6 +461,8 @@ export default function LogisticsDashboard({
               includeGeneralEvents={includeGeneralEvents}
               mealFilters={mealFilters}
               onMealFiltersChange={setMealFilters}
+              mealNavEpoch={mealNavEpoch}
+              onLogisticsRefresh={refreshLogistics}
             />
           )}
           {activeTab === "attendance" && (
@@ -479,6 +487,7 @@ export default function LogisticsDashboard({
               giraGrupos={giraGrupos}
               mealFilters={mealFilters}
               onMealFiltersChange={setMealFilters}
+              mealNavEpoch={mealNavEpoch}
             />
           )}
 

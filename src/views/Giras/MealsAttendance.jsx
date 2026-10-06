@@ -38,7 +38,7 @@ import {
   MEAL_FILTER_ORCHESTRA_ONLY,
   mealRowGrupoIds,
   mealRowHasOfrnAudience,
-  isOrchestraMealRow,
+  isBroadMealRow,
   findCoincidingGrupoMealRows,
   buildMealAttendanceTurnColumns,
   resolveAttendanceEventForPerson,
@@ -155,13 +155,14 @@ export default function MealsAttendance({
   );
 
   /**
-   * Elegibilidad post-deducción: en comidas generales (sin grupo), restar
-   * quienes comen en un evento de grupo del mismo turno (fecha|servicio).
+   * Elegibilidad post-deducción: en comidas amplias (sin grupo ni tag ENS:),
+   * restar quienes comen en un grupo o en una comida de ensamble del mismo
+   * turno (fecha|servicio).
    */
   const checkEligibility = useCallback(
     (evt, person) => {
       if (!checkEligibilityRaw(evt, person)) return false;
-      if (!isOrchestraMealRow(evt)) return true;
+      if (!isBroadMealRow(evt)) return true;
       const coinciding = findCoincidingGrupoMealRows(evt, events);
       for (const gRow of coinciding) {
         if (checkEligibilityRaw(gRow, person)) return false;

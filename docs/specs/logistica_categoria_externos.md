@@ -61,7 +61,7 @@ Implementado en `getRuleCategoryTiebreak`, `compareLogisticsRulePrecedence` y `p
 - **Ensamble:** columna `giras_logistica_reglas.target_ensambles` (`bigint[]`).
 - **Desempate categoría:** `getRuleCategoryTiebreak` + `compareLogisticsRulePrecedence` en hotelería, hitos de comida y proveedores (`prov_*`).
 - **UI:** selectores de categoría incluyen el valor exacto `EXTERNOS` (p. ej. `StopRulesManager.jsx`, `LogisticsManager.jsx`).
-- **Sync roster → comidas:** `LogisticsDashboard` refresca su `useLogistics` al entrar a matriz/asistencia/reporte, y `LogisticsManager` notifica `onLogisticsChange` al guardar reglas (evita datos stale sin F5).
+- **Sync roster → comidas:** `LogisticsDashboard` refresca su `useLogistics` al entrar a matriz/asistencia/reporte **y al pasar entre esas subpestañas** (una vez por cambio, no por fila). Cambiar de tramo en la matriz relee `giras_logistica_reglas` y vuelve a calcular el resumen. `LogisticsManager` notifica `onLogisticsChange` al guardar reglas (evita datos stale sin F5). El reporte arma el cuadro de nuevo cuando cambia la ventana ganadora (`comida_inicio` / `comida_fin`).
 - **Convocados (`isUserConvoked`):** única fuente de verdad para tags `GRP:` / `LOC:` / `ENS:` / `FAM:` / ID personal. `checkIsConvoked` y Agenda delegan ahí.
   - `LOC:` = localidad de **residencia** del músico (`resolveLocalidadResidencia` / `id_localidad_residencia` / `localidades_residencia` / `_loc_residencia`), no viáticos.
   - `ENS:` = membresía en `ensambles` / `integrantes_ensambles` del roster.

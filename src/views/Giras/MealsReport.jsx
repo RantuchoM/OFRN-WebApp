@@ -30,7 +30,7 @@ import {
   fimbaArtistMealDietBreakdown,
   mealRowGrupoIds,
   mealRowHasOfrnAudience,
-  isOrchestraMealRow,
+  isBroadMealRow,
   findCoincidingGrupoMealRows,
   deductGrupoMembersFromOrchestraEligible,
   findFimbaArtistMealCoverageGaps,
@@ -76,10 +76,20 @@ const DEFAULT_REPORT_TYPES = new Set(DEFAULT_MEAL_SERVICE_FILTER);
 /** Default prop `= []` is a new ref every render → infinite fetch if used in deps. */
 const EMPTY_HOSPEDAJE_EXCLUIDOS = Object.freeze([]);
 
+function logisticsWindowToken(person) {
+  const log = person?.logistics || {};
+  const hit = (h) =>
+    `${h?.date || ""}:${h?.svc || ""}:${h?.ruleId || ""}:${h?.strength || ""}`;
+  return `${hit(log.comida_inicio)}>${hit(log.comida_fin)}`;
+}
+
 function rosterFingerprint(roster) {
   if (!roster?.length) return "0";
   return roster
-    .map((p) => `${p.id}:${p.estado_gira || ""}:${p.alimentacion || ""}`)
+    .map(
+      (p) =>
+        `${p.id}:${p.estado_gira || ""}:${p.alimentacion || ""}:${logisticsWindowToken(p)}`,
+    )
     .join("|");
 }
 
@@ -244,6 +254,8 @@ export default function MealsReport({
   giraGrupos = [],
   /** Consulta FIMBA: sin crear comidas desde alertas. */
   readOnly = false,
+  /** Bump al cambiar Agenda / Asistencia / Reporte: vuelve a armar el cuadro. */
+  mealNavEpoch = 0,
   /** FIMBA Comidas: ir a pestaña Gestor (cobertura A/M/C vive ahí). */
   onGoToGestor = null,
 }) {
@@ -484,7 +496,7 @@ export default function MealsReport({
           const servicioLabel = mealDisplayLabelFromEvent(evt);
 
           let ofrnPeople = rawEligibleByEventId.get(evt.id) || [];
-          if (isOrchestraMealRow(evt)) {
+          if (isBroadMealRow(evt)) {
             const coinciding = findCoincidingGrupoMealRows(evt, events);
             if (coinciding.length) {
               ofrnPeople = deductGrupoMembersFromOrchestraEligible(
@@ -613,6 +625,7 @@ export default function MealsReport({
     giraGruposKey,
     fimbaMode,
     refreshTick,
+    mealNavEpoch,
   ]);
 
   // --- Memorias y Totales ---
