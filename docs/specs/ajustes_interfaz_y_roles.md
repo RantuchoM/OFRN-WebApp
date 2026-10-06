@@ -41,6 +41,7 @@
 ## 7. Búsqueda por detalle y locación (Agenda)
 - **Estado**: Completado (2026-08-10). Actualizado: input con debounce (UX).
 - **UI**: Input con ícono de lupa a la izquierda del botón Filtros en `UnifiedAgenda.jsx` (placeholder «Buscar…», botón limpiar con ✕). Componente `AgendaSearchField`: valor local inmediato; el padre recibe la query con debounce (~250 ms) y `startTransition`. Con texto activo: borde indigo resaltado + ring sutil; fondo blanco (sin lavado violeta).
+- **Móvil (< md, 2026-10-03)**: la búsqueda es solo `IconSearch` (botón redondo). Al tocarlo se abre el campo en la misma fila (`flex-1`, mínimo ~7.5rem). Vacío + blur o limpiar vuelve a la lupa. Desde `md` el campo queda siempre visible (`md:w-[10.5rem]`).
 - **Alcance del match**: nombre de `tipos_evento`, descripción/detalle del evento (HTML aplanado), detalle de transporte vinculado, y campos de locación (`nombre`, `dirección`, `localidad`). Insensible a tildes/mayúsculas; **palabras sueltas en cualquier orden** (`matchesMultiTokenSearch`).
 - **Comportamiento**: filtra la lista ya acotada por fecha/categoría/etc.; con búsqueda activa se ocultan separadores de programa. Las coincidencias se resaltan con `<mark>` amarillo **por token** en tipo (badge y fallback sin descripción), detalle y locación. El texto del input no espera al re-render de la lista.
 - **Helpers**: `eventMatchesAgendaSearch`, `highlightHtmlSearch`, `getAccentInsensitiveHighlightRanges` (delega en `getSearchHighlightRanges`) en `agendaHelpers.js`. Spec global: `docs/specs/busqueda-texto.md`.
@@ -53,8 +54,9 @@
 - **Implementación**: `dates.js` (`getAgendaPreloadFromDateLocal`, `getAgendaQueryFromDateLocal`), `useAgendaData.js`, `UnifiedAgenda.jsx` (`handleOneWeekBefore` / `handleOneMonthBefore` + header primer mes).
 
 ## 9. Agenda OFRN: toggle «con FIMBA»
-- **Estado**: Completado (2026-08-27).
+- **Estado**: Completado (2026-08-27). Actualizado (2026-10-03): el chip no está siempre visible.
 - **UI**: Chip sticky arriba (junto a Importar / Buscar), label **con FIMBA**, solo para staff (`filterIsEditor` / `filterIsManagement` / `filterIsTechnician`, incl. «Ver como…» según permisos efectivos). Músicos **no** ven el toggle.
+- **Cuándo se muestra**: solo si el payload ya cargado (`items` de `useAgendaData`) tiene al menos un evento que el toggle revelaría u ocultaría (`isFimbaOnlyAgendaEvent`). Si no hay ninguno en esa ventana, el control no se renderiza. Con el toggle ON y eventos en el payload, el chip sigue visible para poder apagarlo. No hay query extra ni `getSession` por fila: el fetch de agenda ya trae `audiencia_ofrn`, `eventos_grupos` e `id_gira_transporte`.
 - **Default OFF**: oculta eventos **solo-FIMBA** (`audiencia_ofrn === 'none'`, sin `eventos_grupos`, sin `id_gira_transporte`). ON: los incluye junto a la agenda OFRN normal.
 - **Músicos**: eventos solo-FIMBA **siempre ocultos**. Si el evento también convoca OFRN (Tutti / grupos / general) o es parada de flota OFRN, aplica las reglas normales de convocatoria/grupo — no es “solo FIMBA”.
 - **Helper**: `isFimbaOnlyAgendaEvent` en `agendaHelpers.js`; select + caché agenda `audiencia_ofrn` (`useAgendaData` v11).
@@ -73,7 +75,8 @@
 - **Problema:** En teléfonos, la Agenda de gira (y la Agenda general) se podía desplazar de costado: gutter vacío a la derecha, texto de locación truncado y restos de la toolbar (p. ej. puntos del overflow) alineados al borde. No era un recorte visual de un widget: el scrollport entero era más ancho que el viewport.
 - **Causa:** La barra sticky de `UnifiedAgenda` (Importar + chip «con FIMBA» + Buscar de ancho fijo `shrink-0` + Filtros + PDF / «Ver como…») era una fila `flex` sin wrap. En staff eso supera ~390px y ensancha el contenido. El shell de gira (`GirasView` scroll container) tenía `overflow-x-auto`, así que toda la página se podía panear. El FAB de feedback (`position: fixed`) seguía anclado al borde real de la pantalla.
 - **Fix (móvil; desktop ≥ md casi igual):**
-  - Toolbar: `flex-wrap` + `min-w-0`; búsqueda `flex-1 min-w-[6.5rem]` (en `sm+` vuelve al ancho fijo).
+  - Toolbar (2026-10-03): una sola fila `flex-nowrap` (estado, «con FIMBA» si hay solo-FIMBA en el payload, lupa, filtros, «Ver como» en ícono `IconUser` bajo `md`, imprimir). La búsqueda móvil es solo lupa hasta que se abre. Si la fila no entra (p. ej. gira con Grupos), el scroll es interno de la barra (`overflow-x-auto`), no de la página. Desde `md`, «Ver como» vuelve al campo de ~160px y la búsqueda queda como input.
+  - Toolbar histórica: `flex-wrap` + `min-w-0`; búsqueda `flex-1 min-w-[6.5rem]` (en `sm+` vuelve al ancho fijo). Reemplazada en móvil por la fila única de arriba.
   - En gira, el título duplicado («Vista Compacta») se oculta en `< md` (el header de `GirasView` ya muestra el programa).
   - Contención: `UnifiedAgenda` y el listado `overflow-x-hidden` / `min-w-0`; en `GirasView`, `overflow-x-hidden` solo en `AGENDA` y `FULL_AGENDA` (Logística y otras vistas siguen con `overflow-x-auto` para tablas).
   - Tarjetas móviles: `min-w-0 max-w-full overflow-x-hidden`; columna de tipo sin `min-w-[7rem]`; locación con `min-w-0` + truncate; riel de iconos `shrink-0` en columna (no ensancha la página).

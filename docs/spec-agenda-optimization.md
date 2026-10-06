@@ -46,6 +46,7 @@ La agenda se redibuja completamente ante cualquier cambio en un evento, afectand
 - [x] PASO 2: Loader sutil en móvil (barra superior "Actualizando..." cuando hay datos; sin desmontar contenido).
 - [x] PASO 3: Lecciones aprendidas (scroll en móviles).
 - [x] 2026-09-11: alta FIMBA/OFRN **sin** tipo default 16. Tras guardar: patch optimista de la fila + indicador «Actualizando…/Sincronizando…»; toast si el hydrate falla.
+- [x] 2026-10-03: el chip «con FIMBA» se decide con `items.some(isFimbaOnlyAgendaEvent)` sobre el payload ya cargado. Sin fetch extra ni `getSession` por evento.
 
 ---
 

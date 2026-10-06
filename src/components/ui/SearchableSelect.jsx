@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { IconSearch, IconX, IconCheck } from './Icons';
+import { IconSearch, IconX, IconCheck, IconUser } from './Icons';
 import { filterAndRankMultiTokenSearch } from '../../utils/sanitize';
 
 const cleanOptionText = (value) => {
@@ -22,6 +22,8 @@ export default function SearchableSelect({
     onCreateWhenEmpty = null,
     createWhenEmptyLabel = null,
     invalid = false,
+    /** En <md el trigger es un botón redondo con IconUser (p. ej. «Ver como»). */
+    mobileIconTrigger = false,
 }) {
     const [isOpen, setIsOpen] = useState(false);
     const [search, setSearch] = useState("");
@@ -159,6 +161,9 @@ export default function SearchableSelect({
         onChange(value.filter(x => x !== id));
     };
 
+    const iconMobile = mobileIconTrigger && !isMulti;
+    const mobileSelected = iconMobile && Boolean(selectedLabel);
+
     return (
         <div className={`relative w-full ${className}`} ref={containerRef}>
             <div
@@ -166,16 +171,33 @@ export default function SearchableSelect({
                     setSearch("");
                     setIsOpen(true);
                 }}
+                role={iconMobile ? "button" : undefined}
+                aria-label={
+                    iconMobile
+                        ? selectedLabel
+                            ? `Ver como ${selectedLabel}`
+                            : placeholder || "Ver como"
+                        : undefined
+                }
+                title={
+                    iconMobile
+                        ? selectedLabel || placeholder || "Ver como"
+                        : undefined
+                }
                 className={`${
                     isMulti
-                        ? "min-h-10 py-1.5 px-2"
-                        : "h-10 box-border px-3"
-                } flex items-center border rounded-lg text-sm cursor-text bg-white ${
+                        ? "min-h-10 py-1.5 px-2 rounded-lg"
+                        : iconMobile
+                          ? "relative h-9 w-9 shrink-0 justify-center rounded-full px-0 md:h-10 md:w-full md:justify-start md:rounded-lg md:px-3"
+                          : "h-10 box-border px-3 rounded-lg"
+                } flex items-center border text-sm cursor-text bg-white ${
                     isOpen
                         ? invalid
                             ? "border-red-500 ring-1 ring-red-500"
                             : "border-indigo-500 ring-1 ring-indigo-500"
-                        : invalid
+                        : mobileSelected
+                          ? "border-indigo-300 bg-indigo-50 md:border-slate-300 md:bg-white"
+                          : invalid
                             ? "border-red-500 ring-1 ring-red-400"
                             : "border-slate-300"
                 }`}
@@ -200,21 +222,32 @@ export default function SearchableSelect({
                         )) : <span className="text-slate-400">{placeholder}</span>}
                     </div>
                 ) : (
-                    selectedLabel ? (
-                        <div className="flex items-center justify-between w-full gap-2 min-w-0">
-                            <div className="flex items-center gap-2 min-w-0">
-                                {selectedOption?.color ? (
-                                    <span
-                                        className="w-2.5 h-2.5 rounded-full border border-slate-200 shrink-0 shadow-sm"
-                                        style={{ backgroundColor: selectedOption.color }}
-                                        aria-hidden
-                                    />
-                                ) : null}
-                                <span className="truncate text-slate-700 font-medium">{selectedLabel}</span>
+                    <>
+                        {iconMobile && (
+                            <IconUser
+                                size={16}
+                                className={`md:hidden shrink-0 ${selectedLabel ? "text-indigo-600" : "text-slate-500"}`}
+                                aria-hidden
+                            />
+                        )}
+                        {selectedLabel ? (
+                            <div className={`${iconMobile ? "hidden md:flex" : "flex"} items-center justify-between w-full gap-2 min-w-0`}>
+                                <div className="flex items-center gap-2 min-w-0">
+                                    {selectedOption?.color ? (
+                                        <span
+                                            className="w-2.5 h-2.5 rounded-full border border-slate-200 shrink-0 shadow-sm"
+                                            style={{ backgroundColor: selectedOption.color }}
+                                            aria-hidden
+                                        />
+                                    ) : null}
+                                    <span className="truncate text-slate-700 font-medium">{selectedLabel}</span>
+                                </div>
+                                <button onClick={(e) => { e.stopPropagation(); onChange(null); }} className="p-0.5 hover:bg-slate-100 rounded text-slate-400 shrink-0"><IconX size={12}/></button>
                             </div>
-                            <button onClick={(e) => { e.stopPropagation(); onChange(null); }} className="p-0.5 hover:bg-slate-100 rounded text-slate-400 shrink-0"><IconX size={12}/></button>
-                        </div>
-                    ) : <span className="text-slate-400">{placeholder}</span>
+                        ) : (
+                            <span className={`text-slate-400 ${iconMobile ? "hidden md:inline" : ""}`}>{placeholder}</span>
+                        )}
+                    </>
                 )}
             </div>
 
@@ -243,6 +276,19 @@ export default function SearchableSelect({
                         </div>
                     </div>
                     <div className="overflow-y-auto max-h-60">
+                        {iconMobile && selectedLabel && (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    onChange(null);
+                                    setIsOpen(false);
+                                    setSearch("");
+                                }}
+                                className="md:hidden w-full px-3 py-2 text-left text-xs font-bold text-slate-600 border-b border-slate-100 hover:bg-slate-50"
+                            >
+                                Quitar ver como
+                            </button>
+                        )}
                         {filteredOptions.length > 0 ? (
                             filteredOptions.map(opt => {
                                 const isSelected = isMulti

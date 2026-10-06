@@ -1,6 +1,4 @@
 import React, { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from "react";
-import { membershipActiveOnProgramDate } from "../../utils/ensembleMembership";
-import { matchesMultiTokenSearch } from "../../utils/sanitize";
 import { createPortal } from "react-dom";
 import {
   IconLoader, IconFilter, IconPlus, IconX, IconUser, IconTrash, IconEdit,
@@ -29,32 +27,15 @@ import {
   uploadNovedadesMesUnifiedDocxToDrive,
   HORAS_NOTAS_DRIVE_FOLDER_ID,
 } from "../../utils/horasPdfExporter";
-import { downloadHorasNominaTablePdf } from "../../utils/horasNominaTablePdf";
-
-const CONCEPTOS = [
-  { id: "h_basico", label: "Básico" },
-  { id: "h_ensayos", label: "Ens" },
-  { id: "h_ensamble", label: "Ensamb" },
-  { id: "h_categoria", label: "Cat" },
-  { id: "h_coordinacion", label: "Coord" },
-  { id: "h_desarraigo", label: "Des" },
-  { id: "h_otros", label: "Otros" },
-];
-
-const getHoursForDate = (records, date, origen) => {
-  const year = date.getFullYear();
-  const month = date.getMonth() + 1;
-  
-  const validRecords = records.filter(r => {
-      if (r.origen !== origen) return false;
-      const startOk = (r.anio_inicio < year) || (r.anio_inicio === year && r.mes_inicio <= month);
-      const endOk = !r.anio_fin || (r.anio_fin > year) || (r.anio_fin === year && r.mes_fin >= month);
-      return startOk && endOk;
-  });
-
-  validRecords.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-  return validRecords[0] || null;
-};
+import { downloadHorasNominaExport } from "../../utils/horasNominaTablePdf";
+import {
+  HORAS_CONCEPTOS as CONCEPTOS,
+  MAX_NOMINA_EXPORT_MONTHS,
+  buildHorasNominaRows,
+  formatHorasNovedadCell,
+  listMonthRange,
+} from "../../utils/horasNominaReport";
+import HorasNominaExportModal from "./HorasNominaExportModal";
 
 export default function HorasCatedraDashboard({ supabase }) {
   const [loading, setLoading] = useState(true);
@@ -83,6 +64,8 @@ export default function HorasCatedraDashboard({ supabase }) {
   const novedadesMesTriggerRef = useRef(null);
   const novedadesMesMenuRef = useRef(null);
   const [novedadesMesMenuPos, setNovedadesMesMenuPos] = useState({ top: 0, left: 0 });
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportBusy, setExportBusy] = useState(false);
   const NOVEDADES_MES_MENU_W = 224; // w-56
 
   const MAIN_CONCEPTOS = CONCEPTOS.filter(c => c.id !== "h_otros");
@@ -118,80 +101,18 @@ export default function HorasCatedraDashboard({ supabase }) {
     } catch (e) { console.error(e); } finally { setLoading(false); }
   };
 
-  const reportData = useMemo(() => {
-    const targetDate = new Date(selectedYear, selectedMonth - 1, 1);
-    const prevDate = new Date(selectedYear, selectedMonth - 2, 1);
-
-    return musicians.map(m => {
-        const records = allRecords.filter(r => r.id_integrante === m.id);
-        
-        const cult = getHoursForDate(records, targetDate, "CULTURA") || {};
-        const edu = getHoursForDate(records, targetDate, "EDUCACION") || {};
-        const prevCult = getHoursForDate(records, prevDate, "CULTURA") || {};
-        const prevEdu = getHoursForDate(records, prevDate, "EDUCACION") || {};
-
-        const sumRecord = (rec) => CONCEPTOS.reduce((acc, c) => acc + (rec[c.id] || 0), 0);
-
-        const totalCult = sumRecord(cult);
-        const totalEdu = sumRecord(edu);
-        const prevTotalCult = sumRecord(prevCult);
-        const prevTotalEdu = sumRecord(prevEdu);
-
-        const hasNews = totalCult !== prevTotalCult || totalEdu !== prevTotalEdu;
-        const prevGrandTotal = prevTotalCult + prevTotalEdu;
-        const grandTotal = totalCult + totalEdu;
-        /** Mes en que rige una baja a 0 hs: sigue en nómina solo ese mes (hasNews). */
-        const isBajaMes = hasNews && prevGrandTotal > 0 && grandTotal === 0;
-
-        const concepts = {};
-        CONCEPTOS.forEach(c => {
-            concepts[c.id] = (cult[c.id] || 0) + (edu[c.id] || 0);
-        });
-
-        const hoy = new Date().toISOString().slice(0, 10);
-        const myEnsembles =
-          m.integrantes_ensambles
-            ?.filter((ie) => membershipActiveOnProgramDate(ie, hoy))
-            .map((ie) => ie.ensambles)
-            .filter(Boolean) || [];
-
-        return {
-            ...m,
-            myEnsembles,
-            cult, edu,
-            totalCult, totalEdu,
-            concepts, 
-            hasNews,
-            isBajaMes,
-            prevGrandTotal,
-            grandTotal,
-            records 
-        };
-    }).filter(m => {
-        const matchesSearch =
-          searchTerm === "" ||
-          matchesMultiTokenSearch(
-            [m.apellido, m.nombre, m.instrumentos?.instrumento],
-            searchTerm,
-          );
-        
-        let matchesEnsemble = true;
-        if (selectedEnsembles.size > 0) {
-            matchesEnsemble = m.myEnsembles.some((e) =>
-              selectedEnsembles.has(e.id) || selectedEnsembles.has(String(e.id)),
-            );
-        }
-
-        // Nómina activa o mes de baja (0 hs con cambio vs. mes anterior)
-        const showInNomina = (m.totalCult + m.totalEdu) > 0 || m.hasNews;
-
-        if (searchTerm !== "") {
-             return matchesSearch && matchesEnsemble;
-        }
-
-        return matchesSearch && matchesEnsemble && showInNomina;
-    });
-  }, [musicians, allRecords, selectedMonth, selectedYear, searchTerm, selectedEnsembles]);
+  const reportData = useMemo(
+    () =>
+      buildHorasNominaRows({
+        musicians,
+        allRecords,
+        year: selectedYear,
+        month: selectedMonth,
+        searchTerm,
+        ensembleIds: selectedEnsembles,
+      }),
+    [musicians, allRecords, selectedMonth, selectedYear, searchTerm, selectedEnsembles],
+  );
 
   const novedadesMesJobs = useMemo(
     () => collectNovedadesMesDocJobs(reportData, selectedYear, selectedMonth),
@@ -269,11 +190,21 @@ export default function HorasCatedraDashboard({ supabase }) {
 
   const handleSelectRow = (item) => {
     setSelectedMusician(item);
-    const sorted = [...item.records].sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
+    
+    // ORDENAR CRONOLÓGICAMENTE ESTRICTO POR PERIODO (Año y Mes de inicio)
+    const sortedRecords = [...item.records].sort((a, b) => {
+      const anioA = Number(a.anio_inicio) || 0;
+      const anioB = Number(b.anio_inicio) || 0;
+      if (anioA !== anioB) return anioA - anioB; // Ascendente para comparar histórico correcto
+      const mesA = Number(a.mes_inicio) || 0;
+      const mesB = Number(b.mes_inicio) || 0;
+      return mesA - mesB;
+    });
+
     const historyLines = [];
     
     ["CULTURA", "EDUCACION"].forEach(org => {
-        const orgRecords = sorted.filter(r => r.origen === org);
+        const orgRecords = sortedRecords.filter(r => r.origen === org);
         orgRecords.forEach((rec, idx) => {
             const prev = idx > 0 ? orgRecords[idx-1] : null;
             let diffs = [];
@@ -282,6 +213,7 @@ export default function HorasCatedraDashboard({ supabase }) {
                 const val = rec[c.id] || 0;
                 const prevVal = prev ? (prev[c.id] || 0) : 0;
                 const diff = val - prevVal;
+                // Esto calculará correctamente -8 si pasa de 28 a 20
                 if (diff !== 0) diffs.push(`${c.label} ${diff > 0 ? '+' : ''}${diff}`);
             });
 
@@ -295,7 +227,17 @@ export default function HorasCatedraDashboard({ supabase }) {
         });
     });
     
-    setSelectedHistory(historyLines.sort((a,b) => b.dateSort - a.dateSort));
+    // Ordenar final para mostrar en pantalla (lo más nuevo arriba)
+    setSelectedHistory(
+      historyLines.sort((a, b) => {
+        const anioA = Number(a.anio_inicio) || 0;
+        const anioB = Number(b.anio_inicio) || 0;
+        if (anioA !== anioB) return anioB - anioA;
+        const mesA = Number(a.mes_inicio) || 0;
+        const mesB = Number(b.mes_inicio) || 0;
+        return mesB - mesA;
+      })
+    );
   };
 
   const handleEditRecord = (record) => {
@@ -412,23 +354,65 @@ export default function HorasCatedraDashboard({ supabase }) {
     }
   };
 
-  const handleDownloadTablaPdf = () => {
-    if (!reportData.length) {
-      toast.error("No hay datos en la tabla para este período.");
+  const handleExportNominaZip = async ({
+    fromMonth,
+    fromYear,
+    toMonth,
+    toYear,
+    includeDetalle,
+    mode = "individuales",
+  }) => {
+    const months = listMonthRange(fromYear, fromMonth, toYear, toMonth);
+    if (!fromMonth || !toMonth || !fromYear || !toYear || Number.isNaN(fromYear) || Number.isNaN(toYear)) {
+      toast.error("Completá el mes y el año de inicio y de fin.");
       return;
     }
+    if (!months.length) {
+      toast.error("El mes desde no puede ser posterior al mes hasta.");
+      return;
+    }
+    if (months.length > MAX_NOMINA_EXPORT_MONTHS) {
+      toast.error(`El rango no puede superar ${MAX_NOMINA_EXPORT_MONTHS} meses.`);
+      return;
+    }
+    const loading =
+      mode === "novedades"
+        ? "Generando PDFs de novedades (Cultura y Educación)..."
+        : mode === "unico"
+          ? "Generando PDF de nómina..."
+          : mode === "consolidados"
+            ? "Generando PDFs (Cultura y Educación consolidados)..."
+            : "Generando ZIP de nómina (un PDF por mes y área)...";
+    setExportBusy(true);
+    const t = toast.loading(loading);
     try {
-      downloadHorasNominaTablePdf({
-        reportData,
-        footerTotals,
-        month: selectedMonth,
-        year: selectedYear,
+      const { fileCount } = await downloadHorasNominaExport({
+        mode,
+        musicians,
+        allRecords,
+        fromYear,
+        fromMonth,
+        toYear,
+        toMonth,
+        searchTerm,
+        ensembleIds: selectedEnsembles,
+        includeDetalle,
         mainConceptos: MAIN_CONCEPTOS,
       });
-      toast.success("PDF de la nómina descargado");
+      toast.success(
+        mode === "unico"
+          ? "PDF descargado"
+          : mode === "individuales"
+            ? `ZIP descargado (${fileCount} PDF)`
+            : `PDFs descargados (${fileCount})`,
+        { id: t },
+      );
+      setExportOpen(false);
     } catch (err) {
       console.error(err);
-      toast.error(err.message || "No se pudo generar el PDF");
+      toast.error(err.message || "No se pudo generar la exportación", { id: t });
+    } finally {
+      setExportBusy(false);
     }
   };
 
@@ -611,10 +595,10 @@ export default function HorasCatedraDashboard({ supabase }) {
                 </div>
                 <button
                   type="button"
-                  onClick={handleDownloadTablaPdf}
-                  disabled={loading || reportData.length === 0}
+                  onClick={() => setExportOpen(true)}
+                  disabled={loading || exportBusy}
                   className="px-3 sm:px-4 py-1.5 bg-white border border-slate-200 text-slate-700 rounded-lg text-xs font-bold hover:bg-slate-50 flex items-center gap-1.5 shadow-sm shrink-0 whitespace-nowrap disabled:opacity-50"
-                  title="Descargar la tabla del mes y año seleccionados en PDF"
+                  title="Exportar nómina: rango de meses, Cultura y Educación en PDF separados, un ZIP"
                 >
                   <IconFileText size={14} className="text-rose-600 shrink-0" /> PDF
                 </button>
@@ -682,30 +666,63 @@ export default function HorasCatedraDashboard({ supabase }) {
                                     </div>
                                 </td>
                                 
-                                {MAIN_CONCEPTOS.map(c => (
-                                    <td key={c.id} className={`p-2 text-center text-xs font-bold border-l border-slate-100 ${
-                                      item.concepts[c.id] > 0
-                                        ? "text-slate-700"
-                                        : item.hasNews
-                                          ? "text-rose-500"
-                                          : "text-slate-200"
+                                {MAIN_CONCEPTOS.map(c => {
+                                    const delta = item.conceptDeltas?.[c.id] || 0;
+                                    return (
+                                    <td key={c.id} title={delta ? "Novedad respecto del mes anterior (Cultura + Educación)" : undefined} className={`p-2 text-center text-xs font-bold border-l border-slate-100 whitespace-nowrap ${
+                                      delta
+                                        ? "text-cyan-800"
+                                        : item.concepts[c.id] > 0
+                                          ? "text-slate-700"
+                                          : item.hasNews
+                                            ? "text-rose-500"
+                                            : "text-slate-200"
                                     }`}>
-                                        {item.concepts[c.id] > 0 ? item.concepts[c.id] : item.hasNews ? "0" : "-"}
+                                        {formatHorasNovedadCell(
+                                          item.concepts[c.id],
+                                          delta,
+                                          item.hasNews ? "0" : "-",
+                                        )}
                                     </td>
-                                ))}
+                                    );
+                                })}
 
-                                <td className={`p-3 text-center border-l border-orange-100 font-black ${
-                                  item.totalCult > 0 ? "bg-orange-50/30 text-orange-700" : item.hasNews ? "bg-rose-50/50 text-rose-600" : "bg-orange-50/30 text-orange-700"
+                                <td title={item.deltaCult ? "Novedad Cultura respecto del mes anterior" : undefined} className={`p-3 text-center border-l border-orange-100 font-black whitespace-nowrap ${
+                                  item.deltaCult
+                                    ? "bg-cyan-50 text-cyan-800"
+                                    : item.totalCult > 0
+                                      ? "bg-orange-50/30 text-orange-700"
+                                      : item.hasNews
+                                        ? "bg-rose-50/50 text-rose-600"
+                                        : "bg-orange-50/30 text-orange-700"
                                 }`}>
-                                    {item.hasNews || item.totalCult > 0 ? item.totalCult : "-"}
+                                    {formatHorasNovedadCell(
+                                      item.totalCult,
+                                      item.deltaCult,
+                                      item.hasNews || item.totalCult > 0 ? "0" : "-",
+                                    )}
                                 </td>
-                                <td className={`p-3 text-center border-l border-blue-100 font-black ${
-                                  item.totalEdu > 0 ? "bg-blue-50/30 text-blue-700" : item.hasNews ? "bg-rose-50/50 text-rose-600" : "bg-blue-50/30 text-blue-700"
+                                <td title={item.deltaEdu ? "Novedad Educación respecto del mes anterior" : undefined} className={`p-3 text-center border-l border-blue-100 font-black whitespace-nowrap ${
+                                  item.deltaEdu
+                                    ? "bg-cyan-50 text-cyan-800"
+                                    : item.totalEdu > 0
+                                      ? "bg-blue-50/30 text-blue-700"
+                                      : item.hasNews
+                                        ? "bg-rose-50/50 text-rose-600"
+                                        : "bg-blue-50/30 text-blue-700"
                                 }`}>
-                                    {item.hasNews || item.totalEdu > 0 ? item.totalEdu : "-"}
+                                    {formatHorasNovedadCell(
+                                      item.totalEdu,
+                                      item.deltaEdu,
+                                      item.hasNews || item.totalEdu > 0 ? "0" : "-",
+                                    )}
                                 </td>
-                                <td className={`p-3 text-center border-l border-slate-200 font-bold ${item.concepts['h_otros'] > 0 ? 'bg-slate-100 text-slate-700' : 'text-slate-300'}`}>
-                                    {item.concepts['h_otros'] || "-"}
+                                <td title={item.conceptDeltas?.h_otros ? "Novedad en Otros respecto del mes anterior" : undefined} className={`p-3 text-center border-l border-slate-200 font-bold whitespace-nowrap ${item.conceptDeltas?.h_otros ? "bg-cyan-50 text-cyan-800" : item.concepts['h_otros'] > 0 ? 'bg-slate-100 text-slate-700' : 'text-slate-300'}`}>
+                                    {formatHorasNovedadCell(
+                                      item.concepts.h_otros,
+                                      item.conceptDeltas?.h_otros,
+                                      "-",
+                                    )}
                                 </td>
 
                                 <td className="p-3 text-right">
@@ -851,6 +868,18 @@ export default function HorasCatedraDashboard({ supabase }) {
             onClose={() => setBulkModalOpen(false)}
             supabase={supabase}
             onSuccess={fetchData}
+        />
+
+        <HorasNominaExportModal
+            key={exportOpen ? `open-${selectedMonth}-${selectedYear}` : "closed"}
+            isOpen={exportOpen}
+            onClose={() => {
+              if (!exportBusy) setExportOpen(false);
+            }}
+            defaultMonth={selectedMonth}
+            defaultYear={selectedYear}
+            busy={exportBusy}
+            onExport={handleExportNominaZip}
         />
     </div>
   );

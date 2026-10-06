@@ -165,8 +165,10 @@ const AGENDA_SEARCH_DEBOUNCE_MS = 250;
  */
 function AgendaSearchField({ onQueryChange }) {
   const [localQuery, setLocalQuery] = useState("");
+  const [mobileOpen, setMobileOpen] = useState(false);
   const onQueryChangeRef = useRef(onQueryChange);
   const timerRef = useRef(null);
+  const inputRef = useRef(null);
 
   useEffect(() => {
     onQueryChangeRef.current = onQueryChange;
@@ -177,6 +179,10 @@ function AgendaSearchField({ onQueryChange }) {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    if (mobileOpen) inputRef.current?.focus();
+  }, [mobileOpen]);
 
   const commitQuery = useCallback((value, { immediate = false } = {}) => {
     if (timerRef.current) {
@@ -202,43 +208,70 @@ function AgendaSearchField({ onQueryChange }) {
   const handleClear = () => {
     setLocalQuery("");
     commitQuery("", { immediate: true });
+    setMobileOpen(false);
   };
 
   const isActive = Boolean(localQuery.trim());
+  const expandedOnMobile = mobileOpen || isActive;
 
   return (
-    <div
-      className={`relative flex min-w-[6.5rem] flex-1 items-center sm:min-w-0 sm:flex-none sm:shrink-0 transition-colors ${
-        isActive
-          ? "border-indigo-500 bg-white ring-1 ring-indigo-500/25"
-          : "border-slate-200 bg-white"
-      } border rounded-full shadow-sm`}
-    >
-      <IconSearch
-        size={14}
-        className="absolute left-2.5 text-slate-400 pointer-events-none"
-      />
-      <input
-        type="search"
-        value={localQuery}
-        onChange={handleChange}
-        placeholder="Buscar..."
-        title="Buscar en tipo, detalle, locaciones y artistas"
+    <>
+      <button
+        type="button"
+        onClick={() => setMobileOpen(true)}
+        className={`${
+          expandedOnMobile ? "hidden" : "inline-flex"
+        } md:hidden shrink-0 items-center justify-center h-9 w-9 rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm hover:bg-slate-50`}
+        title="Buscar"
         aria-label="Buscar en tipo, detalle, locaciones y artistas"
-        className="w-full min-w-0 sm:w-[10.5rem] pl-8 pr-7 py-1.5 text-xs font-medium text-slate-700 bg-transparent rounded-full border-0 outline-none focus:ring-0 placeholder:text-slate-400"
-      />
-      {isActive && (
-        <button
-          type="button"
-          onClick={handleClear}
-          className="absolute right-1.5 p-0.5 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100"
-          title="Limpiar búsqueda"
-          aria-label="Limpiar búsqueda"
-        >
-          <IconX size={12} />
-        </button>
-      )}
-    </div>
+        aria-expanded={expandedOnMobile}
+      >
+        <IconSearch size={16} />
+      </button>
+      <div
+        className={`${expandedOnMobile ? "flex" : "hidden"} md:flex relative min-w-[7.5rem] w-0 flex-1 items-center md:min-w-0 md:w-auto md:flex-none md:shrink-0 transition-colors ${
+          isActive
+            ? "border-indigo-500 bg-white ring-1 ring-indigo-500/25"
+            : "border-slate-200 bg-white"
+        } border rounded-full shadow-sm`}
+      >
+        <IconSearch
+          size={14}
+          className="absolute left-2.5 text-slate-400 pointer-events-none"
+        />
+        <input
+          ref={inputRef}
+          type="search"
+          value={localQuery}
+          onChange={handleChange}
+          onBlur={() => {
+            if (!localQuery.trim()) setMobileOpen(false);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Escape" && !localQuery.trim()) {
+              setMobileOpen(false);
+              e.currentTarget.blur();
+            }
+          }}
+          placeholder="Buscar..."
+          title="Buscar en tipo, detalle, locaciones y artistas"
+          aria-label="Buscar en tipo, detalle, locaciones y artistas"
+          className="w-full min-w-0 md:w-[10.5rem] pl-8 pr-7 py-1.5 text-xs font-medium text-slate-700 bg-transparent rounded-full border-0 outline-none focus:ring-0 placeholder:text-slate-400"
+        />
+        {isActive && (
+          <button
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={handleClear}
+            className="absolute right-1.5 p-0.5 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+            title="Limpiar búsqueda"
+            aria-label="Limpiar búsqueda"
+          >
+            <IconX size={12} />
+          </button>
+        )}
+      </div>
+    </>
   );
 }
 
@@ -1126,6 +1159,15 @@ export default function UnifiedAgenda({
     includeDeletedBeyond24h: isAdmin && showDeletedEvents,
     includeAssociatedEnsembleRehearsals,
   });
+
+  /**
+   * El fetch ya trae solo-FIMBA (`audiencia_ofrn === 'none'` sin grupos ni flota).
+   * El toggle los oculta en cliente; el chip se muestra si hay al menos uno en el payload.
+   */
+  const hasFimbaOnlyEvents = useMemo(
+    () => items.some((item) => isFimbaOnlyAgendaEvent(item)),
+    [items],
+  );
 
   const {
     impactByEventId,
@@ -2928,7 +2970,7 @@ export default function UnifiedAgenda({
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 min-w-0 w-full md:w-auto md:flex-nowrap">
+          <div className="flex flex-nowrap items-center gap-1.5 sm:gap-2 min-w-0 w-full max-w-full overflow-x-auto md:overflow-visible md:w-auto">
             <ConnectionBadge
               status={realtimeStatus}
               lastUpdate={lastUpdate}
@@ -2953,18 +2995,20 @@ export default function UnifiedAgenda({
               <button
                 type="button"
                 onClick={() => setIsTranspositionOpen(true)}
-                className="inline-flex shrink-0 items-center gap-1 px-3 py-1.5 rounded-full border border-indigo-200 bg-indigo-50 text-indigo-700 text-xs font-bold shadow-sm hover:bg-indigo-100 hover:text-indigo-800"
+                className="inline-flex shrink-0 items-center justify-center gap-1 h-9 w-9 sm:w-auto sm:px-3 rounded-full border border-indigo-200 bg-indigo-50 text-indigo-700 text-xs font-bold shadow-sm hover:bg-indigo-100 hover:text-indigo-800"
+                title="Importar"
+                aria-label="Importar"
               >
                 <IconRefresh size={14} />
-                <span>Importar</span>
+                <span className="hidden sm:inline">Importar</span>
               </button>
             )}
 
-            {canToggleConFimba && (
+            {canToggleConFimba && hasFimbaOnlyEvents && (
               <button
                 type="button"
                 onClick={() => setShowWithFimba((v) => !v)}
-                className={`inline-flex shrink-0 items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-bold shadow-sm transition-all ${
+                className={`inline-flex shrink-0 items-center gap-1 h-9 px-2.5 md:px-3 md:py-1.5 rounded-full border text-xs font-bold shadow-sm transition-all ${
                   showWithFimba
                     ? "bg-[#d73289] text-white border-[#d73289] hover:bg-[#c02a7a]"
                     : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
@@ -2990,7 +3034,7 @@ export default function UnifiedAgenda({
                 <div className="relative" ref={filterMenuRef}>
                   <button
                     onClick={() => setIsFilterMenuOpen(!isFilterMenuOpen)}
-                    className={`flex items-center gap-2 px-3 py-2 rounded-full border transition-all text-sm font-bold shadow-sm hover:shadow-md ${
+                    className={`flex shrink-0 items-center justify-center gap-2 h-9 w-9 p-0 sm:h-auto sm:w-auto sm:px-3 sm:py-2 rounded-full border transition-all text-sm font-bold shadow-sm hover:shadow-md ${
                       isFilterMenuOpen ||
                       selectedCategoryIds.length < availableCategories.length ||
                       showOnlyMyTransport ||
@@ -3322,12 +3366,13 @@ export default function UnifiedAgenda({
                 )}
 
                 {canEdit && musicianOptions.length > 0 && (
-                  <div className="w-[min(100%,10rem)] sm:w-[160px] min-w-0">
+                  <div className="shrink-0 w-9 md:w-[160px] min-w-0">
                     <SearchableSelect
                       options={musicianOptions}
                       value={viewAsUserId}
                       onChange={setViewAsUserId}
                       placeholder={viewAsUserId ? "" : "Ver como..."}
+                      mobileIconTrigger
                       className="w-full text-xs"
                     />
                   </div>
@@ -3338,7 +3383,7 @@ export default function UnifiedAgenda({
             <button
               onClick={handleExportPDF}
               disabled={loading || agendaPdfExportItems.length === 0}
-              className="p-2 rounded-full text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors disabled:opacity-50 border border-transparent hover:border-indigo-100"
+              className="shrink-0 h-9 w-9 inline-flex items-center justify-center rounded-full text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors disabled:opacity-50 border border-transparent hover:border-indigo-100"
               title="Exportar vista actual a PDF"
             >
               <IconPrinter size={20} />

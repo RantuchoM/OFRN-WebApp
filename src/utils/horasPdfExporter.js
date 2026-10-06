@@ -69,13 +69,47 @@ export function sumHorasRecord(record) {
 
 export function getPreviousHorasRecord(records, registroActual) {
   if (!records?.length || !registroActual) return null;
-  const sorted = [...records].sort(
-    (a, b) => new Date(a.created_at) - new Date(b.created_at),
-  );
-  const sameOrigen = sorted.filter((r) => r.origen === registroActual.origen);
-  const idx = sameOrigen.findIndex((r) => r.id === registroActual.id);
-  if (idx <= 0) return null;
-  return sameOrigen[idx - 1];
+  
+  // Filtrar estrictamente por el mismo origen (CULTURA o EDUCACION)
+  const sameOrigen = records.filter((r) => r.origen === registroActual.origen);
+  
+  // Ordenar cronológicamente por año y mes de inicio (del más antiguo al más reciente)
+  const sorted = [...sameOrigen].sort((a, b) => {
+    const anioA = Number(a.anio_inicio) || 0;
+    const anioB = Number(b.anio_inicio) || 0;
+    if (anioA !== anioB) return anioA - anioB;
+    
+    const mesA = Number(a.mes_inicio) || 0;
+    const mesB = Number(b.mes_inicio) || 0;
+    return mesA - mesB;
+  });
+
+  // Encontrar el índice del registro actual o el último anterior cronológicamente
+  const currentIndex = sorted.findIndex((r) => r.id === registroActual.id);
+  
+  if (currentIndex > 0) {
+    return sorted[currentIndex - 1];
+  }
+  
+  // Si no se encuentra por ID exacto, buscar el último registro cuya fecha sea estrictamente menor a la del actual
+  const anioActual = Number(registroActual.anio_inicio) || 0;
+  const mesActual = Number(registroActual.mes_inicio) || 0;
+  const valorActual = (anioActual * 12) + mesActual;
+
+  let anterior = null;
+  for (const r of sorted) {
+    const anioR = Number(r.anio_inicio) || 0;
+    const mesR = Number(r.mes_inicio) || 0;
+    const valorR = (anioR * 12) + mesR;
+    
+    if (valorR < valorActual) {
+      anterior = r; // Se va actualizando para quedarse con el más cercano hacia atrás
+    } else {
+      break;
+    }
+  }
+
+  return anterior;
 }
 
 /** Misma regla que el dashboard: registro vigente para ese mes calendario y origen. */
