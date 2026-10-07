@@ -139,15 +139,16 @@ function EnsayosViewToggle({ view, onChange }) {
       aria-label="Cómo ver las columnas de ensayos"
     >
       {option(
-        ENSAYO_COLUMN_VIEWS.duracion,
-        "Duración",
-        "Ensayos de 2 h o más, y de menos de 2 h",
-      )}
-      {option(
         ENSAYO_COLUMN_VIEWS.origen,
         "Ensamble / gira",
         "Ensayos de ensamble y ensayos de gira",
       )}
+      {option(
+        ENSAYO_COLUMN_VIEWS.duracion,
+        "Duración",
+        "Ensayos de 2 h o más, y de menos de 2 h",
+      )}
+      
     </div>
   );
 }
@@ -735,7 +736,7 @@ export default function ServiciosCantidadReport({ supabase }) {
   const [search, setSearch] = useState("");
   const [groupByEnsambles, setGroupByEnsambles] = useState(false);
   const [ensayoColumnView, setEnsayoColumnView] = useState(
-    ENSAYO_COLUMN_VIEWS.duracion,
+    ENSAYO_COLUMN_VIEWS.origen,
   );
   const [estimarFuturos, setEstimarFuturos] = useState(true);
   const [selectedTypes, setSelectedTypes] = useState(
