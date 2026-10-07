@@ -393,6 +393,11 @@ export default function LocationManagerModal({
                 </div>
               ) : (
                 <>
+                  {formData.id ? (
+                    <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 leading-relaxed">
+                      Estás editando la ficha de este lugar. El nombre y los datos se actualizan en todos los eventos que lo usan.
+                    </p>
+                  ) : null}
                   <div>
                     <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
                       Nombre del lugar

@@ -24,6 +24,8 @@ export default function SearchableSelect({
     invalid = false,
     /** En <md el trigger es un botón redondo con IconUser (p. ej. «Ver como»). */
     mobileIconTrigger = false,
+    /** Incrementar para abrir el listado desde afuera (p. ej. «este evento en otro lugar»). */
+    requestOpen = 0,
 }) {
     const [isOpen, setIsOpen] = useState(false);
     const [search, setSearch] = useState("");
@@ -125,6 +127,12 @@ export default function SearchableSelect({
             };
         }
     }, [isOpen, dropdownMinWidth]);
+
+    useEffect(() => {
+        if (!requestOpen) return;
+        setSearch("");
+        setIsOpen(true);
+    }, [requestOpen]);
 
     // Click outside
     useEffect(() => {

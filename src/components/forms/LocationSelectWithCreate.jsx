@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
 import SearchableSelect from "../ui/SearchableSelect";
 import LocalitySelectWithCreate from "./LocalitySelectWithCreate";
-import { IconPlus, IconLoader, IconEdit } from "../ui/Icons";
+import { IconPlus, IconLoader, IconEdit, IconExchange } from "../ui/Icons";
 import LocationManagerModal from "../locations/LocationManagerModal";
 import { toast } from "sonner";
 
@@ -21,6 +21,8 @@ export default function LocationSelectWithCreate({
   className = "",
 }) {
   const [modalOpen, setModalOpen] = useState(false);
+  const [intentOpen, setIntentOpen] = useState(false);
+  const [selectOpenToken, setSelectOpenToken] = useState(0);
   const [editLocationId, setEditLocationId] = useState(null);
   const [newNombre, setNewNombre] = useState("");
   const [newIdLocalidad, setNewIdLocalidad] = useState("");
@@ -47,6 +49,21 @@ export default function LocationSelectWithCreate({
       fetchLocalidades();
     }
   }, [modalOpen, fetchLocalidades]);
+
+  const selectedPlaceName = useMemo(() => {
+    const match = (options || []).find((o) => String(o.id) === String(value));
+    const label = String(match?.label || match?.nombre || "").trim();
+    return label || "este lugar";
+  }, [options, value]);
+
+  useEffect(() => {
+    if (!intentOpen) return undefined;
+    const onKey = (event) => {
+      if (event.key === "Escape") setIntentOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [intentOpen]);
 
   const resetForm = useCallback(() => {
     setNewNombre("");
@@ -107,14 +124,16 @@ export default function LocationSelectWithCreate({
           onChange={onChange}
           placeholder={placeholder}
           className="border-0 rounded-none h-full"
+          requestOpen={selectOpenToken}
         />
       </div>
       {value != null && value !== "" && (
         <button
           type="button"
-          onClick={() => setEditLocationId(value)}
+          onClick={() => setIntentOpen(true)}
           className="shrink-0 w-8 h-[38px] flex items-center justify-center bg-slate-50 hover:bg-amber-500 text-slate-400 hover:text-white border-l border-slate-300 transition-colors"
-          title="Editar locación seleccionada"
+          title="Cambiar el lugar de este evento, o corregir los datos del lugar"
+          aria-label="Cambiar el lugar de este evento, o corregir los datos del lugar"
         >
           <IconEdit size={14} />
         </button>
@@ -127,6 +146,87 @@ export default function LocationSelectWithCreate({
       >
         <IconPlus size={18} />
       </button>
+
+      {intentOpen &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+            onClick={() => setIntentOpen(false)}
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="location-intent-title"
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="p-5 border-b border-slate-100">
+                <h4
+                  id="location-intent-title"
+                  className="font-black text-slate-800 text-sm uppercase tracking-tight"
+                >
+                  ¿Qué querés cambiar?
+                </h4>
+                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                  Elegí si este evento pasa a otro lugar, o si vas a corregir la ficha de «{selectedPlaceName}».
+                </p>
+              </div>
+              <div className="p-5 space-y-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIntentOpen(false);
+                    setSelectOpenToken((n) => n + 1);
+                  }}
+                  className="w-full text-left flex items-start gap-3 p-3 rounded-xl border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 transition-colors"
+                >
+                  <span className="mt-0.5 shrink-0 w-8 h-8 rounded-lg bg-white text-indigo-600 flex items-center justify-center border border-indigo-100">
+                    <IconExchange size={16} />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-sm font-bold text-slate-800">
+                      Se hace en otro lugar
+                    </span>
+                    <span className="block text-xs text-slate-600 mt-0.5 leading-relaxed">
+                      Elegís otra locación. Solo cambia este evento. «{selectedPlaceName}» queda igual para los demás.
+                    </span>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIntentOpen(false);
+                    setEditLocationId(value);
+                  }}
+                  className="w-full text-left flex items-start gap-3 p-3 rounded-xl border border-amber-200 bg-amber-50 hover:bg-amber-100 transition-colors"
+                >
+                  <span className="mt-0.5 shrink-0 w-8 h-8 rounded-lg bg-white text-amber-700 flex items-center justify-center border border-amber-100">
+                    <IconEdit size={16} />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-sm font-bold text-slate-800">
+                      Nombre y otros datos de:
+                    </span>
+                    <span className="block text-sm font-bold text-slate-800 mt-0.5 break-words">
+                      {selectedPlaceName}
+                    </span>
+                    <span className="block text-xs text-amber-900 mt-0.5 leading-relaxed">
+                      Corregís la ficha del lugar. El cambio se aplica a todos los eventos que lo usan.
+                    </span>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIntentOpen(false)}
+                  className="w-full py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-xs uppercase hover:bg-slate-50"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
 
       {editLocationId != null && editLocationId !== "" && (
         <LocationManagerModal

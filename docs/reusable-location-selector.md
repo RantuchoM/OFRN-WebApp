@@ -12,7 +12,11 @@ Crear un selector de locaciones estandarizado que permita la creación rápida d
     - `onRefresh`: Función para recargar el catálogo de locaciones desde Supabase.
     - `placeholder`, `className` (opcionales).
 - **UI**: 
-    - Un contenedor flex que agrupa un `SearchableSelect` y un botón `IconPlus`.
+    - Un contenedor flex que agrupa un `SearchableSelect`, un botón `IconEdit` (si hay locación seleccionada) y un botón `IconPlus`.
+    - El lápiz no abre la ficha directo. Abre un diálogo con dos acciones:
+        - **Se hace en otro lugar**: abre el `SearchableSelect` (`requestOpen`). Solo cambia la locación de este evento.
+        - **Nombre y otros datos de:** + nombre del lugar en la línea siguiente: abre `LocationManagerModal`. El cambio es de la ficha compartida y afecta a todos los eventos que usan ese lugar.
+    - `LocationManagerModal`, al editar una locación existente, muestra el mismo aviso de alcance.
     - Un modal (React Portal) para crear la nueva locación.
 - **Campos del modal de creación**:
     - Nombre (obligatorio)
