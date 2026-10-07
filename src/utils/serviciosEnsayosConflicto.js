@@ -12,7 +12,9 @@ import {
 } from "./girasYearSummary";
 import { integranteKey } from "./integranteIds";
 import {
+  ENSAYO_FULL_SECONDS,
   ID_TIPO_ENSAYO_ENSAMBLE,
+  eventDurationSeconds,
   formatProgramNomencladorNombre,
 } from "./serviciosCantidad";
 import { classifyProgramaEnsambleConvocatoria } from "./serviciosEnsambleReport";
@@ -721,6 +723,168 @@ export function groupsWithFullConflicto(groups) {
       ),
     }))
     .filter((g) => (g.ensayos || []).length > 0);
+}
+
+function conflictoEventId(ensayo) {
+  const id = Number(ensayo?.eventId);
+  return Number.isFinite(id) ? id : null;
+}
+
+function personListedInConflicto(ensayo, integranteId) {
+  const iid = integranteKey(integranteId);
+  if (!iid) return false;
+  return (ensayo?.people || []).some((p) => integranteKey(p.id) === iid);
+}
+
+/** Un impacto por evento. Pleno pendiente gana a resuelto y a Tutti-N. */
+export function conflictoImpactByEventId(groups, sessionByEventId) {
+  const resolved = applySessionResolvedToGroups(groups, sessionByEventId);
+  const map = new Map();
+  for (const group of resolved || []) {
+    for (const ensayo of group.ensayos || []) {
+      const id = conflictoEventId(ensayo);
+      if (id == null) continue;
+      const rank = isPendingFullConflicto(ensayo)
+        ? 3
+        : ensayo.conflictKind === CONFLICTO_KIND.full
+          ? 2
+          : 1;
+      const prev = map.get(id);
+      if (prev && prev.rank >= rank) continue;
+      map.set(id, {
+        ...ensayo,
+        ensambleName: group.ensambleName,
+        rank,
+      });
+    }
+  }
+  return map;
+}
+
+/**
+ * Tono del detalle individual. Pleno pendiente = ámbar «En conflicto».
+ * «Se ensayó igual» y Tutti-N también se marcan para no mezclarlos con el resto.
+ */
+export function conflictoDetalleTone(ensayo) {
+  if (!ensayo) return null;
+  const giras = (ensayo.overlappingGiras || [])
+    .map((g) => g?.label)
+    .filter(Boolean)
+    .join(" / ");
+  if (isPendingFullConflicto(ensayo)) {
+    return { tone: "pending", label: "En conflicto", giras, counts: false };
+  }
+  if (
+    ensayo.conflictKind === CONFLICTO_KIND.full &&
+    ensayo.resolvedKind === CONFLICTO_RESOLVED_KIND.kept
+  ) {
+    return { tone: "kept", label: "Se ensayó igual", giras, counts: true };
+  }
+  if (ensayo.resolvedKind && ensayo.conflictKind === CONFLICTO_KIND.full) {
+    const label =
+      CONFLICTO_RESOLVED_LABEL[ensayo.resolvedKind] || "Resuelto";
+    return { tone: "resolved", label, giras, counts: false };
+  }
+  if (ensayo.conflictKind === CONFLICTO_KIND.partial) {
+    return { tone: "partial", label: "Tutti - N", giras, counts: true };
+  }
+  return null;
+}
+
+function hitAppliesConflicto(impact, integranteId, hitExists, isConvocado, evt) {
+  if (!impact) return false;
+  if (isPendingFullConflicto(impact)) {
+    if (personListedInConflicto(impact, integranteId)) return true;
+    return Boolean(evt && typeof isConvocado === "function" && isConvocado(evt));
+  }
+  if (
+    impact.conflictKind === CONFLICTO_KIND.full &&
+    impact.resolvedKind === CONFLICTO_RESOLVED_KIND.kept
+  ) {
+    return hitExists;
+  }
+  return personListedInConflicto(impact, integranteId);
+}
+
+function syntheticPendingHit(evt, tone) {
+  const secs = eventDurationSeconds(evt);
+  const isFull = secs != null && secs >= ENSAYO_FULL_SECONDS;
+  return {
+    kind: isFull ? "ensayo_ensamble_full" : "ensayo_ensamble_half",
+    value: 0,
+    mark: "counted",
+    durationSeconds: secs ?? undefined,
+    durationBand: secs == null ? undefined : isFull ? "ge2h" : "lt2h",
+    origin: "ensamble",
+    displayOnly: true,
+    conflicto: tone,
+    event: evt,
+  };
+}
+
+function compareDetalleHits(a, b) {
+  const fa = String(a.event?.fecha || "");
+  const fb = String(b.event?.fecha || "");
+  if (fa !== fb) return fa.localeCompare(fb);
+  return String(a.event?.hora_inicio || "").localeCompare(
+    String(b.event?.hora_inicio || ""),
+  );
+}
+
+/**
+ * Marca ensayos en conflicto en el detalle de una persona.
+ * El pleno pendiente no suma: si el conteo lo omitió, vuelve al listado en color.
+ */
+export function attachConflictoToDetalleHits({
+  hits,
+  events,
+  integranteId,
+  groups,
+  sessionByEventId,
+  isConvocado,
+} = {}) {
+  const impacts = conflictoImpactByEventId(groups, sessionByEventId);
+  const eventById = new Map();
+  for (const evt of events || []) {
+    const id = Number(evt?.id);
+    if (Number.isFinite(id)) eventById.set(id, evt);
+  }
+
+  const used = new Set();
+  const next = [];
+  for (const hit of hits || []) {
+    const id = Number(hit?.event?.id);
+    const impact = Number.isFinite(id) ? impacts.get(id) : null;
+    const evt = hit?.event;
+    if (
+      impact &&
+      hitAppliesConflicto(impact, integranteId, true, isConvocado, evt)
+    ) {
+      const tone = conflictoDetalleTone(impact);
+      if (tone) {
+        used.add(id);
+        next.push({ ...hit, conflicto: tone });
+        continue;
+      }
+    }
+    next.push(hit);
+  }
+
+  for (const [id, impact] of impacts) {
+    if (used.has(id) || !isPendingFullConflicto(impact)) continue;
+    const evt = eventById.get(id) || eventFromConflictoEnsayo(impact);
+    if (!evt || evt.is_deleted) continue;
+    if (!hitAppliesConflicto(impact, integranteId, false, isConvocado, evt)) {
+      continue;
+    }
+    const tone = conflictoDetalleTone(impact);
+    if (!tone) continue;
+    used.add(id);
+    next.push(syntheticPendingHit(evt, tone));
+  }
+
+  next.sort(compareDetalleHits);
+  return next;
 }
 
 export function pendingFullConflictoEventIdSet(groupsOrMap) {

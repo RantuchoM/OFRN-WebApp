@@ -5,6 +5,10 @@ import {
   membershipActiveOnProgramDate,
   integranteActiveOnProgramRange,
 } from "./ensembleMembership";
+import {
+  partitionRosterForMatrix,
+  selectRosterIdsAfterExclusions,
+} from "./rosterMatrixIds";
 import { countsTowardInstrumentationConvoked, getPercComparableTotal, buildProgramInstrumentationAudit } from "./instrumentation";
 import {
   buildSandboxStringsContainerLabels,
@@ -437,6 +441,7 @@ function resolveMatrixRosterFromCache(program, sandboxMap, cache) {
     .filter((f) => f.tipo === "EXCL_ENSAMBLE")
     .map((f) => Number(f.valor_id));
 
+  // EXCL saca convocatoria por fuente. La fila personal presente se conserva abajo.
   const excludedByEnsamble = new Set();
   if (exclEnsambleIds.length > 0) {
     const exclSet = new Set(exclEnsambleIds);
@@ -471,43 +476,24 @@ function resolveMatrixRosterFromCache(program, sandboxMap, cache) {
       .map((o) => integranteKey(o.id_integrante)),
   );
 
-  const allIds = Array.from(integrantesIds).filter(
-    (id) => !excludedByEnsamble.has(id) && !ausentesIds.has(id),
-  );
-  for (const id of [...reemplazoIds, ...licenciaIds]) {
-    if (!excludedByEnsamble.has(id) && !allIds.includes(id)) {
-      allIds.push(id);
-    }
-  }
+  const allIds = selectRosterIdsAfterExclusions({
+    integrantesIds,
+    manualIds,
+    excludedByEnsamble,
+    ausentesIds,
+    reemplazoIds,
+    licenciaIds,
+  });
 
-  const countedIds = new Set();
-  const preAltaIds = new Set();
-  const reemplazoCountedIds = new Set();
-  const licenciaCountedIds = new Set();
-  for (const id of allIds) {
-    const row = cache.vigenciaById.get(id);
-    if (
-      row &&
-      integranteActiveOnProgramRange(row, programRefDesde, programRefHasta)
-    ) {
-      countedIds.add(id);
-      if (reemplazoIds.has(id)) {
-        reemplazoCountedIds.add(id);
-      }
-      if (licenciaIds.has(id)) {
-        licenciaCountedIds.add(id);
-      }
-    } else {
-      preAltaIds.add(id);
-    }
-  }
-
-  return {
-    countedIds,
-    preAltaIds,
-    reemplazoIds: reemplazoCountedIds,
-    licenciaIds: licenciaCountedIds,
-  };
+  return partitionRosterForMatrix({
+    allIds,
+    manualIds,
+    reemplazoIds,
+    licenciaIds,
+    vigenciaByKey: cache.vigenciaById,
+    programRefDesde,
+    programRefHasta,
+  });
 }
 
 /**

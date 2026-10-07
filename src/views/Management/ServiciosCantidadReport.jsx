@@ -56,6 +56,7 @@ import { programOverlapsDateRange, toLocalDateString } from "../../utils/giraDat
 import { compareInstrumentIds, getProgramStyle } from "../../utils/giraUtils";
 import {
   currentYearBounds,
+  isIntegranteConvocadoToEnsayo,
   isProgramBorrador,
 } from "../../utils/girasYearSummary";
 import { integranteKey } from "../../utils/integranteIds";
@@ -64,9 +65,14 @@ import {
   buildEnsambleServiciosReport,
   listEnsamblesForServiciosReport,
 } from "../../utils/serviciosEnsambleReport";
-import { buildEnsayosConflictoGroups, groupsWithFullConflicto, pendingFullConflictoEventIdSet } from "../../utils/serviciosEnsayosConflicto";
 import {
-  SERVICIO_COLUMN_DEFS,
+  attachConflictoToDetalleHits,
+  buildEnsayosConflictoGroups,
+  groupsWithFullConflicto,
+  pendingFullConflictoEventIdSet,
+} from "../../utils/serviciosEnsayosConflicto";
+import {
+  ENSAYO_COLUMN_VIEWS,
   SERVICIO_POR_MES_COLUMN,
   accumulateServiciosForIntegrante,
   bucketTotal,
@@ -76,11 +82,13 @@ import {
   formatServicioNumber,
   formatServicioParts,
   formatServiciosPorMesPlain,
+  customMapForIntegrante,
   getFixedGiraServiciosAverage,
   groupHitsByDetailSection,
   groupHitsByProgramTipo,
   listEstimableGiras,
   listServicioHitsForIntegrante,
+  splitServicioListingColumns,
   sumBuckets,
 } from "../../utils/serviciosCantidad";
 
@@ -108,7 +116,41 @@ function sortIntegrantesByInstrument(integrantes) {
   });
 }
 
-const LISTING_COL_COUNT = 1 + SERVICIO_COLUMN_DEFS.length + 1;
+function EnsayosViewToggle({ view, onChange }) {
+  const option = (id, label, title) => (
+    <button
+      type="button"
+      onClick={() => onChange(id)}
+      className={`px-1.5 py-0.5 text-[10px] font-bold normal-case tracking-normal ${
+        view === id
+          ? "bg-emerald-700 text-white"
+          : "bg-white text-slate-600 hover:bg-emerald-50"
+      }`}
+      title={title}
+      aria-pressed={view === id}
+    >
+      {label}
+    </button>
+  );
+  return (
+    <div
+      className="inline-flex overflow-hidden rounded border border-emerald-300"
+      role="group"
+      aria-label="Cómo ver las columnas de ensayos"
+    >
+      {option(
+        ENSAYO_COLUMN_VIEWS.duracion,
+        "Duración",
+        "Ensayos de 2 h o más, y de menos de 2 h",
+      )}
+      {option(
+        ENSAYO_COLUMN_VIEWS.origen,
+        "Ensamble / gira",
+        "Ensayos de ensamble y ensayos de gira",
+      )}
+    </div>
+  );
+}
 
 function ServicioPorMesCell({ totalServicios, integrante, range }) {
   const { months, rate } = computeServiciosPorMes(
@@ -163,6 +205,21 @@ function ServicioCellValue({ bucket, chipClass, emphasize }) {
       ))}
     </span>
   );
+}
+
+function conflictoRowClass(tone) {
+  if (tone === "pending") return "border-l-4 border-amber-500 bg-amber-50";
+  if (tone === "kept") return "border-l-4 border-emerald-500 bg-emerald-50";
+  if (tone === "partial") return "border-l-4 border-sky-400 bg-sky-50";
+  if (tone === "resolved") return "border-l-4 border-slate-300 bg-slate-50";
+  return "";
+}
+
+function conflictoBadgeClass(tone) {
+  if (tone === "pending") return "bg-amber-100 text-amber-900";
+  if (tone === "kept") return "bg-emerald-100 text-emerald-900";
+  if (tone === "partial") return "bg-sky-100 text-sky-900";
+  return "bg-slate-200 text-slate-700";
 }
 
 function durationBandLabel(hit) {
@@ -561,11 +618,17 @@ function ServicioDetalleModal({
                           section.hits.map((hit) => {
                             const evt = hit.event;
                             const estimado = hit.origin === "estimado";
+                            const conflicto = hit.conflicto;
+                            const tone = conflicto?.tone;
                             return (
                               <li
                                 key={evt.id}
                                 className={`flex items-start gap-2 px-3 py-2 ${
-                                  estimado ? "bg-orange-50/70" : ""
+                                  tone
+                                    ? conflictoRowClass(tone)
+                                    : estimado
+                                      ? "bg-orange-50/70"
+                                      : ""
                                 }`}
                               >
                                 <div className="min-w-0 flex-1">
@@ -581,6 +644,16 @@ function ServicioDetalleModal({
                                           : ""}
                                       </span>
                                     ) : null}
+                                    {tone ? (
+                                      <span
+                                        className={`inline-flex items-center gap-1 rounded px-1 py-px text-[10px] font-bold uppercase ${conflictoBadgeClass(tone)}`}
+                                      >
+                                        {tone === "pending" ? (
+                                          <IconAlertTriangle size={10} />
+                                        ) : null}
+                                        {conflicto.label}
+                                      </span>
+                                    ) : null}
                                     {estimado ? (
                                       <span className="rounded bg-orange-100 px-1 py-px text-[10px] font-bold uppercase text-orange-800">
                                         Est.
@@ -593,16 +666,32 @@ function ServicioDetalleModal({
                                     className={`mt-0.5 text-xs leading-snug ${
                                       estimado
                                         ? "italic text-orange-800"
-                                        : "text-slate-500"
+                                        : tone === "pending"
+                                          ? "text-amber-900"
+                                          : "text-slate-500"
                                     }`}
                                   >
                                     {eventSubtitle(evt)}
+                                    {conflicto?.giras
+                                      ? ` · ${conflicto.giras}`
+                                      : ""}
                                   </p>
                                 </div>
                                 <div className="shrink-0 text-right">
-                                  <div className="text-xs font-bold tabular-nums text-slate-800">
+                                  <div
+                                    className={`text-xs font-bold tabular-nums ${
+                                      hit.displayOnly
+                                        ? "text-amber-800"
+                                        : "text-slate-800"
+                                    }`}
+                                  >
                                     {formatServicioNumber(hit.value)}
                                   </div>
+                                  {hit.displayOnly ? (
+                                    <div className="text-[10px] font-semibold text-amber-700">
+                                      no suma
+                                    </div>
+                                  ) : null}
                                   <div className="inline-flex items-center gap-0.5 text-[10px] text-slate-400">
                                     <IconClock size={10} />
                                     {hit.durationSeconds != null
@@ -645,6 +734,9 @@ export default function ServiciosCantidadReport({ supabase }) {
   const [giraId, setGiraId] = useState("");
   const [search, setSearch] = useState("");
   const [groupByEnsambles, setGroupByEnsambles] = useState(false);
+  const [ensayoColumnView, setEnsayoColumnView] = useState(
+    ENSAYO_COLUMN_VIEWS.duracion,
+  );
   const [estimarFuturos, setEstimarFuturos] = useState(true);
   const [selectedTypes, setSelectedTypes] = useState(
     () => new Set(TIPOS_PROGRAMA_ASISTENCIA_MATRIZ),
@@ -1148,12 +1240,28 @@ export default function ServiciosCantidadReport({ supabase }) {
 
   const detalleHits = useMemo(() => {
     if (!detalleIntegrante) return [];
-    return listServicioHitsForIntegrante(
-      detalleIntegrante.id,
+    const iid = detalleIntegrante.id;
+    return attachConflictoToDetalleHits({
+      hits: listServicioHitsForIntegrante(iid, events, computeCtx),
       events,
-      computeCtx,
-    );
-  }, [detalleIntegrante, events, computeCtx]);
+      integranteId: iid,
+      groups: conflictoGroups,
+      sessionByEventId: conflictoSessionByEventId,
+      isConvocado: (evt) =>
+        isIntegranteConvocadoToEnsayo(
+          evt,
+          iid,
+          computeCtx.memberships,
+          customMapForIntegrante(computeCtx.customByEventId, iid),
+        ),
+    });
+  }, [
+    detalleIntegrante,
+    events,
+    computeCtx,
+    conflictoGroups,
+    conflictoSessionByEventId,
+  ]);
 
   const toggleType = useCallback((tipo) => {
     setSelectedTypes((prev) => {
@@ -1347,6 +1455,7 @@ export default function ServiciosCantidadReport({ supabase }) {
         fechaHasta,
         fileName: "cantidad_servicios",
         estimateNote,
+        ensayoColumnView,
       }),
     );
   }, [
@@ -1358,6 +1467,7 @@ export default function ServiciosCantidadReport({ supabase }) {
     fechaDesde,
     fechaHasta,
     estimateNote,
+    ensayoColumnView,
     runExport,
   ]);
 
@@ -1372,6 +1482,7 @@ export default function ServiciosCantidadReport({ supabase }) {
       groupByEnsambles,
       fileName: "cantidad_servicios",
       estimateNote,
+      ensayoColumnView,
     }),
     );
   }, [
@@ -1383,6 +1494,7 @@ export default function ServiciosCantidadReport({ supabase }) {
     fechaDesde,
     fechaHasta,
     estimateNote,
+    ensayoColumnView,
   ]);
 
   const handleExportDetalleLote = useCallback(() => {
@@ -1397,6 +1509,8 @@ export default function ServiciosCantidadReport({ supabase }) {
       ensambleById,
       programaById: programasById,
       estimateNote,
+      conflictoGroups,
+      sessionByEventId: conflictoSessionByEventId,
     }),
     );
   }, [
@@ -1410,6 +1524,8 @@ export default function ServiciosCantidadReport({ supabase }) {
     ensambleById,
     programasById,
     estimateNote,
+    conflictoGroups,
+    conflictoSessionByEventId,
   ]);
 
   const handleExportDetalleOne = useCallback(
@@ -1524,6 +1640,15 @@ export default function ServiciosCantidadReport({ supabase }) {
     );
   };
 
+  const {
+    columns: listingColumns,
+    leading: listingLeading,
+    ensayos: listingEnsayos,
+    trailing: listingTrailing,
+  } = splitServicioListingColumns(ensayoColumnView);
+  const listingColCount = 1 + listingColumns.length + 1;
+  const ensayoColumnKeys = new Set(listingEnsayos.map((col) => col.key));
+
   const renderDataRow = (row, key) => {
     const iid = integranteKey(row.id);
     const buckets = bucketsByIntegranteId[iid] || {};
@@ -1547,10 +1672,14 @@ export default function ServiciosCantidadReport({ supabase }) {
               : ""}
           </div>
         </td>
-        {SERVICIO_COLUMN_DEFS.map((col) => (
+        {listingColumns.map((col) => (
           <td
             key={col.key}
-            className="px-2 py-1.5 text-right text-xs"
+            className={`px-2 py-1.5 text-right text-xs ${
+              ensayoColumnKeys.has(col.key)
+                ? "bg-emerald-50/70 group-hover:bg-emerald-100"
+                : ""
+            }`}
             title={col.title}
           >
             <ServicioCellValue
@@ -1975,6 +2104,15 @@ export default function ServiciosCantidadReport({ supabase }) {
             </div>
           ) : (
             <>
+              <div className="flex items-center justify-between gap-2 border-b border-emerald-100 bg-emerald-50 px-3 py-2 md:hidden">
+                <span className="text-[11px] font-bold uppercase tracking-wide text-emerald-900">
+                  Ensayos
+                </span>
+                <EnsayosViewToggle
+                  view={ensayoColumnView}
+                  onChange={setEnsayoColumnView}
+                />
+              </div>
               <div className="divide-y divide-slate-100 md:hidden">
                 {(rowGroups.length
                   ? rowGroups
@@ -2034,29 +2172,69 @@ export default function ServiciosCantidadReport({ supabase }) {
                   return nodes;
                 })}
               </div>
-              <table className="hidden w-full min-w-[58rem] border-collapse text-left md:table">
+              <table className="hidden w-full min-w-[46rem] border-collapse text-left md:table">
               <thead className="sticky top-0 z-[2]">
                 <tr className="border-b border-slate-200 bg-slate-50 text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                  <th className="sticky left-0 z-[3] min-w-[10rem] bg-slate-50 px-2 py-2 shadow-[2px_0_0_0_rgba(226,232,240,1)]">
+                  <th
+                    rowSpan={2}
+                    className="sticky left-0 z-[3] min-w-[10rem] bg-slate-50 px-2 py-2 align-bottom shadow-[2px_0_0_0_rgba(226,232,240,1)]"
+                  >
                     Integrante
                   </th>
-                  {SERVICIO_COLUMN_DEFS.map((col) => (
+                  {listingLeading.map((col) => (
                     <th
                       key={col.key}
-                      className={`whitespace-nowrap px-2 py-2 text-right ${
-                        col.key === "total" ? "bg-slate-100" : ""
-                      }`}
+                      rowSpan={2}
+                      className="whitespace-nowrap px-2 py-2 text-right align-bottom"
                       title={col.title}
                     >
                       {col.shortLabel}
                     </th>
                   ))}
                   <th
-                    className="whitespace-nowrap bg-orange-50 px-2 py-2 text-right text-orange-800"
+                    colSpan={listingEnsayos.length}
+                    scope="colgroup"
+                    className="border-x border-emerald-200 bg-emerald-50 px-2 py-1.5 text-center normal-case tracking-normal"
+                  >
+                    <div className="flex flex-col items-center gap-1">
+                      <span className="text-[10px] font-bold uppercase tracking-wide text-emerald-900">
+                        Ensayos
+                      </span>
+                      <EnsayosViewToggle
+                        view={ensayoColumnView}
+                        onChange={setEnsayoColumnView}
+                      />
+                    </div>
+                  </th>
+                  {listingTrailing.map((col) => (
+                    <th
+                      key={col.key}
+                      rowSpan={2}
+                      className="whitespace-nowrap bg-slate-100 px-2 py-2 text-right align-bottom"
+                      title={col.title}
+                    >
+                      {col.shortLabel}
+                    </th>
+                  ))}
+                  <th
+                    rowSpan={2}
+                    className="whitespace-nowrap bg-orange-50 px-2 py-2 text-right align-bottom text-orange-800"
                     title={SERVICIO_POR_MES_COLUMN.title}
                   >
                     {SERVICIO_POR_MES_COLUMN.shortLabel}
                   </th>
+                </tr>
+                <tr className="border-b border-emerald-200 bg-emerald-50 text-[10px] font-bold uppercase tracking-wide text-emerald-800">
+                  {listingEnsayos.map((col) => (
+                    <th
+                      key={col.key}
+                      scope="col"
+                      className="whitespace-nowrap border-x border-emerald-100 bg-emerald-50 px-2 py-1.5 text-right"
+                      title={col.title}
+                    >
+                      {col.shortLabel}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
@@ -2072,7 +2250,7 @@ export default function ServiciosCantidadReport({ supabase }) {
                         className="border-b border-slate-100 bg-slate-200/90"
                       >
                         <td
-                          colSpan={LISTING_COL_COUNT}
+                          colSpan={listingColCount}
                           className="px-2 py-1.5 text-[11px] font-bold uppercase tracking-wide text-slate-800"
                         >
                           {group.label}
@@ -2094,8 +2272,13 @@ export default function ServiciosCantidadReport({ supabase }) {
                     <td className="sticky left-0 z-[3] bg-slate-100 px-2 py-1.5 shadow-[2px_0_0_0_rgba(203,213,225,1)]">
                       Totales
                     </td>
-                    {SERVICIO_COLUMN_DEFS.map((col) => (
-                      <td key={col.key} className="px-2 py-1.5 text-right">
+                    {listingColumns.map((col) => (
+                      <td
+                        key={col.key}
+                        className={`px-2 py-1.5 text-right ${
+                          ensayoColumnKeys.has(col.key) ? "bg-emerald-50" : ""
+                        }`}
+                      >
                         <ServicioCellValue
                           bucket={columnTotals[col.key]}
                           chipClass={col.chipClass}

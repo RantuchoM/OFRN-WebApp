@@ -38,14 +38,18 @@ import {
   resolveLocalidadResidencia,
 } from "../utils/integranteDomicilioViaticos";
 import { isRepertorioPlaceholder } from "../utils/repertorioRowDisplay";
+import {
+  partitionRosterForMatrix,
+  selectRosterIdsAfterExclusions,
+} from "../utils/rosterMatrixIds";
 import { fetchDirectRepertorioAssignmentsForObra } from "./repertorioPlaceholderOpciones";
 
 /**
  * Resuelve los IDs de los integrantes de una gira:
  * (Miembros de Ensambles Convocados + Familias Convocadas + Overrides) MINUS (Miembros de Ensambles Excluidos) MINUS (Ausentes).
- * La exclusión de ensamble manda: si un ensamble está en EXCL_ENSAMBLE, sus miembros no entran aunque su familia esté convocada.
- * Vigencia de orquesta (fecha_alta/fecha_baja) y de ensamble (fecha_desde/fecha_hasta en integrantes_ensambles) aplican a convocatoria base;
- * overrides manuales en giras_integrantes (estado !== ausente) ignoran esas vigencias.
+ * EXCL_ENSAMBLE manda sobre ENSAMBLE/FAMILIA. Una fila personal presente en giras_integrantes
+ * (estado !== ausente) cuenta igual: ni la exclusión de ensamble ni la vigencia de legajo la sacan.
+ * Vigencia de orquesta y de ensamble aplican solo a la convocatoria base.
  * @see docs/roster-spec.md
  */
 async function resolveGiraRosterDetail(supabase, giraId, sandboxOverride = null) {
@@ -157,7 +161,8 @@ async function resolveGiraRosterDetail(supabase, giraId, sandboxOverride = null)
 
     const integrantesIds = new Set([...baseIds, ...manualIds]);
 
-    // F. Excluidos por ensamble: sus miembros se sacan siempre (la exclusión manda)
+    // F. Miembros de EXCL_ENSAMBLE. La exclusión saca solo la convocatoria por fuente;
+    // la fila personal presente se conserva en selectRosterIdsAfterExclusions.
     const exclEnsambleIds = fuentes
       .filter((f) => f.tipo === "EXCL_ENSAMBLE")
       .map((f) => Number(f.valor_id));
@@ -202,21 +207,17 @@ async function resolveGiraRosterDetail(supabase, giraId, sandboxOverride = null)
         .map((o) => integranteKey(o.id_integrante)),
     );
 
-    // Resultado: convocados MINUS excluidos por ensamble MINUS ausentes (sin abono)
-    const allIds = Array.from(integrantesIds).filter(
-      (id) =>
-        !excludedByEnsamble.has(id) && !ausentesIds.has(id),
-    );
-    for (const id of [...reemplazoIds, ...licenciaIds]) {
-      if (!excludedByEnsamble.has(id) && !allIds.includes(id)) {
-        allIds.push(id);
-      }
-    }
+    // Presente personal queda aunque el ensamble esté excluido. Ausente sin abono sale.
+    const allIds = selectRosterIdsAfterExclusions({
+      integrantesIds,
+      manualIds,
+      excludedByEnsamble,
+      ausentesIds,
+      reemplazoIds,
+      licenciaIds,
+    });
 
-    const countedIds = new Set();
-    const preAltaIds = new Set();
-    const reemplazoCountedIds = new Set();
-    const licenciaCountedIds = new Set();
+    const vigenciaByKey = new Map();
     if (allIds.length > 0) {
       const idList = allIds.map(integranteIdForDb).filter(Boolean);
       const { data: vigenciaFinal } = await supabase
@@ -225,33 +226,26 @@ async function resolveGiraRosterDetail(supabase, giraId, sandboxOverride = null)
         .in("id", idList);
 
       vigenciaFinal?.forEach((row) => {
-        const key = integranteKey(row.id);
-        if (
-          integranteActiveOnProgramRange(
-            row,
-            programRefDesde,
-            programRefHasta,
-          )
-        ) {
-          countedIds.add(key);
-          if (reemplazoIds.has(key)) {
-            reemplazoCountedIds.add(key);
-          }
-          if (licenciaIds.has(key)) {
-            licenciaCountedIds.add(key);
-          }
-        } else {
-          preAltaIds.add(key);
-        }
+        vigenciaByKey.set(integranteKey(row.id), row);
       });
     }
 
+    const partitioned = partitionRosterForMatrix({
+      allIds,
+      manualIds,
+      reemplazoIds,
+      licenciaIds,
+      vigenciaByKey,
+      programRefDesde,
+      programRefHasta,
+    });
+
     return {
       allIds,
-      countedIds,
-      preAltaIds,
-      reemplazoIds: reemplazoCountedIds,
-      licenciaIds: licenciaCountedIds,
+      countedIds: partitioned.countedIds,
+      preAltaIds: partitioned.preAltaIds,
+      reemplazoIds: partitioned.reemplazoIds,
+      licenciaIds: partitioned.licenciaIds,
     };
   } catch (error) {
     console.error("[GiraService] Error resolviendo roster IDs:", error);

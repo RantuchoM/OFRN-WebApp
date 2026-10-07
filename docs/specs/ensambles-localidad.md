@@ -35,7 +35,7 @@ Ejemplo: gira **13** *La Fuerza del Legado* (Sinfónico, familias Cuerdas/Madera
 
 **Tutti-N checkboxes (Lista):** tildar = esa persona **asiste igual al ensayo** a pesar de estar convocada a la gira. Default **destildado** (se espera en la gira, no en el ensayo). Persistido en `eventos_asistencia_custom.tipo = asiste_igual` (ID numérico de integrante). El formulario de ensayo no borra esas filas. Texto de ayuda: «Tildá si asiste igual al ensayo a pesar de estar convocado a la gira.»
 
-Implementación: `fetchCoordinatorPrograms` en `src/utils/rehearsalProgramas.js` (query `useCoordinatorPrograms`). No usa `resolveGiraRosterIds` para este filtro: ese motor sacaba a los excluidos por ensamble aunque tuvieran override manual.
+Implementación: `fetchCoordinatorPrograms` en `src/utils/rehearsalProgramas.js` (query `useCoordinatorPrograms`). No usa `resolveGiraRosterIds`: mira `giras_fuentes` y filas presentes de `giras_integrantes` del ensamble. Desde 2026-10-07 el motor de Convocatorias/Servicios (`resolveGiraRosterForMatrix`) también conserva esa fila personal presente aunque haya `EXCL_ENSAMBLE`.
 
 ### Badge «Participan todos» / modal de personas
 
