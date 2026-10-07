@@ -43,7 +43,7 @@ import {
   groupHitsByDetailSection,
   groupHitsByProgramTipo,
   listServicioHitsForIntegrante,
-  servicioListingColumns,
+  splitServicioListingColumns,
   sumBuckets,
 } from "../utils/serviciosCantidad";
 import { currentYearBounds } from "../utils/girasYearSummary";
@@ -621,19 +621,70 @@ export async function downloadServiciosCantidadExcel({
   estimateNote = "",
   ensayoColumnView = "duracion",
 }) {
-  const columns = servicioListingColumns(ensayoColumnView);
+  const { columns, leading, ensayos, trailing } =
+    splitServicioListingColumns(ensayoColumnView);
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet("Servicios");
 
-  const headers = [
-    "Integrante",
-    "Instrumento",
-    "Familia",
-    ...columns.map((c) => c.label),
+  const identity = ["Integrante", "Instrumento", "Familia"];
+  ws.addRow([
+    ...identity,
+    ...leading.map((c) => c.label),
+    "Ensayos",
+    ...Array(Math.max(ensayos.length - 1, 0)).fill(null),
+    ...trailing.map((c) => c.label),
     SERVICIO_POR_MES_COLUMN.label,
-  ];
-  ws.addRow(headers);
+  ]);
+  ws.addRow([
+    ...identity.map(() => null),
+    ...leading.map(() => null),
+    ...ensayos.map((c) => c.label),
+    ...trailing.map(() => null),
+    null,
+  ]);
+
+  const mergeDown = (col) => {
+    ws.mergeCells(1, col, 2, col);
+    ws.getCell(1, col).alignment = { vertical: "middle", horizontal: "center" };
+  };
+  let col = 1;
+  for (let i = 0; i < identity.length; i += 1) {
+    mergeDown(col);
+    ws.getCell(1, col).alignment = { vertical: "middle", horizontal: "left" };
+    col += 1;
+  }
+  for (let i = 0; i < leading.length; i += 1) {
+    mergeDown(col);
+    col += 1;
+  }
+  const ensayoStart = col;
+  if (ensayos.length > 1) {
+    ws.mergeCells(1, ensayoStart, 1, ensayoStart + ensayos.length - 1);
+  }
+  const ensayoFill = {
+    type: "pattern",
+    pattern: "solid",
+    fgColor: { argb: "FFECFDF5" },
+  };
+  ws.getCell(1, ensayoStart).alignment = {
+    vertical: "middle",
+    horizontal: "center",
+  };
+  ws.getCell(1, ensayoStart).fill = ensayoFill;
+  for (let i = 0; i < ensayos.length; i += 1) {
+    const cell = ws.getCell(2, ensayoStart + i);
+    cell.fill = ensayoFill;
+    cell.alignment = { vertical: "middle", horizontal: "center" };
+  }
+  col += ensayos.length;
+  for (let i = 0; i < trailing.length; i += 1) {
+    mergeDown(col);
+    col += 1;
+  }
+  mergeDown(col);
+
   ws.getRow(1).font = { bold: true };
+  ws.getRow(2).font = { bold: true };
 
   const porMesPlain = (row) => {
     const iid = integranteKey(row.id);
@@ -699,6 +750,7 @@ export async function downloadServiciosCantidadExcel({
 }
 
 const PDF_POR_MES_FILL = [255, 247, 237];
+const PDF_ENSAYO_FILL = [236, 253, 245];
 const DETALLE_COL_COUNT = 6;
 
 function rangoServiciosLabel(fechaDesde, fechaHasta) {
@@ -1133,8 +1185,11 @@ export function downloadServiciosCantidadPdf({
   estimateNote = "",
   ensayoColumnView = "duracion",
 }) {
-  const columns = servicioListingColumns(ensayoColumnView);
+  const { columns, leading, ensayos, trailing } =
+    splitServicioListingColumns(ensayoColumnView);
   const colCount = 2 + columns.length + 1;
+  const ensayoColStart = 2 + leading.length;
+  const ensayoColEnd = ensayoColStart + ensayos.length - 1;
   const doc = createServiciosPdfDoc();
   const rango = rangoServiciosLabel(fechaDesde, fechaHasta);
 
@@ -1144,13 +1199,29 @@ export function downloadServiciosCantidadPdf({
     note: estimateNote,
   });
 
+  const headSpan = (content) => ({
+    content,
+    rowSpan: 2,
+    styles: { valign: "middle" },
+  });
   const head = [
     [
-      "Integrante",
-      "Instrumento",
-      ...columns.map((c) => toServiciosPdfText(c.shortLabel)),
-      toServiciosPdfText(SERVICIO_POR_MES_COLUMN.shortLabel),
+      headSpan("Integrante"),
+      headSpan("Instrumento"),
+      ...leading.map((c) => headSpan(toServiciosPdfText(c.shortLabel))),
+      {
+        content: "Ensayos",
+        colSpan: ensayos.length,
+        styles: {
+          halign: "center",
+          valign: "middle",
+          fillColor: PDF_ENSAYO_FILL,
+        },
+      },
+      ...trailing.map((c) => headSpan(toServiciosPdfText(c.shortLabel))),
+      headSpan(toServiciosPdfText(SERVICIO_POR_MES_COLUMN.shortLabel)),
     ],
+    ensayos.map((c) => toServiciosPdfText(c.shortLabel)),
   ];
 
   const body = [];
@@ -1250,8 +1321,14 @@ export function downloadServiciosCantidadPdf({
         data.section === "body" &&
         Array.isArray(raw) &&
         raw[0] === "Totales";
+      const inEnsayos =
+        data.column.index >= ensayoColStart &&
+        data.column.index <= ensayoColEnd;
       if (data.section === "head" && data.column.index === porMesCol) {
         data.cell.styles.fillColor = PDF_POR_MES_FILL;
+      }
+      if (inEnsayos && data.section === "head") {
+        data.cell.styles.fillColor = PDF_ENSAYO_FILL;
       }
       if (data.section === "body" && data.column.index === totalCol) {
         data.cell.styles.fontStyle = "bold";
@@ -1260,9 +1337,14 @@ export function downloadServiciosCantidadPdf({
       if (data.section === "body" && data.column.index === porMesCol) {
         data.cell.styles.fillColor = PDF_POR_MES_FILL;
       }
+      if (inEnsayos && data.section === "body" && !isTotals) {
+        data.cell.styles.fillColor = PDF_ENSAYO_FILL;
+      }
       if (isTotals) {
         data.cell.styles.fontStyle = "bold";
-        data.cell.styles.fillColor = PDF_HEAD_FILL;
+        data.cell.styles.fillColor = inEnsayos
+          ? PDF_ENSAYO_FILL
+          : PDF_HEAD_FILL;
       }
     },
     margin: { left: 10, right: 10 },

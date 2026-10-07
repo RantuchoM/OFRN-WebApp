@@ -64,7 +64,8 @@ export function isSinfonicoProgram(program) {
 /**
  * Columnas del listado. Ensayos ≥2h / <2h y Ensamble / Gira se solapan
  * (mismos ensayos, dos cortes); el Total suma solo los átomos.
- * El informe muestra un solo par de ensayos a la vez (`servicioListingColumns`).
+ * El informe muestra un solo par a la vez, bajo el encabezado «Ensayos»
+ * (`splitServicioListingColumns`).
  */
 export const SERVICIO_COLUMN_DEFS = [
   {
@@ -156,6 +157,17 @@ export function servicioListingColumns(view = ENSAYO_COLUMN_VIEWS.duracion) {
   return SERVICIO_COLUMN_DEFS.filter(
     (col) => !ENSAYO_COLUMN_KEYS.has(col.key) || pair.has(col.key),
   );
+}
+
+/** Separa el par de ensayos del resto para el encabezado agrupado «Ensayos». */
+export function splitServicioListingColumns(view = ENSAYO_COLUMN_VIEWS.duracion) {
+  const columns = servicioListingColumns(view);
+  return {
+    columns,
+    leading: columns.filter((col) => !ENSAYO_COLUMN_KEYS.has(col.key) && col.key !== "total"),
+    ensayos: columns.filter((col) => ENSAYO_COLUMN_KEYS.has(col.key)),
+    trailing: columns.filter((col) => col.key === "total"),
+  };
 }
 
 /** Columna derivada: total ÷ meses feb–dic de presencia. No entra en el Total. */

@@ -30,7 +30,7 @@ Menú: **Gestión** (staff: `isAdmin || isEditor` en `App.jsx`), mismo módulo q
 
 ## Listado y detalle
 
-- Filas = integrante (IDs numéricos). Columnas fijas: Conciertos | Didácticos | **un par de ensayos** | Total | **Servicios/mes**. El par de ensayos se alterna con el control **Duración / Ensamble / gira** (default Duración): o bien ≥2h y &lt;2h, o bien Ensamble y Gira. Nunca las cuatro juntas (se solapan; el total suma átomos, sin doble conteo). Excel y PDF del listado exportan el par visible. 0,5 en es-AR. R celeste / L ámbar.
+- Filas = integrante (IDs numéricos). Columnas: Conciertos | Didácticos | **Ensayos** (dos columnas) | Total | **Servicios/mes**. El grupo **Ensayos** es un encabezado de dos filas (`colSpan` 2, fondo esmeralda) y ahí mismo está el toggle **Duración / Ensamble / gira** (default Duración): o bien ≥2h y &lt;2h, o bien Ensamble y Gira. Las dos celdas del cuerpo y del pie van tintadas para que se lean como ensayos. Nunca las cuatro juntas (se solapan; el total suma átomos, sin doble conteo). En pantallas angostas la tabla está oculta: el mismo toggle queda en una barra **Ensayos** arriba del listado compacto (el Excel/PDF siguen el corte elegido). 0,5 en es-AR. R celeste / L ámbar.
 - **Servicios/mes** = `Total ÷ meses feb–dic de presencia` que solapan el rango filtrado. Enero **no** cuenta (divisor máximo 11 en un año). Campo real: `integrantes.fecha_alta` (y `fecha_baja`). Sin `fecha_alta` = presente desde el inicio del rango. Alta en marzo → 10 meses; abril → 9; etc. Pie de tabla: **—** (no se promedia entre músicos). Celda: `1,23 (10)` (tasa y meses).
 - Clic en fila → modal Portal `z-[100]`, colapsable por categoría (conciertos, didácticos, ensamble, gira).
 - **Ensayos en conflicto en el detalle:** la fila del ensayo lleva color y etiqueta. Pleno pendiente = ámbar «En conflicto» (valor 0, «no suma»; si el conteo lo había omitido, igual aparece en el listado). «Se ensayó igual» = verde. Tutti-N = celeste, solo si esa persona está en el roster de la gira. El PDF de detalle (persona y lote) pinta la fila del mismo color y agrega la etiqueta al texto del evento. El total del resumen no cambia.
@@ -38,8 +38,8 @@ Menú: **Gestión** (staff: `isAdmin || isEditor` en `App.jsx`), mismo módulo q
 
 ## Exportes
 
-- **Excel** (`downloadServiciosCantidadExcel`): mismas columnas de tipos + Total + Servicios/mes; grupos si está tildado Agrupar.
-- **PDF listado** (`downloadServiciosCantidadPdf`): mismo stack que Convocatorias (`jsPDF` + `jspdf-autotable`). **A4 vertical (portrait)**. Título ASCII **Gestion Servicios** (sin flecha/`→`: Helvetica no la dibuja y queda un recuadro). Subtítulo con espacios: `Estimar futuros - promedio 10 serv./gira`. Texto PDF pasa por `toServiciosPdfText` (sin `→` `▸` `·` `–` `≥` `÷`). Encabezados `shortLabel` (`>=2h` en PDF). Separadores de ensamble: `>` + `fillColor` slate. Fila Totales; Servicios/mes del pie = `-`. Botón `IconFileText`.
+- **Excel** (`downloadServiciosCantidadExcel`): dos filas de encabezado. Integrante, Instrumento, Familia, Conciertos, Didácticos, Total y Servicios/mes ocupan las dos filas. El par visible va unido en la fila 1 bajo **Ensayos** (fondo esmeralda) y la fila 2 lleva las etiquetas del corte. Grupos si está tildado Agrupar. Los datos empiezan en la fila 3.
+- **PDF listado** (`downloadServiciosCantidadPdf`): mismo stack que Convocatorias (`jsPDF` + `jspdf-autotable`). **A4 vertical (portrait)**. Título ASCII **Gestion Servicios** (sin flecha/`→`: Helvetica no la dibuja y queda un recuadro). Subtítulo con espacios: `Estimar futuros - promedio 10 serv./gira`. Texto PDF pasa por `toServiciosPdfText` (sin `→` `▸` `·` `–` `≥` `÷`). Encabezado de dos filas: `rowSpan` 2 en integrante, instrumento, conciertos, didácticos, total y Serv/mes; `colSpan` del par bajo **Ensayos**. Subencabezados `shortLabel` (`>=2h` en PDF). Celdas de ese par en verde claro. Separadores de ensamble: `>` + `fillColor` slate. Fila Totales; Servicios/mes del pie = `-`. Botón `IconFileText`.
 - **PDF detalle persona** (`downloadServiciosCantidadDetallePdf`): A4 vertical. Encabezado (nombre, rango, instrumento) + **recuadro tipo resumen del año** (`GirasYearSummaryBar` al pie de `GirasView`): chips de `programas.tipo` en columnas (colores `PROGRAM_TYPES`) con el total de servicios; **debajo de cada columna**, lista `nomenclador` + `nombre_gira`. Arriba, chips Total y Serv/mes. Luego la tabla de eventos. Botón `IconFileText` en el modal.
 - **PDF detalle lote**: un archivo, `addPage` por integrante; cada uno arranca con el mismo recuadro + detalle.
 - **PDF informe de ensamble** (`downloadEnsambleServiciosPdf` / `buildEnsambleServiciosPdfDoc` en `src/utils/serviciosEnsamblePdf.js`): A4 vertical, mismo stack Helvetica + `jspdf-autotable` + `toServiciosPdfText` (sin `→` ni otros glifos faltantes; helpers en `src/utils/serviciosPdf.js`). Botón **Descargar PDF** (`IconFileText`) en `EnsambleServiciosModal`. Filas: `buildEnsambleServiciosPdfTables` (misma jerarquía que el HTML, con las filas de conflicto ya particionadas). Títulos de evento y locación pasan por `stripHtml`. Nombre `informe_ensamble_<ensamble>_<stamp>.pdf`.
@@ -54,7 +54,7 @@ Menú: **Gestión** (staff: `isAdmin || isEditor` en `App.jsx`), mismo módulo q
 | | HTML | PDF listado | PDF detalle |
 |--|------|-------------|-------------|
 | Orientación | — | A4 vertical | A4 vertical |
-| Tipos + Total + Serv/mes | Sí (ensayos: un par a la vez) | Sí, el par visible | Resumen en encabezado |
+| Tipos + Total + Serv/mes | Sí. Par de ensayos bajo encabezado «Ensayos» + toggle | Sí, el par visible bajo «Ensayos» | Resumen en encabezado |
 | Sort / separadores convocatoria | Sí | Sí (`rowGroups`) | Orden de `visibleRows` |
 | Integrante | 1 col (nombre + instrumento) | Integrante + Instrumento | Encabezado de página |
 | Categorías de detalle | Recuadro por tipo de programa + colapsables | No | Recuadro por tipo + eventos `>` |
@@ -188,6 +188,7 @@ Confirmaciones Portal `z-[110]` sobre el modal `z-[100]`. No hay tabla extra: un
 | Fila personal presente cuenta aunque haya `EXCL_ENSAMBLE` o sin vigencia de legajo | Completado |
 | Detalle individual: color en ensayos en conflicto (HTML + PDF) | Completado |
 | Listado: alternar ensayos por duración o por ensamble/gira (dos columnas) | Completado |
+| Listado: encabezado «Ensayos» con el toggle en la tabla (PDF/Excel agrupados) | Completado |
 | Ensayo ensamble = `isIntegranteConvocadoToEnsayo` | Completado |
 | Columnas + detalle colapsable + Excel + PDF listado/detalle | Completado |
 | Servicios/mes (feb–dic, `fecha_alta`) | Completado |

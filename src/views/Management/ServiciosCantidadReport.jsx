@@ -88,7 +88,7 @@ import {
   groupHitsByProgramTipo,
   listEstimableGiras,
   listServicioHitsForIntegrante,
-  servicioListingColumns,
+  splitServicioListingColumns,
   sumBuckets,
 } from "../../utils/serviciosCantidad";
 
@@ -114,6 +114,42 @@ function sortIntegrantesByInstrument(integrantes) {
     const nb = `${b.apellido || ""} ${b.nombre || ""}`.trim();
     return na.localeCompare(nb, "es");
   });
+}
+
+function EnsayosViewToggle({ view, onChange }) {
+  const option = (id, label, title) => (
+    <button
+      type="button"
+      onClick={() => onChange(id)}
+      className={`px-1.5 py-0.5 text-[10px] font-bold normal-case tracking-normal ${
+        view === id
+          ? "bg-emerald-700 text-white"
+          : "bg-white text-slate-600 hover:bg-emerald-50"
+      }`}
+      title={title}
+      aria-pressed={view === id}
+    >
+      {label}
+    </button>
+  );
+  return (
+    <div
+      className="inline-flex overflow-hidden rounded border border-emerald-300"
+      role="group"
+      aria-label="Cómo ver las columnas de ensayos"
+    >
+      {option(
+        ENSAYO_COLUMN_VIEWS.duracion,
+        "Duración",
+        "Ensayos de 2 h o más, y de menos de 2 h",
+      )}
+      {option(
+        ENSAYO_COLUMN_VIEWS.origen,
+        "Ensamble / gira",
+        "Ensayos de ensamble y ensayos de gira",
+      )}
+    </div>
+  );
 }
 
 function ServicioPorMesCell({ totalServicios, integrante, range }) {
@@ -1604,8 +1640,14 @@ export default function ServiciosCantidadReport({ supabase }) {
     );
   };
 
-  const listingColumns = servicioListingColumns(ensayoColumnView);
+  const {
+    columns: listingColumns,
+    leading: listingLeading,
+    ensayos: listingEnsayos,
+    trailing: listingTrailing,
+  } = splitServicioListingColumns(ensayoColumnView);
   const listingColCount = 1 + listingColumns.length + 1;
+  const ensayoColumnKeys = new Set(listingEnsayos.map((col) => col.key));
 
   const renderDataRow = (row, key) => {
     const iid = integranteKey(row.id);
@@ -1633,7 +1675,11 @@ export default function ServiciosCantidadReport({ supabase }) {
         {listingColumns.map((col) => (
           <td
             key={col.key}
-            className="px-2 py-1.5 text-right text-xs"
+            className={`px-2 py-1.5 text-right text-xs ${
+              ensayoColumnKeys.has(col.key)
+                ? "bg-emerald-50/70 group-hover:bg-emerald-100"
+                : ""
+            }`}
             title={col.title}
           >
             <ServicioCellValue
@@ -1938,38 +1984,6 @@ export default function ServiciosCantidadReport({ supabase }) {
             />
             Agrupar por ensambles
           </label>
-          <div
-            className="inline-flex overflow-hidden rounded-md border border-slate-200"
-            role="group"
-            aria-label="Corte de columnas de ensayos"
-          >
-            <button
-              type="button"
-              onClick={() => setEnsayoColumnView(ENSAYO_COLUMN_VIEWS.duracion)}
-              className={`px-2 py-1.5 text-[11px] font-bold ${
-                ensayoColumnView === ENSAYO_COLUMN_VIEWS.duracion
-                  ? "bg-slate-800 text-white"
-                  : "bg-white text-slate-600 hover:bg-slate-50"
-              }`}
-              title="Dos columnas: ensayos de 2 h o más, y de menos de 2 h"
-              aria-pressed={ensayoColumnView === ENSAYO_COLUMN_VIEWS.duracion}
-            >
-              Duración
-            </button>
-            <button
-              type="button"
-              onClick={() => setEnsayoColumnView(ENSAYO_COLUMN_VIEWS.origen)}
-              className={`border-l border-slate-200 px-2 py-1.5 text-[11px] font-bold ${
-                ensayoColumnView === ENSAYO_COLUMN_VIEWS.origen
-                  ? "bg-slate-800 text-white"
-                  : "bg-white text-slate-600 hover:bg-slate-50"
-              }`}
-              title="Dos columnas: ensayos de ensamble y ensayos de gira"
-              aria-pressed={ensayoColumnView === ENSAYO_COLUMN_VIEWS.origen}
-            >
-              Ensamble / gira
-            </button>
-          </div>
           <label
             className="inline-flex cursor-pointer items-center gap-1.5 pb-1 text-[11px] font-medium text-slate-600"
             title="Giras sinfónicas con fecha_hasta ≥ hoy: reemplaza ensayos de gira + conciertos por el promedio de sinfónicas pasadas (con o sin cronograma). Ensamble queda exacto."
@@ -2090,6 +2104,15 @@ export default function ServiciosCantidadReport({ supabase }) {
             </div>
           ) : (
             <>
+              <div className="flex items-center justify-between gap-2 border-b border-emerald-100 bg-emerald-50 px-3 py-2 md:hidden">
+                <span className="text-[11px] font-bold uppercase tracking-wide text-emerald-900">
+                  Ensayos
+                </span>
+                <EnsayosViewToggle
+                  view={ensayoColumnView}
+                  onChange={setEnsayoColumnView}
+                />
+              </div>
               <div className="divide-y divide-slate-100 md:hidden">
                 {(rowGroups.length
                   ? rowGroups
@@ -2152,26 +2175,66 @@ export default function ServiciosCantidadReport({ supabase }) {
               <table className="hidden w-full min-w-[46rem] border-collapse text-left md:table">
               <thead className="sticky top-0 z-[2]">
                 <tr className="border-b border-slate-200 bg-slate-50 text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                  <th className="sticky left-0 z-[3] min-w-[10rem] bg-slate-50 px-2 py-2 shadow-[2px_0_0_0_rgba(226,232,240,1)]">
+                  <th
+                    rowSpan={2}
+                    className="sticky left-0 z-[3] min-w-[10rem] bg-slate-50 px-2 py-2 align-bottom shadow-[2px_0_0_0_rgba(226,232,240,1)]"
+                  >
                     Integrante
                   </th>
-                  {listingColumns.map((col) => (
+                  {listingLeading.map((col) => (
                     <th
                       key={col.key}
-                      className={`whitespace-nowrap px-2 py-2 text-right ${
-                        col.key === "total" ? "bg-slate-100" : ""
-                      }`}
+                      rowSpan={2}
+                      className="whitespace-nowrap px-2 py-2 text-right align-bottom"
                       title={col.title}
                     >
                       {col.shortLabel}
                     </th>
                   ))}
                   <th
-                    className="whitespace-nowrap bg-orange-50 px-2 py-2 text-right text-orange-800"
+                    colSpan={listingEnsayos.length}
+                    scope="colgroup"
+                    className="border-x border-emerald-200 bg-emerald-50 px-2 py-1.5 text-center normal-case tracking-normal"
+                  >
+                    <div className="flex flex-col items-center gap-1">
+                      <span className="text-[10px] font-bold uppercase tracking-wide text-emerald-900">
+                        Ensayos
+                      </span>
+                      <EnsayosViewToggle
+                        view={ensayoColumnView}
+                        onChange={setEnsayoColumnView}
+                      />
+                    </div>
+                  </th>
+                  {listingTrailing.map((col) => (
+                    <th
+                      key={col.key}
+                      rowSpan={2}
+                      className="whitespace-nowrap bg-slate-100 px-2 py-2 text-right align-bottom"
+                      title={col.title}
+                    >
+                      {col.shortLabel}
+                    </th>
+                  ))}
+                  <th
+                    rowSpan={2}
+                    className="whitespace-nowrap bg-orange-50 px-2 py-2 text-right align-bottom text-orange-800"
                     title={SERVICIO_POR_MES_COLUMN.title}
                   >
                     {SERVICIO_POR_MES_COLUMN.shortLabel}
                   </th>
+                </tr>
+                <tr className="border-b border-emerald-200 bg-emerald-50 text-[10px] font-bold uppercase tracking-wide text-emerald-800">
+                  {listingEnsayos.map((col) => (
+                    <th
+                      key={col.key}
+                      scope="col"
+                      className="whitespace-nowrap border-x border-emerald-100 bg-emerald-50 px-2 py-1.5 text-right"
+                      title={col.title}
+                    >
+                      {col.shortLabel}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
@@ -2210,7 +2273,12 @@ export default function ServiciosCantidadReport({ supabase }) {
                       Totales
                     </td>
                     {listingColumns.map((col) => (
-                      <td key={col.key} className="px-2 py-1.5 text-right">
+                      <td
+                        key={col.key}
+                        className={`px-2 py-1.5 text-right ${
+                          ensayoColumnKeys.has(col.key) ? "bg-emerald-50" : ""
+                        }`}
+                      >
                         <ServicioCellValue
                           bucket={columnTotals[col.key]}
                           chipClass={col.chipClass}
