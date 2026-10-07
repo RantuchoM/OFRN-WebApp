@@ -72,7 +72,7 @@ import {
   pendingFullConflictoEventIdSet,
 } from "../../utils/serviciosEnsayosConflicto";
 import {
-  SERVICIO_COLUMN_DEFS,
+  ENSAYO_COLUMN_VIEWS,
   SERVICIO_POR_MES_COLUMN,
   accumulateServiciosForIntegrante,
   bucketTotal,
@@ -88,6 +88,7 @@ import {
   groupHitsByProgramTipo,
   listEstimableGiras,
   listServicioHitsForIntegrante,
+  servicioListingColumns,
   sumBuckets,
 } from "../../utils/serviciosCantidad";
 
@@ -114,8 +115,6 @@ function sortIntegrantesByInstrument(integrantes) {
     return na.localeCompare(nb, "es");
   });
 }
-
-const LISTING_COL_COUNT = 1 + SERVICIO_COLUMN_DEFS.length + 1;
 
 function ServicioPorMesCell({ totalServicios, integrante, range }) {
   const { months, rate } = computeServiciosPorMes(
@@ -699,6 +698,9 @@ export default function ServiciosCantidadReport({ supabase }) {
   const [giraId, setGiraId] = useState("");
   const [search, setSearch] = useState("");
   const [groupByEnsambles, setGroupByEnsambles] = useState(false);
+  const [ensayoColumnView, setEnsayoColumnView] = useState(
+    ENSAYO_COLUMN_VIEWS.duracion,
+  );
   const [estimarFuturos, setEstimarFuturos] = useState(true);
   const [selectedTypes, setSelectedTypes] = useState(
     () => new Set(TIPOS_PROGRAMA_ASISTENCIA_MATRIZ),
@@ -1417,6 +1419,7 @@ export default function ServiciosCantidadReport({ supabase }) {
         fechaHasta,
         fileName: "cantidad_servicios",
         estimateNote,
+        ensayoColumnView,
       }),
     );
   }, [
@@ -1428,6 +1431,7 @@ export default function ServiciosCantidadReport({ supabase }) {
     fechaDesde,
     fechaHasta,
     estimateNote,
+    ensayoColumnView,
     runExport,
   ]);
 
@@ -1442,6 +1446,7 @@ export default function ServiciosCantidadReport({ supabase }) {
       groupByEnsambles,
       fileName: "cantidad_servicios",
       estimateNote,
+      ensayoColumnView,
     }),
     );
   }, [
@@ -1453,6 +1458,7 @@ export default function ServiciosCantidadReport({ supabase }) {
     fechaDesde,
     fechaHasta,
     estimateNote,
+    ensayoColumnView,
   ]);
 
   const handleExportDetalleLote = useCallback(() => {
@@ -1598,6 +1604,9 @@ export default function ServiciosCantidadReport({ supabase }) {
     );
   };
 
+  const listingColumns = servicioListingColumns(ensayoColumnView);
+  const listingColCount = 1 + listingColumns.length + 1;
+
   const renderDataRow = (row, key) => {
     const iid = integranteKey(row.id);
     const buckets = bucketsByIntegranteId[iid] || {};
@@ -1621,7 +1630,7 @@ export default function ServiciosCantidadReport({ supabase }) {
               : ""}
           </div>
         </td>
-        {SERVICIO_COLUMN_DEFS.map((col) => (
+        {listingColumns.map((col) => (
           <td
             key={col.key}
             className="px-2 py-1.5 text-right text-xs"
@@ -1929,6 +1938,38 @@ export default function ServiciosCantidadReport({ supabase }) {
             />
             Agrupar por ensambles
           </label>
+          <div
+            className="inline-flex overflow-hidden rounded-md border border-slate-200"
+            role="group"
+            aria-label="Corte de columnas de ensayos"
+          >
+            <button
+              type="button"
+              onClick={() => setEnsayoColumnView(ENSAYO_COLUMN_VIEWS.duracion)}
+              className={`px-2 py-1.5 text-[11px] font-bold ${
+                ensayoColumnView === ENSAYO_COLUMN_VIEWS.duracion
+                  ? "bg-slate-800 text-white"
+                  : "bg-white text-slate-600 hover:bg-slate-50"
+              }`}
+              title="Dos columnas: ensayos de 2 h o más, y de menos de 2 h"
+              aria-pressed={ensayoColumnView === ENSAYO_COLUMN_VIEWS.duracion}
+            >
+              Duración
+            </button>
+            <button
+              type="button"
+              onClick={() => setEnsayoColumnView(ENSAYO_COLUMN_VIEWS.origen)}
+              className={`border-l border-slate-200 px-2 py-1.5 text-[11px] font-bold ${
+                ensayoColumnView === ENSAYO_COLUMN_VIEWS.origen
+                  ? "bg-slate-800 text-white"
+                  : "bg-white text-slate-600 hover:bg-slate-50"
+              }`}
+              title="Dos columnas: ensayos de ensamble y ensayos de gira"
+              aria-pressed={ensayoColumnView === ENSAYO_COLUMN_VIEWS.origen}
+            >
+              Ensamble / gira
+            </button>
+          </div>
           <label
             className="inline-flex cursor-pointer items-center gap-1.5 pb-1 text-[11px] font-medium text-slate-600"
             title="Giras sinfónicas con fecha_hasta ≥ hoy: reemplaza ensayos de gira + conciertos por el promedio de sinfónicas pasadas (con o sin cronograma). Ensamble queda exacto."
@@ -2108,13 +2149,13 @@ export default function ServiciosCantidadReport({ supabase }) {
                   return nodes;
                 })}
               </div>
-              <table className="hidden w-full min-w-[58rem] border-collapse text-left md:table">
+              <table className="hidden w-full min-w-[46rem] border-collapse text-left md:table">
               <thead className="sticky top-0 z-[2]">
                 <tr className="border-b border-slate-200 bg-slate-50 text-[10px] font-bold uppercase tracking-wide text-slate-500">
                   <th className="sticky left-0 z-[3] min-w-[10rem] bg-slate-50 px-2 py-2 shadow-[2px_0_0_0_rgba(226,232,240,1)]">
                     Integrante
                   </th>
-                  {SERVICIO_COLUMN_DEFS.map((col) => (
+                  {listingColumns.map((col) => (
                     <th
                       key={col.key}
                       className={`whitespace-nowrap px-2 py-2 text-right ${
@@ -2146,7 +2187,7 @@ export default function ServiciosCantidadReport({ supabase }) {
                         className="border-b border-slate-100 bg-slate-200/90"
                       >
                         <td
-                          colSpan={LISTING_COL_COUNT}
+                          colSpan={listingColCount}
                           className="px-2 py-1.5 text-[11px] font-bold uppercase tracking-wide text-slate-800"
                         >
                           {group.label}
@@ -2168,7 +2209,7 @@ export default function ServiciosCantidadReport({ supabase }) {
                     <td className="sticky left-0 z-[3] bg-slate-100 px-2 py-1.5 shadow-[2px_0_0_0_rgba(203,213,225,1)]">
                       Totales
                     </td>
-                    {SERVICIO_COLUMN_DEFS.map((col) => (
+                    {listingColumns.map((col) => (
                       <td key={col.key} className="px-2 py-1.5 text-right">
                         <ServicioCellValue
                           bucket={columnTotals[col.key]}

@@ -26,7 +26,6 @@ import {
 import {
   ID_TIPO_CONCIERTO,
   ID_TIPO_ENSAYO_ENSAMBLE,
-  SERVICIO_COLUMN_DEFS,
   SERVICIO_EVENT_TYPE_IDS,
   SERVICIO_POR_MES_COLUMN,
   buildCustomByEventId,
@@ -44,6 +43,7 @@ import {
   groupHitsByDetailSection,
   groupHitsByProgramTipo,
   listServicioHitsForIntegrante,
+  servicioListingColumns,
   sumBuckets,
 } from "../utils/serviciosCantidad";
 import { currentYearBounds } from "../utils/girasYearSummary";
@@ -619,7 +619,9 @@ export async function downloadServiciosCantidadExcel({
   fechaHasta,
   fileName = "cantidad_servicios",
   estimateNote = "",
+  ensayoColumnView = "duracion",
 }) {
+  const columns = servicioListingColumns(ensayoColumnView);
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet("Servicios");
 
@@ -627,7 +629,7 @@ export async function downloadServiciosCantidadExcel({
     "Integrante",
     "Instrumento",
     "Familia",
-    ...SERVICIO_COLUMN_DEFS.map((c) => c.label),
+    ...columns.map((c) => c.label),
     SERVICIO_POR_MES_COLUMN.label,
   ];
   ws.addRow(headers);
@@ -655,7 +657,7 @@ export async function downloadServiciosCantidadExcel({
       name,
       inst,
       familia,
-      ...SERVICIO_COLUMN_DEFS.map((c) =>
+      ...columns.map((c) =>
         formatServicioPartsPlain(buckets[c.key]),
       ),
       porMesPlain(row),
@@ -1129,8 +1131,10 @@ export function downloadServiciosCantidadPdf({
   groupByEnsambles = false,
   fileName = "cantidad_servicios",
   estimateNote = "",
+  ensayoColumnView = "duracion",
 }) {
-  const colCount = 2 + SERVICIO_COLUMN_DEFS.length + 1;
+  const columns = servicioListingColumns(ensayoColumnView);
+  const colCount = 2 + columns.length + 1;
   const doc = createServiciosPdfDoc();
   const rango = rangoServiciosLabel(fechaDesde, fechaHasta);
 
@@ -1144,7 +1148,7 @@ export function downloadServiciosCantidadPdf({
     [
       "Integrante",
       "Instrumento",
-      ...SERVICIO_COLUMN_DEFS.map((c) => toServiciosPdfText(c.shortLabel)),
+      ...columns.map((c) => toServiciosPdfText(c.shortLabel)),
       toServiciosPdfText(SERVICIO_POR_MES_COLUMN.shortLabel),
     ],
   ];
@@ -1161,7 +1165,7 @@ export function downloadServiciosCantidadPdf({
     return [
       integrantePdfName(row),
       integrantePdfInstrument(row),
-      ...SERVICIO_COLUMN_DEFS.map((c) =>
+      ...columns.map((c) =>
         toServiciosPdfText(formatServicioPartsPlain(buckets[c.key]), {
           padHyphen: false,
         }),
@@ -1201,7 +1205,7 @@ export function downloadServiciosCantidadPdf({
   body.push([
     "Totales",
     "",
-    ...SERVICIO_COLUMN_DEFS.map((c) =>
+    ...columns.map((c) =>
       toServiciosPdfText(formatServicioPartsPlain(totals[c.key]), {
         padHyphen: false,
       }),
@@ -1209,7 +1213,7 @@ export function downloadServiciosCantidadPdf({
     "-",
   ]);
 
-  const totalCol = 2 + SERVICIO_COLUMN_DEFS.length - 1;
+  const totalCol = 2 + columns.length - 1;
   const porMesCol = totalCol + 1;
 
   autoTable(doc, {

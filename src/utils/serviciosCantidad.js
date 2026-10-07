@@ -64,6 +64,7 @@ export function isSinfonicoProgram(program) {
 /**
  * Columnas del listado. Ensayos ≥2h / <2h y Ensamble / Gira se solapan
  * (mismos ensayos, dos cortes); el Total suma solo los átomos.
+ * El informe muestra un solo par de ensayos a la vez (`servicioListingColumns`).
  */
 export const SERVICIO_COLUMN_DEFS = [
   {
@@ -126,6 +127,36 @@ export const SERVICIO_COLUMN_DEFS = [
     chipClass: "bg-slate-100 text-slate-800",
   },
 ];
+
+/** Corte visible de las columnas de ensayo. Los dos pares no se muestran juntos. */
+export const ENSAYO_COLUMN_VIEWS = {
+  duracion: "duracion",
+  origen: "origen",
+};
+
+const ENSAYO_COLUMN_PAIR = {
+  duracion: new Set(["ensayo_ge2h", "ensayo_lt2h"]),
+  origen: new Set(["ensamble", "gira"]),
+};
+
+const ENSAYO_COLUMN_KEYS = new Set([
+  "ensayo_ge2h",
+  "ensayo_lt2h",
+  "ensamble",
+  "gira",
+]);
+
+/**
+ * Conciertos, didácticos, un par de ensayos y Total.
+ * `duracion` = ≥2h y <2h. `origen` = Ensamble y Gira.
+ */
+export function servicioListingColumns(view = ENSAYO_COLUMN_VIEWS.duracion) {
+  const pair =
+    ENSAYO_COLUMN_PAIR[view] || ENSAYO_COLUMN_PAIR[ENSAYO_COLUMN_VIEWS.duracion];
+  return SERVICIO_COLUMN_DEFS.filter(
+    (col) => !ENSAYO_COLUMN_KEYS.has(col.key) || pair.has(col.key),
+  );
+}
 
 /** Columna derivada: total ÷ meses feb–dic de presencia. No entra en el Total. */
 export const SERVICIO_POR_MES_COLUMN = {
