@@ -24,7 +24,7 @@ Menú: **Gestión** (staff: `isAdmin || isEditor` en `App.jsx`), mismo módulo q
 
 ## Quién cuenta (reuso, no invención)
 
-- **Gira (conciertos + ensayos 2/3):** `resolveGiraRosterForMatrix` (`giraService.js` = `resolveGiraRosterDetail`) + `getAsistenciaMatrixCellMark` (`asistenciaMatrixExport.js`). Incluye `ausente` + `abona_reemplazo` / `abona_licencia` (R/L). `ausente` sin abono **no** cuenta. Pre-alta no cuenta.
+- **Gira (conciertos + ensayos 2/3):** `resolveGiraRosterForMatrix` (`giraService.js` = `resolveGiraRosterDetail`) + `getAsistenciaMatrixCellMark` (`asistenciaMatrixExport.js`). Incluye `ausente` + `abona_reemplazo` / `abona_licencia` (R/L). `ausente` sin abono **no** cuenta. **Fila personal presente** (`giras_integrantes.estado` distinto de `ausente`) **sí cuenta** (X), aunque su ensamble esté en `EXCL_ENSAMBLE` y aunque `fecha_alta` / `fecha_baja` no cubran el programa. Misma regla que Convocatorias (`rosterMatrixIds.js`). Pre-alta sin esa fila no cuenta.
 - **Ensayo ensamble:** `isIntegranteConvocadoToEnsayo` (`girasYearSummary.js`). El mapa custom multi-persona se adapta con `customMapForIntegrante` (mismo shape evento → fila).
 - **No** se usa un matcher propio de `eventos_grupos` (la matriz de convocatorias tampoco recorta por grupo de evento).
 
@@ -183,6 +183,7 @@ Confirmaciones Portal `z-[110]` sobre el modal `z-[100]`. No hay tabla extra: un
 | Filtros off: sin eventos/roster hasta seleccionar personas | Completado |
 | Separadores/orden = utils de Convocatorias | Completado |
 | Roster R/L = `getAsistenciaMatrixCellMark` | Completado |
+| Fila personal presente cuenta aunque haya `EXCL_ENSAMBLE` o sin vigencia de legajo | Completado |
 | Ensayo ensamble = `isIntegranteConvocadoToEnsayo` | Completado |
 | Columnas + detalle colapsable + Excel + PDF listado/detalle | Completado |
 | Servicios/mes (feb–dic, `fecha_alta`) | Completado |

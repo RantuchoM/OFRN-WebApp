@@ -15,8 +15,8 @@ Para obtener la lista de personas que viajan:
    - **Ensamble:** el tramo en `integrantes_ensambles` debe cubrir `programas.fecha_desde` (`fecha_desde` / `fecha_hasta` del vínculo).
    - **Orquesta:** el integrante debe estar activo en el rango del programa (`fecha_alta` ≤ fin del programa y sin `fecha_baja` o `fecha_baja` ≥ inicio). Si el programa no tiene `fecha_hasta`, el fin es `fecha_desde` (programa de un día).
 2. Añadir registros manuales de `giras_integrantes` (sin aplicar vigencias de orquesta/ensamble).
-3. **FILTRO CRÍTICO**: Eliminar a cualquier integrante que tenga un registro en `giras_integrantes` con `estado = 'ausente'`.
-4. **Exclusión de ensamble:** miembros de ensambles en `EXCL_ENSAMBLE` activos en la fecha del programa se eliminan siempre.
+3. **FILTRO CRÍTICO**: Eliminar a cualquier integrante que tenga un registro en `giras_integrantes` con `estado = 'ausente'` y sin `abona_reemplazo` / `abona_licencia`.
+4. **Exclusión de ensamble:** miembros que entran solo por `ENSAMBLE` o `FAMILIA` y pertenecen a un `EXCL_ENSAMBLE` activo en la fecha del programa se eliminan. Una fila personal **presente** (`giras_integrantes.estado` distinto de `ausente`) **no** se elimina y **cuenta** en Gestión → Convocatorias y Gestión → Servicios, aunque el ensamble esté excluido y aunque `fecha_alta` / `fecha_baja` no cubran el programa.
 
 ### 3.1 Rol por defecto (`giras_integrantes.rol` / `rol_gira`)
 Al agregar o convocar (auto-roster, alta individual, ficha nueva en gira): `inferDefaultTourRole` en `giraUtils.js`.

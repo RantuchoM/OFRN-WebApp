@@ -34,13 +34,14 @@ Visualizar en un cuadro de doble entrada la participación de integrantes en los
    - Mostrar **X** si el integrante está convocado con vigencia de legajo en el programa.
    - Mostrar **R** (celeste) si está ausente con `abona_reemplazo` (cuenta en totales).
    - Mostrar **L** (ámbar) si está ausente con `abona_licencia` (cuenta en totales; excluyente con R).
-   - Mostrar **\*** (gris) si figura en nómina pero su `fecha_alta` es posterior al programa (convocado manual antes del alta); **no suma** en columnas de totales.
+   - Mostrar **X** si hay fila personal presente en `giras_integrantes` (`estado` distinto de `ausente`), aunque el ensamble esté en `EXCL_ENSAMBLE` y aunque `fecha_alta` sea posterior al programa. Esa fila **suma**.
+   - Mostrar **\*** (gris) solo si figura en nómina base sin fila personal y sin vigencia de legajo; **no suma**. La fila personal presente ya no cae en este caso.
 
 ## Lógica de Negocio (Reglas de Oro)
 
 - El ID del integrante es numérico (PK Integer).
 - La resolución de integrantes por gira debe usar la lógica de `resolveGiraRosterIds` definida en `src/services/giraService.js` (reexportada desde `src/services/supabase.js` para consumo unificado). Incluye fuentes `ENSAMBLE`, `FAMILIA`, `EXCL_ENSAMBLE` y overrides en `giras_integrantes` (excluyendo `estado === 'ausente'`).
-- **Vigencias:** convocatoria base exige tramo activo en `integrantes_ensambles` (fecha del programa) y alta/baja del integrante en la orquesta (`integranteActiveOnProgramRange` en `ensembleMembership.js`). Sin `fecha_hasta` en el programa, el rango termina en `fecha_desde`. Los overrides manuales (`giras_integrantes` confirmado) aparecen en nómina; si el alta es posterior al programa se marcan con `*` (pre-alta) y no cuentan en totales (`resolveGiraRosterForMatrix`).
+- **Vigencias:** convocatoria base exige tramo activo en `integrantes_ensambles` (fecha del programa) y alta/baja del integrante en la orquesta (`integranteActiveOnProgramRange` en `ensembleMembership.js`). Sin `fecha_hasta` en el programa, el rango termina en `fecha_desde`. **Fila personal presente** (`giras_integrantes.estado` distinto de `ausente`) cuenta siempre (`counted` / X) en `resolveGiraRosterForMatrix` y en el mismo corte en memoria del sandbox (`selectRosterIdsAfterExclusions` + `partitionRosterForMatrix` en `rosterMatrixIds.js`). `EXCL_ENSAMBLE` no la saca (sí saca a quien entra solo por ensamble o familia). La vigencia de legajo no la pasa a `*` ni la deja fuera de los totales. El `*` queda para nómina base sin esa fila y sin vigencia.
 - **Abona reemplazo:** `giras_integrantes.abona_reemplazo` con `estado = ausente` cuenta en totales de servicios y muestra **R** en celeste en la matriz (misma semántica que X para conteos). Migración `20260625120000_giras_integrantes_abona_reemplazo.sql`. Modal de baja individual en roster (`RosterBajaModal`) o toggle **R** sobre la **A** en filas ausentes (`RosterTableRow`; fila slate, flash al cambiar). Pasar de ausente a presente usa el mismo modal con confirmación y notificación (`action: presente`). Resumen anual de giras (`useGirasYearSummary`) incluye esas giras en el conteo personal.
 - **Licencia:** `giras_integrantes.abona_licencia` con `estado = ausente` — misma semántica operativa que reemplazo (no asiste / sin logística; cuenta servicio) y muestra **L** en ámbar. Mutuamente excluyente con `abona_reemplazo` (CHECK `giras_integrantes_abona_reemplazo_licencia_excl`). Migración `20260728160000_giras_integrantes_abona_licencia.sql`. En `RosterBajaModal`: selector Ninguna / Reemplazo / Licencia; en fila ausente toggle **L** (izquierda) junto a **R** (derecha). Activar uno apaga el otro.
 - En base de datos, el vínculo del integrante al instrumento es `integrantes.id_instr` → `instrumentos.id` (orden de filas alineado a la tabla maestra de instrumentos).
@@ -68,6 +69,7 @@ No se requieren tablas nuevas; se sugiere una vista para optimizar la carga de l
 | Overrides `giras_integrantes.id_instr` + instrumento efectivo en matriz/export | Completado |
 | `abona_reemplazo` en ausentes: marca R celeste + conteo en totales y resumen anual | Completado |
 | `abona_licencia` en ausentes: marca L ámbar + conteo (excluyente con R) | Completado |
+| Fila personal presente cuenta (X) aunque haya `EXCL_ENSAMBLE` o el alta no cubra la gira | Completado |
 | Panel lateral: chevron `IconChevronDown` (rotación), contador seleccionados por ensamble, filas con hover | Completado |
 | Toggle Ensambles / Cameratas / Regiones en panel lateral (`convocatoriaEnsambleViews.js`) | Completado |
 | Fetch ensambles con `id_localidad` y join `localidades` / `regiones` en matriz | Completado |
