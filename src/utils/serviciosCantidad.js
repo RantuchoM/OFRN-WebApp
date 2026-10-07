@@ -635,6 +635,7 @@ export function groupHitsByProgramTipo(hits, programaById, ensambleById) {
   };
 
   for (const hit of hits || []) {
+    if (hit?.displayOnly) continue;
     const v = Number(hit.value || 0);
     const evt = hit.event || {};
     const ids = eventAssociatedProgramaIds(evt);

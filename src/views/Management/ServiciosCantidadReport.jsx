@@ -56,6 +56,7 @@ import { programOverlapsDateRange, toLocalDateString } from "../../utils/giraDat
 import { compareInstrumentIds, getProgramStyle } from "../../utils/giraUtils";
 import {
   currentYearBounds,
+  isIntegranteConvocadoToEnsayo,
   isProgramBorrador,
 } from "../../utils/girasYearSummary";
 import { integranteKey } from "../../utils/integranteIds";
@@ -64,7 +65,12 @@ import {
   buildEnsambleServiciosReport,
   listEnsamblesForServiciosReport,
 } from "../../utils/serviciosEnsambleReport";
-import { buildEnsayosConflictoGroups, groupsWithFullConflicto, pendingFullConflictoEventIdSet } from "../../utils/serviciosEnsayosConflicto";
+import {
+  attachConflictoToDetalleHits,
+  buildEnsayosConflictoGroups,
+  groupsWithFullConflicto,
+  pendingFullConflictoEventIdSet,
+} from "../../utils/serviciosEnsayosConflicto";
 import {
   SERVICIO_COLUMN_DEFS,
   SERVICIO_POR_MES_COLUMN,
@@ -76,6 +82,7 @@ import {
   formatServicioNumber,
   formatServicioParts,
   formatServiciosPorMesPlain,
+  customMapForIntegrante,
   getFixedGiraServiciosAverage,
   groupHitsByDetailSection,
   groupHitsByProgramTipo,
@@ -163,6 +170,21 @@ function ServicioCellValue({ bucket, chipClass, emphasize }) {
       ))}
     </span>
   );
+}
+
+function conflictoRowClass(tone) {
+  if (tone === "pending") return "border-l-4 border-amber-500 bg-amber-50";
+  if (tone === "kept") return "border-l-4 border-emerald-500 bg-emerald-50";
+  if (tone === "partial") return "border-l-4 border-sky-400 bg-sky-50";
+  if (tone === "resolved") return "border-l-4 border-slate-300 bg-slate-50";
+  return "";
+}
+
+function conflictoBadgeClass(tone) {
+  if (tone === "pending") return "bg-amber-100 text-amber-900";
+  if (tone === "kept") return "bg-emerald-100 text-emerald-900";
+  if (tone === "partial") return "bg-sky-100 text-sky-900";
+  return "bg-slate-200 text-slate-700";
 }
 
 function durationBandLabel(hit) {
@@ -561,11 +583,17 @@ function ServicioDetalleModal({
                           section.hits.map((hit) => {
                             const evt = hit.event;
                             const estimado = hit.origin === "estimado";
+                            const conflicto = hit.conflicto;
+                            const tone = conflicto?.tone;
                             return (
                               <li
                                 key={evt.id}
                                 className={`flex items-start gap-2 px-3 py-2 ${
-                                  estimado ? "bg-orange-50/70" : ""
+                                  tone
+                                    ? conflictoRowClass(tone)
+                                    : estimado
+                                      ? "bg-orange-50/70"
+                                      : ""
                                 }`}
                               >
                                 <div className="min-w-0 flex-1">
@@ -581,6 +609,16 @@ function ServicioDetalleModal({
                                           : ""}
                                       </span>
                                     ) : null}
+                                    {tone ? (
+                                      <span
+                                        className={`inline-flex items-center gap-1 rounded px-1 py-px text-[10px] font-bold uppercase ${conflictoBadgeClass(tone)}`}
+                                      >
+                                        {tone === "pending" ? (
+                                          <IconAlertTriangle size={10} />
+                                        ) : null}
+                                        {conflicto.label}
+                                      </span>
+                                    ) : null}
                                     {estimado ? (
                                       <span className="rounded bg-orange-100 px-1 py-px text-[10px] font-bold uppercase text-orange-800">
                                         Est.
@@ -593,16 +631,32 @@ function ServicioDetalleModal({
                                     className={`mt-0.5 text-xs leading-snug ${
                                       estimado
                                         ? "italic text-orange-800"
-                                        : "text-slate-500"
+                                        : tone === "pending"
+                                          ? "text-amber-900"
+                                          : "text-slate-500"
                                     }`}
                                   >
                                     {eventSubtitle(evt)}
+                                    {conflicto?.giras
+                                      ? ` · ${conflicto.giras}`
+                                      : ""}
                                   </p>
                                 </div>
                                 <div className="shrink-0 text-right">
-                                  <div className="text-xs font-bold tabular-nums text-slate-800">
+                                  <div
+                                    className={`text-xs font-bold tabular-nums ${
+                                      hit.displayOnly
+                                        ? "text-amber-800"
+                                        : "text-slate-800"
+                                    }`}
+                                  >
                                     {formatServicioNumber(hit.value)}
                                   </div>
+                                  {hit.displayOnly ? (
+                                    <div className="text-[10px] font-semibold text-amber-700">
+                                      no suma
+                                    </div>
+                                  ) : null}
                                   <div className="inline-flex items-center gap-0.5 text-[10px] text-slate-400">
                                     <IconClock size={10} />
                                     {hit.durationSeconds != null
@@ -1148,12 +1202,28 @@ export default function ServiciosCantidadReport({ supabase }) {
 
   const detalleHits = useMemo(() => {
     if (!detalleIntegrante) return [];
-    return listServicioHitsForIntegrante(
-      detalleIntegrante.id,
+    const iid = detalleIntegrante.id;
+    return attachConflictoToDetalleHits({
+      hits: listServicioHitsForIntegrante(iid, events, computeCtx),
       events,
-      computeCtx,
-    );
-  }, [detalleIntegrante, events, computeCtx]);
+      integranteId: iid,
+      groups: conflictoGroups,
+      sessionByEventId: conflictoSessionByEventId,
+      isConvocado: (evt) =>
+        isIntegranteConvocadoToEnsayo(
+          evt,
+          iid,
+          computeCtx.memberships,
+          customMapForIntegrante(computeCtx.customByEventId, iid),
+        ),
+    });
+  }, [
+    detalleIntegrante,
+    events,
+    computeCtx,
+    conflictoGroups,
+    conflictoSessionByEventId,
+  ]);
 
   const toggleType = useCallback((tipo) => {
     setSelectedTypes((prev) => {
@@ -1397,6 +1467,8 @@ export default function ServiciosCantidadReport({ supabase }) {
       ensambleById,
       programaById: programasById,
       estimateNote,
+      conflictoGroups,
+      sessionByEventId: conflictoSessionByEventId,
     }),
     );
   }, [
@@ -1410,6 +1482,8 @@ export default function ServiciosCantidadReport({ supabase }) {
     ensambleById,
     programasById,
     estimateNote,
+    conflictoGroups,
+    conflictoSessionByEventId,
   ]);
 
   const handleExportDetalleOne = useCallback(

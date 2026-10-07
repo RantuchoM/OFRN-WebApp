@@ -3,7 +3,10 @@ import { XLSX_MIME } from "../utils/downloadBlob";
 import autoTable from "jspdf-autotable";
 import { resolveGiraRosterForMatrix } from "./giraService";
 import { fetchRosterForGira } from "../hooks/useGiraRoster";
-import { matrixRosterFromGiraRoster } from "../utils/serviciosEnsayosConflicto";
+import {
+  attachConflictoToDetalleHits,
+  matrixRosterFromGiraRoster,
+} from "../utils/serviciosEnsayosConflicto";
 import { formatDdMmYyyy } from "../utils/dates";
 import {
   PDF_BORDER,
@@ -16,7 +19,10 @@ import {
   toServiciosPdfText,
 } from "../utils/serviciosPdf";
 import { stripHtml } from "../utils/eventDisplayUtils";
-import { isProgramBorrador } from "../utils/girasYearSummary";
+import {
+  isIntegranteConvocadoToEnsayo,
+  isProgramBorrador,
+} from "../utils/girasYearSummary";
 import {
   ID_TIPO_CONCIERTO,
   ID_TIPO_ENSAYO_ENSAMBLE,
@@ -25,6 +31,7 @@ import {
   SERVICIO_POR_MES_COLUMN,
   buildCustomByEventId,
   buildDraftGiraIds,
+  customMapForIntegrante,
   bucketTotal,
   eventAssociatedProgramaIds,
   eventMatchesGiraFilter,
@@ -749,6 +756,45 @@ function isPdfGroupSepRow(raw) {
   );
 }
 
+const CONFLICTO_PDF_FILL = {
+  pending: [255, 251, 235],
+  kept: [236, 253, 245],
+  partial: [240, 249, 255],
+  resolved: [248, 250, 252],
+};
+
+function conflictoPdfCells(values, tone) {
+  const fill = CONFLICTO_PDF_FILL[tone];
+  if (!fill) return values;
+  return values.map((value) => ({
+    content: value,
+    styles: { fillColor: fill },
+  }));
+}
+
+function detalleHitsWithConflicto(
+  integranteId,
+  events,
+  computeCtx,
+  conflictoGroups,
+  sessionByEventId,
+) {
+  return attachConflictoToDetalleHits({
+    hits: listServicioHitsForIntegrante(integranteId, events, computeCtx),
+    events,
+    integranteId,
+    groups: conflictoGroups,
+    sessionByEventId,
+    isConvocado: (evt) =>
+      isIntegranteConvocadoToEnsayo(
+        evt,
+        integranteId,
+        computeCtx?.memberships,
+        customMapForIntegrante(computeCtx?.customByEventId, integranteId),
+      ),
+  });
+}
+
 function buildDetallePdfBody(hits, ensambleById, programaById) {
   const sections = groupHitsByDetailSection(hits);
   const body = [];
@@ -781,16 +827,26 @@ function buildDetallePdfBody(hits, ensambleById, programaById) {
         hit.durationSeconds != null
           ? formatEventDurationLabel(evt)
           : formatServicioHitBandPlain(hit);
-      body.push([
-        formatDdMmYyyy(evt.fecha) || evt.fecha || "",
-        hora,
-        toServiciosPdfText(
-          formatServicioEventSubtitle(evt, ensambleById, programaById),
+      const conflictoNote = hit.conflicto?.label
+        ? ` - ${hit.conflicto.label}${
+            hit.conflicto.giras ? ` (${hit.conflicto.giras})` : ""
+          }${hit.displayOnly ? " - no suma" : ""}`
+        : "";
+      body.push(
+        conflictoPdfCells(
+          [
+            formatDdMmYyyy(evt.fecha) || evt.fecha || "",
+            hora,
+            toServiciosPdfText(
+              `${formatServicioEventSubtitle(evt, ensambleById, programaById)}${conflictoNote}`,
+            ),
+            formatServicioMarkLetter(hit.mark),
+            toServiciosPdfText(dur || "-", { padHyphen: false }),
+            formatServicioNumber(hit.value),
+          ],
+          hit.conflicto?.tone,
         ),
-        formatServicioMarkLetter(hit.mark),
-        toServiciosPdfText(dur || "-", { padHyphen: false }),
-        formatServicioNumber(hit.value),
-      ]);
+      );
     }
   }
   return body;
@@ -1275,6 +1331,8 @@ export function downloadServiciosCantidadDetalleLotePdf({
   programaById,
   fileName = "servicios_detalle_lote",
   estimateNote = "",
+  conflictoGroups = [],
+  sessionByEventId = null,
 }) {
   const rows = visibleRows || [];
   if (rows.length === 0) return;
@@ -1283,7 +1341,13 @@ export function downloadServiciosCantidadDetalleLotePdf({
     const iid = integranteKey(row.id);
     appendServiciosDetallePage(doc, {
       integrante: row,
-      hits: listServicioHitsForIntegrante(row.id, events, computeCtx),
+      hits: detalleHitsWithConflicto(
+        row.id,
+        events,
+        computeCtx,
+        conflictoGroups,
+        sessionByEventId,
+      ),
       buckets: bucketsByIntegranteId[iid] || {},
       fechaDesde,
       fechaHasta,
