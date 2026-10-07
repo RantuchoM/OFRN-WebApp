@@ -830,6 +830,7 @@ Set de **16** arreglos sinfónicos de **Bob Marley** en [Para acomodar / Bahiano
 - [x] Datos ya disponibles via `compositores.paises(nombre)` → `processWork` arma `pais_nombre` (compositores del rol compositor, unidos con ` / `).
 - [x] Filtro de escritorio en el header de la columna; en móvil, campo en filtros avanzados + chip removible; la búsqueda rápida también incluye país.
 - [x] Export «Ya programado» incluye País cuando la columna está visible (Excel/PDF + criterio de orden).
+- [x] Catálogo `paises` completado (2026-10-06): 126 estados que faltaban, sin pisar filas ya usadas (doble nacionalidad, Inglaterra/Escocia/Gales, Buenos Aires, Holanda, Qatar).
 
 ---
 

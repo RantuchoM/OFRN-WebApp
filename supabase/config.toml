@@ -106,6 +106,7 @@ entrypoint = "./functions/ensayo-diario-reporte/index.ts"
 # Opcional: ENSAYO_DIARIO_TO=mail1,mail2 (default filarmonica.scrn + ofrn.archivo)
 # Header: x-ensayo-diario-cron-secret
 # Body opcional: {"fecha":"YYYY-MM-DD"}
+# Sin ensayos ese día: no se envía el mail (respuesta omitido: "sin ensayos").
 
 [functions.sync-conciertos-sheet]
 enabled = true

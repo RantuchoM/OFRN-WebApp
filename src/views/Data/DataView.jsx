@@ -368,10 +368,7 @@ export default function DataView({ supabase }) {
       label: "Países",
       icon: IconGlobe,
       table: "paises",
-      columns: [
-        { key: "nombre", label: "Nombre País", type: "text" },
-        { key: "iso", label: "ISO Code", type: "text" },
-      ],
+      columns: [{ key: "nombre", label: "Nombre País", type: "text" }],
     },
     transportes: {
       label: "Transporte",

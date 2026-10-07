@@ -141,6 +141,7 @@ Aplicar las migraciones en Supabase antes de usar check-in o reportes en producc
 - Edge Function: `ensayo-diario-reporte`.
 - Cron: `0 1 * * *` UTC (22:00 ART), migración `20260806200000_ensayo_diario_reporte_cron.sql`.
 - Destinatarios: `filarmonica.scrn@gmail.com`, `ofrn.archivo@gmail.com` (override `ENSAYO_DIARIO_TO`).
+- Si el día no tiene ensayos (`id_tipo_evento` de ensayo), la función responde `ok: true` con `omitido: "sin ensayos"` y **no envía** el mail.
 - Contenido HTML en cuerpo + adjunto **PDF** (`YYYY-MM-DD-asistencia-ensayos.pdf`):
   1. Título con **N ensayos** del día ART.
   2. **Novedades**: tarde **>+5 min**, ausentes (sin ingreso ni justificado), sin **salida**, GPS **>200 m**.

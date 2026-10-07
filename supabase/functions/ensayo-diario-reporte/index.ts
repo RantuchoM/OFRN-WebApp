@@ -9,6 +9,7 @@
  *
  * Auth: x-ensayo-diario-cron-secret | x-ensayo-salida-cron-secret | x-db-backup-cron-secret
  * Body opcional JSON: { "fecha": "YYYY-MM-DD" } (default: hoy ART)
+ * Si el día no tiene ensayos, no se envía el mail.
  */
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
@@ -826,6 +827,15 @@ serve(async (req) => {
   const eventos = ((eventosRaw || []) as Ev[]).filter((e) => !e.is_deleted);
   out.ensayos = eventos.length;
 
+  if (eventos.length === 0) {
+    return new Response(
+      JSON.stringify({ ...out, ok: true, omitido: "sin ensayos" }),
+      {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      },
+    );
+  }
+
   const eventIds = eventos.map((e) => Number(e.id));
   const ensambleIds = [
     ...new Set(
@@ -1086,11 +1096,9 @@ serve(async (req) => {
   }
 
   const subject =
-    eventos.length === 0
-      ? `Asistencia ensayos · ${fecha} · sin ensayos`
-      : eventos.length === 1
-        ? `Asistencia ensayos · ${fecha} · 1 ensayo`
-        : `Asistencia ensayos · ${fecha} · ${eventos.length} ensayos`;
+    eventos.length === 1
+      ? `Asistencia ensayos · ${fecha} · 1 ensayo`
+      : `Asistencia ensayos · ${fecha} · ${eventos.length} ensayos`;
 
   if (!GMAIL_USER || !GMAIL_PASS) {
     out.errores.push("GMAIL_USER/GMAIL_PASS no configurados");
