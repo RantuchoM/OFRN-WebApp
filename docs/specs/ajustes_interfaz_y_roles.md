@@ -112,7 +112,13 @@
   - Roster: no se embebe `giras_integrantes` completo en cada evento (cuota / payload). Se pide la fila del usuario por gira y se adjunta.
 - **Implementación:** `dates.js`, `useAgendaData.js`, `UnifiedAgenda.jsx`.
 
-## 15. Super-admin por mail
+## 15. Sidebar: luna visible en modo oscuro
+- **Estado**: Completado (2026-10-12).
+- **Causa**: El modo oscuro es el filtro `invert` de `html.dark` (`index.css`). En el botón del sidebar, `text-indigo-400` no es un índigo sólido: en `tailwind.config.js` la escala `indigo` es opacidad de `--theme-primary` (400 = 40%). Ese trazo se funde con `bg-slate-800`, que el filtro vuelve un chip claro.
+- **Fix**: icono `text-white` con el chip `bg-slate-800`. Tras el invert, la luna queda oscura y legible. El sol en modo claro sigue en `text-orange-500`.
+- **Implementación**: botón «Cambiar Modo» en `App.jsx`. `ThemeController` no cambia.
+
+## 16. Super-admin por mail
 - **Marca:** la cuenta cuyo mail es `ofrn.archivo@gmail.com` (`integrantes.mail`). No hay un `rol_sistema` aparte: tiene el rol `admin` que ya existe.
 - **Permisos:** un admin, en Gestión de usuarios, no puede bajarle los roles. El control queda en candado (`UsersManager`, `isProtectedIntegrante`). El trigger `integrantes_protect_owner_accounts` rechaza cambiar `rol_sistema` o el mail y rechaza borrar esa fila. Misma lista en `src/utils/protectedIntegrantes.js` y `integrantes_is_protected_email`.
 - **Boletas:** con «Ver como…», es la única sesión real que ve la boleta de la persona impersonada. Un admin común no la carga. Detalle en `concerto-competicion-votacion.md`.

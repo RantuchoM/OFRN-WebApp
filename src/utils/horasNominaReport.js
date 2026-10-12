@@ -97,6 +97,64 @@ function sumMap(concepts) {
   return HORAS_CONCEPTOS.reduce((acc, c) => acc + (concepts[c.id] || 0), 0);
 }
 
+function totalVigente(records, year, month, origen) {
+  return sumMap(hoursOf(getHorasVigentes(records, year, month, origen)));
+}
+
+/** Última asignación del origen, aunque su mes sea posterior al de la novedad. */
+function totalUltimaAsignacion(records, origen) {
+  const rows = (records || []).filter((r) => r.origen === origen);
+  if (!rows.length) return 0;
+  rows.sort((a, b) => {
+    const byStart = vigenciaOrdinal(b) - vigenciaOrdinal(a);
+    if (byStart !== 0) return byStart;
+    return new Date(b.created_at) - new Date(a.created_at);
+  });
+  return sumMap(hoursOf(rows[0]));
+}
+
+/**
+ * Alta/baja de legajo a partir de horas cátedra.
+ * Alta: el combinado del mes pasa de 0 a más de 0 y la fila guardada tiene horas.
+ * Un origen que ya estaba en 0 no es alta.
+ * Baja: solo si Cultura y Educación quedan en 0 en ese mes y también en su última asignación.
+ */
+export function resolveLegajoDesdeHoras({ history, pendingRow, isInsert }) {
+  const year = Number(pendingRow?.anio_inicio);
+  const month = Number(pendingRow?.mes_inicio);
+  const beforeCult = totalVigente(history, year, month, "CULTURA");
+  const beforeEdu = totalVigente(history, year, month, "EDUCACION");
+  const pending = {
+    ...pendingRow,
+    created_at: pendingRow?.created_at || new Date().toISOString(),
+  };
+  const merged = isInsert
+    ? [...(history || []), pending]
+    : (history || []).map((r) =>
+        r.id === pending.id ? { ...r, ...pending } : r,
+      );
+  const afterCult = totalVigente(merged, year, month, "CULTURA");
+  const afterEdu = totalVigente(merged, year, month, "EDUCACION");
+  const latestCult = totalUltimaAsignacion(merged, "CULTURA");
+  const latestEdu = totalUltimaAsignacion(merged, "EDUCACION");
+  const before = beforeCult + beforeEdu;
+  const after = afterCult + afterEdu;
+  const rowHs = sumMap(hoursOf(pending));
+  return {
+    before,
+    after,
+    afterCult,
+    afterEdu,
+    esAlta: Boolean(isInsert) && before === 0 && after > 0 && rowHs > 0,
+    esBaja:
+      before > 0 &&
+      afterCult === 0 &&
+      afterEdu === 0 &&
+      latestCult === 0 &&
+      latestEdu === 0,
+  };
+}
+
 function deltaOf(curr, prev) {
   const deltas = {};
   for (const c of HORAS_CONCEPTOS) {

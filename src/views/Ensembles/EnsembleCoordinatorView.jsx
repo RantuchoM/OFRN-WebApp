@@ -17,6 +17,7 @@ import {
 } from "@tanstack/react-query";
 import { getProgramStyle, PROGRAM_TYPES, formatProgramSelectLabel } from "../../utils/giraUtils";
 import { toast } from "sonner";
+import { touchOrganicoConvocado } from "../../services/organicoConvocadoService";
 import {
   IconCalendar,
   IconMusic,
@@ -2169,6 +2170,10 @@ export default function EnsembleCoordinatorView({ supabase }) {
 
         if (sourcesError) throw sourcesError;
       }
+
+      touchOrganicoConvocado(supabase, newGira.id).catch((err) => {
+        console.warn("organico_convocado:", err?.message || err);
+      });
 
       // 3. Si estamos creando desde una propuesta de ciclo, vincularla
       if (proposalToLink && newGira?.id) {

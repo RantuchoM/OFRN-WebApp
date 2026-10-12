@@ -50,6 +50,7 @@ import {
   SIN_REGION_LABEL,
   filterEnsamblesForConvocatoriaView,
   groupRegionalEnsamblesByRegion,
+  isCamerataEnsambleRow,
 } from "../../utils/convocatoriaEnsambleViews";
 import { formatDdMmYyyy } from "../../utils/dates";
 import { programOverlapsDateRange, toLocalDateString } from "../../utils/giraDateRange";
@@ -65,6 +66,7 @@ import {
   buildEnsambleServiciosReport,
   listEnsamblesForServiciosReport,
 } from "../../utils/serviciosEnsambleReport";
+import { downloadEnsambleServiciosTodosPdf } from "../../utils/serviciosEnsamblePdf";
 import {
   attachConflictoToDetalleHits,
   buildEnsayosConflictoGroups,
@@ -73,6 +75,7 @@ import {
 } from "../../utils/serviciosEnsayosConflicto";
 import {
   ENSAYO_COLUMN_VIEWS,
+  FIXED_FUTURE_GIRA_SERVICIOS,
   SERVICIO_POR_MES_COLUMN,
   accumulateServiciosForIntegrante,
   bucketTotal,
@@ -767,6 +770,7 @@ export default function ServiciosCantidadReport({ supabase }) {
     {},
   );
   const [reportEnsambleId, setReportEnsambleId] = useState(null);
+  const [todosPdfBusy, setTodosPdfBusy] = useState(false);
   const [reportLoading, setReportLoading] = useState(false);
   const [reportError, setReportError] = useState(null);
   const [reportData, setReportData] = useState(null);
@@ -913,6 +917,8 @@ export default function ServiciosCantidadReport({ supabase }) {
           fechaDesde,
           fechaHasta,
           ensambles,
+          memberships: res.memberships,
+          fimba: res.fimba,
         }),
       );
       setReportLoading(false);
@@ -1415,6 +1421,81 @@ export default function ServiciosCantidadReport({ supabase }) {
     if (built.result === "downloaded") toast.success("Descarga iniciada");
   }, []);
 
+  const downloadTodosInformes = useCallback(async () => {
+    if (!supabase || todosPdfBusy) return;
+    if (!ensamblesForReport.length) {
+      toast.error("No hay ensambles para el informe.");
+      return;
+    }
+    setTodosPdfBusy(true);
+    toast.message("Armando el PDF de todos los ensambles…");
+    try {
+      const res = await fetchEnsambleServiciosBundle(supabase, {
+        fechaDesde,
+        fechaHasta,
+      });
+      if (res.error) throw res.error;
+      const groups = buildEnsayosConflictoGroups({
+        events: res.events,
+        ensambles,
+        integrantes,
+        memberships: res.memberships,
+        customRows: res.customRows,
+        programas: res.programas,
+        rosterByGiraId: res.rosterByGiraId,
+      });
+      const reports = ensamblesForReport
+        .map((ensamble) =>
+          buildEnsambleServiciosReport({
+            ensamble,
+            programas: res.programas,
+            events: res.events,
+            conflictoGroups: groups,
+            fechaDesde,
+            fechaHasta,
+            ensambles,
+            memberships: res.memberships,
+            fimba: res.fimba,
+          }),
+        )
+        .filter(Boolean);
+      const built = await downloadEnsambleServiciosTodosPdf({
+        reports,
+        fechaDesde,
+        fechaHasta,
+        sessionByEventId: conflictoSessionByEventId,
+      });
+      applyDownloadResult(built);
+    } catch (err) {
+      console.error(err);
+      toast.error(err?.message || "No se pudo generar el PDF de ensambles.");
+    } finally {
+      setTodosPdfBusy(false);
+    }
+  }, [
+    supabase,
+    todosPdfBusy,
+    ensamblesForReport,
+    fechaDesde,
+    fechaHasta,
+    ensambles,
+    integrantes,
+    conflictoSessionByEventId,
+    applyDownloadResult,
+  ]);
+
+  const onInformeEnsambleChange = useCallback(
+    (event) => {
+      const value = event.target.value;
+      if (value === "todos") {
+        void downloadTodosInformes();
+        return;
+      }
+      setReportEnsambleId(value ? Number(value) : null);
+    },
+    [downloadTodosInformes],
+  );
+
   const runExport = useCallback(
     async (task) => {
       if (exportDisabled) {
@@ -1598,18 +1679,20 @@ export default function ServiciosCantidadReport({ supabase }) {
           <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-800">
             {en.ensamble || `Ensamble ${eid}`}
           </span>
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              setReportEnsambleId(eid);
-            }}
-            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-indigo-500 hover:bg-white hover:text-indigo-700"
-            title={`Informe de ${en.ensamble || "ensamble"}`}
-            aria-label={`Informe de ${en.ensamble || "ensamble"}`}
-          >
-            <IconClipboard size={14} />
-          </button>
+          {isCamerataEnsambleRow(en) ? null : (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setReportEnsambleId(eid);
+              }}
+              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-indigo-500 hover:bg-white hover:text-indigo-700"
+              title={`Informe de ${en.ensamble || "ensamble"}`}
+              aria-label={`Informe de ${en.ensamble || "ensamble"}`}
+            >
+              <IconClipboard size={14} />
+            </button>
+          )}
           <span className="shrink-0 pr-1 text-[10px] tabular-nums text-slate-400">
             {selectedCount}/{memberIds.length}
           </span>
@@ -1833,13 +1916,15 @@ export default function ServiciosCantidadReport({ supabase }) {
             </span>
             <select
               value={reportEnsambleId || ""}
-              onChange={(e) => {
-                const v = e.target.value;
-                setReportEnsambleId(v ? Number(v) : null);
-              }}
-              className="w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-300"
+              onChange={onInformeEnsambleChange}
+              disabled={todosPdfBusy}
+              className="w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-300 disabled:opacity-60"
+              title="Elegí un ensamble, o Todos para descargar el PDF con el cuadro general y cada informe"
             >
               <option value="">Elegí ensamble…</option>
+              <option value="todos">
+                {todosPdfBusy ? "Armando PDF…" : "Todos"}
+              </option>
               {ensamblesForReport.map((en) => (
                 <option key={en.id} value={en.id}>
                   {en.ensamble || `Ensamble ${en.id}`}
@@ -1924,134 +2009,146 @@ export default function ServiciosCantidadReport({ supabase }) {
       </aside>
 
       <div className="flex min-w-0 shrink-0 flex-col rounded-lg border border-slate-200 bg-white lg:min-h-0 lg:flex-1 lg:shrink lg:overflow-hidden">
-        <div className="sticky top-0 z-[4] flex flex-wrap items-end gap-2 border-b border-slate-100 bg-white px-3 py-2 lg:static">
-          <div className="w-[9.5rem]">
-            <DateInput
-              label="Desde"
-              value={fechaDesde}
-              onChange={(v) => v && setFechaDesde(v)}
-              showDayName={false}
-            />
-          </div>
-          <div className="w-[9.5rem]">
-            <DateInput
-              label="Hasta"
-              value={fechaHasta}
-              onChange={(v) => v && setFechaHasta(v)}
-              showDayName={false}
-            />
-          </div>
-          <label className="min-w-[10rem] flex-1">
-            <span className="mb-1 block text-[10px] font-bold uppercase text-slate-400">
-              Gira
-            </span>
-            <select
-              value={giraId}
-              onChange={(e) => setGiraId(e.target.value)}
-              className="w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-300"
-            >
-              <option value="">Todas las giras</option>
-              {giraOptions.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {giraOptionLabel(p)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="min-w-[9rem] flex-1">
-            <span className="mb-1 block text-[10px] font-bold uppercase text-slate-400">
-              Buscar
-            </span>
-            <span className="relative block">
-              <IconSearch
-                size={14}
-                className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-slate-400"
+        <div className="sticky top-0 z-[4] border-b border-slate-100 bg-white lg:static">
+          <div className="flex flex-col gap-2 px-3 py-2">
+            <div className="flex flex-wrap items-end gap-2">
+            <div className="flex flex-wrap items-end gap-2 rounded-lg border border-slate-200 bg-slate-50/80 px-2 py-1.5">
+              <div className="w-[9.5rem]">
+                <DateInput
+                  label="Desde"
+                  value={fechaDesde}
+                  onChange={(v) => v && setFechaDesde(v)}
+                  showDayName={false}
+                />
+              </div>
+              <div className="w-[9.5rem]">
+                <DateInput
+                  label="Hasta"
+                  value={fechaHasta}
+                  onChange={(v) => v && setFechaHasta(v)}
+                  showDayName={false}
+                />
+              </div>
+              <button
+                type="button"
+                onClick={resetYear}
+                className="mb-px inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[11px] font-bold text-slate-600 hover:border-slate-300"
+                title="Rango = año calendario en curso"
+              >
+                <IconRefresh size={14} />
+                Año actual
+              </button>
+            </div>
+            <label className="min-w-[9rem] flex-1">
+              <span className="mb-1 block text-[10px] font-bold uppercase text-slate-400">
+                Gira
+              </span>
+              <select
+                value={giraId}
+                onChange={(e) => setGiraId(e.target.value)}
+                className="w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-300"
+              >
+                <option value="">Todas las giras</option>
+                {giraOptions.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {giraOptionLabel(p)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="min-w-[10rem] max-w-xs flex-1">
+              <span className="mb-1 block text-[10px] font-bold uppercase text-slate-400">
+                Buscar
+              </span>
+              <span className="relative block">
+                <IconSearch
+                  size={14}
+                  className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-slate-400"
+                />
+                <input
+                  type="search"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Integrante…"
+                  className="w-full rounded-md border border-slate-200 py-1.5 pl-7 pr-2 text-xs text-slate-700 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-300"
+                />
+              </span>
+            </label>
+            <div className="ml-auto hidden pb-0.5 lg:block">
+              <ServiciosExportMenu
+                disabled={exportDisabled}
+                onPdf={handleExportPdf}
+                onPdfDetalle={handleExportDetalleLote}
+                onExcel={handleExportExcel}
               />
-              <input
-                type="search"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Integrante…"
-                className="w-full rounded-md border border-slate-200 py-1.5 pl-7 pr-2 text-xs text-slate-700 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-300"
-              />
+            </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+              <label className="inline-flex cursor-pointer items-center gap-1.5 text-[11px] font-medium text-slate-600">
+                <input
+                  type="checkbox"
+                  checked={groupByEnsambles}
+                  onChange={(e) => setGroupByEnsambles(e.target.checked)}
+                  className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                />
+                Agrupar por ensambles
+              </label>
+              <label
+                className="inline-flex cursor-pointer items-center gap-1.5 text-[11px] font-medium text-slate-600"
+                title={`Giras sinfónicas con fecha_hasta de hoy en adelante: reemplaza ensayos de gira y conciertos por ${FIXED_FUTURE_GIRA_SERVICIOS} servicios. Ensamble queda exacto.`}
+              >
+                <input
+                  type="checkbox"
+                  checked={estimarFuturos}
+                  onChange={(e) => setEstimarFuturos(e.target.checked)}
+                  className="rounded border-slate-300 text-orange-600 focus:ring-orange-500"
+                />
+                <IconCalculator size={14} className="text-orange-600" />
+                Estimar futuros
+              </label>
+              {pendingSave && (
+                <button
+                  type="button"
+                  onClick={handleSavePending}
+                  className="ml-auto hidden min-h-10 items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-2 text-xs font-bold text-white lg:inline-flex"
+                >
+                  <IconDownload size={14} />
+                  Guardar
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 border-t border-indigo-100 bg-indigo-50/60 px-3 py-1.5">
+            <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-indigo-700">
+              <IconMusic size={13} />
+              Informe de ensamble
             </span>
-          </label>
-          <label className="inline-flex cursor-pointer items-center gap-1.5 pb-1 text-[11px] font-medium text-slate-600">
-            <input
-              type="checkbox"
-              checked={groupByEnsambles}
-              onChange={(e) => setGroupByEnsambles(e.target.checked)}
-              className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-            />
-            Agrupar por ensambles
-          </label>
-          <label
-            className="inline-flex cursor-pointer items-center gap-1.5 pb-1 text-[11px] font-medium text-slate-600"
-            title="Giras sinfónicas con fecha_hasta ≥ hoy: reemplaza ensayos de gira + conciertos por el promedio de sinfónicas pasadas (con o sin cronograma). Ensamble queda exacto."
-          >
-            <input
-              type="checkbox"
-              checked={estimarFuturos}
-              onChange={(e) => setEstimarFuturos(e.target.checked)}
-              className="rounded border-slate-300 text-orange-600 focus:ring-orange-500"
-            />
-            <IconCalculator size={14} className="text-orange-600" />
-            Estimar futuros
-          </label>
-          <button
-            type="button"
-            onClick={() => setConflictoOpen(true)}
-            className="inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] font-bold text-amber-900 hover:border-amber-300"
-            title="Ensayos de ensamble con miembros convocados a una gira que solapa esa fecha"
-          >
-            <IconAlertTriangle size={14} />
-            Ensayos en conflicto
-          </button>
-          <label className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2 py-1.5 text-[11px] font-bold text-indigo-900">
-            <IconMusic size={14} />
             <select
               value={reportEnsambleId || ""}
-              onChange={(e) => {
-                const v = e.target.value;
-                setReportEnsambleId(v ? Number(v) : null);
-              }}
-              className="max-w-[10rem] bg-transparent text-[11px] font-bold text-indigo-900 focus:outline-none"
-              title="Informe de convocatorias, programas y ensayos de un ensamble"
+              onChange={onInformeEnsambleChange}
+              disabled={todosPdfBusy}
+              className="max-w-[14rem] rounded-md border border-indigo-200 bg-white px-2 py-1 text-[11px] font-bold text-indigo-900 focus:border-indigo-400 focus:outline-none disabled:opacity-60"
+              title="Elegí un ensamble, o Todos para descargar el PDF con el cuadro general y cada informe"
             >
-              <option value="">Informe ensamble…</option>
+              <option value="">Elegí ensamble…</option>
+              <option value="todos">
+                {todosPdfBusy ? "Armando PDF…" : "Todos"}
+              </option>
               {ensamblesForReport.map((en) => (
                 <option key={en.id} value={en.id}>
                   {en.ensamble || `Ensamble ${en.id}`}
                 </option>
               ))}
             </select>
-          </label>
-          <button
-            type="button"
-            onClick={resetYear}
-            className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[11px] font-bold text-slate-600 hover:border-slate-300"
-            title="Rango = año calendario en curso"
-          >
-            <IconRefresh size={14} />
-            Año actual
-          </button>
-          {pendingSave && (
             <button
               type="button"
-              onClick={handleSavePending}
-              className="hidden min-h-10 items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-2 text-xs font-bold text-white lg:inline-flex"
+              onClick={() => setConflictoOpen(true)}
+              className="hidden items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-bold text-amber-900 hover:border-amber-300 lg:inline-flex"
+              title="Ensayos de ensamble con miembros convocados a una gira que solapa esa fecha"
             >
-              <IconDownload size={14} />
-              Guardar
+              <IconAlertTriangle size={14} />
+              Ensayos en conflicto
             </button>
-          )}
-          <div className="hidden lg:block">
-            <ServiciosExportMenu
-              disabled={exportDisabled}
-              onPdf={handleExportPdf}
-              onPdfDetalle={handleExportDetalleLote}
-              onExcel={handleExportExcel}
-            />
           </div>
         </div>
 
@@ -2081,7 +2178,7 @@ export default function ServiciosCantidadReport({ supabase }) {
             ) : null}
           </span>
           <span className="hidden text-[10px] text-slate-400 sm:inline">
-            ½ = 0,5 (más de 30 min y menos de 2 h) · 15/30 min = 0 · R celeste · L ámbar · Serv/mes = total ÷ meses feb–dic · Estimar futuros: gira en curso/futura = 10 · clic en la fila para el detalle
+            ½ = 0,5 (más de 30 min y menos de 2 h) · 15/30 min = 0 · R celeste · L ámbar · Serv/mes = total ÷ meses feb–dic · Estimar futuros: gira en curso/futura = {FIXED_FUTURE_GIRA_SERVICIOS} · clic en la fila para el detalle
           </span>
           <span className="text-[10px] text-slate-400 sm:hidden">
             Tocá una persona para el resumen. Deslizá para ver el resto.

@@ -1187,7 +1187,7 @@ const ProtectedApp = ({ initialTab }) => {
           >
             <button
               onClick={toggleDarkMode}
-              className={`p-1.5 rounded-lg transition-all flex-1 flex justify-center items-center ${isDarkMode ? "bg-slate-800 text-indigo-400" : "bg-white text-orange-500 shadow-sm"}`}
+              className={`p-1.5 rounded-lg transition-all flex-1 flex justify-center items-center ${isDarkMode ? "bg-slate-800 text-white" : "bg-white text-orange-500 shadow-sm"}`}
               title="Cambiar Modo"
             >
               {isDarkMode ? <IconMoon size={16} /> : <IconSun size={16} />}

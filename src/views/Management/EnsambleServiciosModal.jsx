@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import {
   IconAlertTriangle,
   IconCalendar,
+  IconChevronDown,
   IconClock,
   IconFileText,
   IconLoader,
@@ -13,8 +14,12 @@ import {
 import { formatDdMmYyyy, formatDdMmYyyyWeekday } from "../../utils/dates";
 import { stripHtml } from "../../utils/eventDisplayUtils";
 import { getProgramStyle } from "../../utils/giraUtils";
-import { formatEventDurationLabel } from "../../utils/serviciosCantidad";
+import {
+  formatEventDurationLabel,
+  formatServicioNumber,
+} from "../../utils/serviciosCantidad";
 import { downloadEnsambleServiciosPdf } from "../../utils/serviciosEnsamblePdf";
+import { formatTramoShareLabel } from "../../utils/serviciosEnsambleReport";
 import ConflictoEnsayoActions, {
   ConflictoEnsayoLayout,
 } from "./ConflictoEnsayoActions";
@@ -79,8 +84,33 @@ function ViaBadge({ via, familias, cfNames }) {
   return null;
 }
 
-function ProgramRow({ row, showChips = true, bordered = true }) {
+function fueraDeCasaTitle(row, homeName) {
+  const sedes = (row.localidadLabels || []).join(", ") || "sin localidad";
+  const casa = homeName || "sin localidad";
+  const base = `Sedes: ${sedes}. Localidad del ensamble: ${casa}.`;
+  if ((row.tramoCount || 0) > 1) {
+    return `${row.tramosFuera || 0} de ${row.tramoCount} tramos fuera de casa. Cada tramo cuenta 1/${row.tramoCount} en giras y en servicios. ${base}`;
+  }
+  return base;
+}
+
+function fueraDeCasaBadge(row) {
+  const parcial = formatTramoShareLabel(row.tramosFuera, row.tramoCount);
+  if (parcial) return parcial;
+  if (row.fueraDeCasa) return "Fuera de casa";
+  return "";
+}
+
+function ProgramRow({
+  row,
+  showChips = true,
+  bordered = true,
+  showServicios = false,
+  showZona = false,
+  homeLocalidad = "",
+}) {
   const style = getProgramStyle(row.tipo);
+  const serviciosListos = showServicios && row.servicios != null;
   return (
     <div
       className={`flex items-start justify-between gap-3 px-3 py-2 ${
@@ -88,7 +118,27 @@ function ProgramRow({ row, showChips = true, bordered = true }) {
       }`}
     >
       <div className="min-w-0">
-        <div className="text-sm font-medium text-slate-800">{row.label}</div>
+        <div className="flex flex-wrap items-baseline gap-x-1.5 text-sm font-medium text-slate-800">
+          {showZona && row.zona ? (
+            <span className="rounded bg-slate-200/80 px-1.5 py-px text-[10px] font-bold text-slate-700">
+              {row.zona}
+            </span>
+          ) : null}
+          <span>{row.label}</span>
+          {serviciosListos ? (
+            <span
+              className="font-semibold tabular-nums text-slate-600"
+              title={
+                row.serviciosModo === "promedio"
+                  ? "Promedio de servicios de los músicos del ensamble en el roster. Los eventos con grupo cuentan solo para ese grupo."
+                  : "Servicios de la gira: ensayos + conciertos"
+              }
+            >
+              ({formatServicioNumber(row.servicios)}
+              {row.serviciosModo === "promedio" ? " promedio" : ""})
+            </span>
+          ) : null}
+        </div>
         <div className="text-[11px] text-slate-500">
           {formatDdMmYyyy(row.fechaDesde) || row.fechaDesde}
           {row.fechaHasta && row.fechaHasta !== row.fechaDesde
@@ -106,6 +156,14 @@ function ProgramRow({ row, showChips = true, bordered = true }) {
             </span>
           ) : null}
           <ViaBadge via={row.via} familias={row.familias} cfNames={row.cfNames} />
+          {fueraDeCasaBadge(row) ? (
+            <span
+              className="rounded border border-orange-200 bg-orange-50 px-1.5 py-px text-[10px] font-bold text-orange-800"
+              title={fueraDeCasaTitle(row, homeLocalidad)}
+            >
+              {fueraDeCasaBadge(row)}
+            </span>
+          ) : null}
         </div>
       ) : null}
     </div>
@@ -214,12 +272,41 @@ function SectionCount({ children }) {
   );
 }
 
-function Section({ title, count, children, empty }) {
+function EnsayoPlainItem({ evt }) {
+  const dur = formatEventDurationLabel(evt);
+  const durText = dur && dur !== "—" ? dur : "";
+  const loc = locacionLabel(evt);
+  return (
+    <li className="border-t border-slate-100 px-3 py-2">
+      <div className="text-sm font-medium text-slate-800">
+        <span className="whitespace-nowrap">
+          {formatDdMmYyyyWeekday(evt.fecha) || evt.fecha}
+        </span>
+        {horaLabel(evt) ? (
+          <span className="ml-1.5 whitespace-nowrap text-xs font-normal text-slate-500">
+            {horaLabel(evt)}
+          </span>
+        ) : null}
+      </div>
+      <div className="text-xs text-slate-600">{eventTitle(evt)}</div>
+      {loc || durText ? (
+        <div className="text-[10px] text-slate-400">
+          {[loc, durText].filter(Boolean).join(" · ")}
+        </div>
+      ) : null}
+    </li>
+  );
+}
+
+function Section({ title, count, extra, children, empty }) {
   return (
     <section className="overflow-hidden rounded-lg border border-slate-200">
-      <h4 className="flex items-center bg-slate-50 px-3 py-1.5 text-sm font-bold text-slate-800">
+      <h4 className="flex flex-wrap items-center bg-slate-50 px-3 py-1.5 text-sm font-bold text-slate-800">
         {title}
         <SectionCount>{count}</SectionCount>
+        {extra ? (
+          <span className="ml-2 text-xs font-medium text-orange-800">{extra}</span>
+        ) : null}
       </h4>
       {count === 0 ? (
         <p className="px-3 py-4 text-xs text-slate-400">{empty}</p>
@@ -245,6 +332,11 @@ export default function EnsambleServiciosModal({
 }) {
   const [peopleEnsayo, setPeopleEnsayo] = useState(null);
   const [pdfBusy, setPdfBusy] = useState(false);
+  const [ensayosOpen, setEnsayosOpen] = useState(false);
+
+  useEffect(() => {
+    setEnsayosOpen(false);
+  }, [report?.ensamble?.id]);
 
   const displayConflicto = useMemo(
     () =>
@@ -403,10 +495,21 @@ export default function EnsambleServiciosModal({
               <Section
                 title="Giras convocadas (Sinfónico y Camerata Filarmónica)"
                 count={report.giras.length}
+                extra={
+                  report.giras.length
+                    ? `(${formatServicioNumber(report.girasFueraDeCasa)} fuera de casa)`
+                    : ""
+                }
                 empty="Ninguna gira Sinfónico/CF lo convoca en este rango."
               >
                 {report.giras.map((row) => (
-                  <ProgramRow key={`g-${row.id}`} row={row} />
+                  <ProgramRow
+                    key={`g-${row.id}`}
+                    row={row}
+                    showServicios
+                    showZona
+                    homeLocalidad={report.ensambleLocalidad}
+                  />
                 ))}
               </Section>
 
@@ -511,19 +614,35 @@ export default function EnsambleServiciosModal({
                     conflicto.
                   </p>
                 )}
+                {(report.ensayos?.length || 0) > 0 ? (
+                  <div className="border-t border-slate-100">
+                    <button
+                      type="button"
+                      onClick={() => setEnsayosOpen((open) => !open)}
+                      className="flex w-full items-center gap-1.5 px-3 py-2 text-left text-xs font-bold text-slate-600 hover:bg-slate-50"
+                      aria-expanded={ensayosOpen}
+                    >
+                      <IconChevronDown
+                        size={14}
+                        className={`shrink-0 text-slate-400 transition-transform ${
+                          ensayosOpen ? "rotate-180" : ""
+                        }`}
+                      />
+                      {ensayosOpen ? "Ocultar ensayos" : "Ver todos los ensayos"}
+                      <span className="font-semibold tabular-nums text-slate-500">
+                        ({report.ensayos.length})
+                      </span>
+                    </button>
+                    {ensayosOpen ? (
+                      <ul className="border-t border-slate-100 bg-slate-50/50">
+                        {report.ensayos.map((evt) => (
+                          <EnsayoPlainItem key={`all-e-${evt.id}`} evt={evt} />
+                        ))}
+                      </ul>
+                    ) : null}
+                  </div>
+                ) : null}
               </section>
-
-              {report.excluded.length > 0 ? (
-                <Section
-                  title="Excluidos en el programa (no cuentan)"
-                  count={report.excluded.length}
-                  empty=""
-                >
-                  {report.excluded.map((row) => (
-                    <ProgramRow key={`x-${row.id}`} row={row} />
-                  ))}
-                </Section>
-              ) : null}
             </>
           )}
         </div>

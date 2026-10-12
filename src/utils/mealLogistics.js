@@ -390,13 +390,20 @@ export const MEAL_FILTER_NO_ARTIST = "__none__";
 export const MEAL_FILTER_ORCHESTRA_ONLY = "__orchestra__";
 export const MEAL_FILTER_ORCHESTRA_ONLY_LABEL = "Solo orquesta";
 
-const EXCLUSIVE_MEAL_CONV_TAGS = new Set([
-  ROSTER_CATEGORIES.NONE,
-  ROSTER_CATEGORIES.TUTTI,
-]);
+let exclusiveMealConvTags = null;
+
+function exclusiveMealConvTagSet() {
+  if (!exclusiveMealConvTags) {
+    exclusiveMealConvTags = new Set([
+      ROSTER_CATEGORIES.NONE,
+      ROSTER_CATEGORIES.TUTTI,
+    ]);
+  }
+  return exclusiveMealConvTags;
+}
 
 export function isExclusiveMealConvocadoTag(id) {
-  return EXCLUSIVE_MEAL_CONV_TAGS.has(String(id || ""));
+  return exclusiveMealConvTagSet().has(String(id || ""));
 }
 
 /**

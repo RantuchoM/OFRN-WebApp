@@ -13,6 +13,7 @@ import {
   IconX,
   IconCheckCircle,
   IconInfo,
+  IconRefresh,
 } from "../../components/ui/Icons";
 import {
   countsTowardInstrumentationConvoked,
@@ -24,6 +25,13 @@ import {
   aggregateOrganicoFromBlocks,
 } from "../../utils/instrumentation";
 import { fetchRosterForGira } from "../../hooks/useGiraRoster";
+import { organicoMapForAudit } from "../../utils/organicoConvocado";
+import {
+  listCurrentOrganicoProgramas,
+  persistOrganicoFromRoster,
+  refreshOrganicoProgramas,
+  touchOrganicoConvocado,
+} from "../../services/organicoConvocadoService";
 import { getProgramStyle } from "../../utils/giraUtils";
 import { crearVacante } from "../../services/giraService";
 import DateInput from "../../components/ui/DateInput";
@@ -582,6 +590,8 @@ export default function InstrumentationAudit({ supabase }) {
   const [workFormInitialData, setWorkFormInitialData] = useState({});
   const [pendingNotifications, setPendingNotifications] = useState([]);
   const [generatingVacForId, setGeneratingVacForId] = useState(null);
+  const [refreshingOrganicoId, setRefreshingOrganicoId] = useState(null);
+  const [organicoBatch, setOrganicoBatch] = useState(null);
   const [excessModal, setExcessModal] = useState(null);
   const notificationQueueRef = useRef(null);
 
@@ -693,7 +703,7 @@ export default function InstrumentationAudit({ supabase }) {
         let programQuery = supabase
           .from("programas")
           .select(
-            "id, nombre_gira, nomenclador, mes_letra, fecha_desde, fecha_hasta, tipo, zona, organico_revisado, organico_comentario, notificaciones_habilitadas, notificacion_inicial_enviada",
+            "id, nombre_gira, nomenclador, mes_letra, fecha_desde, fecha_hasta, tipo, zona, organico_revisado, organico_comentario, organico_convocado, organico_convocado_map, organico_convocado_at, notificaciones_habilitadas, notificacion_inicial_enviada",
           )
           .order("fecha_desde", { ascending: true });
 
@@ -886,9 +896,15 @@ export default function InstrumentationAudit({ supabase }) {
           const blocks = (blocksByProgram[p.id] || []).slice().sort(
             (a, b) => (a.orden || 0) - (b.orden || 0),
           );
-          const { all, vacants } = computeConvokedForProgram(
-            rosterByProgram[p.id] || [],
-          );
+          const roster = rosterByProgram[p.id] || [];
+          const { all, vacants } = computeConvokedForProgram(roster);
+          const storedConvoked = organicoMapForAudit(p.organico_convocado_map);
+          if (!storedConvoked) {
+            persistOrganicoFromRoster(supabase, p.id, roster).catch((err) => {
+              console.warn("organico_convocado:", err?.message || err);
+            });
+          }
+          const convokedForMatrix = storedConvoked || all;
           const seatingContext = {
             assigns: assignsByProgram[p.id] || [],
             containers: containersByProgram[p.id] || [],
@@ -900,7 +916,7 @@ export default function InstrumentationAudit({ supabase }) {
             buildProgramInstrumentationAudit(blocks, seatingContext);
           const consolidated = computeInstrumentationRequiredConsolidated(
             required,
-            all,
+            convokedForMatrix,
             partsMax,
           );
           const organicoAgg = aggregateOrganicoFromBlocks(blocks);
@@ -910,14 +926,14 @@ export default function InstrumentationAudit({ supabase }) {
             organico_comentario: organicoAgg.organico_comentario,
             _blocks: blocks,
             _worksAudit: workRows,
-            _roster: rosterByProgram[p.id] || [],
+            _roster: roster,
             _convocacionSources: sourcesByProgram[p.id] || [],
             _ensambleLabels: ensambleLabelById,
             instrumentationRequired: required,
             instrumentationPartsMax: partsMax,
             instrumentationRequiredConsolidated: consolidated,
             instrumentationRequiredOmitted: omittedFamilies || {},
-            instrumentationConvoked: all,
+            instrumentationConvoked: convokedForMatrix,
             instrumentationVacants: vacants,
           };
         });
@@ -937,6 +953,50 @@ export default function InstrumentationAudit({ supabase }) {
   useEffect(() => {
     fetchProgramsData();
   }, [fetchProgramsData]);
+
+  const handleRefreshOrganico = useCallback(
+    async (program) => {
+      if (!program?.id || organicoBatch) return;
+      setRefreshingOrganicoId(program.id);
+      try {
+        await touchOrganicoConvocado(supabase, program.id);
+        toast.success("Orgánico recalculado");
+        await fetchProgramsData();
+      } catch (err) {
+        toast.error(err?.message || "No se pudo recalcular el orgánico");
+      } finally {
+        setRefreshingOrganicoId(null);
+      }
+    },
+    [supabase, organicoBatch, fetchProgramsData],
+  );
+
+  const handleRefreshOrganicoVigentes = useCallback(async () => {
+    if (organicoBatch) return;
+    setOrganicoBatch({ done: 0, total: 0 });
+    try {
+      const rows = await listCurrentOrganicoProgramas(supabase);
+      if (rows.length === 0) {
+        toast.info("No hay programas vigentes o futuros para recalcular.");
+        return;
+      }
+      setOrganicoBatch({ done: 0, total: rows.length });
+      const result = await refreshOrganicoProgramas(supabase, rows, {
+        onProgress: (progress) => setOrganicoBatch(progress),
+      });
+      const failed = result.failed.length;
+      toast.success(
+        failed
+          ? `Recalculados ${result.updated.length}. ${failed} no se pudieron actualizar.`
+          : `Orgánicos recalculados: ${result.updated.length}.`,
+      );
+      await fetchProgramsData();
+    } catch (err) {
+      toast.error(err?.message || "No se pudo recalcular la tanda");
+    } finally {
+      setOrganicoBatch(null);
+    }
+  }, [supabase, organicoBatch, fetchProgramsData]);
 
   const notifGiraContext = useCallback((program) => {
     const origin =
@@ -1000,6 +1060,11 @@ export default function InstrumentationAudit({ supabase }) {
           : "Marcado como ausente.",
       );
       setExcessModal(null);
+      try {
+        await touchOrganicoConvocado(supabase, giraId);
+      } catch (err) {
+        console.warn("organico_convocado:", err?.message || err);
+      }
       await fetchProgramsData();
     },
     [supabase, fetchProgramsData, notifGiraContext],
@@ -1081,6 +1146,11 @@ export default function InstrumentationAudit({ supabase }) {
             ? "Se creó 1 vacante automática."
             : `Se crearon ${created} vacantes automáticas.`,
         );
+        try {
+          await touchOrganicoConvocado(supabase, program.id);
+        } catch (err) {
+          console.warn("organico_convocado:", err?.message || err);
+        }
         await fetchProgramsData();
       } catch (e) {
         console.error(e);
@@ -1210,6 +1280,24 @@ export default function InstrumentationAudit({ supabase }) {
               <span>Diferencias Req/Conv.</span>
             </div>
           )}
+          {viewMode === "audit" && (
+            <button
+              type="button"
+              disabled={!!organicoBatch || loading}
+              onClick={handleRefreshOrganicoVigentes}
+              className="inline-flex items-center gap-1 shrink-0 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-[11px] font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              title="Recalcula el orgánico convocado de todos los programas vigentes o futuros"
+            >
+              {organicoBatch ? (
+                <IconLoader size={12} className="animate-spin shrink-0" />
+              ) : (
+                <IconRefresh size={12} className="shrink-0" />
+              )}
+              {organicoBatch && organicoBatch.total > 0
+                ? `Recalculando ${organicoBatch.done}/${organicoBatch.total}`
+                : "Recalcular vigentes"}
+            </button>
+          )}
           {loading && (
             <span className="inline-flex items-center gap-1 text-[11px] text-slate-400 shrink-0 ml-auto">
               <IconLoader className="animate-spin" size={14} />
@@ -1303,6 +1391,7 @@ export default function InstrumentationAudit({ supabase }) {
                       ? `→ ${fechaHasta}`
                       : ""}
                     {p.zona ? ` · ${p.zona}` : ""}
+                    {p.organico_convocado ? ` · ${p.organico_convocado}` : ""}
                   </span>
                   <ConvocacionFuentesResumen
                     sources={p._convocacionSources}
@@ -1576,6 +1665,24 @@ export default function InstrumentationAudit({ supabase }) {
                       )}
                     </button>
                     <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={
+                          refreshingOrganicoId === p.id || !!organicoBatch
+                        }
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleRefreshOrganico(p);
+                        }}
+                        className="p-2 rounded-lg border border-current opacity-70 hover:opacity-100 transition-opacity disabled:opacity-40"
+                        title="Recalcular el orgánico convocado de este programa"
+                      >
+                        {refreshingOrganicoId === p.id ? (
+                          <IconLoader size={16} className="animate-spin" />
+                        ) : (
+                          <IconRefresh size={16} />
+                        )}
+                      </button>
                       <button
                         type="button"
                         onClick={(e) => {

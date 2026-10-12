@@ -10,6 +10,7 @@ import {
   selectRosterIdsAfterExclusions,
 } from "./rosterMatrixIds";
 import { countsTowardInstrumentationConvoked, getPercComparableTotal, buildProgramInstrumentationAudit } from "./instrumentation";
+import { organicoMapForAudit } from "./organicoConvocado";
 import {
   buildSandboxStringsContainerLabels,
   formatStringsCompositionLabel,
@@ -926,8 +927,14 @@ export function buildSandboxProgramMetricSync(
     blocks,
     seatingContext,
   );
-  const prodConv = computeConvokedForProgram(prodRosterRes.roster).all;
-  const draftConv = computeConvokedForProgram(draftRosterRes.roster).all;
+  const liveProd = computeConvokedForProgram(prodRosterRes.roster).all;
+  const storedProd = organicoMapForAudit(program.organico_convocado_map);
+  if (storedProd) delete storedProd.Str;
+  const prodConv = storedProd || liveProd;
+  const draftConv =
+    draftRosterRes === prodRosterRes
+      ? prodConv
+      : computeConvokedForProgram(draftRosterRes.roster).all;
 
   const containers = containersByProgram[program.id] || [];
   let stringsLabel = null;

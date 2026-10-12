@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import { Link } from "react-router-dom";
 import {
   IconCalculator,
   IconPlus,
@@ -16,6 +17,7 @@ import {
   IconLoader,
   IconRefresh,
   IconHistory,
+  IconDollarSign,
 } from "../../../components/ui/Icons";
 import { useLogistics } from "../../../hooks/useLogistics";
 import ViaticosForm from "./ViaticosForm";
@@ -2259,6 +2261,12 @@ const collectTransportSupportDocs = (personData) => {
                       </div>
                     )}
                   </div>
+                  <Link
+                    to="/management/viaticos_seguimiento"
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border border-slate-300 bg-white text-slate-800 hover:bg-slate-50"
+                  >
+                    <IconDollarSign size={16} /> Seguimiento Viáticos
+                  </Link>
                 </div>
               </div>
 

@@ -1250,4 +1250,22 @@ Carpeta [Para acomodar](https://drive.google.com/open?id=13yY39hrqFNPyECR3J2oQ2y
 
 Scripts: `scripts/lib/bachiana9Catalog.mjs`, `scripts/process-bachiana9-local.mjs`, `scripts/generate-bachiana9-sync.mjs`.
 
+---
+
+### Completado (2026-10-07) — Piazzolla, Ave Maria (obra 3657) en gira 22
+
+Obra nueva **3657** (`<p>Ave Maria</p>`, Piazzolla, Astor, compositor 264). Año 1984. La **1304** (`Ave María [cuerdas]`) quedó sin cambios. Arreglo de Orchestra Amici della Sabina: el score trae Solo + Vn1, Vn2, Va, Vc, Cb (Moderato, negra = 84). No hay movimientos en la partitura, así que el título de programa es solo la línea 1.
+
+El zip `avemaria.zip` tenía nombres en japonés (`書き込みなし` = sin anotaciones). Página 1 de cada PDF ya es música: sin recorte. Dos scores del mismo contenido (grande, 7 p.; chico, 4 p.) quedaron en **una** fila SCORE con dos links. La parte solista impresa dice «Flauta» en Do y está anotada a mano «Para tromba»; el archivo del zip se llamaba Tp. Se cargó como **Trompeta Solo** (`es_solista`).
+
+Carpeta [Para acomodar](https://drive.google.com/open?id=1piq7AZUPrIBZODd01_tm07awBo4ufsGZ) `Piazzolla, A. - Ave Maria`. `link_drive` apunta ahí (**no** `copiar_carpeta_a_archivo`). **8 PDFs** → **7** filas. El trigger dejó `instrumentacion` = `Tp - Str`. Seed `supabase/seed_piazzolla_ave_maria_sync.sql` ejecutado en el proyecto linked.
+
+Quedó al final del bloque **Repertorio** de la gira **22** (`programas_repertorios` 88): `repertorio_obras` **681**, `orden` 5, **`excluir` = true**.
+
+- [x] 8 PDFs canónicos en Drive, `%PDF-`, tamaño > 0
+- [x] Obra 3657 Oficial; 7 particellas con `url_archivo`
+- [x] Gira 22, bloque Repertorio, última fila, Excl. activo
+
+Scripts: `scripts/lib/piazzollaAveMariaCatalog.mjs`, `scripts/process-piazzolla-ave-maria-local.mjs`, `scripts/generate-piazzolla-ave-maria-sync.mjs`.
+
 

@@ -4,7 +4,8 @@ import {
   IconColumns,
   IconInfo,
   IconList,
-  IconEye,
+  IconLayoutGrid,
+  IconLayoutList,
   IconMusic,
   IconMap,
   IconFilter,
@@ -25,6 +26,12 @@ export default function GirasListControls({
   toggleFilterType,
   filterStatus,
   toggleFilterStatus,
+  listLayout = "cards",
+  setListLayout,
+  expandAllConcerts = false,
+  setExpandAllConcerts,
+  showFiltersMobile = false,
+  setShowFiltersMobile,
 }) {
   // --- LÓGICA DE GRUPOS UNIFICADOS ---
 
@@ -94,16 +101,63 @@ export default function GirasListControls({
             </AppNavLink>
           ))}
         </div>
+        {mode === "LIST" && setListLayout && (
+          <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+            {[
+              { id: "cards", icon: IconLayoutGrid, title: "Tarjetas" },
+              { id: "table", icon: IconLayoutList, title: "Tabla" },
+            ].map((layout) => {
+              const active = listLayout === layout.id;
+              return (
+                <button
+                  key={layout.id}
+                  type="button"
+                  onClick={() => setListLayout(layout.id)}
+                  className={`flex items-center gap-1 rounded-md px-1.5 py-1 transition-all ${
+                    active
+                      ? "bg-white shadow-sm text-indigo-600"
+                      : "text-slate-400 hover:text-slate-600"
+                  }`}
+                  title={layout.title}
+                  aria-pressed={active}
+                >
+                  <layout.icon size={16} />
+                  <span className="hidden lg:inline text-[10px] font-bold">
+                    {layout.title}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+        {mode === "LIST" && (
+          <button
+            type="button"
+            onClick={() => setShowFiltersMobile?.((open) => !open)}
+            className={`md:hidden inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 text-[11px] font-bold ${
+              showFiltersMobile
+                ? "border-slate-800 bg-slate-800 text-white"
+                : "border-slate-200 bg-white text-slate-600"
+            }`}
+            aria-expanded={showFiltersMobile}
+          >
+            <IconFilter size={14} />
+            Filtros
+          </button>
+        )}
       </div>
       {/* VER OBRAS (Al final) */}
+     <div className="ml-auto flex items-center gap-1">
      <button
         onClick={() => setShowRepertoireInCards(!showRepertoireInCards)}
-        className={`ml-auto px-2 py-1 rounded-md border transition-all flex items-center gap-1.5 ${
+        className={`px-2 py-1 rounded-md border transition-all flex items-center gap-1.5 ${
           showRepertoireInCards
             ? "bg-indigo-600 border-indigo-600" // Fondo Indigo sólido
             : "bg-white border-slate-200 text-slate-400 hover:text-slate-600"
         }`}
-        title="Ver Repertorio en tarjetas"
+        title={
+          listLayout === "table" ? "Ver repertorio" : "Ver Repertorio en tarjetas"
+        }
       >
         <IconMusic 
           size={16} 
@@ -111,29 +165,57 @@ export default function GirasListControls({
           className={showRepertoireInCards ? "text-slate-300" : ""} 
         />
       </button>
+      {mode === "LIST" && listLayout === "table" && setExpandAllConcerts && (
+        <button
+          type="button"
+          onClick={() => setExpandAllConcerts(!expandAllConcerts)}
+          className={`px-2 py-1 rounded-md border transition-all flex items-center gap-1.5 ${
+            expandAllConcerts
+              ? "bg-indigo-600 border-indigo-600"
+              : "bg-white border-slate-200 text-slate-400 hover:text-slate-600"
+          }`}
+          title={
+            expandAllConcerts
+              ? "Ocultar todos los conciertos"
+              : "Desplegar todos los conciertos"
+          }
+          aria-pressed={expandAllConcerts}
+        >
+          <IconCalendar
+            size={16}
+            className={expandAllConcerts ? "text-slate-300" : ""}
+          />
+        </button>
+      )}
+     </div>
+
       {/* SEPARADOR */}
       <div className="h-6 w-px bg-slate-200 hidden md:block"></div>
 
       {/* 2. CONTROLES DE FILTRO (Solo en modo Lista) */}
       {mode === "LIST" && (
-        <div className="flex flex-1 items-center gap-3 overflow-x-auto no-scrollbar pb-1 md:pb-0">
-          {/* FECHAS COMPACTAS */}
-          <div className="flex items-center gap-1 min-w-fit">
-            <div className="w-24">
+        <div
+          className={`${
+            showFiltersMobile ? "flex" : "hidden"
+          } w-full basis-full flex-col gap-2 md:flex md:w-auto md:basis-auto md:flex-1 md:flex-row md:items-center md:gap-3 md:overflow-x-auto md:pb-0`}
+        >
+          {/* FECHAS */}
+          <div className="flex w-full items-center gap-2 md:w-auto md:min-w-fit md:gap-1">
+            <div className="min-w-0 flex-1 md:w-28 md:flex-none">
               <DateInput
                 value={filterDateStart}
                 onChange={setFilterDateStart}
                 placeholder="Desde"
-                className="h-7 text-xs py-0"
+                className="h-8 text-xs py-0 md:h-7"
               />
             </div>
             <span className="text-slate-300 text-[10px]">➜</span>
-            <div className="w-24">
+            <div className="min-w-0 flex-1 md:w-28 md:flex-none">
               <DateInput
                 value={filterDateEnd}
                 onChange={setFilterDateEnd}
                 placeholder="Hasta"
-                className="h-7 text-xs py-0"
+                className="h-8 text-xs py-0 md:h-7"
               />
             </div>
           </div>
@@ -141,7 +223,7 @@ export default function GirasListControls({
           <div className="h-6 w-px bg-slate-200 hidden lg:block"></div>
 
           {/* TIPOS UNIFICADOS */}
-          <div className="flex bg-slate-50 p-0.5 rounded-lg border border-slate-200 min-w-fit">
+          <div className="flex flex-wrap bg-slate-50 p-0.5 rounded-lg border border-slate-200 md:min-w-fit md:flex-nowrap">
             <button
               onClick={toggleSinfonicoGroup}
               className={`px-2.5 py-0.5 rounded text-[11px] font-bold transition-all ${
@@ -190,7 +272,7 @@ export default function GirasListControls({
           <div className="h-6 w-px bg-slate-200 hidden lg:block"></div>
 
           {/* ESTADOS */}
-          <div className="flex gap-1 min-w-fit">
+          <div className="flex flex-wrap gap-1 md:min-w-fit md:flex-nowrap">
             {["Vigente", "Borrador", "Pausada"].map((status) => {
               const isActive = filterStatus.has(status);
               const activeClasses = {

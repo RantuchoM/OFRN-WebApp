@@ -32,7 +32,7 @@ import InitialOrderReportModal from "./RoomingInitialOrderReport";
 import RoomingInitialAdjustmentModal from "./RoomingInitialAdjustmentModal";
 import RoomingReportsHubModal from "./RoomingReportsHubModal";
 import ImportHotelModal from "./ImportHotelModal";
-import { useGiraRoster } from "../../hooks/useGiraRoster";
+import { useGiraRoster } from "../../hooks/useGiraRosterQuery";
 import { useLogistics } from "../../hooks/useLogistics"; // <--- CAMBIO CLAVE
 import { useGiraSegmentos } from "../../hooks/useGiraSegmentos";
 import { useConfirmDialog } from "../../hooks/useConfirmDialog";

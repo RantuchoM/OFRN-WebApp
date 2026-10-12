@@ -28,7 +28,7 @@ Al navegar con `giraId` que no está en el listado filtrado, `GirasView` carga e
 | `MEALS_PERSONAL` | Mis Comidas. |
 | `SEATING` | Disposición de atriles. |
 | `DIFUSION` | Difusión. |
-| `EDICION` | Edición del programa (GiraForm). |
+| `EDICION` | Edición del programa (`GiraForm` en modal sobre la agenda). |
 
 ## Middle-click / nueva pestaña
 

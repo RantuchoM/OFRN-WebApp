@@ -39,6 +39,7 @@ import PersonSelectWithCreate from "../../components/filters/PersonSelectWithCre
 import LocationSelectWithCreate from "../../components/forms/LocationSelectWithCreate";
 import { getProgramStyle } from "../../utils/giraUtils";
 import { syncSingleSegmentDates } from "../../services/giraSegmentosService";
+import { touchOrganicoConvocado } from "../../services/organicoConvocadoService";
 import GiraTramosEditor from "./GiraTramosEditor";
 import { useGiraSegmentos } from "../../hooks/useGiraSegmentos";
 import { useConfirmDialog } from "../../hooks/useConfirmDialog";
@@ -760,6 +761,9 @@ export default function GiraForm({
           } catch (segErr) {
             console.warn("syncSingleSegmentDates:", segErr?.message);
           }
+          touchOrganicoConvocado(supabase, giraId).catch((err) => {
+            console.warn("organico_convocado:", err?.message || err);
+          });
         }
       }
       setLastSavedValues((prev) => ({ ...prev, [fieldName]: value ?? "" }));
@@ -868,6 +872,9 @@ export default function GiraForm({
             },
           ]);
         }
+        touchOrganicoConvocado(supabase, giraId).catch((err) => {
+          console.warn("organico_convocado:", err?.message || err);
+        });
         setSyncStatus("saved");
       } catch (error) {
         console.error("Error guardando fuente:", error);
@@ -917,6 +924,9 @@ export default function GiraForm({
           },
         ]);
         if (error) throw error;
+        touchOrganicoConvocado(supabase, giraId).catch((err) => {
+          console.warn("organico_convocado:", err?.message || err);
+        });
         setSyncStatus("saved");
       } catch (error) {
         console.error("Error agregando integrante a gira:", error);
@@ -943,6 +953,9 @@ export default function GiraForm({
           .eq("id_integrante", staffToRemove.id_integrante)
           .eq("rol", staffToRemove.rol);
         if (error) throw error;
+        touchOrganicoConvocado(supabase, giraId).catch((err) => {
+          console.warn("organico_convocado:", err?.message || err);
+        });
         setSyncStatus("saved");
       } catch (error) {
         console.error("Error eliminando integrante de gira:", error);
@@ -976,6 +989,9 @@ export default function GiraForm({
           },
         ]);
         if (error) throw error;
+        touchOrganicoConvocado(supabase, giraId).catch((err) => {
+          console.warn("organico_convocado:", err?.message || err);
+        });
         setSyncStatus("saved");
       } catch (error) {
         console.error("Error guardando músico detallado en gira:", error);

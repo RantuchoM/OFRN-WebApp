@@ -16,7 +16,7 @@ import { useAuth } from "../../context/AuthContext";
 // --- IMPORTACIONES PARA PDF ---
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
-import { useGiraRoster } from "../../hooks/useGiraRoster";
+import { useGiraRoster } from "../../hooks/useGiraRosterQuery";
 import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 import { generateSeatingPdf } from "../../utils/seatingPdfExporter"; // <--- IMPORTAR AQUÍ
 import ConciertosDifusionPanel from "../../components/difusion/ConciertosDifusionPanel";

@@ -27,6 +27,10 @@ Permitir a los administradores dar de alta masivamente a integrantes con condici
 - Aviso persistente en el panel de historial del dashboard y en el lateral del modal de novedad.
 - Componente: `src/components/musicians/HorasDeleteGuardModal.jsx`.
 
+## Legajo al guardar una novedad
+- Alta de legajo (estable + `fecha_alta`) solo si el combinado del mes pasa de 0 hs a más de 0 y la fila guardada tiene horas. Confirmar 0 hs en un origen que ya estaba en 0 no es alta.
+- `fecha_baja` solo si, después de guardar, Cultura y Educación quedan en 0 tanto en ese mes como en su última asignación. Si queda una hora vigente en cualquiera de los dos, no se carga la baja.
+
 ## Mes de baja en la nomina
 - Si un integrante pasa de tener horas el mes anterior a **0 hs** el mes seleccionado, sigue listado ese mes (`hasNews`), con celdas en **0**, etiqueta **Baja** y resaltado cyan.
 - Al mes siguiente (0 vs 0) deja de aparecer en la nomina por defecto.

@@ -23,7 +23,7 @@ import {
   IconBell,
   IconTag,
 } from "../../components/ui/Icons";
-import { useGiraRoster } from "../../hooks/useGiraRoster";
+import { useGiraRoster } from "../../hooks/useGiraRosterQuery";
 import {
   seatingApellido,
   seatingApellidoNombre,
@@ -802,6 +802,13 @@ export default function GiraRoster({
     () => aggregateOrganicoFromBlocks(instrumentationBlocks),
     [instrumentationBlocks],
   );
+
+  const headerConvokedMap = useMemo(() => {
+    if (hookLoading && rawRoster.length === 0 && gira?.organico_convocado_map) {
+      return gira.organico_convocado_map;
+    }
+    return computeConvoked(rawRoster);
+  }, [hookLoading, rawRoster, gira?.organico_convocado_map]);
 
   const instrumentationBlockScopes = useMemo(
     () =>
@@ -2716,6 +2723,7 @@ export default function GiraRoster({
               <InstrumentationBadges
                   works={instrumentationWorks}
                   roster={rawRoster}
+                  convokedMap={headerConvokedMap}
                   organicoRevisado={!!organicoAgg.organico_revisado}
                   organicoComentario={organicoAgg.organico_comentario}
                   repertoireBlocks={instrumentationBlockScopes}

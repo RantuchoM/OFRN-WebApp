@@ -10,8 +10,8 @@ export const PDF_BORDER = [180, 180, 180];
 export const PDF_GROUP_FILL = [226, 232, 240];
 export const PDF_HEAD_FILL = [241, 245, 249];
 
-export function createServiciosPdfDoc() {
-  return new JsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+export function createServiciosPdfDoc(orientation = "portrait") {
+  return new JsPDF({ orientation, unit: "mm", format: "a4" });
 }
 
 /**

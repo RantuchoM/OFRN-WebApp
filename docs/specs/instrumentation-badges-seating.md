@@ -39,6 +39,9 @@ Visualizar en tiempo real la diferencia entre la instrumentación técnica reque
 - Las omitidas no aparecen en selects de asignación ni cuentan en Req / auditoría (Seating badges, `InstrumentationSummaryModal`, Gestión → Auditoría).
 
 ### 3. Instrumentación Convocada
+- El mapa y el texto quedan en `programas.organico_convocado_map` / `organico_convocado`. Se recalculan con `useGiraRoster` al abrir o refrescar el roster, y por cron para programas vigentes o futuros. Ver `docs/specs/giras-vista-tabla.md`.
+- El badge del programa (roster y seating sin filtro de grupo) muestra ese cache mientras el roster no llegó. Con el roster cargado, cuenta en vivo y el hook vuelve a guardar el cache.
+- Un bloque filtrado por grupo no usa el cache del programa: cuenta solo ese roster.
 - Se cuenta el personal de la gira usando el hook `useGiraRoster` (roster ya resuelto para la gira actual).
 - **Instrumento efectivo:** `giras_integrantes.id_instr` si existe; si no, `integrantes.id_instr` (ver `docs/specs/gira-instrument-override.md`). El roster expone `m.id_instr` y `m.instrumentos` ya normalizados.
 - Se consideran únicamente músicos con:

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { useGiraRoster } from "./useGiraRoster";
+import { useGiraRoster } from "./useGiraRosterQuery";
 import {
   normalize,
   getMatchStrength,

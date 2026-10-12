@@ -1,7 +1,7 @@
 // src/components/roster/InstrumentationManager.jsx
 import React, { useState, useMemo } from 'react';
 import { IconMusic, IconLoader, IconEye } from '../ui/Icons'; // Asegúrate de que la ruta a Icons sea correcta
-import { useGiraRoster } from '../../hooks/useGiraRoster'; // Ajusta la ruta a tu hook
+import { useGiraRoster } from "../../hooks/useGiraRosterQuery";
 import { calculateInstrumentation } from '../../utils/instrumentation'; // Ajusta la ruta a tu util
 
 // --- SUB-COMPONENTE: Calcula y Muestra (Solo se monta al hacer click) ---

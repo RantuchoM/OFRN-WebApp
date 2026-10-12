@@ -10,6 +10,16 @@ import {
   pdfStamp,
   toServiciosPdfText,
 } from "./serviciosPdf";
+import { formatServicioNumber } from "./serviciosCantidad";
+import {
+  formatTramoShareLabel,
+  summarizeEnsambleServiciosReport,
+} from "./serviciosEnsambleReport";
+import {
+  applySessionResolvedToEnsambleRows,
+  partitionConflictoEnsayos,
+  resolvedConflictoHeading,
+} from "./serviciosEnsayosConflicto";
 import { formatSecondsToHm } from "./time";
 
 const RESOLVED_LABEL = {
@@ -190,13 +200,33 @@ export function buildEnsambleServiciosPdfTables(
     giras: {
       title: "Giras convocadas (Sinfónico y Camerata Filarmónica)",
       count: report.giras.length,
+      fueraDeCasaLabel: report.giras?.length
+        ? `(${formatServicioNumber(report.girasFueraDeCasa)} fuera de casa)`
+        : "",
       empty: "Ninguna gira Sinfónico/CF lo convoca en este rango.",
-      rows: (report.giras || []).map((row) => ({
-        label: stripHtml(row.label) || `Programa ${row.id}`,
-        fechas: fechasProgramLabel(row),
-        tipo: row.tipo || "",
-        via: ensambleViaPdfLabel(row),
-      })),
+      rows: (report.giras || []).map((row) => {
+        const name = stripHtml(row.label) || `Programa ${row.id}`;
+        const zona = String(row.zona || "").trim();
+        const titled = zona ? `${zona} - ${name}` : name;
+        const servicioTxt =
+          row.servicios == null
+            ? ""
+            : row.serviciosModo === "promedio"
+              ? ` (${formatServicioNumber(row.servicios)} promedio)`
+              : ` (${formatServicioNumber(row.servicios)})`;
+        const fueraTxt = formatTramoShareLabel(row.tramosFuera, row.tramoCount);
+        return {
+          label: `${titled}${servicioTxt}`,
+          fechas: fechasProgramLabel(row),
+          tipo: row.tipo || "",
+          via: [
+            ensambleViaPdfLabel(row),
+            fueraTxt || (row.fueraDeCasa ? "Fuera de casa" : ""),
+          ]
+            .filter(Boolean)
+            .join(" - "),
+        };
+      }),
     },
     programas: {
       title: "Programas y conciertos de ensamble",
@@ -236,16 +266,6 @@ export function buildEnsambleServiciosPdfTables(
       pending: pendingRows.map(conflictoPdfRow),
       resolvedHeading: resolvedRows.length ? resolvedHeading || "Resueltos" : "",
       resolved: resolvedRows.map(conflictoPdfRow),
-    },
-    excluded: {
-      title: "Excluidos en el programa (no cuentan)",
-      count: report.excluded?.length || 0,
-      rows: (report.excluded || []).map((row) => ({
-        label: stripHtml(row.label) || `Programa ${row.id}`,
-        fechas: fechasProgramLabel(row),
-        tipo: row.tipo || "",
-        via: ensambleViaPdfLabel(row),
-      })),
     },
   };
 }
@@ -469,15 +489,40 @@ function drawEnsambleEnsayosTable(doc, startY, section) {
   return ensamblePdfAfterTable(doc, startY);
 }
 
-/**
- * PDF del informe de un ensamble (misma jerarquía que el modal HTML).
- * A4 vertical, Helvetica, texto saneado (sin flechas Unicode).
- */
-export function buildEnsambleServiciosPdfDoc(args = {}) {
-  const tables = buildEnsambleServiciosPdfTables(args.report, args);
-  if (!tables) return null;
+function conflictoSlicesForReport(report, sessionByEventId) {
+  const display = applySessionResolvedToEnsambleRows(
+    report?.ensayosConflicto,
+    sessionByEventId,
+    report?.ensamble,
+  );
+  const { pending, resolved } = partitionConflictoEnsayos(
+    display.map((row) => ({ ...row.conflicto, _row: row })),
+  );
+  const pendingRows = pending.map((row) => row._row);
+  const resolvedRows = resolved.map((row) => row._row);
+  const pendingIds = new Set();
+  for (const row of pendingRows) {
+    const id = Number(row?.event?.id ?? row?.conflicto?.eventId);
+    if (Number.isFinite(id)) pendingIds.add(id);
+  }
+  return {
+    pendingRows,
+    resolvedRows,
+    pendingIds,
+    resolvedHeading: resolvedConflictoHeading(
+      resolvedRows.map((row) => row.conflicto),
+    ),
+  };
+}
 
-  const doc = createServiciosPdfDoc();
+/**
+ * Escribe un informe en la página actual (A4 vertical).
+ * @returns {boolean}
+ */
+export function writeEnsambleServiciosPdfPage(doc, args = {}) {
+  const tables = buildEnsambleServiciosPdfTables(args.report, args);
+  if (!tables || !doc) return false;
+
   doc.setFont("helvetica", "bold");
   doc.setFontSize(12);
   doc.setTextColor(0);
@@ -500,7 +545,13 @@ export function buildEnsambleServiciosPdfDoc(args = {}) {
 
   let y = 17 + (Array.isArray(subLines) ? subLines.length : 1) * 3.6 + 5;
 
-  y = writeEnsamblePdfSectionTitle(doc, y, tables.giras.title, tables.giras.count);
+  y = writeEnsamblePdfSectionTitle(
+    doc,
+    y,
+    tables.giras.title,
+    tables.giras.count,
+    tables.giras.fueraDeCasaLabel,
+  );
   y = drawEnsambleGirasTable(doc, y, tables.giras);
 
   y = writeEnsamblePdfSectionTitle(
@@ -518,18 +569,17 @@ export function buildEnsambleServiciosPdfDoc(args = {}) {
     tables.ensayos.count,
     tables.ensayos.pendingExtra,
   );
-  y = drawEnsambleEnsayosTable(doc, y, tables.ensayos);
+  drawEnsambleEnsayosTable(doc, y, tables.ensayos);
+  return true;
+}
 
-  if (tables.excluded.count) {
-    y = writeEnsamblePdfSectionTitle(
-      doc,
-      y,
-      tables.excluded.title,
-      tables.excluded.count,
-    );
-    y = drawEnsambleGirasTable(doc, y, tables.excluded);
-  }
-
+/**
+ * PDF del informe de un ensamble (misma jerarquía que el modal HTML).
+ * A4 vertical, Helvetica, texto saneado (sin flechas Unicode).
+ */
+export function buildEnsambleServiciosPdfDoc(args = {}) {
+  const doc = createServiciosPdfDoc();
+  if (!writeEnsambleServiciosPdfPage(doc, args)) return null;
   return doc;
 }
 
@@ -538,4 +588,211 @@ export function downloadEnsambleServiciosPdf(args) {
   if (!doc) return;
   const slug = slugEnsamblePdf(args?.report?.ensambleName);
   return deliverPdf(doc, `informe_ensamble_${slug}_${pdfStamp()}.pdf`);
+}
+
+const RESUMEN_CASA = {
+  fill: [220, 252, 231],
+  text: [6, 95, 70],
+};
+const RESUMEN_FUERA = {
+  fill: [255, 237, 213],
+  text: [154, 52, 18],
+};
+const RESUMEN_CONFLICTO = {
+  fill: [254, 226, 226],
+  text: [153, 27, 27],
+};
+
+function resumenHeadCell(content, { rowSpan, colSpan, styles } = {}) {
+  return {
+    content: toServiciosPdfText(content),
+    ...(rowSpan ? { rowSpan } : {}),
+    ...(colSpan ? { colSpan } : {}),
+    styles: {
+      halign: "center",
+      valign: "middle",
+      ...(styles || {}),
+    },
+  };
+}
+
+function resumenToneForColumn(index) {
+  if (index === 1 || index === 2) return RESUMEN_CASA;
+  if (index === 3 || index === 4) return RESUMEN_FUERA;
+  if (index === 6) return RESUMEN_CONFLICTO;
+  return null;
+}
+
+function resumenPairHead(content, tone, span) {
+  return resumenHeadCell(content, {
+    ...(span || {}),
+    styles: { fillColor: tone.fill, textColor: tone.text },
+  });
+}
+
+function resumenCells(row) {
+  return [
+    toServiciosPdfText(row.ensambleName),
+    formatServicioNumber(row.girasEnCasa),
+    formatServicioNumber(row.serviciosEnCasa),
+    formatServicioNumber(row.girasFuera),
+    formatServicioNumber(row.serviciosFuera),
+    String(row.ensayosEnsamble),
+    String(row.ensayosConflicto),
+    formatServicioNumber(row.serviciosNetos),
+  ];
+}
+
+function sumResumen(rows) {
+  const total = {
+    ensambleName: "Total",
+    girasEnCasa: 0,
+    serviciosEnCasa: 0,
+    girasFuera: 0,
+    serviciosFuera: 0,
+    ensayosEnsamble: 0,
+    ensayosConflicto: 0,
+    serviciosNetos: 0,
+  };
+  for (const row of rows) {
+    total.girasEnCasa += row.girasEnCasa;
+    total.serviciosEnCasa += row.serviciosEnCasa;
+    total.girasFuera += row.girasFuera;
+    total.serviciosFuera += row.serviciosFuera;
+    total.ensayosEnsamble += row.ensayosEnsamble;
+    total.ensayosConflicto += row.ensayosConflicto;
+    total.serviciosNetos += row.serviciosNetos;
+  }
+  return total;
+}
+
+/**
+ * Primera página apaisada: un ensamble por fila.
+ * Después, cada informe en A4 vertical.
+ */
+export function buildEnsambleServiciosTodosPdfDoc({
+  reports,
+  fechaDesde,
+  fechaHasta,
+  sessionByEventId,
+} = {}) {
+  const list = (reports || []).filter(Boolean);
+  if (!list.length) return null;
+
+  const slices = list.map((report) =>
+    conflictoSlicesForReport(report, sessionByEventId),
+  );
+  const resumen = list.map((report, index) =>
+    summarizeEnsambleServiciosReport(report, slices[index].pendingIds),
+  );
+
+  const doc = createServiciosPdfDoc("landscape");
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(14);
+  doc.setTextColor(0);
+  doc.text("Informe de ensambles", 10, 12);
+
+  const rango =
+    fechaDesde && fechaHasta
+      ? `${formatDdMmYyyy(fechaDesde)} - ${formatDdMmYyyy(fechaHasta)}`
+      : "";
+  const note = [
+    rango,
+    "Servicios de gira = conciertos + ensayos de giras ya terminadas. Las giras en curso o futuras cuentan en las columnas de giras y suman 0 servicios.",
+    "Servicios netos = servicios de esas giras + ensayos de ensamble (1 si >= 2 h, 1/2 si > 30 min), sin ensayos en conflicto pendiente.",
+    `Generado ${new Date().toLocaleString("es-AR")}`,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.setTextColor(80);
+  const noteLines = doc.splitTextToSize(toServiciosPdfText(note), 277);
+  doc.text(noteLines, 10, 18, { maxWidth: 277 });
+  doc.setTextColor(0);
+
+  const startY = 18 + noteLines.length * 3.6 + 3;
+  const body = [
+    ...resumen.map(resumenCells),
+    resumenCells(sumResumen(resumen)),
+  ];
+  const totalIndex = body.length - 1;
+
+  autoTable(doc, {
+    ...ENSAMBLE_PDF_TABLE,
+    startY,
+    margin: { left: 10, right: 10 },
+    head: [
+      [
+        resumenHeadCell("Ensamble", { rowSpan: 2 }),
+        resumenPairHead("En casa", RESUMEN_CASA, { colSpan: 2 }),
+        resumenPairHead("Fuera de casa", RESUMEN_FUERA, { colSpan: 2 }),
+        resumenHeadCell("Ensayos de ensamble", { rowSpan: 2 }),
+        resumenPairHead("Ensayos en conflicto", RESUMEN_CONFLICTO, {
+          rowSpan: 2,
+        }),
+        resumenHeadCell("Servicios netos", { rowSpan: 2 }),
+      ],
+      [
+        resumenPairHead("Giras", RESUMEN_CASA),
+        resumenPairHead("Servicios", RESUMEN_CASA),
+        resumenPairHead("Giras", RESUMEN_FUERA),
+        resumenPairHead("Servicios", RESUMEN_FUERA),
+      ],
+    ],
+    body,
+    styles: {
+      ...ENSAMBLE_PDF_TABLE.styles,
+      fontSize: 8,
+      cellPadding: 1.2,
+      halign: "center",
+    },
+    headStyles: {
+      ...ENSAMBLE_PDF_TABLE.headStyles,
+      fontSize: 8,
+      halign: "center",
+      valign: "middle",
+    },
+    columnStyles: {
+      0: { cellWidth: 42, halign: "left" },
+      1: { cellWidth: 33 },
+      2: { cellWidth: 34 },
+      3: { cellWidth: 33 },
+      4: { cellWidth: 34 },
+      5: { cellWidth: 34 },
+      6: { cellWidth: 33 },
+      7: { cellWidth: 34 },
+    },
+    didParseCell: (data) => {
+      const tone = resumenToneForColumn(data.column.index);
+      if (tone && (data.section === "head" || data.section === "body")) {
+        data.cell.styles.fillColor = tone.fill;
+        if (data.section === "head") data.cell.styles.textColor = tone.text;
+      }
+      if (data.section === "body" && data.row.index === totalIndex) {
+        data.cell.styles.fontStyle = "bold";
+      }
+    },
+  });
+
+  list.forEach((report, index) => {
+    doc.addPage("a4", "portrait");
+    const slice = slices[index];
+    writeEnsambleServiciosPdfPage(doc, {
+      report,
+      fechaDesde,
+      fechaHasta,
+      pendingRows: slice.pendingRows,
+      resolvedRows: slice.resolvedRows,
+      resolvedHeading: slice.resolvedHeading,
+    });
+  });
+
+  return doc;
+}
+
+export function downloadEnsambleServiciosTodosPdf(args) {
+  const doc = buildEnsambleServiciosTodosPdfDoc(args);
+  if (!doc) return;
+  return deliverPdf(doc, `informe_ensambles_${pdfStamp()}.pdf`);
 }

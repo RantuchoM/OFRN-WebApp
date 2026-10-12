@@ -14,6 +14,7 @@ import {
 import { getProgramStyle } from "../../utils/giraUtils";
 import NotificationQueuePanel from "../../components/giras/NotificationQueuePanel";
 import { toast } from "sonner";
+import { touchOrganicoConvocado } from "../../services/organicoConvocadoService";
 
 // --- HELPERS ---
 const getMonthName = (dateString) => {
@@ -407,6 +408,9 @@ export default function MusicianTourManager({ supabase, musician }) {
         const newOverrides = { ...overrides };
         delete newOverrides[giraId];
         setOverrides(newOverrides);
+        touchOrganicoConvocado(supabase, giraId).catch((err) => {
+          console.warn("organico_convocado:", err?.message || err);
+        });
 
         if (prevSituation === "ADDITIONAL") {
           queuedMail =
@@ -448,6 +452,9 @@ export default function MusicianTourManager({ supabase, musician }) {
         if (error) throw error;
 
         setOverrides((prev) => ({ ...prev, [giraId]: savedData }));
+        touchOrganicoConvocado(supabase, giraId).catch((err) => {
+          console.warn("organico_convocado:", err?.message || err);
+        });
 
         if (action === "SET_ABSENT") {
           queuedMail =
@@ -498,6 +505,9 @@ export default function MusicianTourManager({ supabase, musician }) {
         if(error) throw error;
 
         setOverrides(prev => ({ ...prev, [giraId]: savedData }));
+        touchOrganicoConvocado(supabase, giraId).catch((err) => {
+          console.warn("organico_convocado:", err?.message || err);
+        });
     } catch (err) {
       toast.error("Error actualizando rol");
     } finally {

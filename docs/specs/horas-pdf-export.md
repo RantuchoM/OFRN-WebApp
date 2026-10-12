@@ -48,17 +48,19 @@ Igual que antes: totales por conceptos, registro previo mismo origen; `horas_cam
 - [x] **Un único PDF**: todo el rango en un archivo, con secciones rotuladas `Cultura — mes año` y `Educación — mes año`. Salto de página al cambiar de mes; Cultura y Educación del mismo mes siguen en la misma página si entran. El primer mes arranca en la primera página, debajo del título.
 - [x] **Solo novedades**: dos descargas sueltas, sin ZIP (`Nomina_horas_novedades_Cultura_….pdf` y `…_Educacion_….pdf`). Cada archivo trae solo el texto de esa área, mes tras mes, sin tabla y sin salto de página forzado. El área y cada mes van rotulados. Sin novedades en un mes: `Sin novedades.` Si el área no tiene cambios en el rango, igual se descarga su PDF.
 - [x] Checkbox **Detalle de novedades**, tildado por defecto. Si está destildado, el PDF con listado sale sin la sección. En Solo novedades queda tildado y deshabilitado: cada PDF es ese detalle. El detalle va debajo de cada listado (cada mes / cada sección) en los otros modos.
-- [x] La grilla y la tabla del PDF muestran en cada celda con novedad `n (+m)` o `n (-m)`. Si el delta es 0, queda el valor vigente sin sufijo.
+- [x] La grilla y la tabla del PDF muestran en cada celda con novedad `n (+m)` o `n (-m)`. Si el delta es 0, queda el valor vigente sin sufijo. Un 0 que ya era 0 (el origen no cambió) no se pinta como novedad ni como baja: la celda queda en `—`. La fila sigue marcada solo si el otro origen sí cambió.
 
 **Novedad:** diferencia, por concepto y por origen (`CULTURA` / `EDUCACION`), entre las horas vigentes de ese mes y las del mes calendario anterior. El saldo de un mes es el registro cuyo **mes de vigencia** (`anio_inicio` / `mes_inicio`) es el más reciente que ya empezó, no el de `created_at` más nuevo. `created_at` solo desempata dos filas del mismo mes de inicio. `n` es el valor vigente; `m` es ese delta.
 
 - [x] Administración de Horas tiene URL propia: `/?tab=musicos&vista=horas`. Abrir la pantalla hace push de ese query; **Volver** lo saca con `replace`. El listado de Personas queda en `/?tab=musicos` sin `vista`. Cambiar de sección borra `vista` para no arrastrarla.
 - [x] **Gestión → Horas** (menú de informes, orden alfabético en español) y Ctrl+K «Horas» abren esa misma URL. No hay una vista nueva bajo `/management`. Lo ven `admin` y `editor` (incluido curador, que ya entra a Personas).
+- [x] El día 1 de cada mes, a las 09:00 ART, llega un mail a `filarmonica.scrn@gmail.com` para cargar los cambios de horas. Ver `docs/specs/horas-recordatorio-mensual.md`.
 
 **Detalle** (`formatNovedadDetalleLine`): solo rubros con delta distinto de cero. Cada rubro lleva signo (`+3 coord`, `-9 des`). El neto de afuera es la suma algebraica de esos deltas. Etiquetas cortas en minúscula (`básico`, `ens`, `ensamb`, `cat`, `coord`, `des`, `otros`).
 - Cambio (había horas y sigue habiendo): `Apellido, Nombre. Antes: 30 hs. Ahora: 33 hs. +3 hs (+3 coord)`. `Ahora = Antes + neto`.
-- Alta (antes 0 y ahora hay horas): `Apellido, Nombre. Alta: 33 hs. +33 hs (+30 básico, +3 coord)`.
+- Alta (antes 0 y ahora hay horas): `Apellido, Nombre. Alta: 33 hs. +33 hs (+30 básico, +3 coord)`. Un registro en 0 cuando ese origen ya estaba en 0 no es alta: el historial dice «Sin cambio: ya estaba en 0 hs» y Word/Drive no arman nota.
 - Baja (había horas y ahora el total es 0): `Apellido, Nombre. Baja: 30 hs. -30 hs (-30 básico)`.
+- **Legajo** (`fecha_baja` / alta estable) al confirmar una novedad: no hay alta si la fila guardada queda en 0 hs. No hay `fecha_baja` si en el mes de la novedad, o en la última asignación, Cultura o Educación todavía tiene al menos una hora.
 Sin novedades en ese mes/área: línea `Sin novedades.`
 
 **Resumen** al final de cada bloque (ese mes y esa área):

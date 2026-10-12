@@ -333,11 +333,20 @@ function lineaDiaSalidaOLlegada(kind, fecha, hora, factor) {
   return `${f}: 1 día, llegaste a las ${h} (desde las 15:00).`;
 }
 
+function lineasValorDiario(segmentos, fmtMoney) {
+  const rangos = segmentosParaVista(segmentos);
+  return rangos.map((s, i) => {
+    const titulo = tituloSegmentoRango(i, rangos.length);
+    const fechas = fechasSegmentoRango(s);
+    return `${titulo}${fechas ? ` (${fechas})` : ""}: ${fmtDiasLabel(s.dias)} × ${fmtMoney(s.valorDiarioCalc)}.`;
+  });
+}
+
 /**
- * Texto del ? de días. Incluye fechas con factor 0 (no se ocultan).
- * No altera el cálculo: solo describe explainViaticosDiasCalculation y los tramos ya armados.
+ * Detalle del ? de días, agrupado: salida, intermedios, llegada.
+ * Incluye fechas con factor 0. No altera el cálculo.
  */
-export function explainCalendarioDiasViatico({
+export function buildCalendarioDiasViatico({
   fechaSalida,
   horaSalida,
   fechaLlegada,
@@ -351,37 +360,99 @@ export function explainCalendarioDiasViatico({
     fechaLlegada,
     horaLlegada,
   );
-  if (explained.incomplete) return explained.message || "";
+  const valorLines = lineasValorDiario(segmentos, fmtMoney);
+
+  if (explained.incomplete) {
+    return {
+      incomplete: true,
+      message: explained.message || "",
+      sameDay: false,
+      sameDayDetail: "",
+      groups: [],
+      totalLine: "",
+      valorLines,
+    };
+  }
+
+  if (explained.sameDay) {
+    return {
+      incomplete: false,
+      message: "",
+      sameDay: true,
+      sameDayDetail: explained.steps?.[0]?.detail || "",
+      groups: [],
+      totalLine: "",
+      valorLines,
+    };
+  }
+
+  const dep = getDepartureFactor(explained.horaSalida);
+  const arr = getArrivalFactor(explained.horaLlegada);
+  const intermedios = [];
+  for (let i = 1; i <= explained.middleDays; i += 1) {
+    const fecha = addDaysIso(explained.fechaSalida, i);
+    intermedios.push(`${formatFechaViaticos(fecha)}: 1 día intermedio.`);
+  }
+
+  return {
+    incomplete: false,
+    message: "",
+    sameDay: false,
+    sameDayDetail: "",
+    groups: [
+      {
+        key: "salida",
+        title: "Factor por hora de salida",
+        lines: [
+          lineaDiaSalidaOLlegada(
+            "salida",
+            explained.fechaSalida,
+            explained.horaSalida,
+            dep,
+          ),
+        ],
+      },
+      {
+        key: "intermedios",
+        title: "Días intermedios",
+        lines: intermedios,
+      },
+      {
+        key: "llegada",
+        title: "Factor por hora de llegada",
+        lines: [
+          lineaDiaSalidaOLlegada(
+            "llegada",
+            explained.fechaLlegada,
+            explained.horaLlegada,
+            arr,
+          ),
+        ],
+      },
+    ],
+    totalLine: `Esos días suman ${fmtDiasLabel(explained.total)}.`,
+    valorLines,
+  };
+}
+
+/**
+ * Texto plano del ? de días (mismo contenido que buildCalendarioDiasViatico).
+ * No altera el cálculo: solo describe explainViaticosDiasCalculation y los tramos ya armados.
+ */
+export function explainCalendarioDiasViatico(opts = {}) {
+  const built = buildCalendarioDiasViatico(opts);
+  if (built.incomplete) return built.message || "";
 
   const lineas = [];
-  if (explained.sameDay) {
-    lineas.push(explained.steps?.[0]?.detail || "");
+  if (built.sameDay) {
+    lineas.push(built.sameDayDetail);
   } else {
-    const dep = getDepartureFactor(explained.horaSalida);
-    const arr = getArrivalFactor(explained.horaLlegada);
-    lineas.push(
-      lineaDiaSalidaOLlegada("salida", explained.fechaSalida, explained.horaSalida, dep),
-    );
-    for (let i = 1; i <= explained.middleDays; i += 1) {
-      const fecha = addDaysIso(explained.fechaSalida, i);
-      lineas.push(`${formatFechaViaticos(fecha)}: 1 día intermedio.`);
-    }
-    lineas.push(
-      lineaDiaSalidaOLlegada("llegada", explained.fechaLlegada, explained.horaLlegada, arr),
-    );
-    lineas.push(`Esos días suman ${fmtDiasLabel(explained.total)}.`);
-  }
-
-  const rangos = segmentosParaVista(segmentos);
-  if (rangos.length > 0) {
-    rangos.forEach((s, i) => {
-      const titulo = tituloSegmentoRango(i, rangos.length);
-      const fechas = fechasSegmentoRango(s);
-      lineas.push(
-        `${titulo}${fechas ? ` (${fechas})` : ""}: ${fmtDiasLabel(s.dias)} × ${fmtMoney(s.valorDiarioCalc)}.`,
-      );
+    built.groups.forEach((group) => {
+      lineas.push(...group.lines);
     });
+    if (built.totalLine) lineas.push(built.totalLine);
   }
+  lineas.push(...built.valorLines);
   return lineas.filter(Boolean).join(" ");
 }
 

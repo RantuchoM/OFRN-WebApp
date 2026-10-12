@@ -177,7 +177,7 @@ export default function InstrumentationSandbox({
       let programQuery = supabase
         .from("programas")
         .select(
-          "id, nombre_gira, nomenclador, mes_letra, fecha_desde, fecha_hasta, tipo, zona, organico_revisado, organico_comentario, notificaciones_habilitadas, notificacion_inicial_enviada",
+          "id, nombre_gira, nomenclador, mes_letra, fecha_desde, fecha_hasta, tipo, zona, organico_revisado, organico_comentario, organico_convocado, organico_convocado_map, organico_convocado_at, notificaciones_habilitadas, notificacion_inicial_enviada",
         )
         .order("fecha_desde", { ascending: true });
 

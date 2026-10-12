@@ -1,4 +1,5 @@
 import { fetchRosterForGira } from "../hooks/useGiraRoster";
+import { touchOrganicoConvocado } from "./organicoConvocadoService";
 import { sendConvocatoriaNotificationTasks } from "../utils/convocatoriaNotificationSend";
 import { integranteKey } from "../utils/integranteIds";
 
@@ -329,6 +330,11 @@ export async function applyGiraDraftToProduction(supabase, sandboxId, giraId) {
   }
 
   await deleteGiraDraft(supabase, sandboxId, gid);
+  try {
+    await touchOrganicoConvocado(supabase, gid);
+  } catch (err) {
+    console.warn("organico_convocado:", err?.message || err);
+  }
   return { applied: true };
 }
 

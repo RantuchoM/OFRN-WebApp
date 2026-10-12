@@ -17,6 +17,7 @@ import {
   buildFilledHorasDocxBlob,
   downloadFilledHorasDocx,
   getPreviousHorasRecord,
+  sumHorasRecord,
   uploadHorasNotaToDrive,
   buildHorasNotaDocxFilename,
   HORAS_NOTA_DOCX_MIME,
@@ -220,7 +221,11 @@ export default function HorasCatedraDashboard({ supabase }) {
             if (diffs.length === 0 && idx > 0) diffs.push("Renovación / Sin cambios numéricos");
             if (idx === 0) {
                 const totalInitial = CONCEPTOS.reduce((acc, c) => acc + (rec[c.id] || 0), 0);
-                diffs.push(`Inicio Asignación (Total: ${totalInitial} hs)`);
+                if (totalInitial > 0) {
+                    diffs.push(`Inicio Asignación (Total: ${totalInitial} hs)`);
+                } else if (diffs.length === 0) {
+                    diffs.push("Sin cambio: ya estaba en 0 hs");
+                }
             }
 
             historyLines.push({ ...rec, diffText: diffs.join(", "), dateSort: new Date(rec.created_at) });
@@ -290,8 +295,17 @@ export default function HorasCatedraDashboard({ supabase }) {
     }
   };
 
+  const notaSinCambioDeHoras = (record) => {
+    const prev = getPreviousHorasRecord(selectedMusician.records, record);
+    return sumHorasRecord(record) === sumHorasRecord(prev);
+  };
+
   const handleDownloadNotaWord = async (record) => {
     if (!selectedMusician) return;
+    if (notaSinCambioDeHoras(record)) {
+      toast.message("Este registro no cambia las horas. No es una novedad.");
+      return;
+    }
     const prev = getPreviousHorasRecord(selectedMusician.records, record);
     try {
       await downloadFilledHorasDocx(selectedMusician, record, prev);
@@ -473,6 +487,10 @@ export default function HorasCatedraDashboard({ supabase }) {
 
   const handleUploadNotaToDrive = async (record) => {
     if (!selectedMusician) return;
+    if (notaSinCambioDeHoras(record)) {
+      toast.message("Este registro no cambia las horas. No es una novedad.");
+      return;
+    }
     const prev = getPreviousHorasRecord(selectedMusician.records, record);
     const fileName = buildHorasNotaDocxFilename(selectedMusician, record);
     setUploadingNotaId(record.id);
@@ -674,14 +692,12 @@ export default function HorasCatedraDashboard({ supabase }) {
                                         ? "text-cyan-800"
                                         : item.concepts[c.id] > 0
                                           ? "text-slate-700"
-                                          : item.hasNews
-                                            ? "text-rose-500"
-                                            : "text-slate-200"
+                                          : "text-slate-200"
                                     }`}>
                                         {formatHorasNovedadCell(
                                           item.concepts[c.id],
                                           delta,
-                                          item.hasNews ? "0" : "-",
+                                          "-",
                                         )}
                                     </td>
                                     );
@@ -690,31 +706,23 @@ export default function HorasCatedraDashboard({ supabase }) {
                                 <td title={item.deltaCult ? "Novedad Cultura respecto del mes anterior" : undefined} className={`p-3 text-center border-l border-orange-100 font-black whitespace-nowrap ${
                                   item.deltaCult
                                     ? "bg-cyan-50 text-cyan-800"
-                                    : item.totalCult > 0
-                                      ? "bg-orange-50/30 text-orange-700"
-                                      : item.hasNews
-                                        ? "bg-rose-50/50 text-rose-600"
-                                        : "bg-orange-50/30 text-orange-700"
+                                    : "bg-orange-50/30 text-orange-700"
                                 }`}>
                                     {formatHorasNovedadCell(
                                       item.totalCult,
                                       item.deltaCult,
-                                      item.hasNews || item.totalCult > 0 ? "0" : "-",
+                                      item.totalCult > 0 ? "0" : "-",
                                     )}
                                 </td>
                                 <td title={item.deltaEdu ? "Novedad Educación respecto del mes anterior" : undefined} className={`p-3 text-center border-l border-blue-100 font-black whitespace-nowrap ${
                                   item.deltaEdu
                                     ? "bg-cyan-50 text-cyan-800"
-                                    : item.totalEdu > 0
-                                      ? "bg-blue-50/30 text-blue-700"
-                                      : item.hasNews
-                                        ? "bg-rose-50/50 text-rose-600"
-                                        : "bg-blue-50/30 text-blue-700"
+                                    : "bg-blue-50/30 text-blue-700"
                                 }`}>
                                     {formatHorasNovedadCell(
                                       item.totalEdu,
                                       item.deltaEdu,
-                                      item.hasNews || item.totalEdu > 0 ? "0" : "-",
+                                      item.totalEdu > 0 ? "0" : "-",
                                     )}
                                 </td>
                                 <td title={item.conceptDeltas?.h_otros ? "Novedad en Otros respecto del mes anterior" : undefined} className={`p-3 text-center border-l border-slate-200 font-bold whitespace-nowrap ${item.conceptDeltas?.h_otros ? "bg-cyan-50 text-cyan-800" : item.concepts['h_otros'] > 0 ? 'bg-slate-100 text-slate-700' : 'text-slate-300'}`}>

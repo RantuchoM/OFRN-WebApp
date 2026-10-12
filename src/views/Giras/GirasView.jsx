@@ -6,6 +6,7 @@ import React, {
   useLayoutEffect,
   useCallback,
 } from "react";
+import { createPortal } from "react-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   IconPlus,
@@ -68,19 +69,59 @@ import { toast } from "sonner";
 
 // Componentes Modularizados
 import GirasListControls from "./GirasListControls";
+import GirasTableList from "./GirasTableList";
 import GiraCard from "./GiraCard";
 import {
   MoveGiraModal,
   DuplicateGiraModal,
 } from "../../components/giras/GiraManipulationModals";
 import { moveGira, duplicateGira } from "../../services/giraActions";
+import { touchOrganicoConvocado } from "../../services/organicoConvocadoService";
 import { addDays, differenceInCalendarDays, format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
+
+function readCachedGirasVista() {
+  try {
+    localStorage.removeItem("ofrn-giras-list-layout");
+    const raw = localStorage.getItem("app_user");
+    const vista = raw ? JSON.parse(raw)?.giras_vista_lista : null;
+    return vista === "table" ? "table" : "cards";
+  } catch {
+    return "cards";
+  }
+}
+
+function rememberCachedGirasVista(vista) {
+  try {
+    const raw = localStorage.getItem("app_user");
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    parsed.giras_vista_lista = vista;
+    localStorage.setItem("app_user", JSON.stringify(parsed));
+  } catch {
+    /* la preferencia queda en la base aunque el caché local falle */
+  }
+}
+
+function ProgramEditModal({ children }) {
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-black/50 p-3 sm:p-6"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Editar programa"
+    >
+      <div className="my-4 w-full max-w-6xl sm:my-8">{children}</div>
+    </div>,
+    document.body,
+  );
+}
 
 export default function GirasView({ supabase, trigger = 0 }) {
   const { confirm, dialog } = useConfirmDialog();
   const {
     user,
+    realUser,
     isEditor,
     isAdmin,
     roles,
@@ -370,6 +411,46 @@ export default function GirasView({ supabase, trigger = 0 }) {
   const [commentsState, setCommentsState] = useState(null);
   const [globalCommentsGiraId, setGlobalCommentsGiraId] = useState(null);
   const [showRepertoireInCards, setShowRepertoireInCards] = useState(false);
+  const [expandAllConcerts, setExpandAllConcerts] = useState(false);
+  const [listLayout, setListLayout] = useState(readCachedGirasVista);
+  const listLayoutTouched = useRef(false);
+  const updateListLayout = (next) => {
+    const vista = next === "table" ? "table" : "cards";
+    listLayoutTouched.current = true;
+    setListLayout(vista);
+    const id = realUser?.id;
+    if (id == null || id === "guest-general" || Number.isNaN(Number(id))) return;
+    rememberCachedGirasVista(vista);
+    supabase
+      .from("integrantes")
+      .update({ giras_vista_lista: vista })
+      .eq("id", id)
+      .then(({ error }) => {
+        if (error) toast.error("No se pudo guardar la vista del listado");
+      });
+  };
+
+  useEffect(() => {
+    const id = realUser?.id;
+    if (id == null || id === "guest-general" || Number.isNaN(Number(id))) return undefined;
+    let cancelled = false;
+    supabase
+      .from("integrantes")
+      .select("giras_vista_lista")
+      .eq("id", id)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (cancelled || listLayoutTouched.current) return;
+        const vista = data?.giras_vista_lista;
+        if (vista === "table" || vista === "cards") {
+          setListLayout(vista);
+          rememberCachedGirasVista(vista);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [realUser?.id, supabase]);
   const [showFiltersMobile, setShowFiltersMobile] = useState(false);
   const [activeMenuId, setActiveMenuId] = useState(null);
   // Por defecto "Comisión" solo activo para editores y admins; el resto lo puede activar manualmente
@@ -455,12 +536,6 @@ export default function GirasView({ supabase, trigger = 0 }) {
     if (savedPosition) {
       el.scrollTop = parseInt(savedPosition, 10);
       sessionStorage.removeItem("giras_edit_scroll");
-      return;
-    }
-
-    const formEl = document.getElementById(`gira-form-${editingId}`);
-    if (formEl) {
-      formEl.scrollIntoView({ block: "nearest" });
     }
   }, [mode, editingId]);
 
@@ -957,6 +1032,10 @@ export default function GirasView({ supabase, trigger = 0 }) {
           if (staffError) console.error("Error en staff:", staffError);
         }
 
+        touchOrganicoConvocado(supabase, targetId).catch((err) => {
+          console.warn("organico_convocado:", err?.message || err);
+        });
+
         // 3. Sincronización con Google Drive (Edge Function)
         // Usamos 'manage-drive' que es el estándar en tu proyecto según otros archivos
         try {
@@ -1197,6 +1276,10 @@ export default function GirasView({ supabase, trigger = 0 }) {
     setSelectedSources([]);
     setSelectedStaff([]);
   };
+
+  useEffect(() => {
+    if (editingId && mode !== "LIST" && mode !== "EDICION") closeForm();
+  }, [mode, editingId]);
 
   const handleCommentNavigation = (type, entityId) => {
     const currentGira = giras.find((g) => g.id === globalCommentsGiraId);
@@ -1609,7 +1692,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
           </div>
         ) : (
           <div className="px-4 py-3 flex flex-col sm:flex-row items-center justify-between gap-4">
-            <div className="w-full sm:w-auto">
+            <div className="w-full min-w-0 md:w-auto">
               <GirasListControls
                 mode={mode}
                 updateView={updateView}
@@ -1626,6 +1709,10 @@ export default function GirasView({ supabase, trigger = 0 }) {
                 PROGRAM_TYPES={PROGRAM_TYPES}
                 filterStatus={filterStatus}
                 toggleFilterStatus={toggleFilterStatus}
+                listLayout={listLayout}
+                setListLayout={updateListLayout}
+                expandAllConcerts={expandAllConcerts}
+                setExpandAllConcerts={setExpandAllConcerts}
               />
             </div>
             {canSyncNomencladores && (
@@ -1664,7 +1751,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
             updateEventInSupabase={handleUpdateCalendarEvent}
           />
         )}
-        {mode === "AGENDA" && selectedGira && (
+        {(mode === "AGENDA" || mode === "EDICION") && selectedGira && (
           <GiraAgenda
             supabase={supabase}
             gira={selectedGira}
@@ -1751,13 +1838,16 @@ export default function GirasView({ supabase, trigger = 0 }) {
           </div>
         )}
         {mode === "EDICION" && selectedGira && (
-          <div className="h-full overflow-y-auto bg-slate-50 p-6">
+          <ProgramEditModal>
             <GiraForm
               supabase={supabase}
               giraId={selectedGira.id}
               formData={formData}
               setFormData={setFormData}
-              onCancel={() => updateView("AGENDA")}
+              onCancel={() => {
+                closeForm();
+                updateView("AGENDA");
+              }}
               onSave={handleSave}
               onRefresh={handleGiraUpdate}
               loading={loading}
@@ -1773,7 +1863,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
               selectedStaff={selectedStaff}
               setSelectedStaff={setSelectedStaff}
             />
-          </div>
+          </ProgramEditModal>
         )}
         {(loading || deepLinkLoading) && !selectedGira && mode !== "LIST" && mode !== "CALENDAR" && (
           <div className="flex h-full items-center justify-center text-slate-400">
@@ -1878,16 +1968,47 @@ export default function GirasView({ supabase, trigger = 0 }) {
                 No se encontraron programas en el rango seleccionado.
               </div>
             )}
-            {filteredGiras.map((gira) =>
-              String(gira.id) === String(editingId) ? (
-                <React.Fragment key={gira.id}>
-                  {renderInlineGiraForm(gira)}
-                </React.Fragment>
+            {filteredGiras.length > 0 &&
+              (listLayout === "table" ? (
+                <GirasTableList
+                  giras={filteredGiras}
+                  rowProps={{
+                    updateView,
+                    isPersonal,
+                    userRole,
+                    startEdit,
+                    setGlobalCommentsGiraId,
+                    activeMenuId,
+                    setActiveMenuId,
+                    ensemblesList,
+                    supabase,
+                    onMove: handleOpenMove,
+                    onDuplicate: handleOpenDup,
+                  }}
+                  canEditGira={canEditGira}
+                  highlightedGiraId={highlightedGiraId}
+                  onDeleteGira={handleDeleteGira}
+                  showRepertoire={showRepertoireInCards}
+                  expandAllConcerts={expandAllConcerts}
+                />
               ) : (
-                <React.Fragment key={gira.id}>
-                  {renderGiraCard(gira)}
-                </React.Fragment>
-              ),
+                filteredGiras.map((gira) => (
+                  <React.Fragment key={gira.id}>
+                    {renderGiraCard(gira)}
+                  </React.Fragment>
+                ))
+              ))}
+            {editingId && (
+              <ProgramEditModal>
+                {renderInlineGiraForm(
+                  filteredGiras.find(
+                    (g) => String(g.id) === String(editingId),
+                  ) ||
+                    giras.find((g) => String(g.id) === String(editingId)) || {
+                      id: editingId,
+                    },
+                )}
+              </ProgramEditModal>
             )}
             {showYearSummary && (
               <GirasYearSummaryBar

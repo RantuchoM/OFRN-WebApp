@@ -8,7 +8,7 @@ import {
   IconPhoto,
   IconX,
 } from "../../components/ui/Icons";
-import { useGiraRoster } from "../../hooks/useGiraRoster";
+import { useGiraRoster } from "../../hooks/useGiraRosterQuery";
 import {
   resolveStagePlotForEvent,
   listStagePlotsByPrograma,

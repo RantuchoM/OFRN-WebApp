@@ -1,6 +1,5 @@
 import { integranteKey } from "../utils/integranteIds";
 import { seatingApellidoNombre } from "../utils/integranteDisplayName";
-import { useGiraRosterQuery } from "./useGiraRosterQuery";
 import { resolveLocalidadEfectivaViaticos } from "../utils/integranteDomicilioViaticos";
 import {
   membershipActiveOnProgramDate,
@@ -335,9 +334,4 @@ export async function fetchRosterForGira(supabase, gira, options = {}) {
   });
 
   return { roster: sorted, sources: fuentes || [] };
-}
-
-/** Wrapper con caché React Query (misma API que antes). */
-export function useGiraRoster(supabase, gira) {
-  return useGiraRosterQuery(supabase, gira);
 }

@@ -617,14 +617,13 @@ export function computeGiraServiciosAverage({
 }
 
 /** Promedio fijo de servicios de gira para sinfónicas futuras (redondo). */
-export const FIXED_FUTURE_GIRA_SERVICIOS = 10;
+export const FIXED_FUTURE_GIRA_SERVICIOS = 8;
 
-/** Mezcla típica que suma 10 (1 concierto + ensayos de gira; sin didáctico). */
-/** 1 concierto + 9 ensayos ≥2h. Los 3 bloques cortos (15/30 min) ya no entran. Suma 10. */
+/** 1 concierto + 7 ensayos ≥2h. Sin didáctico ni bloques de 15/30 min. Suma 8. */
 export const FIXED_FUTURE_GIRA_BY_KIND = {
   concierto: 1,
   didactico: 0,
-  ensayo_gira_full: 9,
+  ensayo_gira_full: 7,
   ensayo_gira_half: 0,
 };
 

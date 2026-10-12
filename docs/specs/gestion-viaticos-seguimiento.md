@@ -64,6 +64,7 @@ Migración `20260831201720_giras_viaticos_detalle_seguimiento.sql`:
 - [x] Misma marca editable en gira → Viáticos (`ViaticosTable` + `SeguimientoColorSelect`)
 - [x] Color masivo como 3.ª opción al cargar el sidebar (Editar Datos / Exportar y Comunicar / Color de seguimiento)
 - [x] Tinte de fila en `ViaticosTable` (toda la fila salvo Salida / Llegada / Días)
+- [x] Acceso desde Viáticos de la gira: botón **Seguimiento Viáticos** al lado de **Agregar...** (`ViaticosManager`) abre `/management/viaticos_seguimiento`
 
 ## Fuera de alcance
 

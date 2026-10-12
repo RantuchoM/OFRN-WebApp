@@ -2,6 +2,7 @@ import ExcelJS from "exceljs";
 import { XLSX_MIME } from "../utils/downloadBlob";
 import autoTable from "jspdf-autotable";
 import { resolveGiraRosterForMatrix } from "./giraService";
+import { FIMBA_PROGRAM_ID } from "../utils/serviciosEnsambleReport";
 import { fetchRosterForGira } from "../hooks/useGiraRoster";
 import {
   attachConflictoToDetalleHits,
@@ -26,6 +27,8 @@ import {
 import {
   ID_TIPO_CONCIERTO,
   ID_TIPO_ENSAYO_ENSAMBLE,
+  ID_TIPO_ENSAYO_GENERAL,
+  ID_TIPO_ENSAYO_GIRA,
   SERVICIO_EVENT_TYPE_IDS,
   SERVICIO_POR_MES_COLUMN,
   buildCustomByEventId,
@@ -469,6 +472,34 @@ export async function fetchEnsayosConflictoPeriod(
   }
 }
 
+/** Ensayos de gira del período (tipos 2 y 3) para sumar servicios por gira. */
+export async function fetchEnsayosGiraPeriod(
+  supabase,
+  { fechaDesde, fechaHasta } = {},
+) {
+  if (!supabase) {
+    return { events: [], error: null };
+  }
+  const range = normalizeDateRange(fechaDesde, fechaHasta);
+  try {
+    const events = await fetchAllPaged(() =>
+      supabase
+        .from("eventos")
+        .select(EVENT_SELECT)
+        .eq("is_deleted", false)
+        .in("id_tipo_evento", [ID_TIPO_ENSAYO_GIRA, ID_TIPO_ENSAYO_GENERAL])
+        .gte("fecha", range.fechaDesde)
+        .lte("fecha", range.fechaHasta)
+        .order("fecha", { ascending: true })
+        .order("hora_inicio", { ascending: true }),
+    );
+    return { events: events || [], error: null, ...range };
+  } catch (e) {
+    console.error("[serviciosCantidad] ensayos de gira:", e);
+    return { events: [], error: e, ...range };
+  }
+}
+
 /** Conciertos del período (tipo 1) para el informe de un ensamble. */
 export async function fetchConciertosPeriod(
   supabase,
@@ -497,6 +528,86 @@ export async function fetchConciertosPeriod(
   }
 }
 
+async function attachGiraTramoSegmentos(supabase, programas) {
+  const ids = (programas || []).map((p) => p.id).filter((id) => id != null);
+  if (!ids.length) return;
+  const rows = await fetchInIdChunks(
+    supabase,
+    "giras_tramo_segmentos",
+    `id, id_gira, indice, fecha_desde, fecha_hasta,
+     giras_tramo_localidades ( id_localidad, localidades ( id, localidad ) )`,
+    "id_gira",
+    ids,
+  );
+  const byGira = new Map();
+  for (const row of rows || []) {
+    const gid = Number(row.id_gira);
+    if (!byGira.has(gid)) byGira.set(gid, []);
+    byGira.get(gid).push(row);
+  }
+  for (const program of programas) {
+    program.giras_tramo_segmentos = byGira.get(Number(program.id)) || [];
+  }
+}
+
+/**
+ * Roster y grupos de FIMBA (id 12) para promediar servicios por músico del ensamble.
+ * Si la gira no está en el rango, devuelve null.
+ */
+async function loadFimbaProrrateo(supabase, events, programas) {
+  const program = (programas || []).find(
+    (p) => Number(p.id) === FIMBA_PROGRAM_ID,
+  );
+  if (!program) return null;
+  const detail = await resolveGiraRosterForMatrix(supabase, FIMBA_PROGRAM_ID);
+  const roster = {
+    counted: detail?.countedIds || new Set(),
+    preAlta: detail?.preAltaIds || new Set(),
+    reemplazo: detail?.reemplazoIds || new Set(),
+    licencia: detail?.licenciaIds || new Set(),
+  };
+  const { data: grupos, error: gruposError } = await supabase
+    .from("giras_grupos")
+    .select("id, giras_grupos_integrantes ( id_integrante )")
+    .eq("id_gira", FIMBA_PROGRAM_ID);
+  if (gruposError) throw gruposError;
+
+  const membersByGrupoId = new Map();
+  for (const grupo of grupos || []) {
+    const set = new Set();
+    for (const row of grupo.giras_grupos_integrantes || []) {
+      const iid = integranteKey(row.id_integrante);
+      if (iid) set.add(iid);
+    }
+    membersByGrupoId.set(Number(grupo.id), set);
+  }
+
+  const eventIds = (events || [])
+    .filter((evt) =>
+      eventAssociatedProgramaIds(evt).includes(FIMBA_PROGRAM_ID),
+    )
+    .map((evt) => evt.id)
+    .filter((id) => id != null);
+  const links = eventIds.length
+    ? await fetchInIdChunks(
+        supabase,
+        "eventos_grupos",
+        "id_evento, id_grupo",
+        "id_evento",
+        eventIds,
+      )
+    : [];
+  const grupoIdsByEventId = new Map();
+  for (const link of links || []) {
+    const eid = Number(link.id_evento);
+    const gid = Number(link.id_grupo);
+    if (!Number.isFinite(eid) || !Number.isFinite(gid)) continue;
+    if (!grupoIdsByEventId.has(eid)) grupoIdsByEventId.set(eid, []);
+    grupoIdsByEventId.get(eid).push(gid);
+  }
+  return { roster, grupoIdsByEventId, membersByGrupoId };
+}
+
 /**
  * Bundle del informe por ensamble: ensayos + nómina (conflicto),
  * conciertos, y programas con `giras_fuentes` (ENSAMBLE / FAMILIA / EXCL_ENSAMBLE).
@@ -518,21 +629,23 @@ export async function fetchEnsambleServiciosBundle(
     };
   }
   try {
-    const [conflicto, conciertos, programasRaw] = await Promise.all([
+    const [conflicto, conciertos, ensayosGira, programasRaw] = await Promise.all([
       fetchEnsayosConflictoPeriod(supabase, range),
       fetchConciertosPeriod(supabase, range),
+      fetchEnsayosGiraPeriod(supabase, range),
       fetchAllPaged(() =>
         supabase
           .from("programas")
           .select(
             `id, nomenclador, mes_letra, nombre_gira, subtitulo, tipo, fecha_desde, fecha_hasta, zona, estado,
-            giras_fuentes ( id, tipo, valor_id, valor_texto )`,
+            giras_fuentes ( id, tipo, valor_id, valor_texto ),
+            giras_localidades ( id_localidad, localidades ( id, localidad ) )`,
           )
           .lte("fecha_desde", range.fechaHasta)
           .or(`fecha_hasta.gte.${range.fechaDesde},fecha_hasta.is.null`),
       ),
     ]);
-    const error = conflicto.error || conciertos.error;
+    const error = conflicto.error || conciertos.error || ensayosGira.error;
     if (error) {
       return {
         events: [],
@@ -545,12 +658,20 @@ export async function fetchEnsambleServiciosBundle(
       };
     }
     const programas = (programasRaw || []).filter((p) => !isProgramBorrador(p));
+    const events = [
+      ...(conciertos.events || []),
+      ...(ensayosGira.events || []),
+      ...(conflicto.events || []),
+    ];
+    await attachGiraTramoSegmentos(supabase, programas);
+    const fimba = await loadFimbaProrrateo(supabase, events, programas);
     return {
-      events: [...(conciertos.events || []), ...(conflicto.events || [])],
+      events,
       customRows: conflicto.customRows || [],
       memberships: conflicto.memberships || [],
       programas,
       rosterByGiraId: conflicto.rosterByGiraId || {},
+      fimba,
       error: null,
       ...range,
     };

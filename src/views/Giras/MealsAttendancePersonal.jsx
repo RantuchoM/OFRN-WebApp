@@ -17,7 +17,7 @@ import {
   isValid,
 } from "date-fns";
 import { es } from "date-fns/locale";
-import { useGiraRoster } from "../../hooks/useGiraRoster";
+import { useGiraRoster } from "../../hooks/useGiraRosterQuery";
 import { dietDisplayLabel, isStandardOfrnDiet } from "../../utils/dietOptions";
 import ManualTrigger from "../../components/manual/ManualTrigger";
 import { isUserConvoked, normalize } from "../../utils/giraUtils";

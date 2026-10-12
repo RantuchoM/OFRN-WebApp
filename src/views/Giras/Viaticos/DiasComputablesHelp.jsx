@@ -11,7 +11,7 @@ import {
   REFERENCIA_DIAS_SALIDA,
 } from "../../../utils/viaticosDiasComputables";
 import {
-  explainCalendarioDiasViatico,
+  buildCalendarioDiasViatico,
   formatSegmentosProrrateoHelp,
   fmtMoneyArs,
 } from "../../../utils/viaticosValorDiarioProporcional";
@@ -103,6 +103,54 @@ function ReferenciaMismoDiaTable({ filas, diasActivo }) {
   );
 }
 
+function CalendarioDiasDetalle({ calendario }) {
+  if (!calendario || calendario.incomplete) return null;
+
+  if (calendario.sameDay) {
+    return calendario.sameDayDetail ? (
+      <p className="text-xs text-slate-700 leading-snug">{calendario.sameDayDetail}</p>
+    ) : null;
+  }
+
+  return (
+    <div className="space-y-2">
+      {calendario.groups.map((group) => (
+        <div
+          key={group.key}
+          className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
+        >
+          <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+            {group.title}
+          </p>
+          {group.lines.length > 0 ? (
+            <ul className="mt-1 space-y-0.5 text-xs text-slate-700 leading-snug">
+              {group.lines.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-1 text-xs text-slate-500 leading-snug">
+              {group.key === "intermedios" ? "Sin días intermedios." : "—"}
+            </p>
+          )}
+        </div>
+      ))}
+      {calendario.totalLine ? (
+        <p className="text-xs font-semibold text-slate-800 leading-snug">
+          {calendario.totalLine}
+        </p>
+      ) : null}
+      {calendario.valorLines?.length > 0 ? (
+        <ul className="space-y-0.5 text-xs text-slate-700 leading-snug">
+          {calendario.valorLines.map((line) => (
+            <li key={line}>{line}</li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
 function DiasComputablesExplainModal({
   breakdown,
   onClose,
@@ -113,7 +161,7 @@ function DiasComputablesExplainModal({
   if (!breakdown) return null;
 
   const prorrateoTxt = formatSegmentosProrrateoHelp(segmentos, fmtMoneyArs);
-  const calendarioTxt = explainCalendarioDiasViatico({
+  const calendario = buildCalendarioDiasViatico({
     fechaSalida: breakdown.fechaSalida,
     horaSalida: breakdown.horaSalida,
     fechaLlegada: breakdown.fechaLlegada,
@@ -224,11 +272,10 @@ function DiasComputablesExplainModal({
                   </>
                 ) : (
                   <>
-                    Los días se arman con{" "}
-                    <strong>días intermedios</strong> (noches entre salida y
-                    llegada) más fracciones según el{" "}
-                    <strong>horario de salida</strong> y el{" "}
-                    <strong>horario de llegada</strong>.
+                    Los días se arman con el{" "}
+                    <strong>factor de la hora de salida</strong>, los{" "}
+                    <strong>días intermedios</strong> y el{" "}
+                    <strong>factor de la hora de llegada</strong>.
                   </>
                 )}
               </p>
@@ -243,9 +290,7 @@ function DiasComputablesExplainModal({
                   </li>
                 ))}
               </ol>
-              {calendarioTxt ? (
-                <p className="text-xs text-slate-700 leading-snug">{calendarioTxt}</p>
-              ) : null}
+              <CalendarioDiasDetalle calendario={calendario} />
               {breakdown.formulaSummary && (
                 <div className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-center">
                   <span className="text-[10px] font-bold uppercase text-indigo-600 block mb-0.5">

@@ -209,15 +209,15 @@ export function explainViaticosDiasCalculation(dSal, hSal, dLleg, hLleg) {
 
   const steps = [
     {
+      label: "Factor por hora de salida",
+      detail: dep.rule,
+    },
+    {
       label: "Días intermedios",
       detail:
         middleDays === 0
           ? "No hay días completos entre salida y llegada → 0 días intermedios."
           : `Se suman ${middleDays} día(s) completo(s) entre el día de salida y el de llegada.`,
-    },
-    {
-      label: "Factor por hora de salida",
-      detail: dep.rule,
     },
     {
       label: "Factor por hora de llegada",
@@ -228,7 +228,7 @@ export function explainViaticosDiasCalculation(dSal, hSal, dLleg, hLleg) {
   const fmtN = (n) =>
     Number.isInteger(n) ? String(n) : String(n).replace(".", ",");
 
-  const formulaSummary = `${fmtN(middleDays)} + ${fmtN(dep.value)} + ${fmtN(arr.value)} = ${fmtN(total)} días`;
+  const formulaSummary = `${fmtN(dep.value)} + ${fmtN(middleDays)} + ${fmtN(arr.value)} = ${fmtN(total)} días`;
 
   return {
     total,

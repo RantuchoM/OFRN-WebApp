@@ -2,11 +2,17 @@ import React, { useMemo, useState } from "react";
 import { IconUsers, IconCheckCircle, IconInfo } from "../ui/Icons";
 import {
   getInstrumentValue,
-  countsTowardInstrumentationConvoked,
   rosterHasInstrumentationMembers,
   getInstrumentationBadgeBaseClass,
 } from "../../utils/instrumentation";
 import InstrumentationSummaryModal from "../seating/InstrumentationSummaryModal";
+import {
+  computeConvoked,
+  formatInstrumentationStandard,
+  normalizeOrganicoMap,
+} from "../../utils/organicoConvocado";
+
+export { computeConvoked, formatInstrumentationStandard };
 
 function createEmptyInstrumentationMap() {
   return {
@@ -96,99 +102,6 @@ export function computeRequired(works) {
     Object.keys(values).forEach((k) => {
       if (values[k] > acc[k]) acc[k] = values[k];
     });
-  });
-
-  return acc;
-}
-
-export function computeConvoked(roster) {
-  const acc = createEmptyInstrumentationMap();
-  if (!roster || roster.length === 0) return acc;
-
-  roster.forEach((m) => {
-    if (m.estado_gira === "ausente") return;
-    if (!countsTowardInstrumentationConvoked(m.rol_gira)) return;
-
-    const idInstr = String(m.id_instr || "");
-    const name = (m.instrumentos?.instrumento || "").toLowerCase();
-    const familia = (m.instrumentos?.familia || "").toLowerCase();
-
-    const add = (key) => {
-      acc[key] += 1;
-    };
-
-    if (["01", "02", "03", "04"].includes(idInstr)) {
-      add("Str");
-      return;
-    }
-
-    if (name.includes("flaut") || name.includes("picc")) {
-      add("Fl");
-      return;
-    }
-    if (name.includes("oboe") || name.includes("corno ing")) {
-      add("Ob");
-      return;
-    }
-    if (
-      name.includes("clarin") ||
-      name.includes("requinto") ||
-      name.includes("basset")
-    ) {
-      add("Cl");
-      return;
-    }
-    if (name.includes("fagot") || name.includes("contraf")) {
-      add("Fg");
-      return;
-    }
-    if (name.includes("corno") || name.includes("trompa")) {
-      add("Cr");
-      return;
-    }
-    if (name.includes("trompet") || name.includes("fliscorno")) {
-      add("Tp");
-      return;
-    }
-    if (name.includes("trombon") || name.includes("trombón")) {
-      add("Tb");
-      return;
-    }
-    if (name.includes("tuba") || name.includes("bombard")) {
-      add("Tba");
-      return;
-    }
-    if (name.includes("timbal")) {
-      add("Tim");
-      return;
-    }
-    if (
-      name.includes("perc") ||
-      name.includes("bombo") ||
-      name.includes("platillo") ||
-      name.includes("caja")
-    ) {
-      add("Perc");
-      return;
-    }
-    if (name.includes("arpa")) {
-      add("Har");
-      return;
-    }
-    if (
-      name.includes("piano") ||
-      name.includes("teclado") ||
-      name.includes("celesta") ||
-      name.includes("órgano") ||
-      name.includes("organo")
-    ) {
-      add("Pno");
-      return;
-    }
-
-    if (familia.includes("cuerd")) {
-      add("Str");
-    }
   });
 
   return acc;
@@ -342,50 +255,10 @@ function renderAlignedRowTokens(
   return cells;
 }
 
-function formatInstrumentationStandard(map) {
-  const fl = map.Fl || 0;
-  const ob = map.Ob || 0;
-  const cl = map.Cl || 0;
-  const bn = map.Fg || 0;
-  const hn = map.Cr || 0;
-  const tpt = map.Tp || 0;
-  const tbn = map.Tb || 0;
-  const tba = map.Tba || 0;
-
-  const percTotal = (map.Tim || 0) + (map.Perc || 0);
-  const harpCount = map.Har || 0;
-  const keyCount = map.Pno || 0;
-  const hasStr = (map.Str || 0) > 0;
-
-  let standardStr = `${fl}.${ob}.${cl}.${bn} - ${hn}.${tpt}.${tbn}.${tba}`;
-
-  let percStr = "";
-  if (percTotal === 1) percStr = "Perc";
-  else if (percTotal > 1) percStr = `Perc.x${percTotal}`;
-  if (percStr) standardStr += ` - ${percStr}`;
-
-  if (harpCount > 0)
-    standardStr += ` - ${harpCount > 1 ? harpCount : ""}Hp`;
-  if (keyCount > 0) standardStr += ` - Key`;
-  if (hasStr) standardStr += " - Str";
-
-  const isStandardEmpty =
-    standardStr.startsWith("0.0.0.0 - 0.0.0.0") &&
-    percTotal === 0 &&
-    !hasStr &&
-    harpCount === 0 &&
-    keyCount === 0;
-
-  if (isStandardEmpty) return "s/d";
-
-  return standardStr
-    .replace("0.0.0.0 - 0.0.0.0 - ", "")
-    .replace("0.0.0.0 - 0.0.0.0", "");
-}
-
 export default function InstrumentationBadges({
   works = [],
   roster = [],
+  convokedMap = null,
   className = "",
   organicoRevisado = false,
   organicoComentario = null,
@@ -412,7 +285,12 @@ export default function InstrumentationBadges({
     () => computeRequired(normalizedWorks),
     [normalizedWorks],
   );
-  const convoked = useMemo(() => computeConvoked(roster), [roster]);
+  const convoked = useMemo(() => {
+    if (convokedMap && typeof convokedMap === "object") {
+      return normalizeOrganicoMap(convokedMap);
+    }
+    return computeConvoked(roster);
+  }, [roster, convokedMap]);
 
   const mismatch = useMemo(
     () => hasInstrumentationMismatch(required, convoked),

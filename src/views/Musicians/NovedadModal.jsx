@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { IconCheck, IconX, IconLoader, IconRefresh, IconUser, IconClock, IconEdit, IconTrash, IconPlus } from "../../components/ui/Icons";
 import SearchableSelect from "../../components/ui/SearchableSelect";
 import HorasDeleteGuardModal from "../../components/musicians/HorasDeleteGuardModal";
+import { resolveLegajoDesdeHoras } from "../../utils/horasNominaReport";
 
 const CONCEPTOS = [
   { id: "h_basico", label: "Básico", color: "text-blue-700 bg-blue-50 border-blue-200" },
@@ -240,8 +241,17 @@ export default function NovedadModal({ isOpen, onClose, supabase, musician, allM
     return grandTotalFromHistory(merged);
   }, [contextData.history, activeRecord, pendingPayloadPreview]);
 
-  const scenarioAltaLegajo = !activeRecord && prevGrandHoras === 0 && newGrandHoras > 0;
-  const scenarioBajaLegajo = prevGrandHoras > 0 && newGrandHoras === 0;
+  const legajoSync = useMemo(() => {
+    if (!pendingPayloadPreview) return null;
+    return resolveLegajoDesdeHoras({
+      history: contextData.history,
+      pendingRow: pendingPayloadPreview,
+      isInsert: !activeRecord,
+    });
+  }, [pendingPayloadPreview, contextData.history, activeRecord]);
+
+  const scenarioAltaLegajo = Boolean(legajoSync?.esAlta);
+  const scenarioBajaLegajo = Boolean(legajoSync?.esBaja);
 
   const pendingRowTotalHs = useMemo(() => {
     if (!pendingPayloadPreview) return 0;
@@ -258,12 +268,12 @@ export default function NovedadModal({ isOpen, onClose, supabase, musician, allM
         return "La nómina nominal sigue en 0 hs: confirmar con todo en cero no da de alta horas. Para ver la opción de marcar estable y fecha de alta, cargá al menos una hora en algún concepto.";
       }
       if (prevGrandHoras > 0 && newGrandHoras > 0) {
-        return "El total nominal combinado no llega a 0 hs tras guardar (sigue habiendo horas en el otro origen o el último período de ese origen no queda en cero). Por eso no aparece la baja de legajo; solo aparece cuando el total combinado pasa a 0.";
+        return "Sigue habiendo horas vigentes en Cultura o en Educación. Confirmar en 0 un origen que ya estaba en 0 no da de alta, y no carga fecha de baja mientras el otro origen tenga al menos una hora.";
       }
       return null;
     }
     if (prevGrandHoras > 0 && newGrandHoras > 0) {
-      return "Este cambio no deja la nómina nominal total en 0 hs, así que no aplica la opción de quitar estable / fecha de baja.";
+      return "Sigue habiendo horas vigentes en Cultura o en Educación, así que no se carga fecha de baja.";
     }
     return null;
   }, [
@@ -287,16 +297,13 @@ export default function NovedadModal({ isOpen, onClose, supabase, musician, allM
         contextTotals: contextData.totals,
       });
 
-      const merged = mergePendingHorasHistory(
-        contextData.history,
-        activeRecord,
-        payload,
-        !activeRecord,
-      );
-      const prevG = grandTotalFromHistory(contextData.history);
-      const newG = grandTotalFromHistory(merged);
-      const esAlta = !activeRecord && prevG === 0 && newG > 0;
-      const esBaja = prevG > 0 && newG === 0;
+      const legajo = resolveLegajoDesdeHoras({
+        history: contextData.history,
+        pendingRow: payload,
+        isInsert: !activeRecord,
+      });
+      const esAlta = legajo.esAlta;
+      const esBaja = legajo.esBaja;
 
       if (activeRecord) {
           const { error } = await supabase.from("horas_catedra").update(payload).eq("id", activeRecord.id);

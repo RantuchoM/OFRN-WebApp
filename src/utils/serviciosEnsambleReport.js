@@ -5,14 +5,24 @@ import {
   isJazzBandEnsambleLabel,
   isRegionalConvocatoriaEnsamble,
 } from "./convocatoriaEnsambleViews";
+import { membershipActiveOnProgramDate } from "./ensembleMembership";
 import { programOverlapsDateRange } from "./giraDateRange";
 import { isProgramBorrador } from "./girasYearSummary";
+import { integranteKey } from "./integranteIds";
 import {
   ID_TIPO_CONCIERTO,
   ID_TIPO_ENSAYO_ENSAMBLE,
+  ID_TIPO_ENSAYO_GENERAL,
+  ID_TIPO_ENSAYO_GIRA,
+  classifyServicioEvent,
   eventAssociatedProgramaIds,
+  eventInReportDateWindow,
   formatProgramNomencladorNombre,
+  isPastGira,
 } from "./serviciosCantidad";
+
+/** Gira FIMBA: actividades en paralelo por grupo. El paréntesis es un promedio. */
+export const FIMBA_PROGRAM_ID = 12;
 
 /** Familias que el staff puede asignar en Ensambles (`ensambles.id_familia`). */
 export const ENSAMBLE_FAMILIA_OPTIONS = [
@@ -29,16 +39,14 @@ export const TIPOS_GIRA_INFORME_ENSAMBLE = [
 ];
 
 export function listEnsamblesForServiciosReport(ensambles) {
-  const usable = [
-    ...filterEnsamblesForConvocatoriaView(ensambles, "ensambles"),
-    ...filterEnsamblesForConvocatoriaView(ensambles, "cameratas"),
-  ];
+  const usable = filterEnsamblesForConvocatoriaView(ensambles, "ensambles");
   const seen = new Set();
   const out = [];
   for (const en of usable) {
     const id = Number(en?.id);
     if (!Number.isFinite(id) || seen.has(id)) continue;
     if (isEnsamblePruebaLabel(en?.ensamble)) continue;
+    if (isCamerataEnsambleRow(en)) continue;
     seen.add(id);
     out.push(en);
   }
@@ -198,12 +206,257 @@ function sortEvents(rows) {
   });
 }
 
+/** IDs de sede de la gira (`giras_localidades`). */
+export function programLocalidadIds(program) {
+  const ids = [];
+  for (const row of program?.giras_localidades || []) {
+    const id = Number(row?.id_localidad ?? row?.localidades?.id);
+    if (Number.isFinite(id) && id > 0) ids.push(id);
+  }
+  return [...new Set(ids)];
+}
+
+export function programLocalidadLabels(program) {
+  const names = [];
+  for (const row of program?.giras_localidades || []) {
+    const name = String(row?.localidades?.localidad || "").trim();
+    if (name && !names.includes(name)) names.push(name);
+  }
+  return names;
+}
+
+/**
+ * Fuera de casa: la sede de la gira no incluye la localidad del ensamble
+ * (`ensambles.id_localidad`). Si la gira visita esa localidad, está en casa.
+ * Sin localidad en el ensamble o sin sedes en la gira, no se marca.
+ * Con un solo tramo, varias localidades del mismo tramo siguen esta regla.
+ */
+export function isGiraFueraDeCasa(program, ensamble) {
+  const home = Number(ensamble?.id_localidad ?? ensamble?.localidades?.id);
+  if (!Number.isFinite(home) || home <= 0) return false;
+  const locs = programLocalidadIds(program);
+  if (!locs.length) return false;
+  return !locs.includes(home);
+}
+
+function segmentLocalidadIds(segment) {
+  const ids = [];
+  for (const row of segment?.giras_tramo_localidades || []) {
+    const id = Number(row?.id_localidad ?? row?.localidades?.id);
+    if (Number.isFinite(id) && id > 0) ids.push(id);
+  }
+  return [...new Set(ids)];
+}
+
+function gcdInt(a, b) {
+  let x = Math.abs(Number(a) || 0);
+  let y = Math.abs(Number(b) || 0);
+  while (y) {
+    const t = y;
+    y = x % y;
+    x = t;
+  }
+  return x || 1;
+}
+
+/** "2/3 fuera de casa" cuando el peso no es 0 ni 1. */
+export function formatTramoShareLabel(parte, total) {
+  const p = Number(parte) || 0;
+  const n = Number(total) || 0;
+  if (p <= 0 || n <= 1 || p >= n) return "";
+  const g = gcdInt(p, n);
+  return `${p / g}/${n / g} fuera de casa`;
+}
+
+/**
+ * Peso en casa / fuera de casa.
+ * Un tramo (o sedes sueltas en `giras_localidades`): la gira entera es 1 o 0.
+ * Dos o más tramos con localidad: cada tramo vale 1/n. El tramo está en casa
+ * si alguna de sus localidades es la del ensamble.
+ */
+export function giraTramoPesos(program, ensamble) {
+  const home = Number(ensamble?.id_localidad ?? ensamble?.localidades?.id);
+  const withLocs = [...(program?.giras_tramo_segmentos || [])]
+    .sort((a, b) => Number(a?.indice) - Number(b?.indice))
+    .map((seg) => segmentLocalidadIds(seg))
+    .filter((ids) => ids.length > 0);
+
+  const whole = (fuera) =>
+    fuera
+      ? { tramoCount: 1, tramosFuera: 1, pesoEnCasa: 0, pesoFuera: 1 }
+      : { tramoCount: 1, tramosFuera: 0, pesoEnCasa: 1, pesoFuera: 0 };
+
+  if (withLocs.length < 2 || !Number.isFinite(home) || home <= 0) {
+    return whole(isGiraFueraDeCasa(program, ensamble));
+  }
+
+  const tramoCount = withLocs.length;
+  const tramosFuera = withLocs.filter((ids) => !ids.includes(home)).length;
+  return {
+    tramoCount,
+    tramosFuera,
+    pesoEnCasa: (tramoCount - tramosFuera) / tramoCount,
+    pesoFuera: tramosFuera / tramoCount,
+  };
+}
+
+function rosterMarkOf(rosterEntry, iid) {
+  if (!iid || !rosterEntry) return null;
+  if (rosterEntry.reemplazo?.has(iid)) return "reemplazo";
+  if (rosterEntry.licencia?.has(iid)) return "licencia";
+  if (rosterEntry.counted?.has(iid)) return "counted";
+  return null;
+}
+
+function rosterMarkCounts(mark) {
+  return mark === "counted" || mark === "reemplazo" || mark === "licencia";
+}
+
+/**
+ * FIMBA: promedio de servicios (1 / ½ / 0) de los músicos del ensamble que
+ * están en el roster de la gira. Un evento con grupos cuenta solo para los
+ * integrantes de esos grupos; sin grupos, cuenta para todo el roster.
+ * Sin roster cargado devuelve null (el llamador usa la suma cruda).
+ */
+export function averageFimbaServiciosEnsamble({
+  ensamble,
+  program,
+  events,
+  range,
+  memberships,
+  rosterEntry,
+  grupoIdsByEventId,
+  membersByGrupoId,
+} = {}) {
+  if (!rosterEntry || !ensamble?.id) return null;
+  const ref = program?.fecha_desde;
+  const attendees = [];
+  for (const row of memberships || []) {
+    if (Number(row?.id_ensamble) !== Number(ensamble.id)) continue;
+    if (!membershipActiveOnProgramDate(row, ref)) continue;
+    const iid = integranteKey(row.id_integrante);
+    if (!iid) continue;
+    const mark = rosterMarkOf(rosterEntry, iid);
+    if (!rosterMarkCounts(mark)) continue;
+    attendees.push(iid);
+  }
+  if (!attendees.length) return 0;
+
+  const gruposOf = grupoIdsByEventId || new Map();
+  const membersOf = membersByGrupoId || new Map();
+  const pid = Number(program?.id);
+  let sum = 0;
+  for (const iid of attendees) {
+    for (const evt of events || []) {
+      if (!eventAssociatedProgramaIds(evt).includes(pid)) continue;
+      if (range && !eventInReportDateWindow(evt?.fecha, range)) continue;
+      const classified = classifyServicioEvent(evt);
+      if (!classified?.value) continue;
+      const tipo = Number(evt?.id_tipo_evento);
+      if (
+        tipo !== ID_TIPO_CONCIERTO &&
+        tipo !== ID_TIPO_ENSAYO_GIRA &&
+        tipo !== ID_TIPO_ENSAYO_GENERAL
+      ) {
+        continue;
+      }
+      const grupos = gruposOf.get(Number(evt.id)) || [];
+      if (grupos.length) {
+        const inGrupo = grupos.some((gid) => membersOf.get(gid)?.has(iid));
+        if (!inGrupo) continue;
+      }
+      sum += classified.value;
+    }
+  }
+  return sum / attendees.length;
+}
+
+/**
+ * Servicios de una gira: suma de conciertos (tipo 1) y ensayos de gira
+ * (tipos 2 y 3) con la misma fórmula que el informe (1 / ½ / 0).
+ */
+export function sumGiraServiciosComputados(programId, events, range) {
+  const pid = Number(programId);
+  if (!Number.isFinite(pid)) return 0;
+  let total = 0;
+  for (const evt of events || []) {
+    const tipo = Number(evt?.id_tipo_evento);
+    if (
+      tipo !== ID_TIPO_CONCIERTO &&
+      tipo !== ID_TIPO_ENSAYO_GIRA &&
+      tipo !== ID_TIPO_ENSAYO_GENERAL
+    ) {
+      continue;
+    }
+    if (!eventAssociatedProgramaIds(evt).includes(pid)) continue;
+    if (range && !eventInReportDateWindow(evt?.fecha, range)) continue;
+    const classified = classifyServicioEvent(evt);
+    if (!classified?.value) continue;
+    total += classified.value;
+  }
+  return total;
+}
+
+/**
+ * Fila del cuadro general. `pendingEventIds` = conflictos plenos pendientes
+ * (ya partida la sesión). Las giras futuras cuentan como gira y suman 0 servicios.
+ * Servicios netos = servicios de giras pasadas + valor de ensayos de ensamble
+ * que no están en ese pendiente (1 / ½ / 0).
+ */
+export function summarizeEnsambleServiciosReport(report, pendingEventIds) {
+  const pending = new Set();
+  const source =
+    pendingEventIds instanceof Set ? pendingEventIds : pendingEventIds || [];
+  for (const id of source) {
+    const n = Number(id);
+    if (Number.isFinite(n)) pending.add(n);
+  }
+  const blocked = (id) => pending.has(Number(id));
+
+  const giras = report?.giras || [];
+  const pesoEnCasa = (row) =>
+    row?.pesoEnCasa == null ? (row?.fueraDeCasa ? 0 : 1) : Number(row.pesoEnCasa) || 0;
+  const pesoFuera = (row) =>
+    row?.pesoFuera == null ? (row?.fueraDeCasa ? 1 : 0) : Number(row.pesoFuera) || 0;
+  const serviciosDe = (row) =>
+    row?.servicios == null ? 0 : Number(row.servicios) || 0;
+  const serviciosEnCasa = giras.reduce(
+    (acc, row) => acc + serviciosDe(row) * pesoEnCasa(row),
+    0,
+  );
+  const serviciosFuera = giras.reduce(
+    (acc, row) => acc + serviciosDe(row) * pesoFuera(row),
+    0,
+  );
+
+  let ensayosEnsamble = 0;
+  let ensayosServicios = 0;
+  for (const evt of report?.ensayos || []) {
+    if (blocked(evt?.id)) continue;
+    ensayosEnsamble += 1;
+    const classified = classifyServicioEvent(evt);
+    if (classified?.value) ensayosServicios += classified.value;
+  }
+
+  return {
+    ensambleName: report?.ensambleName || "",
+    girasEnCasa: giras.reduce((acc, row) => acc + pesoEnCasa(row), 0),
+    serviciosEnCasa,
+    girasFuera: giras.reduce((acc, row) => acc + pesoFuera(row), 0),
+    serviciosFuera,
+    ensayosEnsamble,
+    ensayosConflicto: pending.size,
+    serviciosNetos: serviciosEnCasa + serviciosFuera + ensayosServicios,
+  };
+}
+
 function toProgramRow(program, extra = {}) {
   return {
     id: program.id,
     program,
     label: formatProgramNomencladorNombre(program) || `Programa ${program.id}`,
     tipo: program.tipo || "",
+    zona: String(program?.zona || "").trim(),
     fechaDesde: program.fecha_desde || "",
     fechaHasta: program.fecha_hasta || "",
     conciertos: extra.conciertos || [],
@@ -225,6 +478,8 @@ export function buildEnsambleServiciosReport({
   fechaDesde,
   fechaHasta,
   ensambles,
+  memberships,
+  fimba,
 } = {}) {
   if (!ensamble?.id || isEnsamblePruebaLabel(ensamble.ensamble)) {
     return null;
@@ -245,7 +500,6 @@ export function buildEnsambleServiciosReport({
     "";
 
   const giras = [];
-  const excluded = [];
   const propiosById = new Map();
 
   for (const program of programas || []) {
@@ -258,24 +512,51 @@ export function buildEnsambleServiciosReport({
       continue;
     }
     const cls = classifyProgramaEnsambleConvocatoria(program, ensamble);
-    if (cls.status === "excluido") {
-      if (giraTipos.has(program.tipo)) {
-        excluded.push(toProgramRow(program, { via: cls.via }));
-      }
-      continue;
-    }
+    if (cls.status === "excluido") continue;
     if (cls.status !== "convocado") continue;
     const cfNames = (cls.cfIds || [])
       .map((id) =>
         (ensambles || []).find((en) => Number(en.id) === Number(id))?.ensamble,
       )
       .filter(Boolean);
+    const pesos = giraTipos.has(program.tipo)
+      ? giraTramoPesos(program, ensamble)
+      : { tramoCount: 1, tramosFuera: 0, pesoEnCasa: 1, pesoFuera: 0 };
+    const range = { fechaDesde, fechaHasta };
+    let servicios = null;
+    let serviciosModo = null;
+    if (giraTipos.has(program.tipo) && isPastGira(program)) {
+      const suma = sumGiraServiciosComputados(program.id, events, range);
+      if (Number(program.id) === FIMBA_PROGRAM_ID && fimba?.roster) {
+        const promedio = averageFimbaServiciosEnsamble({
+          ensamble,
+          program,
+          events,
+          range,
+          memberships,
+          rosterEntry: fimba.roster,
+          grupoIdsByEventId: fimba.grupoIdsByEventId,
+          membersByGrupoId: fimba.membersByGrupoId,
+        });
+        servicios = promedio == null ? suma : promedio;
+        if (promedio != null) serviciosModo = "promedio";
+      } else {
+        servicios = suma;
+      }
+    }
     const row = toProgramRow(program, {
       via: cls.via,
       familias: cls.familias,
       cfIds: cls.cfIds,
       cfNames,
       conciertos: [],
+      servicios,
+      serviciosModo,
+      ...pesos,
+      fueraDeCasa: pesos.pesoFuera >= 1,
+      localidadLabels: giraTipos.has(program.tipo)
+        ? programLocalidadLabels(program)
+        : [],
     });
     if (giraTipos.has(program.tipo)) giras.push(row);
     if (ownTipos.has(program.tipo)) {
@@ -379,14 +660,20 @@ export function buildEnsambleServiciosReport({
     isRegional: isRegionalConvocatoriaEnsamble(ensamble),
     isCamerata: isCamerataEnsambleRow(ensamble),
     regionName,
+    ensambleLocalidadId: Number(ensamble?.id_localidad) || null,
+    ensambleLocalidad: String(ensamble?.localidades?.localidad || "").trim(),
     storedFamilia: storedEnsambleFamilia(ensamble),
     storedCfIds: cfIds,
     storedCfNames,
     storedCfName: storedCfNames.join(", ") || null,
     giras: sortPrograms(giras),
-    excluded: sortPrograms(excluded),
+    girasFueraDeCasa: giras.reduce(
+      (acc, row) => acc + (Number(row.pesoFuera) || 0),
+      0,
+    ),
     programasPropios,
     conciertosSueltos: sortEvents(conciertosSueltos),
+    ensayos: sortEvents(ensayos),
     ensayosTotal: ensayos.length,
     ensayosNeto,
     ensayosConflicto,

@@ -57,6 +57,7 @@ import {
   deleteRepertoireBlockWithDrive,
 } from "../../services/giraService";
 import { formatSecondsToTime, inputToSeconds } from "../../utils/time";
+import { touchOrganicoConvocado } from "../../services/organicoConvocadoService";
 import {
   calculateInstrumentation,
   calculateTotalDuration,
@@ -2687,6 +2688,9 @@ export default function RepertoireManager({
             { onConflict: "id_gira, id_integrante" },
           );
         }
+        touchOrganicoConvocado(supabase, giraId).catch((err) => {
+          console.warn("organico_convocado:", err?.message || err);
+        });
       } catch (e) {
         console.error("Error al sincronizar plantel:", e);
       }

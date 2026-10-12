@@ -29,7 +29,11 @@ import {
   IconLayout,
 } from "../../components/ui/Icons";
 import { useAuth } from "../../context/AuthContext";
-import { useGiraRoster } from "../../hooks/useGiraRoster";
+import { useGiraRoster } from "../../hooks/useGiraRosterQuery";
+import {
+  computeConvoked,
+  normalizeOrganicoMap,
+} from "../../utils/organicoConvocado";
 import {
   calculateInstrumentation,
   calculateInstrumentationFromSeatingAssignments,
@@ -46,7 +50,6 @@ import {
   instrumentationColumnMapToString,
   getPercComparableTotal,
   formatPercussionLabel,
-  countsTowardInstrumentationConvoked,
   rosterHasInstrumentationMembers,
   getInstrumentationBadgeBaseClass,
 } from "../../utils/instrumentation";
@@ -1942,97 +1945,23 @@ export default function ProgramSeating({
   const isString = (id) => ["01", "02", "03", "04"].includes(id);
 
   const instrumentationConvoked = useMemo(() => {
-    const acc = createEmptyInstrumentationMap();
-    if (!filteredRoster || filteredRoster.length === 0) return acc;
-
-    filteredRoster.forEach((m) => {
-      if (m.estado_gira === "ausente") return;
-      if (!countsTowardInstrumentationConvoked(m.rol_gira)) return;
-
-      const idInstr = String(m.id_instr || "");
-      const name = (m.instrumentos?.instrumento || "").toLowerCase();
-      const familia = (m.instrumentos?.familia || "").toLowerCase();
-
-      const add = (key) => {
-        acc[key] += 1;
-      };
-
-      if (["01", "02", "03", "04"].includes(idInstr)) {
-        add("Str");
-        return;
-      }
-
-      if (name.includes("flaut") || name.includes("picc")) {
-        add("Fl");
-        return;
-      }
-      if (name.includes("oboe") || name.includes("corno ing")) {
-        add("Ob");
-        return;
-      }
-      if (
-        name.includes("clarin") ||
-        name.includes("requinto") ||
-        name.includes("basset")
-      ) {
-        add("Cl");
-        return;
-      }
-      if (name.includes("fagot") || name.includes("contraf")) {
-        add("Fg");
-        return;
-      }
-      if (name.includes("corno") || name.includes("trompa")) {
-        add("Cr");
-        return;
-      }
-      if (name.includes("trompet") || name.includes("fliscorno")) {
-        add("Tp");
-        return;
-      }
-      if (name.includes("trombon") || name.includes("trombón")) {
-        add("Tb");
-        return;
-      }
-      if (name.includes("tuba") || name.includes("bombard")) {
-        add("Tba");
-        return;
-      }
-      if (name.includes("timbal")) {
-        add("Tim");
-        return;
-      }
-      if (
-        name.includes("perc") ||
-        name.includes("bombo") ||
-        name.includes("platillo") ||
-        name.includes("caja")
-      ) {
-        add("Perc");
-        return;
-      }
-      if (name.includes("arpa")) {
-        add("Har");
-        return;
-      }
-      if (
-        name.includes("piano") ||
-        name.includes("teclado") ||
-        name.includes("celesta") ||
-        name.includes("órgano") ||
-        name.includes("organo")
-      ) {
-        add("Pno");
-        return;
-      }
-
-      if (familia.includes("cuerd")) {
-        add("Str");
-      }
-    });
-
-    return acc;
-  }, [filteredRoster]);
+    const stored = program?.organico_convocado_map;
+    if (
+      !activeBlockGrupoMemberIds &&
+      rosterLoading &&
+      (confirmedRoster || []).length === 0 &&
+      stored
+    ) {
+      return normalizeOrganicoMap(stored);
+    }
+    return computeConvoked(filteredRoster);
+  }, [
+    filteredRoster,
+    confirmedRoster,
+    activeBlockGrupoMemberIds,
+    program?.organico_convocado_map,
+    rosterLoading,
+  ]);
 
   const normalizeForCompare = (key, value) => {
     if (key === "Str") {

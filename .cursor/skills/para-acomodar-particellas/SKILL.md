@@ -3,9 +3,10 @@ name: para-acomodar-particellas
 description: >-
   Procesa PDFs de particellas en «Para acomodar» (Google Drive local): divide
   combinados IMSLP, recorta portadas, renombra canónicamente (PDF + AUDIO mp3/wav),
-  genera seed SQL y sincroniza obras en Supabase. Usar cuando el usuario pida
-  acomodar, recortar, dividir o renombrar particellas/audio, carpetas en Para
-  acomodar, o procesar PDFs IMSLP para una obra del repertorio.
+  genera seed SQL y sincroniza obras en Supabase. Descarga partes desde IMSLP
+  (el PDF está en el CDN, no en Special:ImagefromIndex). Usar cuando el usuario
+  pida acomodar, recortar, dividir o renombrar particellas/audio, carpetas en
+  Para acomodar, bajar partes de IMSLP, o procesar PDFs IMSLP para una obra.
 ---
 
 # Para acomodar — Particellas PDF
@@ -38,6 +39,7 @@ description: >-
 - [ ] 1. Identificar obra (id, título, compositor) en Supabase
 - [ ] 1b. Armar `obras.titulo` desde la ficha IMSLP (Key, Opus, Movements/Sections)
 - [ ] 2. Listar PDFs y audio (mp3/wav) locales o en Drive; audio → `AUDIO - …`
+- [ ] 2b. Si faltan los PDF: bajarlos de IMSLP (sección de abajo) y guardarlos en la carpeta local de Drive
 - [ ] 3. OCR / inspección de páginas → manifiesto split/crop
 - [ ] 4. Añadir entrada en scripts/lib/<obra>Catalog.mjs
 - [ ] 5. Ejecutar process script local
@@ -136,6 +138,22 @@ Quitar metrónomo `( = 116)` y paréntesis de tonalidad o compases. Si no hay li
 
 Ejemplo Dvořák: `Concierto para Violoncello en si menor, Op. 104` / `I. Allegro` / `II. Adagio ma non troppo` / `III. Finale. Allegro moderato`.
 
+## Descargar PDFs de IMSLP
+
+`curl` a `Special:ImagefromIndex/{id}` o a `Special:IMSLPDisclaimerAccept/{id}` devuelve HTML (spinner o disclaimer), no el PDF. No reintentar ahí.
+
+1. En el navegador, abrir la ficha y leer los enlaces: `Special:ImagefromIndex/{id}/nee` (descarga) y `File:PMLP…pdf` (nombre del archivo).
+2. Navegar (un click no alcanza) a `https://imslp.org/wiki/Special:IMSLPDisclaimerAccept/{id}/nee`. La URL final es el CDN.
+3. La carpeta `{a}/{ab}` es el MD5 **del nombre PMLP solo** (`PMLP368342-11_Flute.pdf`), no de `IMSLP{id}-…`. Usar el primer carácter y los dos primeros del hex.
+4. Bajar el resto con `curl` al CDN, User-Agent de navegador y Referer `https://imslp.org/`. El archivo tiene que empezar con `%PDF-`. Si es HTML, el hash o el nombre están mal.
+5. El espejo que respondió en Hummel Ansell fue `s9.imslp.org`. Si da 404, repetir el paso 2 con un id y usar el host que aparezca.
+
+```
+https://s9.imslp.org/files/imglnks/usimg/4/42/IMSLP1056971-PMLP368342-11_Flute.pdf
+```
+
+Si el usuario da la ruta local (`H:\Mi unidad\...`), escribir ahí. File Stream sube solo; no hace falta la API de Drive.
+
 ## Determinar manifiesto de páginas
 
 1. **Contar páginas**: `pypdf.PdfReader`
@@ -179,6 +197,7 @@ node scripts/generate-falla-sync.mjs
 | `Flauta 1` → `Flauta` | Regex `flauta 1` debe retornar `Flauta 1`, no `Flauta` |
 | Carpeta sin formato canónico | Renombrar antes de `split_and_rename_parts.py` |
 | Drive desactualizado | Esperar sync de Google Drive File Stream tras rename local |
+| `curl` a IMSLP devuelve HTML | El PDF está en el CDN. Ver «Descargar PDFs de IMSLP» |
 | PDF con `S-N.` o `S/N.` en el nombre | `workNumber: null` en catálogo; `normalizeWorkNumberForFilename` omite el segmento |
 | Trompetas en Re y en Sib contadas como 4 slots | Misma silla: dos links, una parte. Wieniawski op.22 (obra 3645): `Trompeta D 1y2` y `Trompeta Bb 1y2` son dos PDFs de **Trompeta 1** y de **Trompeta 2** (cada fila lleva el PDF en Re y el PDF en Sib). Orgánico: 2 trompetas, no 4. El `1y2` de cada PDF sí parte la hoja en silla 1 y silla 2 |
 

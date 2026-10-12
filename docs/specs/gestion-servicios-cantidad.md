@@ -35,11 +35,12 @@ Menú: **Gestión** (staff: `isAdmin || isEditor` en `App.jsx`), mismo módulo q
 - Clic en fila → modal Portal `z-[100]`, colapsable por categoría (conciertos, didácticos, ensamble, gira).
 - **Ensayos en conflicto en el detalle:** la fila del ensayo lleva color y etiqueta. Pleno pendiente = ámbar «En conflicto» (valor 0, «no suma»; si el conteo lo había omitido, igual aparece en el listado). «Se ensayó igual» = verde. Tutti-N = celeste, solo si esa persona está en el roster de la gira. El PDF de detalle (persona y lote) pinta la fila del mismo color y agrega la etiqueta al texto del evento. El total del resumen no cambia.
 - **Orden / separadores:** `compareInstrumentIds` (mismo sort que Convocatorias). Con «Agrupar por ensambles»: `buildAsistenciaMatrixRowGroups` (encabezados de ensamble tildado completo + «Otros»). Vista Ensambles/Cameratas/Regiones: `filterEnsamblesForConvocatoriaView` / `groupRegionalEnsamblesByRegion`.
+- **Barra superior (escritorio):** el listado arriba y el informe de ensamble abajo. Primera línea: período (Desde, Hasta, Año actual) en un recuadro, Gira, Buscar y Exportar a la derecha. Segunda línea: Agrupar por ensambles y Estimar futuros. Franja índigo: combo (Elegí ensamble / Todos) y Ensayos en conflicto. En el teléfono el conflicto y Exportar siguen en el encabezado del árbol.
 
 ## Exportes
 
 - **Excel** (`downloadServiciosCantidadExcel`): dos filas de encabezado. Integrante, Instrumento, Familia, Conciertos, Didácticos, Total y Servicios/mes ocupan las dos filas. El par visible va unido en la fila 1 bajo **Ensayos** (fondo esmeralda) y la fila 2 lleva las etiquetas del corte. Grupos si está tildado Agrupar. Los datos empiezan en la fila 3.
-- **PDF listado** (`downloadServiciosCantidadPdf`): mismo stack que Convocatorias (`jsPDF` + `jspdf-autotable`). **A4 vertical (portrait)**. Título ASCII **Gestion Servicios** (sin flecha/`→`: Helvetica no la dibuja y queda un recuadro). Subtítulo con espacios: `Estimar futuros - promedio 10 serv./gira`. Texto PDF pasa por `toServiciosPdfText` (sin `→` `▸` `·` `–` `≥` `÷`). Encabezado de dos filas: `rowSpan` 2 en integrante, instrumento, conciertos, didácticos, total y Serv/mes; `colSpan` del par bajo **Ensayos**. Subencabezados `shortLabel` (`>=2h` en PDF). Celdas de ese par en verde claro. Separadores de ensamble: `>` + `fillColor` slate. Fila Totales; Servicios/mes del pie = `-`. Botón `IconFileText`.
+- **PDF listado** (`downloadServiciosCantidadPdf`): mismo stack que Convocatorias (`jsPDF` + `jspdf-autotable`). **A4 vertical (portrait)**. Título ASCII **Gestion Servicios** (sin flecha/`→`: Helvetica no la dibuja y queda un recuadro). Subtítulo con espacios: `Estimar futuros - promedio 8 serv./gira`. Texto PDF pasa por `toServiciosPdfText` (sin `→` `▸` `·` `–` `≥` `÷`). Encabezado de dos filas: `rowSpan` 2 en integrante, instrumento, conciertos, didácticos, total y Serv/mes; `colSpan` del par bajo **Ensayos**. Subencabezados `shortLabel` (`>=2h` en PDF). Celdas de ese par en verde claro. Separadores de ensamble: `>` + `fillColor` slate. Fila Totales; Servicios/mes del pie = `-`. Botón `IconFileText`.
 - **PDF detalle persona** (`downloadServiciosCantidadDetallePdf`): A4 vertical. Encabezado (nombre, rango, instrumento) + **recuadro tipo resumen del año** (`GirasYearSummaryBar` al pie de `GirasView`): chips de `programas.tipo` en columnas (colores `PROGRAM_TYPES`) con el total de servicios; **debajo de cada columna**, lista `nomenclador` + `nombre_gira`. Arriba, chips Total y Serv/mes. Luego la tabla de eventos. Botón `IconFileText` en el modal.
 - **PDF detalle lote**: un archivo, `addPage` por integrante; cada uno arranca con el mismo recuadro + detalle.
 - **PDF informe de ensamble** (`downloadEnsambleServiciosPdf` / `buildEnsambleServiciosPdfDoc` en `src/utils/serviciosEnsamblePdf.js`): A4 vertical, mismo stack Helvetica + `jspdf-autotable` + `toServiciosPdfText` (sin `→` ni otros glifos faltantes; helpers en `src/utils/serviciosPdf.js`). Botón **Descargar PDF** (`IconFileText`) en `EnsambleServiciosModal`. Filas: `buildEnsambleServiciosPdfTables` (misma jerarquía que el HTML, con las filas de conflicto ya particionadas). Títulos de evento y locación pasan por `stripHtml`. Nombre `informe_ensamble_<ensamble>_<stamp>.pdf`.
@@ -85,19 +86,18 @@ Toggle **«Estimar futuros»** (`IconCalculator`, default **ON**). El usuario pu
 
 ### Qué pisa el toggle
 
-- **Pisa:** conciertos, didácticos y ensayos de gira (tipos 2/3) de cada **sinfónica** futura/en curso en la que el músico está en nómina (counted / R / L). El valor real se descarta y se sustituye por **10** servicios (repartido: 1 concierto + 9 ensayos ≥2h de gira).
+- **Pisa:** conciertos, didácticos y ensayos de gira (tipos 2/3) de cada **sinfónica** futura/en curso en la que el músico está en nómina (counted / R / L). El valor real se descarta y se sustituye por **8** servicios (repartido: 1 concierto + 7 ensayos ≥2h de gira).
 - **No pisa:** ensayos de ensamble (tipo 13). Extra de ensamble asociado a una gira (p. ej. Navidad Coral) **queda exacto**.
 - Quién recibe el estimado: misma marca de matriz; el estimado se anota como `counted` (sin R/L).
 - Varias sinfónicas futuras: `N × promedio`.
 
 ### Promedio fijo
 
-- No se calcula la media empírica (antes ~13,26). Constante `FIXED_FUTURE_GIRA_SERVICIOS = 10`.
-- UI / PDF / Excel: `promedio 10 serv./gira`.
-- Mezcla interna: 1 concierto + 9 ensayos de gira ≥2h (`FIXED_FUTURE_GIRA_BY_KIND`). Los 3 bloques cortos (15/30 min) que antes iban a &lt;2h **salen**; la suma sigue siendo **10**.
-- Sanity 2026: típico **9–13**, mediana **~10,5**; se eligió **10** por redondeo.
+- No se calcula la media empírica (antes ~13,26; el fijo anterior era 10). Constante `FIXED_FUTURE_GIRA_SERVICIOS = 8`.
+- UI / PDF / Excel: `promedio 8 serv./gira`.
+- Mezcla interna: 1 concierto + 7 ensayos de gira ≥2h (`FIXED_FUTURE_GIRA_BY_KIND`). Los bloques cortos (15/30 min) no entran; la suma es **8**.
 
-HTML, PDF (listado/detalle/lote) y Excel muestran el 10. El detalle lista filas sintéticas «Estimación» en lugar de los eventos reales de esas giras.
+HTML, PDF (listado/detalle/lote) y Excel muestran el 8. El detalle lista filas sintéticas «Estimación» en lugar de los eventos reales de esas giras.
 
 ### Exportar y móvil
 
@@ -146,7 +146,13 @@ Vista convocatoria: `filterEnsamblesForConvocatoriaView` / `isCfEnsambleLabel` (
 
 El informe cuenta una gira **Sinfónico o Camerata Filarmónica** si: no hay `EXCL_ENSAMBLE` de ese id, y hay `ENSAMBLE` de ese id **o** `FAMILIA` = `ensambles.id_familia` (si está cargada) **o** `ENSAMBLE` de **cualquier** CF en `ensambles_cf` (Jazz Band incluida; esa CF no excluida). Un ensamble puede tener CF regional y Jazz Band a la vez. Sin familia/CF: solo convocatoria directa. Programas tipo Ensamble van al bloque 2.
 
-Tres bloques: 1) giras Sinfónico/CF; 2) programas tipo Ensamble (Jazz Band si aplica) con **conciertos anidados** (cada ítem: fecha, hora desde, hora hasta, locación; sin chips «Ensamble» a la derecha); 3) total neto de ensayos + detalle **solo** de los que están en conflicto (pendientes) y, debajo, los resueltos. El número de cada encabezado de bloque va grande (`text-lg`). Filas de conflicto: misma fecha `dd/MM/yyyy, weekday` + horario, título y duración a la izquierda; nombre de gira/programa superpuesto compacto arriba a la derecha (varias si hay más de una); botones + badge debajo. El PDF replica esos tres bloques (más excluidos si hay) en A4 vertical; no inventa Coordinación.
+Tres bloques: 1) giras Sinfónico/CF; 2) programas tipo Ensamble (Jazz Band si aplica) con **conciertos anidados** (cada ítem: fecha, hora desde, hora hasta, locación; sin chips «Ensamble» a la derecha); 3) total neto de ensayos + detalle **solo** de los que están en conflicto (pendientes) y, debajo, los resueltos. El número de cada encabezado de bloque va grande (`text-lg`). Filas de conflicto: misma fecha `dd/MM/yyyy, weekday` + horario, título y duración a la izquierda; nombre de gira/programa superpuesto compacto arriba a la derecha (varias si hay más de una); botones + badge debajo. El PDF replica esos tres bloques en A4 vertical; no inventa Coordinación. No hay bloque de programas con `EXCL_ENSAMBLE`: esas giras no se listan. El listado completo de ensayos es solo del modal (desplegable, cerrado por defecto).
+
+**Fuera de casa (solo giras Sinfónico/CF):** la sede no incluye `ensambles.id_localidad`. Sin localidad en el ensamble o sin sedes, no se marca. **Un tramo** (aunque liste varias localidades): la gira entera está en casa si alguna sede es la del ensamble. **Dos o más tramos** (`giras_tramo_segmentos` con localidad): cada tramo vale 1/n. El tramo está en casa si alguna de sus localidades es la del ensamble; si no, es fuera. El encabezado `(n fuera de casa)` y las columnas Giras / Servicios del cuadro Todos suman esos pesos (una gira de 3 tramos con 1 fuera suma 0,33 giras y un tercio de sus servicios a fuera de casa, y 0,67 / dos tercios a en casa). La fila muestra `1/3 fuera de casa` cuando el peso no es 0 ni 1, y `Fuera de casa` cuando lo son todos. Programas y conciertos de ensamble no se discriminan.
+
+**Servicios de cada gira:** entre paréntesis, al lado del nombre, solo si la gira ya pasó (`isPastGira`: `fecha_hasta` anterior a hoy). Las giras en curso o futuras no muestran el paréntesis. Suma de conciertos (tipo 1) y ensayos de gira (tipos 2 y 3) del rango, con la misma fórmula del informe (1 / ½ / 0; ≤30 min o ensayo sin horas = 0). No entran los ensayos de ensamble (tipo 13). Cada gira muestra `programas.zona` junto al nombre. El PDF de giras lleva la zona, el mismo paréntesis (si ya pasó) y la marca fuera de casa. **FIMBA (`programas.id = 12`):** el paréntesis no es la suma de todas las actividades en paralelo. Es el promedio de servicios de los músicos de ese ensamble que están en el roster (X / R / L) y con membresía vigente al inicio de la gira. Un evento con `eventos_grupos` cuenta solo para los integrantes de esos grupos; sin grupos, cuenta para todo el roster. El cuadro Todos prorratea ese promedio con los tramos, igual que el resto. Si el roster no carga, queda la suma cruda.
+
+**Opción Todos** (combo del árbol y de la barra): no abre el modal. Descarga un PDF (`informe_ensambles_<stamp>.pdf`). Primera página **apaisada**: una fila por ensamble del combo (solo ensambles regionales: sin Prueba, sin Jazz Band y sin CF) más fila Total. Jazz Band y las CF (nombre que empieza con `CF`) no entran a este informe: ni combo, ni ícono del árbol, ni PDF. Encabezado de dos filas: **En casa** y **Fuera de casa** abarcan cada uno **Giras** y **Servicios**. En casa va en verde, fuera de casa en naranja, Ensayos en conflicto en rojo (encabezado y cuerpo). Ensayos de ensamble y Servicios netos quedan aparte. Las giras futuras entran en el conteo de giras y suman 0 servicios. Ensayos de ensamble = cantidad que no está en conflicto pleno pendiente. Ensayos en conflicto = ese pendiente (con la sesión del informe). Servicios netos = servicios de giras pasadas (en casa + fuera) + valor de esos ensayos de ensamble (1 / ½ / 0). Después, cada informe en A4 vertical, uno por página de arranque. Un solo `fetchEnsambleServiciosBundle`.
 
 **Join de conciertos al programa Ensamble:** `eventos.id_gira` y `eventos_programas_asociados` (`eventAssociatedProgramaIds`). Los conciertos VS son eventos de gira (`id_tipo_evento = 1`); **no** exigen fila en `eventos_ensambles`. Esa tabla queda para ensayos independientes (tipo 13) y para conciertos sueltos (sin programa propio de tipo Ensamble). Si el informe pedía `eventos_ensambles` para anidar, los VS salían solo como título.
 
@@ -195,7 +201,7 @@ Confirmaciones Portal `z-[110]` sobre el modal `z-[100]`. No hay tabla extra: un
 | PDF A4 vertical + detalle persona + lote | Completado |
 | Recuadro PDF/HTML = resumen del año Giras (`GirasYearSummaryBar`) | Completado |
 | Tipos de programa: todos tildados por defecto | Completado |
-| Estimar futuros (10 fijo, default ON) | Completado |
+| Estimar futuros (8 fijo, default ON) | Completado (2026-10-09) |
 | Exportar un botón + resumen móvil | Completado |
 | Descarga en celular (Compartir / ancla en el DOM) + scroll móvil | Completado |
 | Paginación PostgREST `.range` en eventos | Completado |
@@ -212,6 +218,12 @@ Confirmaciones Portal `z-[110]` sobre el modal `z-[100]`. No hay tabla extra: un
 | Tutti-N: tildar = asiste igual; default destildado; `asiste_igual` | Completado (2026-09-30) |
 | Agenda: conflicto en memoria + 1 bulk fuentes; sin N getSession | Completado (2026-09-30) |
 | Justificación obligatoria «Se ensayó igual» (`ensayo_pese_conflicto_justificacion`) | Completado (2026-09-30) |
+| Informe ensamble: fuera de casa + servicios por gira (ensayos 2/3 + conciertos) | Completado (2026-10-09) |
+| Informe ensamble: desplegable de todos los ensayos (solo modal) | Completado (2026-10-09) |
+| Informe ensambles: opción Todos (PDF con cuadro general + informes) | Completado (2026-10-09) |
+| Barra superior agrupada (período / listado / informe de ensamble) | Completado (2026-10-09) |
+| Tramos de localidad: cada tramo pesa 1/n en giras y servicios fuera de casa | Completado (2026-10-09) |
+| FIMBA (id 12): promedio de servicios de los músicos del ensamble en el roster | Completado (2026-10-09) |
 
 ## Deuda / abierto
 
@@ -226,11 +238,11 @@ Confirmaciones Portal `z-[110]` sobre el modal `z-[100]`. No hay tabla extra: un
 - El recuadro de tipos no se repite en páginas de continuación si el detalle de una persona desborda.
 - Totales de Servicios/mes no se agregan (cada fila tiene divisor propio).
 - `stripHtml` ahora usa DOMParser en todo el producto (agenda, FIMBA, comidas): más agresivo que el regex viejo; títulos con `<` literales poco frecuentes.
-- El 10 fijo no refleja giras cortas (p. ej. Navidad Coral); solo pisa sinfónicas futuras.
-- El estimado reparte 10 en Conc./≥2h (1+9); no mete bloques de 15/30 min.
+- El 8 fijo no refleja giras cortas (p. ej. Navidad Coral); solo pisa sinfónicas futuras.
+- El estimado reparte 8 en Conc./≥2h (1+7); no mete bloques de 15/30 min.
 - `computeGiraServiciosAverage` queda en el util por si se vuelve a la media empírica; el informe ya no la usa.
 - Ensayos en conflicto: Agenda no pide seating. El modal de Servicios arma grupos sin N `fetchRosterForGira` (pleno = classify + overlap). No cruza hora del ensayo con hora de viaje (solo calendario `fecha_desde`/`fecha_hasta`). Ensambles Prod. quedan fuera por el filtro de convocatoria.
-- Informe de ensamble: familia/CF salen de `ensambles.id_familia` / `ensambles_cf` (el staff las carga; varias regionales aún sin CF). El bundle pide de nuevo nómina de giras. No se inventan membresías a Jazz Band. Conciertos de programa Ensamble se anidan por `id_gira` / `eventos_programas_asociados`; `eventos_ensambles` no los cubre (ensayos independientes). `eventos_giras_asociadas` existe en schema y no se usa. El PDF no incluye Coordinación (no está en el HTML). Helvetica dibuja acentos latinos pero no flechas; `toServiciosPdfText` sigue siendo obligatorio. El recuadro de tipos de programa del PDF persona no se replica aquí (el informe de ensamble no es por músico). En el copy «Ninguno en conflicto» usar `ensayosNeto ?? ensayosTotal ?? 0` (sin mezclar `??` con `||`: Vite/Rollup aborta el build).
+- Informe de ensamble: familia/CF salen de `ensambles.id_familia` / `ensambles_cf` (el staff las carga; varias regionales aún sin CF). El bundle pide de nuevo nómina de giras, más ensayos de gira (tipos 2 y 3) y `giras_localidades` para fuera de casa. No se inventan membresías a Jazz Band. Conciertos de programa Ensamble se anidan por `id_gira` / `eventos_programas_asociados`; `eventos_ensambles` no los cubre (ensayos independientes). `eventos_giras_asociadas` existe en schema y no se usa. El PDF no incluye Coordinación (no está en el HTML) ni el desplegable de todos los ensayos. Helvetica dibuja acentos latinos pero no flechas; `toServiciosPdfText` sigue siendo obligatorio. El recuadro de tipos de programa del PDF persona no se replica aquí (el informe de ensamble no es por músico). En el copy «Ninguno en conflicto» usar `ensayosNeto ?? ensayosTotal ?? 0` (sin mezclar `??` con `||`: Vite/Rollup aborta el build). Una gira con un solo tramo está en casa si alguna sede es `ensambles.id_localidad` (varias localidades en el mismo tramo no se parten). Con dos o más tramos, cada uno vale 1/n. Gira o ensamble sin localidad no se marca fuera de casa. FIMBA (id 12) promedia por músico del ensamble en el roster; el listado por integrante de Servicios no cambia (sigue sin recortar por `eventos_grupos`). El paréntesis de servicios no aplica «Estimar futuros» (sale el cronograma real del rango) y solo aparece si `fecha_hasta` es anterior a hoy.
 - `ensayo_pese_conflicto` no tiene historial ni autor; revertir es poner el flag en false (no hay UI de deshacer).
 - Tutti-N `asiste_igual` no cambia convocatoria ni cantidad: es un override de coordinación (quién asiste al ensayo pese a la gira). `IndependentRehearsalForm` preserva esas filas al guardar invitados/ausentes.
 - Alta de `ensayo_pese_conflicto` (`20260927002345`): catalog-only, no pisó `updated_at`. Los triggers de agenda **ignoran** un UPDATE que solo cambia ese flag (`20260927005059`), para no marcar toda la agenda como recién editada. `ensayo_pese_conflicto_justificacion` (`20260930190100`, text NULL) **no** entra en esa lista: guardar «Se ensayó igual» (flag + texto) pulsa **ese** evento.

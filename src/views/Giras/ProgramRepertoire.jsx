@@ -37,7 +37,7 @@ import {
   syncBowingToProgram,
   syncProgramRepertoire,
 } from "../../services/giraService";
-import { useGiraRoster } from "../../hooks/useGiraRoster";
+import { useGiraRoster } from "../../hooks/useGiraRosterQuery";
 import { toast } from "sonner";
 import { matchesMultiTokenSearch } from "../../utils/sanitize";
 import { effectiveRepertorioObraTitle } from "../../utils/repertorioRowDisplay";

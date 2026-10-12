@@ -213,7 +213,7 @@ import {
   stagePlotSelectionCanAddSharedAtril,
   STAGE_PLOT_STRING_PAIR_TYPES,
 } from "../../utils/stagePlotAtril";
-import { useGiraRoster } from "../../hooks/useGiraRoster";
+import { useGiraRoster } from "../../hooks/useGiraRosterQuery";
 import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 import {
   exportStagePlotJpg,

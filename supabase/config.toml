@@ -133,3 +133,22 @@ entrypoint = "./functions/sync-fimba-contrataciones-sheet/index.ts"
 enabled = true
 verify_jwt = true
 entrypoint = "./functions/notify-alimentacion-change/index.ts"
+
+[functions.horas-recordatorio-mensual]
+enabled = true
+verify_jwt = false
+import_map = "./functions/horas-recordatorio-mensual/deno.json"
+entrypoint = "./functions/horas-recordatorio-mensual/index.ts"
+# pg_cron 12:00 UTC del día 1 (09:00 ART) — migración horas_recordatorio_mensual_cron.
+# Secrets: GMAIL_*, HORAS_RECORDATORIO_CRON_SECRET (o DB_BACKUP / ENSAYO_DIARIO / ENSAYO_SALIDA)
+# Header: x-horas-recordatorio-cron-secret (también x-db-backup-cron-secret)
+# Body opcional: {"force":true} envía aunque no sea día 1.
+# Con force, "to":"ofrn.archivo@gmail.com" manda una vista previa solo a ese correo.
+
+[functions.organico-convocado-refresh]
+enabled = true
+verify_jwt = false
+import_map = "./functions/organico-convocado-refresh/deno.json"
+entrypoint = "./functions/organico-convocado-refresh/index.ts"
+# pg_cron 10:00 UTC (07:00 ART) — migración organico_convocado_cron_diario.
+# Header: x-db-backup-cron-secret. Secret: DB_BACKUP_CRON_SECRET.

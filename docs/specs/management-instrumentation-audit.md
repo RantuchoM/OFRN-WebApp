@@ -78,7 +78,12 @@ Proveer una interfaz centralizada para comparar la instrumentación técnica req
 > **Regla crítica**: siempre utilizar `getInstrumentValue` para interpretar los strings de instrumentación (por ejemplo `"2+1"` debe considerarse 3) y no hacer parseos manuales.
 
 ### 2. Instrumentación Convocada (Conv)
-- Fuente: tabla `giras_integrantes`.
+- **Cache:** `programas.organico_convocado_map` (mismo `computeConvoked` que los badges). En la matriz, `Str` de ese mapa se fuerza a 0: las cuerdas no entran en Conv y solo aparecen en Vacantes. El texto `programas.organico_convocado` se muestra en la meta del programa.
+- **Recálculo manual:** en la barra, **Recalcular vigentes** actualiza todos los programas vigentes o futuros y muestra `hechos/total`. En cada tarjeta, el botón de refresco recalcula solo ese programa. El cron automático corre una vez por día a las 07:00 ART.
+- Si el cache todavía es null, esa carga usa el conteo del roster y lo guarda.
+- Vacantes, nombres del tooltip y fuentes siguen saliendo del roster cargado para el informe.
+- El sandbox usa el cache como lado producción cuando no hay borrador distinto. Con borrador, el lado draft se calcula en vivo. Al aplicar el borrador se refresca el cache.
+- Fuente de verdad del conteo (cuando se recalcula): roster de `fetchRosterForGira`, no un agregado SQL.
 - Relación de datos:
   - `giras_integrantes.id_gira` ↔ `programas.id`
 - Filtro de filas:
