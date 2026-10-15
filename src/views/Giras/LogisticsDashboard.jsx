@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 import {
   IconUtensils,
   IconLoader,
@@ -12,6 +13,8 @@ import {
   IconCalculator,
   IconArrowLeft,
   IconPencil,
+  IconHelpCircle,
+  IconX,
 } from "../../components/ui/Icons";
 import { useSearchParams } from "react-router-dom";
 // Hooks
@@ -33,8 +36,57 @@ import RoomingManager from "./RoomingManager";
 import ViaticosManager from "./Viaticos/ViaticosManager";
 import GiraTramosEditModal from "./GiraTramosEditModal";
 import { createDefaultMealFilters } from "../../utils/mealLogistics";
+import { seatingApellidoNombre } from "../../utils/integranteDisplayName";
 
 const EMPTY_HOSPEDAJE_EXCLUIDOS = Object.freeze([]);
+
+function formatHeadcountLine(person) {
+  const name = seatingApellidoNombre(person) || "Sin nombre";
+  const residencia =
+    person?.localidades_residencia?.localidad ||
+    person?._loc_residencia?.localidad ||
+    "S/D";
+  return `${name} (${residencia})`;
+}
+
+function compareHeadcountLines(a, b) {
+  return a.label.localeCompare(b.label, "es", { sensitivity: "base" });
+}
+
+function NumberedPeople({ people }) {
+  if (!people.length) {
+    return <p className="text-[11px] italic text-slate-400">Nadie</p>;
+  }
+  return (
+    <ol className="list-decimal space-y-0.5 pl-4 text-[11px] leading-snug text-slate-700">
+      {people.map((person) => (
+        <li key={person.key} className="pl-0.5 marker:text-slate-400">
+          {person.label}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function HeadcountCell({ title, people, tone = "slate" }) {
+  const toneClass =
+    tone === "indigo"
+      ? "border-indigo-200 bg-indigo-50/60"
+      : "border-slate-200 bg-white";
+  return (
+    <div className={`min-w-0 rounded-lg border p-2 ${toneClass}`}>
+      <div className="mb-1.5 flex items-baseline justify-between gap-2">
+        <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+          {title}
+        </span>
+        <span className="text-[11px] font-black tabular-nums text-slate-700">
+          {people.length}
+        </span>
+      </div>
+      <NumberedPeople people={people} />
+    </div>
+  );
+}
 
 export default function LogisticsDashboard({
   supabase,
@@ -50,6 +102,7 @@ export default function LogisticsDashboard({
   const [isMealsMenuOpen, setIsMealsMenuOpen] = useState(false);
   const [activeTramoIdx, setActiveTramoIdx] = useState(0);
   const [showTramosModal, setShowTramosModal] = useState(false);
+  const [showHeadcountDetail, setShowHeadcountDetail] = useState(false);
   /** Filtros compartidos Manager ↔ Asistencia ↔ Reporte (exports usan el set filtrado). */
   const [mealFilters, setMealFilters] = useState(() => createDefaultMealFilters());
 
@@ -95,29 +148,43 @@ export default function LogisticsDashboard({
   const [showMealsPrint, setShowMealsPrint] = useState(false);
   // --- ESTADÍSTICAS MATRIZ DOBLE ENTRADA (por tramo activo) ---
   const stats = useMemo(() => {
-    const data = {
-      m_local: 0,
-      m_viajero: 0,
-      f_local: 0,
-      f_viajero: 0,
-      total: 0,
+    const buckets = {
+      m_local: [],
+      m_viajero: [],
+      f_local: [],
+      f_viajero: [],
+      other: [],
     };
 
-    if (!summary || summary.length === 0) return data;
+    if (!summary || summary.length === 0) {
+      return {
+        m_local: 0,
+        m_viajero: 0,
+        f_local: 0,
+        f_viajero: 0,
+        total: 0,
+        vacantes: 0,
+        buckets,
+      };
+    }
 
-    summary.forEach((curr) => {
-      // Usar 'estado_gira' para filtrar bajas / ausentes
+    let vacantes = 0;
+
+    summary.forEach((curr, index) => {
       const estado = (curr.estado_gira || "").toUpperCase();
       if (estado === "BAJA" || estado === "AUSENTE") return;
+      if (curr.es_simulacion === true || curr.integrantes?.es_simulacion === true) {
+        vacantes += 1;
+        return;
+      }
 
-      // Total "real": todos los activos, sin discriminar género ni localía
-      data.total++;
-
-      // Género binario que se muestra en la matriz
+      const entry = {
+        key: String(curr.id ?? curr.id_integrante ?? index),
+        label: formatHeadcountLine(curr),
+      };
       const g = (curr.genero || "").toUpperCase();
       const isMale = g.startsWith("M");
       const isFemale = g.startsWith("F");
-
       const isLocal =
         showTramoSelector && segments?.length
           ? isLocalForTramoIndex(
@@ -129,15 +196,30 @@ export default function LogisticsDashboard({
           : Boolean(curr.is_local);
 
       if (isMale) {
-        if (isLocal) data.m_local++;
-        else data.m_viajero++;
+        (isLocal ? buckets.m_local : buckets.m_viajero).push(entry);
       } else if (isFemale) {
-        if (isLocal) data.f_local++;
-        else data.f_viajero++;
+        (isLocal ? buckets.f_local : buckets.f_viajero).push(entry);
+      } else {
+        buckets.other.push(entry);
       }
     });
 
-    return data;
+    Object.values(buckets).forEach((list) => list.sort(compareHeadcountLines));
+
+    return {
+      m_local: buckets.m_local.length,
+      m_viajero: buckets.m_viajero.length,
+      f_local: buckets.f_local.length,
+      f_viajero: buckets.f_viajero.length,
+      total:
+        buckets.m_local.length +
+        buckets.m_viajero.length +
+        buckets.f_local.length +
+        buckets.f_viajero.length +
+        buckets.other.length,
+      vacantes,
+      buckets,
+    };
   }, [summary, showTramoSelector, segments, activeTramoIdx, segmentRows]);
 
   const [mealNavEpoch, setMealNavEpoch] = useState(0);
@@ -220,9 +302,9 @@ export default function LogisticsDashboard({
         <div className="flex items-end justify-end gap-1.5 sm:gap-4 h-full min-w-0 flex-1 ml-2 sm:ml-8">
           {/* Selector de tramo + CUADRO RESUMEN */}
           {!loading && (
-            <div className="hidden lg:flex flex-col items-end gap-1 mb-2 shrink-0">
+            <div className="flex flex-col items-end gap-1 mb-2 shrink-0">
               {showTramoSelector && (
-                <div className="flex items-center gap-1 overflow-x-auto max-w-[320px]">
+                <div className="hidden lg:flex items-center gap-1 overflow-x-auto max-w-[320px]">
                   {segmentSpecs.map((spec, idx) => {
                     const label =
                       spec?.fecha_desde && spec?.fecha_hasta
@@ -260,9 +342,24 @@ export default function LogisticsDashboard({
                   )}
                 </div>
               )}
-              <div className="grid grid-cols-4 gap-x-2 gap-y-0.5 bg-slate-50 border border-slate-200 rounded-md p-1.5 shadow-sm select-none text-[9px] leading-none">
-              {/* Headers Columnas */}
-              <div className="text-transparent">.</div>
+              <div className="flex items-start gap-1">
+              <button
+                type="button"
+                onClick={() => setShowHeadcountDetail(true)}
+                title="Ver quiénes integran el cuadro"
+                className="lg:hidden inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-400 hover:border-indigo-300 hover:text-indigo-600"
+              >
+                <IconHelpCircle size={12} />
+              </button>
+              <div className="hidden lg:grid grid-cols-4 gap-x-2 gap-y-0.5 bg-slate-50 border border-slate-200 rounded-md p-1.5 shadow-sm select-none text-[9px] leading-none">
+              <button
+                type="button"
+                onClick={() => setShowHeadcountDetail(true)}
+                title="Ver quiénes integran el cuadro"
+                className="inline-flex items-center justify-center text-slate-400 hover:text-indigo-600"
+              >
+                <IconHelpCircle size={11} />
+              </button>
               <div
                 className="font-bold text-slate-400 text-center"
                 title={
@@ -319,10 +416,21 @@ export default function LogisticsDashboard({
               <div className="font-bold text-indigo-600 text-center pt-1 border-t border-slate-200">
                 {stats.m_viajero + stats.f_viajero}
               </div>
-              <div className="font-bold text-indigo-600 text-center pt-1 border-t border-slate-200">
+              <div
+                className="font-bold text-indigo-600 text-center pt-1 border-t border-slate-200 whitespace-nowrap"
+                title={
+                  stats.vacantes > 0
+                    ? `${stats.total} personas + ${stats.vacantes} vacantes`
+                    : undefined
+                }
+              >
                 {stats.total}
+                {stats.vacantes > 0 && (
+                  <span className="text-amber-500"> +{stats.vacantes}</span>
+                )}
               </div>
             </div>
+              </div>
             </div>
           )}
 
@@ -527,6 +635,23 @@ export default function LogisticsDashboard({
         onClose={() => setShowTramosModal(false)}
         onSaved={handleTramosSaved}
       />
+      {showHeadcountDetail && (
+        <HeadcountDetailModal
+          stats={stats}
+          tramoLabel={
+            showTramoSelector
+              ? segmentSpecs[activeTramoIdx]?.fecha_desde
+                ? formatTramoTitle(
+                    activeTramoIdx,
+                    segmentSpecs[activeTramoIdx].fecha_desde,
+                    segmentSpecs[activeTramoIdx].fecha_hasta,
+                  )
+                : `Tramo ${activeTramoIdx + 1}`
+              : null
+          }
+          onClose={() => setShowHeadcountDetail(false)}
+        />
+      )}
       </div>
     
   );
@@ -573,3 +698,63 @@ const DropdownItem = ({ active, onClick, icon, label, colorClass }) => {
     </button>
   );
 };
+
+function HeadcountDetailModal({ stats, tramoLabel, onClose }) {
+  const { buckets } = stats;
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[100] flex items-end justify-center bg-black/50 p-0 backdrop-blur-sm animate-in fade-in sm:items-center sm:p-4"
+      onClick={onClose}
+    >
+      <div
+        className="flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-t-xl border border-slate-200 bg-white shadow-2xl sm:rounded-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex shrink-0 items-start justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3">
+          <div className="min-w-0">
+            <h3 className="text-sm font-bold text-slate-800">
+              Quiénes integran el cuadro
+            </h3>
+            <p className="mt-0.5 text-[11px] text-slate-500">
+              Apellido, Nombre (localidad de residencia)
+              {tramoLabel ? ` · ${tramoLabel}` : ""}. Cada lista está numerada.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="shrink-0 rounded-full p-1 text-slate-400 hover:bg-slate-200 hover:text-slate-700"
+            title="Cerrar"
+          >
+            <IconX size={16} />
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-4">
+          {buckets.other.length > 0 && (
+            <div className="mb-3">
+              <HeadcountCell
+                title="Sin género"
+                people={buckets.other}
+              />
+            </div>
+          )}
+          <div className="grid grid-cols-2 gap-2">
+            <div className="text-center text-[10px] font-bold uppercase tracking-wide text-slate-400">
+              Loc
+            </div>
+            <div className="text-center text-[10px] font-bold uppercase tracking-wide text-slate-400">
+              Viaj
+            </div>
+
+            <HeadcountCell title="Masc" people={buckets.m_local} />
+            <HeadcountCell title="Masc" people={buckets.m_viajero} />
+
+            <HeadcountCell title="Fem" people={buckets.f_local} />
+            <HeadcountCell title="Fem" people={buckets.f_viajero} />
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}

@@ -70,3 +70,7 @@ Aplica a **ensambles** y **familias** (chips del header o desplegable Convocar �
 - Expone **`sendAllNow()`** vía ref para el modal de salida.
 - Cada tarea enviada a la Edge Function incluye **`reason`** en el payload `detalle` para que la plantilla lo muestre en el cuerpo del mail.
 - Opcionalmente **`reason_footnote`**: párrafo adicional debajo del motivo (ej. leyenda de Balance Orquestal en mails `AUSENTE`).
+
+## 8. Menús de la toolbar en móvil
+
+- [x] Orden, Filtros y Convocar se renderizan en portal (`position: fixed`, `z-index: 80`, `max-height` del viewport). La fila de la toolbar tiene `overflow-x-auto` y recortaba los desplegables absolutos. Los `MultiSelectDropdown` de Filtros siguen en su portal (`z-index: 150`).

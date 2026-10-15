@@ -4,6 +4,7 @@ import {
   IconLoader, IconFilter, IconPlus, IconX, IconUser, IconTrash, IconEdit,
   IconCloudUpload,
   IconFileText,
+  IconFileExcel,
   IconCalendar,
   IconChevronDown,
   IconFolder,
@@ -29,6 +30,7 @@ import {
   HORAS_NOTAS_DRIVE_FOLDER_ID,
 } from "../../utils/horasPdfExporter";
 import { downloadHorasNominaExport } from "../../utils/horasNominaTablePdf";
+import { downloadHorasCatedraExcel } from "../../utils/horasCatedraExcel";
 import {
   HORAS_CONCEPTOS as CONCEPTOS,
   MAX_NOMINA_EXPORT_MONTHS,
@@ -67,6 +69,7 @@ export default function HorasCatedraDashboard({ supabase }) {
   const [novedadesMesMenuPos, setNovedadesMesMenuPos] = useState({ top: 0, left: 0 });
   const [exportOpen, setExportOpen] = useState(false);
   const [exportBusy, setExportBusy] = useState(false);
+  const [excelBusy, setExcelBusy] = useState(false);
   const NOVEDADES_MES_MENU_W = 224; // w-56
 
   const MAIN_CONCEPTOS = CONCEPTOS.filter(c => c.id !== "h_otros");
@@ -81,7 +84,7 @@ export default function HorasCatedraDashboard({ supabase }) {
       const { data: musData } = await supabase
         .from("integrantes")
         .select(`
-            id, nombre, apellido, condicion, dni,
+            id, nombre, apellido, condicion, dni, cuil, fecha_alta, fecha_baja,
             instrumentos(nombre:instrumento, familia),
             integrantes_ensambles(
                 id_ensamble,
@@ -368,6 +371,24 @@ export default function HorasCatedraDashboard({ supabase }) {
     }
   };
 
+  const handleExportExcel = async () => {
+    setExcelBusy(true);
+    const t = toast.loading("Generando Excel de horas cátedra...");
+    try {
+      const count = await downloadHorasCatedraExcel({
+        rows: reportData,
+        year: selectedYear,
+        month: selectedMonth,
+      });
+      toast.success(`Excel descargado (${count} filas)`, { id: t });
+    } catch (err) {
+      console.error(err);
+      toast.error(err.message || "No se pudo generar el Excel", { id: t });
+    } finally {
+      setExcelBusy(false);
+    }
+  };
+
   const handleExportNominaZip = async ({
     fromMonth,
     fromYear,
@@ -611,6 +632,15 @@ export default function HorasCatedraDashboard({ supabase }) {
                     <IconFolder size={16} />
                   </a>
                 </div>
+                <button
+                  type="button"
+                  onClick={handleExportExcel}
+                  disabled={loading || excelBusy}
+                  className="px-3 sm:px-4 py-1.5 bg-white border border-slate-200 text-slate-700 rounded-lg text-xs font-bold hover:bg-slate-50 flex items-center gap-1.5 shadow-sm shrink-0 whitespace-nowrap disabled:opacity-50"
+                  title="Excel de la subsecretaría: columnas A a H del mes en pantalla. Desde es la fecha de alta."
+                >
+                  <IconFileExcel size={14} className="text-emerald-700 shrink-0" /> Excel
+                </button>
                 <button
                   type="button"
                   onClick={() => setExportOpen(true)}

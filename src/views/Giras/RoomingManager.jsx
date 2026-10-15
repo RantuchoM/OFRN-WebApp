@@ -54,6 +54,28 @@ import {
   sanitizeImportedRoomAssignments,
 } from "../../utils/roomingUniqueness";
 
+const finePointerSubs = new Set();
+let finePointerValue =
+  typeof window !== "undefined" &&
+  window.matchMedia("(pointer: fine)").matches;
+
+if (typeof window !== "undefined") {
+  window.matchMedia("(pointer: fine)").addEventListener("change", (event) => {
+    finePointerValue = event.matches;
+    finePointerSubs.forEach((notify) => notify(finePointerValue));
+  });
+}
+
+/** En táctil, `draggable` se queda con el gesto y la lista no se puede deslizar. */
+function useFinePointer() {
+  const [fine, setFine] = useState(finePointerValue);
+  useEffect(() => {
+    finePointerSubs.add(setFine);
+    return () => finePointerSubs.delete(setFine);
+  }, []);
+  return fine;
+}
+
 function resolveSegmentRowByIdx(segmentRows, idx) {
   if (!segmentRows?.length) return null;
   const byIndice = segmentRows.find((s) => Number(s.indice) === Number(idx));
@@ -631,10 +653,11 @@ const MusicianCard = ({
   const loc = m.localidades?.localidad || "S/D";
   const isLocalWarning = isInRoom && isLocal;
   const isCuna = !ocupaCama;
+  const finePointer = useFinePointer();
 
   return (
     <div
-      draggable
+      draggable={finePointer}
       onDragStart={(e) => {
         onDragStart(e, m);
       }}
@@ -812,7 +835,7 @@ const MusicianListColumn = ({
       </button>
       {/* Contenido: en móvil solo visible cuando no está colapsado */}
       <div
-        className={`space-y-3 flex-1 min-h-0 overflow-y-auto ${
+        className={`space-y-3 flex-1 min-h-0 overflow-y-auto overscroll-contain touch-pan-y ${
           isCollapsed ? "hidden lg:block" : "block"
         }`}
       >
@@ -844,7 +867,13 @@ const MusicianListColumn = ({
         )}
       </div>
       {locals.length > 0 && (
-        <div className="mt-4 pt-2 border-t border-slate-200/60 lg:block">
+        <div
+          className={`mt-4 pt-2 border-t border-slate-200/60 shrink-0 lg:block ${
+            forceExpanded
+              ? "max-h-[38%] overflow-y-auto overscroll-contain touch-pan-y"
+              : ""
+          }`}
+        >
           <button
             onClick={() => setShowLocals(!showLocals)}
             className={`w-full flex justify-between items-center px-2 py-1.5 rounded text-xs font-bold transition-all ${
@@ -3411,7 +3440,7 @@ export default function RoomingManager({
         />
       )}
       {mobileActiveList && (
-        <div className="lg:hidden px-3 pt-1">
+        <div className="lg:hidden flex h-[min(42dvh,50%)] min-h-0 shrink-0 flex-col overflow-hidden px-3 pt-1">
           {mobileActiveList === "women" ? (
             <MusicianListColumn
               title="Mujeres"

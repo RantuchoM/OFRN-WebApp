@@ -43,6 +43,8 @@ Si más adelante Ensamble debe quedar bajo Localidad, basta un swap de constante
 
 El cuadrito Loc/Viaj del header sigue siendo **por tramo seleccionado** (preview operativo). Las reglas de cobertura de comidas con chip `Locales` aplican a quienes residen en las localidades del **primer tramo**.
 
+- [x] **Detalle del cuadro (2026-10-13):** el `?` está en la celda vacía de arriba a la izquierda del cuadrito (en móvil, fuera del cuadro porque el cuadrito no se muestra) y abre un modal (`z-[100]`, `max-w-3xl`) con dos columnas Loc/Viaj. Masc y Fem van en el encabezado de cada celda. Quien no es M/F va en un bloque arriba, antes de esas columnas. No hay fila ni columna de totales. Cada celda lista `Apellido, Nombre (localidad de residencia)` numerada. Ausentes/baja y vacantes (`es_simulacion`) fuera de las listas. Localía = la del tramo activo si hay cortes; si no, `is_local`. En el cuadrito, las vacantes no suman en ningún número; el total general muestra además `+ n` en ámbar.
+
 ## Desempate entre reglas de misma fuerza (comidas y hotelería)
 
 Cuando dos reglas comparten el mismo nivel, gana la de **mayor especificidad de chip de rol** (`PRODUCCION` > `SOLISTAS` > …). `LOCALES`/`NO_LOCALES` ya no empatan con rol (van a nivel 1); a igual catch-all gana la **última** regla del listado.

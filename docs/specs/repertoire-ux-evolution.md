@@ -28,7 +28,7 @@ Permitir mover obras dentro del mismo bloque y entre bloques con feedback visual
 ### Implementación técnica
 
 - **Librería:** `@dnd-kit/core`, `@dnd-kit/sortable`, `@dnd-kit/utilities`.
-- **Handle:** Primera columna de la tabla con `IconGripVertical` (Lucide). Solo visible para editores y en vista no compacta. Atributos `{...listeners} {...attributes}` en un `div` con `cursor-grab` / `active:cursor-grabbing`.
+- **Handle:** Primera columna de la tabla con `IconGripVertical`. Solo visible para editores y en vista no compacta. Arriba y abajo del grip, flechas chicas (`IconChevronUp` / `IconChevronDown`) que llaman a `moveWork` igual que en la tarjeta móvil; la primera fila no sube y la última no baja. El arrastre sigue solo en el grip (`cursor-grab` / `active:cursor-grabbing`).
 - **SortableRepertorioRow:** Componente interno que usa `useSortable({ id: item.id, data: { id_repertorio: rep.id, index: idx } })`. Renderiza `<tr>` con la celda del handle, la celda "#" (orden + botones subir/bajar) y `children` (resto de celdas).
 - **DndContext:** Envuelve todo el listado de bloques. `sensors={useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))}`, `collisionDetection={closestCenter}`, `onDragStart` (limpia `dragOverId`), `onDragOver` (guarda `over?.id` en `dragOverId`), `onDragEnd` (limpia `dragOverId` y llama a `handleDragEnd`).
 - **SortableContext:** `items={allRepertorioObraIds}` (ids de todas las filas de repertorio).

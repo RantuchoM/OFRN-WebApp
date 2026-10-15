@@ -2992,6 +2992,8 @@ export default function RepertoireManager({
     moveWork,
     dragOverId,
     isPendingDriveSync = false,
+    isFirst = false,
+    isLast = false,
     children,
   }) => {
     const {
@@ -3028,15 +3030,37 @@ export default function RepertoireManager({
             : ""
         }`}
       >
-        <td className="px-0 py-1 text-center align-middle">
+        <td className="px-0 py-0.5 text-center align-middle">
           {isEditor && !isCompact && (
-            <div
-              {...listeners}
-              {...attributes}
-              className="cursor-grab active:cursor-grabbing text-slate-400 hover:text-indigo-600 inline-flex touch-none justify-center w-full"
-              title="Arrastrar para reordenar"
-            >
-              <IconGripVertical size={14} />
+            <div className="flex flex-col items-center justify-center">
+              <button
+                type="button"
+                onClick={() => moveWork(rep.id, item.id, -1)}
+                disabled={isFirst}
+                className="flex h-3.5 w-full items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:pointer-events-none disabled:opacity-25"
+                title="Mover arriba"
+                aria-label="Mover arriba"
+              >
+                <IconChevronUp size={11} />
+              </button>
+              <div
+                {...listeners}
+                {...attributes}
+                className="cursor-grab active:cursor-grabbing text-slate-400 hover:text-indigo-600 inline-flex touch-none justify-center w-full"
+                title="Arrastrar para reordenar"
+              >
+                <IconGripVertical size={14} />
+              </div>
+              <button
+                type="button"
+                onClick={() => moveWork(rep.id, item.id, 1)}
+                disabled={isLast}
+                className="flex h-3.5 w-full items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:pointer-events-none disabled:opacity-25"
+                title="Mover abajo"
+                aria-label="Mover abajo"
+              >
+                <IconChevronDown size={11} />
+              </button>
             </div>
           )}
         </td>
@@ -3887,12 +3911,12 @@ export default function RepertoireManager({
             {/* ============================================================ */}
             {/* VISTA ESCRITORIO: TABLA (Visible solo en md o superior)      */}
             {/* ============================================================ */}
-            <div className="hidden min-w-0 w-full max-w-none pb-4 md:grid md:grid-cols-1 md:[grid-template-columns:minmax(0,1fr)] md:overflow-x-auto md:overflow-y-visible [&>*]:max-w-none [&>*]:min-w-0">
+            <div className="hidden min-w-0 w-full max-w-none pb-4 md:block md:overflow-x-auto md:overflow-y-visible">
               <table
-                className={`block w-full min-w-0 max-w-full border-collapse text-left text-xs [&_thead]:block [&_thead]:w-full [&_tbody]:block [&_tbody]:w-full [&_tr]:grid [&_tr]:w-full [&_tr]:min-w-0 [&_tr]:max-w-full ${
+                className={`block w-full border-collapse text-left text-xs [&_thead]:block [&_thead]:w-full [&_tbody]:block [&_tbody]:w-full [&_tr]:grid [&_tr]:w-full ${
                   isDefinitionMode
-                    ? "[&_tr]:[grid-template-columns:26px_22px_32px_minmax(0,1fr)_140px_124px_90px_88px_62px_14rem_10.5rem_4.25rem]"
-                    : "[&_tr]:[grid-template-columns:26px_22px_32px_minmax(0,1fr)_124px_90px_88px_62px_14rem_10.5rem_4.25rem]"
+                    ? "min-w-[calc(584px+48.75rem)] [&_tr]:[grid-template-columns:26px_22px_32px_minmax(20rem,1fr)_140px_124px_90px_88px_62px_14rem_10.5rem_4.25rem]"
+                    : "min-w-[calc(444px+48.75rem)] [&_tr]:[grid-template-columns:26px_22px_32px_minmax(20rem,1fr)_124px_90px_88px_62px_14rem_10.5rem_4.25rem]"
                 }`}
               >
                 {/* El ancho lo define el grid de cada fila (arriba, en la tabla). Estas col quedan como referencia. */}
@@ -3916,7 +3940,7 @@ export default function RepertoireManager({
                     <th className="px-0 py-1 w-[26px]" aria-label="Arrastrar" />
                     <th className="px-0 py-1 text-center">#</th>
                     <th className="px-0 py-1 text-center">GD</th>
-                    <th className="p-1 min-w-0">Compositor / Obra</th>
+                    <th className="p-1">Compositor / Obra</th>
                     {isDefinitionMode && (
                       <th className="p-1 text-center">Curaduría</th>
                     )}
@@ -3976,6 +4000,8 @@ export default function RepertoireManager({
                         isEditor={isEditor}
                         isCompact={isCompact}
                         moveWork={moveWork}
+                        isFirst={idx === 0}
+                        isLast={idx === visibleObras.length - 1}
                         dragOverId={dragOverId}
                         isPendingDriveSync={pendingDriveSyncIds.has(item.id)}
                       >
@@ -4005,6 +4031,8 @@ export default function RepertoireManager({
                       isEditor={isEditor}
                       isCompact={isCompact}
                       moveWork={moveWork}
+                      isFirst={idx === 0}
+                      isLast={idx === visibleObras.length - 1}
                       dragOverId={dragOverId}
                       isPendingDriveSync={pendingDriveSyncIds.has(item.id)}
                     >
@@ -4041,8 +4069,8 @@ export default function RepertoireManager({
                         className="min-w-0 p-1 align-middle text-slate-800"
                         title={stripRepertorioTitleHtml(effectiveRepertorioObraTitle(item))}
                       >
-                        <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:gap-2">
-                          <div className="flex min-w-0 max-w-[42%] shrink basis-[6.5rem] flex-col items-center justify-center text-center text-slate-600">
+                        <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:gap-2">
+                          <div className="flex w-[6.5rem] max-w-[38%] min-w-[4.5rem] shrink flex-col items-center justify-center text-center text-slate-600">
                             <div className="flex w-full flex-col items-center justify-center gap-1">
                               <div
                                 className="min-w-0 w-full space-y-1"
@@ -4067,7 +4095,7 @@ export default function RepertoireManager({
                               {renderMyPartBadge(item.obras)}
                             </div>
                           </div>
-                          <div className="flex min-w-0 flex-1 flex-col gap-1">
+                          <div className="flex min-w-[12rem] flex-1 shrink-0 basis-[12rem] flex-col gap-1">
                             <div className="flex min-w-0 flex-wrap items-center gap-1">
                               <RepertorioProgramTitleControl
                                 item={item}

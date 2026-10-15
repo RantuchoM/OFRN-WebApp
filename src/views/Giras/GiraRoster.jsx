@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from "react";
+import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import {
   IconUsers,
@@ -408,6 +408,64 @@ async function fetchFamilyInclusionAffected(
     });
   }
   return affected;
+}
+
+/** Menú de toolbar en portal: el overflow-x de la fila móvil recorta los absolute. */
+function RosterAnchoredMenu({
+  open,
+  anchorRef,
+  menuKey,
+  menuWidth = 288,
+  align = "left",
+  className = "",
+  children,
+}) {
+  const [style, setStyle] = useState(null);
+
+  useLayoutEffect(() => {
+    if (!open) {
+      setStyle(null);
+      return;
+    }
+    const update = () => {
+      const el = anchorRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const margin = 8;
+      const width = Math.min(menuWidth, window.innerWidth - margin * 2);
+      let left = align === "right" ? rect.right - width : rect.left;
+      left = Math.max(margin, Math.min(left, window.innerWidth - width - margin));
+      const top = rect.bottom + 8;
+      setStyle({
+        position: "fixed",
+        top,
+        left,
+        width,
+        maxHeight: Math.max(160, window.innerHeight - top - margin),
+        zIndex: 80,
+      });
+    };
+    update();
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+    };
+  }, [open, anchorRef, menuWidth, align]);
+
+  if (!open || !style || typeof document === "undefined") return null;
+
+  return createPortal(
+    <div
+      data-roster-anchored-menu={menuKey}
+      style={style}
+      className={`overflow-y-auto overscroll-contain bg-white border border-slate-200 rounded-lg shadow-xl text-xs ${className}`}
+    >
+      {children}
+    </div>,
+    document.body,
+  );
 }
 
 const MetricBadge = ({ label, items, colorBase, icon }) => {
@@ -1126,24 +1184,33 @@ export default function GiraRoster({
 
   useEffect(() => {
     const handleClickOutside = (event) => {
+      const inAnchoredMenu = (key) =>
+        event.target instanceof Element &&
+        !!event.target.closest(`[data-roster-anchored-menu="${key}"]`);
       if (
         columnMenuRef.current &&
         !columnMenuRef.current.contains(event.target)
       ) {
         setShowColumnMenu(false);
       }
-      if (orderMenuRef.current && !orderMenuRef.current.contains(event.target)) {
+      if (
+        orderMenuRef.current &&
+        !orderMenuRef.current.contains(event.target) &&
+        !inAnchoredMenu("order")
+      ) {
         setShowOrderMenu(false);
       }
       if (
         filterMenuRef.current &&
-        !filterMenuRef.current.contains(event.target)
+        !filterMenuRef.current.contains(event.target) &&
+        !inAnchoredMenu("filter")
       ) {
         setShowFilterMenu(false);
       }
       if (
         selectionMenuRef.current &&
-        !selectionMenuRef.current.contains(event.target)
+        !selectionMenuRef.current.contains(event.target) &&
+        !inAnchoredMenu("selection")
       ) {
         setShowSelectionMenu(false);
       }
@@ -2935,8 +3002,12 @@ export default function GiraRoster({
                 Orden: {currentSortLabel}
                 <IconChevronDown size={12} />
               </button>
-              {showOrderMenu && (
-                <div className="absolute top-full left-0 mt-2 w-44 bg-white border border-slate-200 rounded-lg shadow-xl z-50 text-xs">
+              <RosterAnchoredMenu
+                open={showOrderMenu}
+                anchorRef={orderMenuRef}
+                menuKey="order"
+                menuWidth={176}
+              >
                   {["rol", "localidad", "region", "instrumento", "genero"].map(
                     (crit) => (
                       <button
@@ -2957,8 +3028,7 @@ export default function GiraRoster({
                       </button>
                     ),
                   )}
-                </div>
-              )}
+              </RosterAnchoredMenu>
             </div>
             {sortBy === "instrumento" && (
               <label
@@ -2988,8 +3058,13 @@ export default function GiraRoster({
               <IconFilter size={12} />
               <span className="hidden sm:inline">Filtros</span>
             </button>
-            {showFilterMenu && (
-              <div className="absolute top-full left-0 mt-2 w-72 bg-white border border-slate-200 rounded-lg shadow-xl z-50 p-3 space-y-2 text-xs">
+            <RosterAnchoredMenu
+              open={showFilterMenu}
+              anchorRef={filterMenuRef}
+              menuKey="filter"
+              menuWidth={288}
+              className="p-3 space-y-2"
+            >
                 <div className="font-bold text-slate-500 uppercase text-[10px]">
                   Rol
                   {selectedFilterRoles.size > 0 &&
@@ -3197,8 +3272,7 @@ export default function GiraRoster({
                       ))}
                   </div>
                 )}
-              </div>
-            )}
+            </RosterAnchoredMenu>
           </div>
 
           {/* CONVOCAR (Grupos / Individual / Vacante) */}
@@ -3212,8 +3286,13 @@ export default function GiraRoster({
               <span className="hidden sm:inline">Convocar</span>
               <IconChevronDown size={12} />
             </button>
-            {showSelectionMenu && (
-              <div className="absolute top-full left-0 mt-2 w-64 bg-white border border-slate-200 rounded-lg shadow-xl z-50 p-3 text-xs space-y-2">
+            <RosterAnchoredMenu
+              open={showSelectionMenu}
+              anchorRef={selectionMenuRef}
+              menuKey="selection"
+              menuWidth={256}
+              className="p-3 space-y-2"
+            >
                 <div className="text-[10px] font-bold text-slate-500 uppercase">
                   Modos de convocatoria
                 </div>
@@ -3262,8 +3341,7 @@ export default function GiraRoster({
                   <span>Nueva vacante</span>
                   <IconUserPlus size={12} />
                 </button>
-              </div>
-            )}
+            </RosterAnchoredMenu>
           </div>
 
           <div className="shrink-0 flex items-center gap-1.5">

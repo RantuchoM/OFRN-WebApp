@@ -75,4 +75,14 @@ La grilla sigue sumando ambos orígenes en las columnas de concepto; el sufijo d
 | `src/utils/horasNominaReport.js` | Filas del mes, formato de celda y línea de detalle |
 | `src/utils/horasNominaTablePdf.js` | PDF por área, ZIP individual (sin cambiar), PDF único, y dos PDF sueltos en consolidados y en novedades por área |
 | `src/views/Musicians/HorasNominaExportModal.jsx` | Diálogo: rango, cuatro formatos y checkbox |
-| `src/views/Musicians/HorasCatedraDashboard.jsx` | Grilla y botón PDF |
+| `src/views/Musicians/HorasCatedraDashboard.jsx` | Grilla y botones PDF / Excel |
+| `src/utils/horasCatedraExcel.js` | Excel de subsecretaría (columnas A–H) |
+
+## Excel subsecretaría (columnas A–H)
+
+- [x] Botón **Excel** junto a **PDF** en Gestión de Horas. Baja el mes que está en pantalla (mismos filtros de búsqueda y ensamble que la grilla).
+- [x] Solo columnas A–H, con el título verde `SUBSECRETARÍA ORQUESTA FILARMONICA DE RÍO NEGRO` fusionado en A1:H3.
+- [x] Encabezados: `N°`, `APELLIDO`, `NOMBRE`, `CUIL`, `CANTIDAD DE HORAS {año}`, `TIPO DE HR`, `DESDE`, `HASTA`.
+- [x] Una fila por origen con horas en ese mes. `SEC CULTURA` = total Cultura; `CONVENIO EDUCACION` = total Educación. El total es el de la grilla (incluye Otros). Quien está en 0 en un origen no lleva fila de ese origen. Una baja del mes en 0 no entra.
+- [x] **DESDE** = `integrantes.fecha_alta`. **HASTA** = `fecha_baja` si existe; si sigue activo, queda vacía. Fechas en `dd/mm/yyyy`.
+- [x] Nombre: `Horas_Catedra_Subsecretaria_MM_AAAA.xlsx`.

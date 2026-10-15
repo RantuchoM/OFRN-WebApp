@@ -34,3 +34,8 @@ El modal **Mi Alojamiento** (`GiraCard` + `getMyRoomingStatus`) es self-service 
 - **Independencia:** No se modifica `giras_integrantes`; el roster principal de la gira permanece inalterado.
 - **Limpieza:** `ON DELETE CASCADE` evita registros huérfanos.
 - **UX:** Scrolls independientes y estación de trabajo con muchos músicos.
+
+## Vista móvil (Mujeres / Varones)
+
+- [x] Al abrir Mujeres o Varones, el listado tiene alto acotado (`min(42dvh, 50%)`) y scroll propio (`overflow-y-auto`). Los locales expandidos también se desplazan dentro de su bloque.
+- [x] En puntero táctil las tarjetas no usan `draggable` nativo: ese atributo se queda con el gesto y impedía deslizar. En mouse el arrastre sigue igual.
