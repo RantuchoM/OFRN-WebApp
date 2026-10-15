@@ -9,10 +9,11 @@ import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
 import { toast } from "sonner";
 import {
-  IconDownload,
   IconExternalLink,
   IconEye,
   IconEyeOff,
+  IconFileExcel,
+  IconFileText,
   IconFilter,
   IconLoader,
   IconRefresh,
@@ -21,6 +22,7 @@ import {
 import {
   SEGUIMIENTO_FINANCIAL_COLS,
   downloadViaticosSeguimientoExcel,
+  downloadViaticosSeguimientoPdf,
   fetchViaticosSeguimientoRows,
   formatMontoArs,
   formatDevReintLabel,
@@ -323,7 +325,15 @@ function buildUniqueOptions(rows, col) {
     );
 }
 
-function ColumnValueFilter({ label, options, selected, onChange, compact }) {
+function ColumnValueFilter({
+  label,
+  options,
+  selected,
+  onChange,
+  compact,
+  bare = false,
+  selectionLabel,
+}) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
   const rootRef = useRef(null);
@@ -352,11 +362,23 @@ function ColumnValueFilter({ label, options, selected, onChange, compact }) {
     onChange(next);
   };
 
+  const buttonText = selectionLabel
+    ? selectionLabel(selected, options)
+    : active
+      ? String(selected.size)
+      : "Todos";
+
   return (
-    <div ref={rootRef} className="relative mt-1 normal-case tracking-normal">
+    <div
+      ref={rootRef}
+      className={`relative normal-case tracking-normal ${bare ? "" : "mt-1"} ${
+        open ? "z-40" : ""
+      }`}
+    >
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
+        title={buttonText}
         className={`inline-flex items-center justify-between gap-1 rounded border px-1.5 py-1 text-[10px] font-semibold ${
           compact ? "w-auto max-w-full" : "w-full min-w-0"
         } ${
@@ -369,9 +391,7 @@ function ColumnValueFilter({ label, options, selected, onChange, compact }) {
       >
         <span className="inline-flex min-w-0 items-center gap-1">
           <IconFilter size={11} className="shrink-0" />
-          <span className="truncate">
-            {active ? `${selected.size}` : "Todos"}
-          </span>
+          <span className="truncate">{buttonText}</span>
         </span>
       </button>
 
@@ -448,7 +468,7 @@ export default function ViaticosSeguimientoReport({ supabase }) {
     Object.fromEntries(COLUMN_DEFS.map((c) => [c.key, new Set()])),
   );
   const [savingIds, setSavingIds] = useState(() => new Set());
-  const [exporting, setExporting] = useState(false);
+  const [exporting, setExporting] = useState(null);
   const [showAnticipoDetalle, setShowAnticipoDetalle] = useState(false);
   const [showRendicionDetalle, setShowRendicionDetalle] = useState(false);
 
@@ -580,8 +600,8 @@ export default function ViaticosSeguimientoReport({ supabase }) {
     [supabase, load],
   );
 
-  const handleExport = async () => {
-    setExporting(true);
+  const handleExportExcel = async () => {
+    setExporting("excel");
     try {
       await downloadViaticosSeguimientoExcel({
         rows: filteredRows,
@@ -590,9 +610,25 @@ export default function ViaticosSeguimientoReport({ supabase }) {
       });
     } catch (err) {
       console.error(err);
-      toast.error(err?.message || "No se pudo exportar");
+      toast.error(err?.message || "No se pudo exportar el Excel");
     } finally {
-      setExporting(false);
+      setExporting(null);
+    }
+  };
+
+  const handleExportPdf = () => {
+    setExporting("pdf");
+    try {
+      downloadViaticosSeguimientoPdf({
+        rows: filteredRows,
+        year,
+        fileName: `Seguimiento_viaticos_${year}`,
+      });
+    } catch (err) {
+      console.error(err);
+      toast.error(err?.message || "No se pudo exportar el PDF");
+    } finally {
+      setExporting(null);
     }
   };
 
@@ -637,6 +673,31 @@ export default function ViaticosSeguimientoReport({ supabase }) {
             ))}
           </select>
         </label>
+
+        <div className="flex w-52 min-w-0 items-center gap-1.5">
+          <span className="shrink-0 text-[11px] font-semibold text-slate-600">
+            Persona
+          </span>
+          <div className="min-w-0 flex-1">
+            <ColumnValueFilter
+              bare
+              label="Persona"
+              options={filterOptionsByCol.persona || []}
+              selected={columnFilters.persona || new Set()}
+              onChange={(next) => setColFilter("persona", next)}
+              selectionLabel={(selected, options) => {
+                if (!selected?.size) return "Todas";
+                if (selected.size === 1) {
+                  const value = [...selected][0];
+                  return (
+                    options.find((opt) => opt.value === value)?.label || "1"
+                  );
+                }
+                return `${selected.size} personas`;
+              }}
+            />
+          </div>
+        </div>
 
         <div className="relative min-w-[12rem] flex-1 sm:max-w-xs">
           <IconSearch
@@ -687,14 +748,28 @@ export default function ViaticosSeguimientoReport({ supabase }) {
 
         <button
           type="button"
-          onClick={handleExport}
-          disabled={exporting || loading || filteredRows.length === 0}
-          className="inline-flex items-center gap-1 rounded border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs font-bold text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
+          onClick={handleExportPdf}
+          disabled={Boolean(exporting) || loading || filteredRows.length === 0}
+          className="inline-flex items-center gap-1 rounded border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-xs font-bold text-rose-800 hover:bg-rose-100 disabled:opacity-50"
         >
-          {exporting ? (
+          {exporting === "pdf" ? (
             <IconLoader size={14} className="animate-spin" />
           ) : (
-            <IconDownload size={14} />
+            <IconFileText size={14} />
+          )}
+          PDF
+        </button>
+
+        <button
+          type="button"
+          onClick={handleExportExcel}
+          disabled={Boolean(exporting) || loading || filteredRows.length === 0}
+          className="inline-flex items-center gap-1 rounded border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs font-bold text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
+        >
+          {exporting === "excel" ? (
+            <IconLoader size={14} className="animate-spin" />
+          ) : (
+            <IconFileExcel size={14} />
           )}
           Excel
         </button>

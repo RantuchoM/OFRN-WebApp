@@ -1,10 +1,17 @@
 import ExcelJS from "exceljs";
 import { saveAs } from "file-saver";
+import jsPDFDefault, { jsPDF as jsPDFNamed } from "jspdf";
+import autoTable from "jspdf-autotable";
 import { formatProgramNomenMes } from "../utils/giraUtils";
 import { calcValorDiarioProporcional } from "../utils/viaticosValorDiarioProporcional";
 import { scheduleFromParadaRange } from "../utils/viaticosParadasIntegrante";
 import { calcDevolucionReintegro } from "../utils/rendicionDiff";
 import { listValorDiarioVigencias } from "./viaticosValorDiarioService";
+
+const JsPDF =
+  typeof jsPDFNamed === "function"
+    ? jsPDFNamed
+    : jsPDFDefault?.jsPDF || jsPDFDefault;
 
 const round2 = (num) => Math.round((Number(num) + Number.EPSILON) * 100) / 100;
 
@@ -474,100 +481,488 @@ export function formatDevReintLabel(row) {
   return "—";
 }
 
+const ROW_FILL_ARGB = {
+  amarillo: "FFFFF59D",
+  verde: "FFA5D6A7",
+  celeste: "FF81D4FA",
+  rojo: "FFEF9A9A",
+};
+
+const ROW_FILL_RGB = {
+  amarillo: [255, 245, 157],
+  verde: [165, 214, 167],
+  celeste: [129, 212, 250],
+  rojo: [239, 154, 154],
+};
+
+const PDF_ORANGE = [255, 237, 213];
+const PDF_ORANGE_TEXT = [124, 45, 18];
+const PDF_GREEN = [209, 250, 229];
+const PDF_GREEN_TEXT = [6, 95, 70];
+
+/** Conceptos de anticipo (arriba) y rendición (abajo) en PDF y grupos de Excel. */
+const EXPORT_MONEY_COLS = [
+  { label: "Viático", exp: "anticipoViatico", ren: "rendicion_viaticos" },
+  ...SEGUIMIENTO_FINANCIAL_COLS.map((col) => ({
+    label: col.label,
+    exp: col.exp,
+    ren: col.ren,
+  })),
+];
+
+function seguimientoFileBase(fileName, year) {
+  return fileName || `Seguimiento_viaticos_${year}`;
+}
+
+function formatDevReintTotals(totals) {
+  const parts = [];
+  if ((totals?.devolucion || 0) > 0) {
+    parts.push(`Dev ${formatMontoArs(totals.devolucion)}`);
+  }
+  if ((totals?.reintegro || 0) > 0) {
+    parts.push(`Reint ${formatMontoArs(totals.reintegro)}`);
+  }
+  return parts.join("\n") || "—";
+}
+
+/** Suma de las filas visibles (anticipo, rendición, dev/reint y desglose). */
+export function sumViaticosSeguimientoRows(rows) {
+  const totals = {
+    anticipo: 0,
+    rendicion: 0,
+    devolucion: 0,
+    reintegro: 0,
+    anticipoViatico: 0,
+    rendicion_viaticos: 0,
+  };
+  for (const col of SEGUIMIENTO_FINANCIAL_COLS) {
+    totals[col.exp] = 0;
+    totals[col.ren] = 0;
+  }
+  for (const row of rows || []) {
+    totals.anticipo += Number(row.anticipo) || 0;
+    totals.rendicion += Number(row.rendicion) || 0;
+    totals.devolucion += Number(row.devolucion) || 0;
+    totals.reintegro += Number(row.reintegro) || 0;
+    totals.anticipoViatico += Number(row.anticipoViatico) || 0;
+    totals.rendicion_viaticos += Number(row.rendicion_viaticos) || 0;
+    for (const col of SEGUIMIENTO_FINANCIAL_COLS) {
+      totals[col.exp] += Number(row[col.exp]) || 0;
+      totals[col.ren] += Number(row[col.ren]) || 0;
+    }
+  }
+  for (const key of Object.keys(totals)) {
+    totals[key] = round2(totals[key]);
+  }
+  return totals;
+}
+
+function detailExportColumns(prefix, group, field) {
+  return EXPORT_MONEY_COLS.map((col) => ({
+    header: `${prefix} ${col.label}`,
+    type: "money",
+    width: 14,
+    group,
+    value: (row) => Number(row[col[field]]) || 0,
+    total: (totals) => totals[col[field]] || 0,
+  }));
+}
+
+function buildSeguimientoExportColumns() {
+  return [
+    {
+      header: "Persona / Tramo / Rol",
+      type: "text",
+      width: 36,
+      value: (row) => row.personaCell || "",
+    },
+    {
+      header: "Salida",
+      type: "text",
+      width: 22,
+      value: (row) => row.salidaCell || "",
+    },
+    {
+      header: "Regreso",
+      type: "text",
+      width: 22,
+      value: (row) => row.regresoCell || "",
+    },
+    {
+      header: "Programa",
+      type: "text",
+      width: 28,
+      value: (row) => row.programaLabel || "",
+    },
+    ...detailExportColumns("Ant.", "anticipo", "exp"),
+    {
+      header: "Anticipo",
+      type: "money",
+      width: 14,
+      summary: "anticipo",
+      note: "Detalle de anticipo oculto a la izquierda. Usá el + de esta columna para desplegarlo.",
+      value: (row) => Number(row.anticipo) || 0,
+      total: (totals) => totals.anticipo,
+    },
+    {
+      header: "Dev/Reint",
+      type: "dev",
+      width: 22,
+      value: (row) => formatDevReintLabel(row),
+      total: (totals) => formatDevReintTotals(totals),
+    },
+    ...detailExportColumns("Rend.", "rendicion", "ren"),
+    {
+      header: "Rendición",
+      type: "money",
+      width: 14,
+      summary: "rendicion",
+      note: "Detalle de rendición oculto a la izquierda. Usá el + de esta columna para desplegarlo.",
+      value: (row) => Number(row.rendicion) || 0,
+      total: (totals) => totals.rendicion,
+    },
+    {
+      header: "Color",
+      type: "text",
+      width: 12,
+      value: (row) => colorLabel(row.seguimiento_color),
+    },
+  ];
+}
+
+function headerFillForColumn(col) {
+  if (col.group === "anticipo") return { bg: "FFFFEDD5", fg: "FF9A3412" };
+  if (col.summary === "anticipo") return { bg: "FFFDBA74", fg: "FF9A3412" };
+  if (col.group === "rendicion") return { bg: "FFD1FAE5", fg: "FF065F46" };
+  if (col.summary === "rendicion") return { bg: "FF6EE7B7", fg: "FF065F46" };
+  return { bg: "FFF1F5F9", fg: "FF334155" };
+}
+
+function applyRowFill(excelRow, argb) {
+  if (!argb) return;
+  excelRow.eachCell({ includeEmpty: true }, (cell) => {
+    cell.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb },
+    };
+  });
+}
+
+function solidFill(argb) {
+  return {
+    type: "pattern",
+    pattern: "solid",
+    fgColor: { argb },
+  };
+}
+
+/**
+ * Libro Excel del seguimiento visible.
+ * El desglose de anticipo y de rendición queda agrupado y oculto.
+ */
+export function createViaticosSeguimientoWorkbook({ rows, year }) {
+  const list = rows || [];
+  const cols = buildSeguimientoExportColumns();
+  const totals = sumViaticosSeguimientoRows(list);
+  const devCol = cols.findIndex((col) => col.type === "dev") + 1;
+
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet(`Viáticos ${year}`, {
+    views: [{ state: "frozen", ySplit: 1 }],
+  });
+
+  ws.addRow(cols.map((col) => col.header));
+  const header = ws.getRow(1);
+  header.height = 32;
+  cols.forEach((col, idx) => {
+    const cell = header.getCell(idx + 1);
+    const tone = headerFillForColumn(col);
+    cell.fill = solidFill(tone.bg);
+    cell.font = { bold: true, size: 9, color: { argb: tone.fg } };
+    cell.alignment = {
+      vertical: "middle",
+      horizontal: col.type === "text" && !col.group ? "left" : "center",
+      wrapText: true,
+    };
+    if (col.note) cell.note = col.note;
+  });
+
+  for (const row of list) {
+    const excelRow = ws.addRow(cols.map((col) => col.value(row)));
+    excelRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+      const def = cols[colNumber - 1];
+      cell.alignment = {
+        vertical: "middle",
+        horizontal: def?.type === "money" || def?.type === "dev" ? "right" : "left",
+        wrapText: def?.type !== "money",
+      };
+    });
+    applyRowFill(excelRow, ROW_FILL_ARGB[row.seguimiento_color]);
+    const devReintCell = excelRow.getCell(devCol);
+    if ((Number(row.reintegro) || 0) > 0) {
+      devReintCell.font = {
+        ...(devReintCell.font || {}),
+        color: { argb: "FFBE123C" },
+      };
+    } else if ((Number(row.devolucion) || 0) > 0) {
+      devReintCell.font = {
+        ...(devReintCell.font || {}),
+        color: { argb: "FF0369A1" },
+      };
+    }
+  }
+
+  const totalRow = ws.addRow(
+    cols.map((col, idx) => {
+      if (idx === 0) return `Total (${list.length})`;
+      if (col.total) return col.total(totals);
+      return "";
+    }),
+  );
+  totalRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+    const def = cols[colNumber - 1];
+    cell.fill = solidFill("FFE2E8F0");
+    cell.font = { bold: true, size: 10 };
+    cell.border = {
+      top: { style: "medium", color: { argb: "FF475569" } },
+    };
+    cell.alignment = {
+      vertical: "middle",
+      horizontal: def?.type === "money" || def?.type === "dev" ? "right" : "left",
+      wrapText: def?.type === "dev",
+    };
+    if (def?.type === "money") cell.numFmt = '"$"#,##0.00';
+  });
+
+  cols.forEach((def, idx) => {
+    const column = ws.getColumn(idx + 1);
+    column.width = def.width;
+    if (def.type === "money") column.numFmt = '"$"#,##0.00';
+    if (def.group) {
+      column.outlineLevel = 1;
+      column.hidden = true;
+    }
+  });
+  // outlineLevelCol por encima del nivel de las columnas evita que ExcelJS
+  // marque collapsed en el detalle; hidden + outlineLevel las deja plegadas.
+  ws.properties.outlineLevelCol = 2;
+  ws.properties.outlineProperties = {
+    summaryRight: true,
+    summaryBelow: false,
+  };
+
+  return wb;
+}
+
 /**
  * Exporta el seguimiento visible a Excel (columnas de la planilla).
+ * El desglose de anticipo y rendición queda oculto y se despliega con el grupo.
  */
 export async function downloadViaticosSeguimientoExcel({
   rows,
   year,
   fileName,
 }) {
-  const wb = new ExcelJS.Workbook();
-  const ws = wb.addWorksheet(`Viáticos ${year}`);
-
-  ws.addRow([
-    "Persona / Tramo / Rol",
-    "Salida",
-    "Regreso",
-    "Programa",
-    "Anticipo",
-    "Dev/Reint",
-    "Rendición",
-    "Color",
-  ]);
-  ws.getRow(1).font = { bold: true };
-
-  for (const row of rows || []) {
-    const excelRow = ws.addRow([
-      row.personaCell,
-      row.salidaCell,
-      row.regresoCell,
-      row.programaLabel,
-      Number(row.anticipo) || 0,
-      formatDevReintLabel(row),
-      Number(row.rendicion) || 0,
-      colorLabel(row.seguimiento_color),
-    ]);
-    if (row.seguimiento_color === "amarillo") {
-      excelRow.eachCell((cell) => {
-        cell.fill = {
-          type: "pattern",
-          pattern: "solid",
-          fgColor: { argb: "FFFFF59D" },
-        };
-      });
-    } else if (row.seguimiento_color === "verde") {
-      excelRow.eachCell((cell) => {
-        cell.fill = {
-          type: "pattern",
-          pattern: "solid",
-          fgColor: { argb: "FFA5D6A7" },
-        };
-      });
-    } else if (row.seguimiento_color === "celeste") {
-      excelRow.eachCell((cell) => {
-        cell.fill = {
-          type: "pattern",
-          pattern: "solid",
-          fgColor: { argb: "FF81D4FA" },
-        };
-      });
-    } else if (row.seguimiento_color === "rojo") {
-      excelRow.eachCell((cell) => {
-        cell.fill = {
-          type: "pattern",
-          pattern: "solid",
-          fgColor: { argb: "FFEF9A9A" },
-        };
-      });
-    }
-    const devReintCell = excelRow.getCell(6);
-    if ((Number(row.reintegro) || 0) > 0) {
-      devReintCell.font = { ...(devReintCell.font || {}), color: { argb: "FFBE123C" } };
-    } else if ((Number(row.devolucion) || 0) > 0) {
-      devReintCell.font = { ...(devReintCell.font || {}), color: { argb: "FF0369A1" } };
-    }
-  }
-
-  ws.getColumn(5).numFmt = '"$"#,##0.00';
-  ws.getColumn(7).numFmt = '"$"#,##0.00';
-  ws.columns.forEach((col, idx) => {
-    let max = 12;
-    col.eachCell({ includeEmpty: true }, (cell) => {
-      const len = String(cell.value ?? "").length;
-      if (len > max) max = len;
-    });
-    col.width = Math.min(max + 2, idx === 0 ? 40 : 28);
-  });
-
+  const wb = createViaticosSeguimientoWorkbook({ rows, year });
   const buf = await wb.xlsx.writeBuffer();
-  const safe =
-    fileName ||
-    `Seguimiento_viaticos_${year}`;
+  const safe = seguimientoFileBase(fileName, year);
   saveAs(
     new Blob([buf], {
       type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     }),
     `${safe}.xlsx`,
   );
+}
+
+function pdfMoneyText(value, blankZero) {
+  const n = Number(value) || 0;
+  if (blankZero && Math.abs(n) < 0.005) return "—";
+  return n.toLocaleString("es-AR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+function pdfMoneyCell(value, tone, { blankZero = true, emphasize = false } = {}) {
+  const isAnt = tone === "ant";
+  return {
+    content: pdfMoneyText(value, blankZero),
+    styles: {
+      halign: "right",
+      fontStyle: emphasize ? "bold" : "normal",
+      fillColor: isAnt ? PDF_ORANGE : PDF_GREEN,
+      textColor: isAnt ? PDF_ORANGE_TEXT : PDF_GREEN_TEXT,
+    },
+  };
+}
+
+function pdfSpanCell(content, fill, extraStyles = {}) {
+  return {
+    content: content == null ? "—" : content,
+    rowSpan: 2,
+    styles: {
+      valign: "middle",
+      ...(fill ? { fillColor: fill } : {}),
+      ...extraStyles,
+    },
+  };
+}
+
+/**
+ * PDF apaisado: cada fila de seguimiento ocupa dos renglones
+ * (anticipo arriba, rendición abajo), con total al pie.
+ */
+export function createViaticosSeguimientoPdf({ rows, year }) {
+  const list = rows || [];
+  const totals = sumViaticosSeguimientoRows(list);
+  const doc = new JsPDF({
+    orientation: "landscape",
+    unit: "mm",
+    format: "a4",
+  });
+  const margin = { top: 12, right: 8, bottom: 12, left: 8 };
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(12);
+  doc.setTextColor(30, 41, 59);
+  doc.text(`Seguimiento viáticos ${year}`, margin.left, 10);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.setTextColor(71, 85, 105);
+  doc.text(
+    `${list.length} filas · fila superior: anticipo · fila inferior: rendición`,
+    margin.left,
+    15,
+  );
+
+  const head = [[
+    "Persona / Tramo / Rol",
+    "Salida",
+    "Regreso",
+    "Programa",
+    ...EXPORT_MONEY_COLS.map((col) => col.label),
+    "Total",
+    "Dev/Reint",
+    "Color",
+  ]];
+
+  const body = [];
+  for (const row of list) {
+    const mark = ROW_FILL_RGB[row.seguimiento_color] || null;
+    const reint = Number(row.reintegro) || 0;
+    const dev = Number(row.devolucion) || 0;
+    const devColor = reint > 0 ? [190, 18, 60] : dev > 0 ? [3, 105, 161] : [100, 116, 139];
+    body.push([
+      pdfSpanCell(row.personaCell, mark),
+      pdfSpanCell(row.salidaCell, mark),
+      pdfSpanCell(row.regresoCell, mark),
+      pdfSpanCell(row.programaLabel, mark),
+      ...EXPORT_MONEY_COLS.map((col) => pdfMoneyCell(row[col.exp], "ant")),
+      pdfMoneyCell(row.anticipo, "ant", { blankZero: false, emphasize: true }),
+      pdfSpanCell(formatDevReintLabel(row), mark, {
+        halign: "right",
+        fontStyle: "bold",
+        textColor: devColor,
+      }),
+      pdfSpanCell(colorLabel(row.seguimiento_color) || "—", mark, {
+        halign: "center",
+      }),
+    ]);
+    body.push([
+      ...EXPORT_MONEY_COLS.map((col) => pdfMoneyCell(row[col.ren], "ren")),
+      pdfMoneyCell(row.rendicion, "ren", { blankZero: false, emphasize: true }),
+    ]);
+  }
+
+  const totalFill = [226, 232, 240];
+  body.push([
+    pdfSpanCell(`Total (${list.length})`, totalFill, { fontStyle: "bold" }),
+    pdfSpanCell("", totalFill),
+    pdfSpanCell("", totalFill),
+    pdfSpanCell("", totalFill),
+    ...EXPORT_MONEY_COLS.map((col) =>
+      pdfMoneyCell(totals[col.exp], "ant", { blankZero: false, emphasize: true }),
+    ),
+    pdfMoneyCell(totals.anticipo, "ant", { blankZero: false, emphasize: true }),
+    pdfSpanCell(formatDevReintTotals(totals), totalFill, {
+      halign: "right",
+      fontStyle: "bold",
+    }),
+    pdfSpanCell("", totalFill),
+  ]);
+  body.push([
+    ...EXPORT_MONEY_COLS.map((col) =>
+      pdfMoneyCell(totals[col.ren], "ren", { blankZero: false, emphasize: true }),
+    ),
+    pdfMoneyCell(totals.rendicion, "ren", { blankZero: false, emphasize: true }),
+  ]);
+
+  const moneyWidth = 16;
+  autoTable(doc, {
+    head,
+    body,
+    startY: 18,
+    margin,
+    theme: "grid",
+    tableWidth: "wrap",
+    rowPageBreak: "avoid",
+    styles: {
+      font: "helvetica",
+      fontSize: 6.5,
+      cellPadding: 1,
+      valign: "middle",
+      overflow: "linebreak",
+      lineColor: [203, 213, 225],
+      lineWidth: 0.1,
+      textColor: [30, 41, 59],
+    },
+    headStyles: {
+      fillColor: [241, 245, 249],
+      textColor: [51, 65, 85],
+      fontStyle: "bold",
+      halign: "center",
+      fontSize: 6.5,
+    },
+    columnStyles: {
+      0: { cellWidth: 32 },
+      1: { cellWidth: 24 },
+      2: { cellWidth: 24 },
+      3: { cellWidth: 26 },
+      4: { cellWidth: moneyWidth },
+      5: { cellWidth: moneyWidth },
+      6: { cellWidth: moneyWidth },
+      7: { cellWidth: moneyWidth },
+      8: { cellWidth: 14 },
+      9: { cellWidth: moneyWidth },
+      10: { cellWidth: 14 },
+      11: { cellWidth: 18 },
+      12: { cellWidth: 24 },
+      13: { cellWidth: 14 },
+    },
+    didDrawPage: () => {
+      const page = doc.internal.getCurrentPageInfo().pageNumber;
+      const height = doc.internal.pageSize.getHeight();
+      const width = doc.internal.pageSize.getWidth();
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7);
+      doc.setTextColor(100);
+      doc.text(
+        "Anticipo (naranja) sobre rendición (verde)",
+        margin.left,
+        height - 6,
+      );
+      doc.text(String(page), width - margin.right, height - 6, {
+        align: "right",
+      });
+    },
+  });
+
+  return doc;
+}
+
+/** Exporta el seguimiento visible a PDF horizontal. */
+export function downloadViaticosSeguimientoPdf({ rows, year, fileName }) {
+  const doc = createViaticosSeguimientoPdf({ rows, year });
+  doc.save(`${seguimientoFileBase(fileName, year)}.pdf`);
 }

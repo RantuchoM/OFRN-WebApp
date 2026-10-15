@@ -11,8 +11,11 @@ Informe en **Gestión → Seguimiento viáticos** (`/management/viaticos_seguimi
 - **Editable y persistido:** `seguimiento_color` (`amarillo` | `verde` | `celeste` | `rojo`).
 - La misma marca se ve y se cambia en la tabla de viáticos de la gira (`ViaticosTable`, columna Color a la **derecha**) con el control compartido; no hay un segundo sistema de color. En `ViaticosTable` el tinte pinta **toda la fila** salvo **Salida**, **Llegada** y **Días** (quedan blancas). El panel masivo de la gira la ofrece como **tercera opción al cargar** (junto a Editar Datos y Exportar y Comunicar), con el desplegable visible sin entrar a Editar Datos; también sigue en el acordeón de edición combinada.
 - Filtro por año de `programas.fecha_desde` (default: año calendario actual) + búsqueda por nombre/programa.
-- Filtros por columna (valores únicos con checkboxes) en persona, salida, regreso, programa, monto y color.
-- Export Excel con las mismas columnas y colores de fila.
+- Filtro de **persona** en la barra (y el de columna, mismo estado): valores únicos de apellido y nombre.
+- Filtros por columna (valores únicos con checkboxes) en persona, salida, regreso, programa, anticipo, dev/reint, rendición y color.
+- Export **Excel** y **PDF** de las filas filtradas, con total al pie (anticipo, rendición, dev/reint y desglose).
+- Excel: columnas visibles de la planilla. El desglose de anticipo (`Ant. …`) y de rendición (`Rend. …`) va agrupado y oculto; el `+` de Anticipo y de Rendición lo despliega.
+- PDF apaisado (A4 horizontal): cada fila ocupa dos renglones, anticipo (naranja) arriba y rendición (verde) abajo, como las celdas apiladas de `ViaticosTable`. Persona, salida, regreso, programa, dev/reint y color abarcan las dos filas.
 
 ## Columnas (UI)
 
@@ -55,7 +58,9 @@ Migración `20260831201720_giras_viaticos_detalle_seguimiento.sql`:
 - [x] Informe en menú Gestión + Ctrl+K
 - [x] Carga consolidada por año
 - [x] Patch de color
-- [x] Export Excel
+- [x] Export Excel (detalle de anticipo y rendición agrupado y oculto, total al pie)
+- [x] Export PDF horizontal (anticipo sobre rendición, total al pie)
+- [x] Filtro por persona en la barra, aplicado a ambas exportaciones
 - [x] Spec
 - [x] Columna `backup_viatico` asegurada en remoto (`20260831202349_…_ensure`)
 - [x] Colores Dev/Reint invertidos (Dev = celeste, Reint = rojo)
