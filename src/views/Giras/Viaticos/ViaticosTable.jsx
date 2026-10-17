@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   IconTrash,
   IconAlertTriangle,
@@ -14,6 +14,18 @@ import SeguimientoColorSelect, {
 } from "../../../components/viaticos/SeguimientoColorSelect";
 import "./ViaticosSheet.css";
 import { seatingApellidoNombre } from "../../../utils/integranteDisplayName";
+import { formatRolGiraLabel } from "../../../utils/giraUtils";
+import {
+  VIATICOS_SORT_APELLIDO,
+  VIATICOS_SORT_ROL,
+  buildViaticosTableEntries,
+  readViaticosSortMode,
+  writeViaticosSortMode,
+} from "../../../utils/viaticosRowSort";
+import {
+  anticipoCustomDiffersFromCalc,
+  getAnticipoCalculado,
+} from "../../../utils/viaticosAnticipo";
 import RenunciaViaticosExportOption from "./RenunciaViaticosExportOption";
 import {
   canMergeTramoGroup,
@@ -237,10 +249,12 @@ function AnticipoEditableBlock({
   CurrencyInput,
   rowTinted = false,
 }) {
-  const hasCustom =
-    row.anticipo_custom != null && row.anticipo_custom !== "";
   const anticipoVal = getAnticipoDisplay(row);
   const baseCalc = getEffectiveSubtotal(row);
+  const liveCalc = getAnticipoCalculado(row);
+  // Solo “observar” si el personalizado difiere del cálculo vivo (p. ej. post-export
+  // con cambios de transporte). Si custom ≈ calc, se ve como automático.
+  const showCustomUi = anticipoCustomDiffersFromCalc(row, liveCalc);
 
   const commitAnticipo = (val) => {
     if (Math.abs(val - baseCalc) < 0.01) {
@@ -258,16 +272,19 @@ function AnticipoEditableBlock({
         className={`w-full min-w-0 text-right text-xs font-bold outline-none border-b rounded-sm px-1 py-0.5 ${getInputClass(
           row.id,
           "anticipo_custom",
-          moneyFillClass(rowTinted, hasCustom ? "bg-blue-100" : "bg-orange-100"),
-          hasCustom ? "text-blue-800" : "text-orange-900",
+          moneyFillClass(
+            rowTinted,
+            showCustomUi ? "bg-blue-100" : "bg-orange-100",
+          ),
+          showCustomUi ? "text-blue-800" : "text-orange-900",
         )}`}
         placeholder="0"
       />
-      {hasCustom && (
+      {showCustomUi && (
         <div className="flex justify-end">
           <button
             type="button"
-            title="Volver al cálculo automático"
+            title="Actualizar al cálculo automático actual"
             className="inline-flex items-center justify-center rounded-full border border-slate-200/90 bg-white p-0.5 text-slate-400 shadow-sm hover:border-emerald-300 hover:text-emerald-600 hover:shadow"
             onClick={() => onUpdateRow(row.id, "anticipo_custom", null)}
           >
@@ -457,7 +474,18 @@ export default function ViaticosTable({
   const [useHistoricalLocal, setUseHistoricalLocal] = useState(useHistoricalCalc);
   const [expandedMotivoRowId, setExpandedMotivoRowId] = useState(null);
   const [expandedLugarRowId, setExpandedLugarRowId] = useState(null);
+  const [sortMode, setSortMode] = useState(readViaticosSortMode);
   const isHistorical = onUseHistoricalCalcChange ? useHistoricalCalc : useHistoricalLocal;
+
+  const setSortModeAndPersist = (mode) => {
+    setSortMode(mode);
+    writeViaticosSortMode(mode);
+  };
+
+  const tableEntries = useMemo(
+    () => buildViaticosTableEntries(rows, sortMode),
+    [rows, sortMode],
+  );
 
   const setHistorical = (value) => {
     if (onUseHistoricalCalcChange) onUseHistoricalCalcChange(value);
@@ -661,6 +689,35 @@ export default function ViaticosTable({
           <span className="text-indigo-600">
             Total Est: <b>${granTotal.toLocaleString("es-AR")}</b>
           </span>
+          <span className="text-slate-300">|</span>
+          <div
+            className="inline-flex items-center rounded-md border border-slate-200 bg-white p-0.5 shadow-sm"
+            role="group"
+            aria-label="Ordenar filas"
+          >
+            <button
+              type="button"
+              onClick={() => setSortModeAndPersist(VIATICOS_SORT_APELLIDO)}
+              className={`px-2 py-1 rounded text-[10px] font-bold uppercase transition-colors ${
+                sortMode === VIATICOS_SORT_APELLIDO
+                  ? "bg-indigo-600 text-white"
+                  : "text-slate-500 hover:text-slate-700"
+              }`}
+            >
+              Apellido
+            </button>
+            <button
+              type="button"
+              onClick={() => setSortModeAndPersist(VIATICOS_SORT_ROL)}
+              className={`px-2 py-1 rounded text-[10px] font-bold uppercase transition-colors ${
+                sortMode === VIATICOS_SORT_ROL
+                  ? "bg-indigo-600 text-white"
+                  : "text-slate-500 hover:text-slate-700"
+              }`}
+            >
+              Rol
+            </button>
+          </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap justify-end">
           {showRenunciaExportOption &&
@@ -825,7 +882,31 @@ export default function ViaticosTable({
             </thead>
 
             <tbody className="text-xs">
-              {rows.map((row) => {
+              {tableEntries.map((entry) => {
+                if (entry.type === "separator") {
+                  return (
+                    <tr
+                      key={`sep-${entry.groupId}`}
+                      className="bg-slate-100/90"
+                    >
+                      <td
+                        colSpan={40}
+                        className="sticky left-0 z-20 px-3 py-1.5 border-y border-slate-200 bg-slate-100/95"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-black uppercase tracking-wide text-slate-600">
+                            {entry.label}
+                          </span>
+                          <span className="text-[10px] font-bold text-slate-400">
+                            ({entry.count})
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                }
+
+                const row = entry.row;
                 const isSelected = selection.has(row.id);
                 const isDeleting = deletingRows.has(row.id);
                 const logData = resolveViaticoRowLogData(row, logisticsMap, {
@@ -864,9 +945,7 @@ export default function ViaticosTable({
                   esVehiculoOficial,
                 );
 
-                const hasViaticoCustom =
-                  row.anticipo_custom != null &&
-                  String(row.anticipo_custom).trim() !== "";
+                const hasViaticoCustom = anticipoCustomDiffersFromCalc(row);
 
                 const esTramo = isTramoViaticoRow(row);
                 const tramoGroup = esTramo ? getTramoGroupRows(rows, row) : [];
@@ -950,7 +1029,7 @@ export default function ViaticosTable({
                           )}
 
                           <div className="mt-0.5 text-[9px] text-slate-400 truncate">
-                            {row.rol_roster}
+                            {formatRolGiraLabel(row.rol_roster)}
                           </div>
                         </div>
 
@@ -1232,12 +1311,12 @@ export default function ViaticosTable({
                               hasViaticoCustom && (
                                 <div
                                   className="text-[9px] font-medium text-right leading-tight text-blue-700 tabular-nums"
-                                  title="Viático calculado automáticamente (sin override manual)"
+                                  title="Cálculo actual (distinto del anticipo congelado/personalizado)"
                                 >
                                   calc.{" "}
-                                  {round2(
-                                    getEffectiveSubtotal(row),
-                                  ).toLocaleString("es-AR")}
+                                  {getAnticipoCalculado(row).toLocaleString(
+                                    "es-AR",
+                                  )}
                                 </div>
                               )}
                             {(() => {

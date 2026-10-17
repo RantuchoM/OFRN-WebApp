@@ -1,4 +1,5 @@
-import React from "react";
+import React, { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   IconPhone,
   IconMail,
@@ -8,9 +9,82 @@ import {
   IconUserMinus,
   IconLink,
   IconX,
+  IconAlertTriangle,
 } from "../ui/Icons";
 import WhatsAppLink from "../ui/WhatsAppLink";
 import { seatingApellidoNombre } from "../../utils/integranteDisplayName";
+import { formatRolGiraLabel } from "../../utils/giraUtils";
+import {
+  getMissingDocLabels,
+  ROSTER_DOC_FIELDS,
+} from "../DataIntegrityIndicator";
+
+/** Triángulo + tooltip en portal (arriba del icono, z-[110]) para no quedar bajo el cursor. */
+function MissingDocWarnIcon({ labels }) {
+  const triggerRef = useRef(null);
+  const [pos, setPos] = useState(null);
+
+  const updatePos = () => {
+    if (!triggerRef.current) return;
+    const rect = triggerRef.current.getBoundingClientRect();
+    setPos({
+      top: rect.top - 8,
+      left: rect.left + rect.width / 2,
+    });
+  };
+
+  const show = () => updatePos();
+  const hide = () => setPos(null);
+
+  useEffect(() => {
+    if (!pos) return;
+    const onScrollResize = () => updatePos();
+    window.addEventListener("scroll", onScrollResize, true);
+    window.addEventListener("resize", onScrollResize);
+    return () => {
+      window.removeEventListener("scroll", onScrollResize, true);
+      window.removeEventListener("resize", onScrollResize);
+    };
+  }, [pos]);
+
+  const text = `Falta: ${labels.join(", ")}`;
+
+  const tooltip =
+    pos &&
+    typeof document !== "undefined" &&
+    createPortal(
+      <div
+        className="fixed z-[110] -translate-x-1/2 -translate-y-full pointer-events-none max-w-[16rem] px-2.5 py-1.5 rounded-lg bg-slate-800 text-white text-[11px] font-medium leading-snug shadow-lg border border-slate-700"
+        style={{ top: pos.top, left: pos.left }}
+        role="tooltip"
+      >
+        {text}
+        <div
+          className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-[6px] border-r-[6px] border-t-[6px] border-l-transparent border-r-transparent border-t-slate-800"
+          aria-hidden
+        />
+      </div>,
+      document.body,
+    );
+
+  return (
+    <>
+      <span
+        ref={triggerRef}
+        className="inline-flex items-center text-amber-500 shrink-0 cursor-help"
+        aria-label={text}
+        onMouseEnter={show}
+        onMouseLeave={hide}
+        onFocus={show}
+        onBlur={hide}
+        tabIndex={0}
+      >
+        <IconAlertTriangle size={14} />
+      </span>
+      {tooltip}
+    </>
+  );
+}
 
 /**
  * Una fila de la tabla del roster de gira.
@@ -76,6 +150,8 @@ export default function RosterTableRow({
     ? "opacity-60 grayscale-[50%] transition-opacity"
     : "";
 
+  const missingDocLabels = getMissingDocLabels(m, ROSTER_DOC_FIELDS);
+
   return (
     <tr
       id={`row-integrante-${m.id}`}
@@ -119,13 +195,13 @@ export default function RosterTableRow({
           >
             {rolesList.map((r) => (
               <option key={r.id} value={r.id}>
-                {r.id}
+                {formatRolGiraLabel(r.id)}
               </option>
             ))}
           </select>
         ) : (
           <span className="text-[10px] md:text-[11px] font-bold uppercase text-slate-600 block truncate">
-            {m.rol_gira || defaultRolId}
+            {formatRolGiraLabel(m.rol_gira || defaultRolId)}
           </span>
         )}
         {isEditor && !m.es_simulacion && instrumentsList.length > 0 ? (
@@ -172,6 +248,9 @@ export default function RosterTableRow({
             <span className="truncate">
               {seatingApellidoNombre(m)}
             </span>
+            {missingDocLabels.length > 0 && (
+              <MissingDocWarnIcon labels={missingDocLabels} />
+            )}
             {m.es_simulacion && (
               <span className="bg-amber-100 text-amber-700 text-[8px] md:text-[9px] px-0.5 md:px-1 rounded border border-amber-200 font-black tracking-wider shrink-0">
                 VACANTE

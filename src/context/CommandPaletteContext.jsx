@@ -830,11 +830,10 @@ export const CommandPaletteProvider = ({ children }) => {
     setIsSearchingEntities(false);
   }, [isOpen]);
 
-  // Teclado (Ctrl+K / Cmd+K)
+  // Teclado: Ctrl/Cmd+K (principal) y Ctrl/Cmd+Shift+K (respaldo si el navegador se queda con Ctrl+K)
   useEffect(() => {
-    // 1. Manejo de Teclado (Ctrl+K)
     const handleKeyDown = (e) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setIsOpen(prev => !prev);
       }

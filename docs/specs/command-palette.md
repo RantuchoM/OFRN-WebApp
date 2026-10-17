@@ -1,7 +1,7 @@
 # Command Palette (Ctrl+K)
 
 ## Objetivo
-Menú de navegación rápida accesible con **Ctrl+K** (o **Cmd+K** en macOS) y desde el botón de la barra superior.
+Menú de navegación rápida accesible con **Ctrl+K** / **Cmd+K**, con respaldo **Ctrl+Shift+K** / **Cmd+Shift+K** (cuando el navegador se queda con Ctrl+K, p. ej. barra de búsqueda), y desde el botón de la barra superior.
 
 ## Archivos
 | Archivo | Rol |
@@ -115,10 +115,11 @@ No hace falta duplicar la URL en más sitios: `buildManagementPaletteCommands()`
 - [x] **Tab cambia de vista** (Comandos / Personas / Repertorio) con selector visible; no mueve el foco a los resultados
 - [x] **Concerto Competition**, **FIMBA** y **Entradas** en Ctrl+K, con la misma visibilidad que el sidebar
 - [x] Repertorio en Ctrl+K: el título se muestra sin etiquetas HTML del texto enriquecido
+- [x] Atajo de respaldo **Ctrl/Cmd+Shift+K** (mismo toggle que Ctrl/Cmd+K; `e.key` normalizado a minúscula para que Shift no rompa el match)
 
 ## Búsqueda de obras y personas (dos pasos, sin volcar tablas)
 
-**Al abrir la paleta (Ctrl/Cmd+K o el botón de la barra) no se consulta `obras` ni `integrantes`.** Solo se listan comandos ya registrados (navegación, contexto, historial de giras). No hay diferencia “ínfima”: un catálogo de miles de obras no entra en memoria al pulsar Ctrl+K.
+**Al abrir la paleta (Ctrl/Cmd+K, Ctrl/Cmd+Shift+K o el botón de la barra) no se consulta `obras` ni `integrantes`.** Solo se listan comandos ya registrados (navegación, contexto, historial de giras). No hay diferencia “ínfima”: un catálogo de miles de obras no entra en memoria al pulsar Ctrl+K.
 
 ### Cómo se usa
 1. Abrir la paleta. La lista es de comandos (navegación, contexto, giras). No incluye «Buscar personas» ni «Buscar repertorio». En Comandos, cada gira del historial se busca también por `mes_letra` y `nomenclador` (`09b`, `Sinf 12/26` o `09b | Sinf 12/26`). Si esa gira está abierta, sus comandos (Programación, Seating, etc.) coinciden con esos mismos códigos y quedan primero.

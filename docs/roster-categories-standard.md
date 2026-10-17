@@ -30,6 +30,9 @@ Subconjunto que mapea a la categoría logística `PRODUCCION` en reglas de hotel
 ### DEFAULT_ROL_ID, ROLE_MUS_PROD, DEFAULT_CARGO
 Valores por defecto para rol no asignado (`musico`), músico-producción (`mus_prod`) y cargo en exportaciones.
 
+### ROLE_LABELS / `formatRolGiraLabel` (2026-10-17)
+Los `roles.id` siguen sin acento como clave técnica (`musico`, `produccion`, …). La UI muestra labels con mayúscula y tilde vía `formatRolGiraLabel` en `giraUtils.js` (p. ej. **Músico**, **Producción**). Usado en roster (`GiraRoster` / `RosterTableRow`), viáticos (`ViaticosTable` / alta) y ficha de giras del músico.
+
 ### instrumentos.rol_gira_default
 FK a `roles.id`. Se edita en Datos → Instrumentos. En `inferDefaultTourRole` **no** gana si la persona está en Prod. **y** en un ensamble músico.
 
@@ -46,4 +49,4 @@ Prioridad (2026-09-23):
 ## Reglas de Implementación
 1. Prohibido usar strings literales como `'solista'` o `'GRP:TUTTI'` fuera de `giraUtils.js`.
 2. Las comparaciones deben realizarse contra `ROSTER_CATEGORIES` o constantes exportadas.
-3. Los IDs de rol en edición provienen de la tabla `roles`; los labels de visualización siguen el estándar unificado.
+3. Los IDs de rol en edición provienen de la tabla `roles`; los labels de visualización usan `formatRolGiraLabel` / `ROLE_LABELS` (no el id crudo).

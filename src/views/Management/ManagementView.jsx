@@ -146,9 +146,9 @@ const SECTION_CONFIG = {
     titleClasses: "text-amber-900 group-hover:text-amber-700",
   },
   servicios: {
-    title: "Servicios",
-    tabLabel: "Servicios",
-    subtitle: "Cantidad de servicios por integrante",
+    title: "Prestaciones",
+    tabLabel: "Prestaciones",
+    subtitle: "Cantidad de prestaciones por integrante",
     description:
       "Conciertos, didácticos y ensayos (ensamble y gira) por persona. 1 si ≥2 h, ½ si más de 30 min y menos de 2 h; 15/30 min no cuentan. Reemplazo y licencia abonados cuentan.",
     icon: IconClipboard,

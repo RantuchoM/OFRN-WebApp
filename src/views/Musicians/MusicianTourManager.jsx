@@ -11,7 +11,7 @@ import {
   IconChevronDown,
   IconUser,
 } from "../../components/ui/Icons";
-import { getProgramStyle } from "../../utils/giraUtils";
+import { formatRolGiraLabel, getProgramStyle } from "../../utils/giraUtils";
 import NotificationQueuePanel from "../../components/giras/NotificationQueuePanel";
 import { toast } from "sonner";
 import { touchOrganicoConvocado } from "../../services/organicoConvocadoService";
@@ -707,7 +707,7 @@ export default function MusicianTourManager({ supabase, musician }) {
                                                 >
                                                     {rolesList.map(role => (
                                                         <option key={role.id} value={role.id} className="text-slate-600 font-bold">
-                                                            {role.id}
+                                                            {formatRolGiraLabel(role.id)}
                                                         </option>
                                                     ))}
                                                 </select>

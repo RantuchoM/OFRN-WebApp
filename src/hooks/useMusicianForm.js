@@ -11,6 +11,7 @@ import {
 } from "../utils/imageUtils";
 import { useDebouncedCallback } from "./useDebouncedCallback";
 import { toast } from "sonner";
+import { canonicalizeMealDiet } from "../utils/dietOptions";
 
 function getDefaultValues(musician = {}) {
   return {
@@ -273,9 +274,14 @@ export function useMusicianForm(musician, supabase, onSave) {
       if (!id || !supabase) return;
       setFieldStatuses((prev) => ({ ...prev, [field]: "saving" }));
       try {
+        let dbValue = value === "" ? null : value;
+        // Alimentación: vacío → null (aviso en roster). Si eligen Estándar/General, guardar canónico.
+        if (field === "alimentacion" && value != null && String(value).trim()) {
+          dbValue = canonicalizeMealDiet(value);
+        }
         const { error } = await supabase
           .from("integrantes")
-          .update({ [field]: value === "" ? null : value })
+          .update({ [field]: dbValue })
           .eq("id", id);
         if (error) throw error;
         setFieldStatuses((prev) => ({ ...prev, [field]: "saved" }));
@@ -818,7 +824,9 @@ export function useMusicianForm(musician, supabase, onSave) {
           dni: dniRaw || null,
           cuil: cuilRaw || null,
           fecha_nac: formValues.fecha_nac || null,
-          alimentacion: (formValues.alimentacion || "").trim() || null,
+          alimentacion: (formValues.alimentacion || "").trim()
+            ? canonicalizeMealDiet(formValues.alimentacion)
+            : null,
           nombre_preferencia:
             (formValues.nombre_preferencia || "").trim() || null,
           apellido_preferencia:

@@ -40,7 +40,7 @@ export const MANAGEMENT_PALETTE_ENTRIES = [
   {
     slug: "servicios",
     id: "mgmt-servicios",
-    label: "Gestión: Servicios",
+    label: "Gestión: Prestaciones",
     section: "Informes de Gestión",
   },
   {

@@ -738,14 +738,14 @@ export async function downloadServiciosCantidadExcel({
   rowGroups = [],
   fechaDesde,
   fechaHasta,
-  fileName = "cantidad_servicios",
+  fileName = "cantidad_prestaciones",
   estimateNote = "",
   ensayoColumnView = "duracion",
 }) {
   const { columns, leading, ensayos, trailing } =
     splitServicioListingColumns(ensayoColumnView);
   const wb = new ExcelJS.Workbook();
-  const ws = wb.addWorksheet("Servicios");
+  const ws = wb.addWorksheet("Prestaciones");
 
   const identity = ["Integrante", "Instrumento", "Familia"];
   ws.addRow([
@@ -863,7 +863,7 @@ export async function downloadServiciosCantidadExcel({
   }
 
   const buf = await wb.xlsx.writeBuffer();
-  const safe = String(fileName || "cantidad_servicios").replace(/\.xlsx$/i, "");
+  const safe = String(fileName || "cantidad_prestaciones").replace(/\.xlsx$/i, "");
   return deliverBlob(
     new Blob([buf], { type: XLSX_MIME }),
     `${safe}_${pdfStamp()}.xlsx`,
@@ -882,7 +882,7 @@ function rangoServiciosLabel(fechaDesde, fechaHasta) {
 function writeServiciosPdfHeader(doc, { title, rango, note }) {
   doc.setFontSize(11);
   doc.setTextColor(0);
-  doc.text(toServiciosPdfText(title || "Gestion Servicios"), 14, 12);
+  doc.text(toServiciosPdfText(title || "Gestion Prestaciones"), 14, 12);
   doc.setFontSize(8);
   doc.setTextColor(100);
   doc.text(
@@ -1159,7 +1159,7 @@ function drawServiciosYearSummaryRecuadro(doc, {
     fill: [255, 247, 237],
     border: [253, 186, 116],
     textColor: [154, 52, 18],
-    label: "Serv/mes",
+    label: "Prest/mes",
     value: porMes,
   });
 
@@ -1302,7 +1302,7 @@ export function downloadServiciosCantidadPdf({
   fechaDesde,
   fechaHasta,
   groupByEnsambles = false,
-  fileName = "cantidad_servicios",
+  fileName = "cantidad_prestaciones",
   estimateNote = "",
   ensayoColumnView = "duracion",
 }) {
@@ -1315,7 +1315,7 @@ export function downloadServiciosCantidadPdf({
   const rango = rangoServiciosLabel(fechaDesde, fechaHasta);
 
   writeServiciosPdfHeader(doc, {
-    title: "Gestion Servicios",
+    title: "Gestion Prestaciones",
     rango,
     note: estimateNote,
   });
@@ -1479,7 +1479,7 @@ export function downloadServiciosCantidadPdf({
     doc.setTextColor(100);
     doc.text(
       [
-        "Servicios/mes = Total / meses feb-dic de presencia (fecha_alta). Enero no cuenta. Totales de Servicios/mes: -.",
+        "Prestaciones/mes = Total / meses feb-dic de presencia (fecha_alta). Enero no cuenta. Totales de Prestaciones/mes: -.",
         estimateNote,
       ]
         .filter(Boolean)
@@ -1519,7 +1519,7 @@ export function downloadServiciosCantidadDetallePdf({
   });
   return deliverPdf(
     doc,
-    `servicios_detalle_${slugIntegrantePdf(integrante)}_${pdfStamp()}.pdf`,
+    `prestaciones_detalle_${slugIntegrantePdf(integrante)}_${pdfStamp()}.pdf`,
   );
 }
 
@@ -1536,7 +1536,7 @@ export function downloadServiciosCantidadDetalleLotePdf({
   fechaHasta,
   ensambleById,
   programaById,
-  fileName = "servicios_detalle_lote",
+  fileName = "prestaciones_detalle_lote",
   estimateNote = "",
   conflictoGroups = [],
   sessionByEventId = null,

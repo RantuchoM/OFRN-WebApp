@@ -260,6 +260,7 @@ export function useViaticosIndividuales(
           nombre_preferencia: persona?.nombre_preferencia || null,
           apellido_preferencia: persona?.apellido_preferencia || null,
           rol_roster: persona?.rol_gira || persona?.rol || "",
+          condicion: persona?.condicion || "",
           cargo: row.cargo || persona?.rol_gira || "Músico",
           firma: persona ? persona.firma : null,
           dni: persona ? persona.dni : null,
@@ -394,41 +395,58 @@ export function useViaticosIndividuales(
     }
   };
 
-  const addPerson = async (idIntegrante) => {
-        // 1. Buscamos en el ROSTER (que ahora ya trae los campos gracias al fix anterior)
-        const person = roster.find(p => p.id === idIntegrante);
-        
-        if (!person) return;
-
-        // 2. Definimos los valores iniciales (Snapshot)
-        // Prioridad: El campo 'cargo' directo de DB > rol_gira > rol
-        const cargoInicial = person.cargo || person.rol_gira || person.rol || "";
-        // Prioridad: El campo 'jornada' directo de DB > 'jornada_laboral' si existiera
-        const jornadaInicial = person.jornada || person.jornada_laboral || ""; 
-        const motivoInicial = person.motivo || ""; 
-
-        const { error } = await supabase.from("giras_viaticos_detalle").insert({
-            id_gira: giraId,
-            id_integrante: idIntegrante,
-            
-            // 3. Guardamos los valores recuperados
-            cargo: cargoInicial,
-            jornada_laboral: jornadaInicial, // Asegúrate que en DB la columna se llame 'jornada_laboral' o 'jornada' y ajusta aquí
-            motivo: motivoInicial, 
-            
-            // Valores por defecto financieros
-            dias_computables: 0,
-            porcentaje: 100
-        });
-        
-        if (error) {
-            console.error("Error al agregar persona:", error);
-            toast.error("Error al agregar integrante");
-        } else {
-            fetchRows(); 
-            toast.success("Integrante agregado (Datos importados)");
-        }
+  const buildPersonInsert = (idIntegrante) => {
+    const person = (roster || []).find(
+      (p) => String(p.id) === String(idIntegrante),
+    );
+    if (!person) return null;
+    return {
+      id_gira: giraId,
+      id_integrante: person.id,
+      cargo: person.cargo || person.rol_gira || person.rol || "",
+      jornada_laboral: person.jornada || person.jornada_laboral || "",
+      motivo: person.motivo || "",
+      dias_computables: 0,
+      porcentaje: 100,
     };
+  };
+
+  const addPeople = async (ids) => {
+    const seen = new Set();
+    const payloads = [];
+    (ids || []).forEach((id) => {
+      const key = String(id);
+      if (seen.has(key)) return;
+      seen.add(key);
+      const payload = buildPersonInsert(id);
+      if (payload) payloads.push(payload);
+    });
+    if (!payloads.length) return false;
+
+    const { error } = await supabase
+      .from("giras_viaticos_detalle")
+      .insert(payloads);
+
+    if (error) {
+      console.error("Error al agregar integrantes:", error);
+      toast.error(
+        payloads.length === 1
+          ? "Error al agregar integrante"
+          : "Error al agregar integrantes",
+      );
+      return false;
+    }
+
+    await fetchRows();
+    toast.success(
+      payloads.length === 1
+        ? "Integrante agregado (Datos importados)"
+        : `${payloads.length} integrantes agregados`,
+    );
+    return true;
+  };
+
+  const addPerson = (idIntegrante) => addPeople([idIntegrante]);
 
 
   const addBatch = async (batchValues, selectionSet, clearSelection) => {
@@ -817,6 +835,7 @@ export function useViaticosIndividuales(
     updateRow,
     deleteRow,
     addPerson,
+    addPeople,
     addBatch,
     splitViaticoRow,
     mergeViaticoTramos,

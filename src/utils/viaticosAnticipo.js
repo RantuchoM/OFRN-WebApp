@@ -16,6 +16,36 @@ function safeMoney(v) {
   return Number.isFinite(n) ? n : 0;
 }
 
+function round2(n) {
+  return Math.round((n + Number.EPSILON) * 100) / 100;
+}
+
+/** `anticipo_custom` parseado, o `null` si no hay override. */
+export function parseAnticipoCustom(row) {
+  if (row?.anticipo_custom == null || row.anticipo_custom === "") return null;
+  const v = parseFloat(row.anticipo_custom);
+  return Number.isFinite(v) ? round2(v) : null;
+}
+
+/** Anticipo calculado vivo de la fila (`subtotal`), sin override ni histórico. */
+export function getAnticipoCalculado(row) {
+  return round2(safeMoney(row?.subtotal));
+}
+
+/**
+ * Hay override distinto del cálculo actual (p. ej. congelado en export y
+ * luego cambió el transporte). Si custom ≈ calc, no se “observa” en UI.
+ */
+export function anticipoCustomDiffersFromCalc(row, calculated = null) {
+  const custom = parseAnticipoCustom(row);
+  if (custom == null) return false;
+  const calc =
+    calculated != null && Number.isFinite(calculated)
+      ? round2(calculated)
+      : getAnticipoCalculado(row);
+  return Math.abs(custom - calc) >= 0.01;
+}
+
 /**
  * Monto de anticipo para exportación / PDF / correos:
  * anticipo_custom si existe; si no, calculado (subtotal) o histórico según useHistoricalCalc.

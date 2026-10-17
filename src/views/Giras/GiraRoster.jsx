@@ -22,6 +22,7 @@ import {
   IconSend,
   IconBell,
   IconTag,
+  IconUpload,
 } from "../../components/ui/Icons";
 import { useGiraRoster } from "../../hooks/useGiraRosterQuery";
 import {
@@ -33,6 +34,7 @@ import { deleteVacancyFromGira } from "../../services/giraService";
 import { useRosterDropdownData } from "../../hooks/useRosterDropdownData";
 import {
   DEFAULT_ROL_ID,
+  formatRolGiraLabel,
   inferDefaultTourRole,
   resolveTourRoleOverride,
   buildGiraIntegranteUpsert,
@@ -53,7 +55,11 @@ import RosterGroupSeparatorRow from "../../components/giras/RosterGroupSeparator
 import RosterMotivoModal from "../../components/giras/RosterMotivoModal";
 import RosterBajaModal from "../../components/giras/RosterBajaModal";
 import RosterGroupsModal from "../../components/giras/RosterGroupsModal";
+import RosterBulkImportModal from "../../components/giras/RosterBulkImportModal";
 import NotificationQueuePanel from "../../components/giras/NotificationQueuePanel";
+import DataIntegrityIndicator, {
+  ROSTER_DOC_FIELDS,
+} from "../../components/DataIntegrityIndicator";
 import {
   buildIntegranteGruposMap,
   fetchGiraGrupos,
@@ -740,6 +746,12 @@ export default function GiraRoster({
     };
   }, [localRoster]);
 
+  /** Personas reales (sin vacantes) para el indicador de documentación. */
+  const rosterDocPassengers = useMemo(
+    () => (rawRoster || []).filter((m) => !m.es_simulacion),
+    [rawRoster],
+  );
+
   const occupancyLabelDesktop =
     filteredOccupancy.instruments > 0
       ? `${filteredOccupancy.people} + ${filteredOccupancy.instruments} ins = ${filteredOccupancy.butacas} butacas`
@@ -798,6 +810,7 @@ export default function GiraRoster({
     DEFAULT_ROL_ID,
   );
   const [isVacancyModalOpen, setIsVacancyModalOpen] = useState(false);
+  const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
   const [swapTarget, setSwapTarget] = useState(null);
   const [editingMusician, setEditingMusician] = useState(null);
   const [showExitConfirmModal, setShowExitConfirmModal] = useState(false);
@@ -2927,7 +2940,7 @@ export default function GiraRoster({
                 : [{ id: DEFAULT_ROL_ID }]
               ).map((r) => (
                 <option key={r.id} value={r.id}>
-                  {r.id}
+                  {formatRolGiraLabel(r.id)}
                 </option>
               ))}
             </select>
@@ -3076,8 +3089,7 @@ export default function GiraRoster({
                   placeholder="Todos"
                   options={sortedRolesList.map((r) => ({
                     value: r.id,
-                    label:
-                      r.id.charAt(0).toUpperCase() + r.id.slice(1),
+                    label: formatRolGiraLabel(r.id),
                   }))}
                   value={Array.from(selectedFilterRoles)}
                   onChange={(arr) => setSelectedFilterRoles(new Set(arr))}
@@ -3091,7 +3103,7 @@ export default function GiraRoster({
                           key={r.id}
                           className="relative pl-2 pr-4 py-0.5 rounded-full bg-indigo-50 text-[10px] font-semibold text-indigo-700 border border-indigo-100"
                         >
-                          {r.id.charAt(0).toUpperCase() + r.id.slice(1)}
+                          {formatRolGiraLabel(r.id)}
                           <button
                             type="button"
                             onClick={() => {
@@ -3333,6 +3345,17 @@ export default function GiraRoster({
                 <button
                   type="button"
                   onClick={() => {
+                    setIsBulkImportOpen(true);
+                    setShowSelectionMenu(false);
+                  }}
+                  className="w-full text-left px-2 py-1.5 rounded hover:bg-slate-50 flex items-center justify-between text-fixed-indigo-700"
+                >
+                  <span>Individual (Excel)</span>
+                  <IconUpload size={12} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
                     setIsVacancyModalOpen(true);
                     setShowSelectionMenu(false);
                   }}
@@ -3363,6 +3386,11 @@ export default function GiraRoster({
                 </span>
               </button>
             )}
+            <DataIntegrityIndicator
+              passengers={rosterDocPassengers}
+              fields={ROSTER_DOC_FIELDS}
+              title="Datos de ficha faltantes"
+            />
             <span
               className="inline-flex items-center min-h-5 px-2 py-0.5 rounded-md border text-[10px] font-bold tabular-nums leading-tight text-indigo-600 bg-indigo-50 border-indigo-100 max-w-full sm:max-w-none"
               title={`${occupancyLabelDesktop} (personas filtradas del roster)`}
@@ -3540,7 +3568,7 @@ export default function GiraRoster({
                           : [{ id: DEFAULT_ROL_ID }]
                         ).map((r) => (
                           <option key={r.id} value={r.id}>
-                            {r.id}
+                            {formatRolGiraLabel(r.id)}
                           </option>
                         ))}
                       </select>
@@ -3562,13 +3590,23 @@ export default function GiraRoster({
                   </div>
                 </div>
               )}
-              <button
-                type="button"
-                onClick={handleOpenDetailedCreate}
-                className="self-start text-[11px] font-semibold text-fixed-indigo-600 hover:text-fixed-indigo-800 hover:underline"
-              >
-                Nueva ficha completa…
-              </button>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 self-start">
+                <button
+                  type="button"
+                  onClick={handleOpenDetailedCreate}
+                  className="text-[11px] font-semibold text-fixed-indigo-600 hover:text-fixed-indigo-800 hover:underline"
+                >
+                  Nueva ficha completa…
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsBulkImportOpen(true)}
+                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-fixed-indigo-600 hover:text-fixed-indigo-800 hover:underline"
+                >
+                  <IconUpload size={12} />
+                  Carga masiva (Excel)
+                </button>
+              </div>
             </div>
           )}
         </div>
@@ -3824,6 +3862,19 @@ export default function GiraRoster({
         localities={localitiesList}
         instruments={instrumentsList}
         giraNomenclador={gira.nomenclador || gira.nombre_gira.substring(0, 5)}
+      />
+      <RosterBulkImportModal
+        isOpen={isBulkImportOpen}
+        onClose={() => setIsBulkImportOpen(false)}
+        supabase={supabase}
+        giraId={gira.id}
+        localNotificacionInicialEnviada={localNotificacionInicialEnviada}
+        notificacionesHabilitadas={notificacionesHabilitadas}
+        onEnqueueNotifications={(tasks) => {
+          if (!tasks?.length) return;
+          setPendingNotifications((prev) => [...prev, ...tasks]);
+        }}
+        onDone={refreshRoster}
       />
       <SwapVacancyModal
         isOpen={!!swapTarget}

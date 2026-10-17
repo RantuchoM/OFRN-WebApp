@@ -399,9 +399,8 @@ export function sumGiraServiciosComputados(programId, events, range) {
 
 /**
  * Fila del cuadro general. `pendingEventIds` = conflictos plenos pendientes
- * (ya partida la sesión). Las giras futuras cuentan como gira y suman 0 servicios.
- * Servicios netos = servicios de giras pasadas + valor de ensayos de ensamble
- * que no están en ese pendiente (1 / ½ / 0).
+ * (ya partida la sesión). Las giras futuras cuentan como gira.
+ * Prestaciones netas quedan fuera del cuadro por ahora.
  */
 export function summarizeEnsambleServiciosReport(report, pendingEventIds) {
   const pending = new Set();
@@ -418,35 +417,31 @@ export function summarizeEnsambleServiciosReport(report, pendingEventIds) {
     row?.pesoEnCasa == null ? (row?.fueraDeCasa ? 0 : 1) : Number(row.pesoEnCasa) || 0;
   const pesoFuera = (row) =>
     row?.pesoFuera == null ? (row?.fueraDeCasa ? 1 : 0) : Number(row.pesoFuera) || 0;
-  const serviciosDe = (row) =>
-    row?.servicios == null ? 0 : Number(row.servicios) || 0;
-  const serviciosEnCasa = giras.reduce(
-    (acc, row) => acc + serviciosDe(row) * pesoEnCasa(row),
-    0,
-  );
-  const serviciosFuera = giras.reduce(
-    (acc, row) => acc + serviciosDe(row) * pesoFuera(row),
-    0,
-  );
 
   let ensayosEnsamble = 0;
-  let ensayosServicios = 0;
   for (const evt of report?.ensayos || []) {
     if (blocked(evt?.id)) continue;
     ensayosEnsamble += 1;
-    const classified = classifyServicioEvent(evt);
-    if (classified?.value) ensayosServicios += classified.value;
   }
+
+  const programasEnsamble = report?.programasPropios?.length || 0;
+  let conciertosEnsamble = report?.conciertosSueltos?.length || 0;
+  for (const row of report?.programasPropios || []) {
+    conciertosEnsamble += row?.conciertos?.length || 0;
+  }
+
+  const girasEnCasa = giras.reduce((acc, row) => acc + pesoEnCasa(row), 0);
+  const girasFuera = giras.reduce((acc, row) => acc + pesoFuera(row), 0);
 
   return {
     ensambleName: report?.ensambleName || "",
-    girasEnCasa: giras.reduce((acc, row) => acc + pesoEnCasa(row), 0),
-    serviciosEnCasa,
-    girasFuera: giras.reduce((acc, row) => acc + pesoFuera(row), 0),
-    serviciosFuera,
+    girasEnCasa,
+    girasFuera,
+    girasTotal: girasEnCasa + girasFuera,
+    programasEnsamble,
+    conciertosEnsamble,
     ensayosEnsamble,
     ensayosConflicto: pending.size,
-    serviciosNetos: serviciosEnCasa + serviciosFuera + ensayosServicios,
   };
 }
 

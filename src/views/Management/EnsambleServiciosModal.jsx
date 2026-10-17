@@ -89,7 +89,7 @@ function fueraDeCasaTitle(row, homeName) {
   const casa = homeName || "sin localidad";
   const base = `Sedes: ${sedes}. Localidad del ensamble: ${casa}.`;
   if ((row.tramoCount || 0) > 1) {
-    return `${row.tramosFuera || 0} de ${row.tramoCount} tramos fuera de casa. Cada tramo cuenta 1/${row.tramoCount} en giras y en servicios. ${base}`;
+    return `${row.tramosFuera || 0} de ${row.tramoCount} tramos fuera de casa. Cada tramo cuenta 1/${row.tramoCount} en giras y en prestaciones. ${base}`;
   }
   return base;
 }
@@ -130,8 +130,8 @@ function ProgramRow({
               className="font-semibold tabular-nums text-slate-600"
               title={
                 row.serviciosModo === "promedio"
-                  ? "Promedio de servicios de los músicos del ensamble en el roster. Los eventos con grupo cuentan solo para ese grupo."
-                  : "Servicios de la gira: ensayos + conciertos"
+                  ? "Promedio de prestaciones de los músicos del ensamble en el roster. Los eventos con grupo cuentan solo para ese grupo."
+                  : "Prestaciones de la gira: ensayos + conciertos"
               }
             >
               ({formatServicioNumber(row.servicios)}

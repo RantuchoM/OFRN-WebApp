@@ -12,7 +12,7 @@ export const CommandBarTrigger = ({ className = "" }) => {
     <button
       type="button"
       onClick={handleClick}
-      title="Abrir menú (Ctrl+K)"
+      title="Abrir menú (Ctrl+K · Ctrl+Shift+K)"
       className={`
         group flex items-center justify-between 
         bg-white border border-slate-200 rounded-lg 

@@ -42,12 +42,12 @@ COMMENT ON COLUMN public.giras_viaticos_config.rendicion_fecha IS 'Fecha límite
 ### 3.1 Anticipo personalizado (`useViaticosIndividuales` + `ViaticosTable`)
 
 - **`anticipoParaTotal`** en el hook: `anticipo_custom` si viene informado; si no, `subtotal` calculado. **`totalFinal`** = anticipo efectivo + suma de gastos de la fila.
-- **Visualización** con modo **Rendiciones** activo (toggle “Rendic.”):
-  - Fondo **naranja** (`bg-orange-100`): valor automático (sin `anticipo_custom`).
-  - Fondo **azul** (`bg-blue-100`): valor manual (`anticipo_custom` no nulo).
-  - **IconEdit**: enfoca el input numérico del anticipo.
-  - **IconRefresh**: solo si hay manual; guarda `anticipo_custom = null` en BD.
-- Si el usuario confirma un monto igual al cálculo vigente (histórico o actual), se normaliza a `null` para no dejar override innecesario.
+- **Export viático (2026-10-17):** al exportar PDF de viático (`options.viatico`), además del backup se guarda `anticipo_custom` = monto exportado (congelado). Así, si después cambia transporte/días, el total mostrado sigue el exportado hasta que se actualice.
+- **Visualización** (y con modo **Rendiciones**):
+  - Fondo **naranja**: sin override, o `anticipo_custom` ≈ cálculo vivo (`subtotal`) — no se “observa”.
+  - Fondo **azul** + hint `calc.` + **IconRefresh**: solo si `anticipo_custom` **difiere** del cálculo vivo (cambio de logística o override manual). Refresh → `anticipo_custom = null` (vuelve al automático).
+  - Helpers: `anticipoCustomDiffersFromCalc` / `getAnticipoCalculado` en `viaticosAnticipo.js`.
+- Si el usuario edita un monto igual al cálculo vigente (histórico o actual en commit), se normaliza a `null`.
 
 ### 3.2 Fecha de rendición (`ViaticosManager`)
 
@@ -87,6 +87,8 @@ COMMENT ON COLUMN public.giras_viaticos_config.rendicion_fecha IS 'Fecha límite
 - [x] **Patente oficial en PDF (2026-09-25):** el AcroForm `patente` / `check_patente` de `plantilla_viaticos.pdf` (también destaque) se rellena con `resolvePatenteOficialValue`: override guardado → patente de la tabla/logística (primera ↑) → `travelData` del lote → cualquier bus del integrante (`transportes.patente` o `giras_transportes.patente`). En La Fuerza del Legado las filas de `giras_viaticos_detalle` no tenían `patente_oficial`; el PDF quedaba vacío aunque la tabla mostrara PFU470. `useLogistics` ahora también toma la patente de la unidad de gira si el catálogo viene vacío.
 - [x] **Renuncia también en destaque (2026-09-25):** si % = 0 y está tildada «Marcar que renuncia viáticos», el campo `gasto_anticipo` del PDF de **destaque** (misma plantilla, `mode=destaque`) dice **RENUNCIA A VIÁTICOS** igual que el de viático. El checkbox se muestra al exportar viático **o** destaque. Los montos del destaque siguen en $0; no se vuelve a poner en cero el payload compartido del viático.
 - [x] **PDF viático: casillero de movilidad en 0 (2026-09-25):** el AcroForm `gasto_movilidad` (pesos a la derecha de «Medio de movilidad» en `plantilla_viaticos.pdf`) imprime `0` si pasajes/movilidad no vienen, son null o son 0. Antes `gasto_pasajes || gastos_movilidad` trataba el 0 como vacío y, con `keep_editable`, el campo quedaba en blanco. `gasto_combustible` ya salía 0. No cambia el anticipo.
+- [x] **Alta de varios integrantes (2026-10-17):** en Viáticos, «Agregar…» deja tildar varias personas (o «Marcar visibles») y las inserta juntas en `giras_viaticos_detalle` con un solo toast. «+ Todos los Indiv.» usa el mismo insert en lote. Al abrir el panel, el listado ya está visible bajo el buscador; primero los pendientes de «+ Todos los Indiv.» (no masivos / no ausentes / no vacantes `es_simulacion` / sin fila) y después el resto del roster. Las vacantes no entran en «+ Todos los Indiv.» (sí pueden agregarse a mano desde «Agregar…» si hace falta). Tooltip de pendientes: abre **abajo** del botón (`z-[110]`); cada línea muestra nombre + rol e instrumento.
+- [x] **Orden Apellido / Rol en tabla individual (2026-10-17):** junto a los totales, toggle **Apellido** o **Rol** (default la primera vez). En Rol, separadores: Directores → Solistas (solo no Estable) → Producción (`ROLES_PRODUCCION` + `mus_prod`) → Músicos invitados/refuerzos → Músicos estables (incluye solistas internos Estable). Helper `viaticosRowSort.js`; la fila lleva `condicion` del roster. Preferencia en `localStorage` (`ofrn:viaticos_table_sort`).
 - [x] **Export con documentación no se traba al cambiar de pestaña (2026-09-25):** sí era throttling de timers. pdf-lib cede con `setTimeout(0)` cada 100 objetos al **cargar** (`ParseSpeeds.Slow`) y cada 50 al **guardar**. En pestaña oculta Chrome baja eso a ~1 s y luego ~1 min: el lote con Doc. Común / Reducida (PDFs grandes de Drive + `copyPages` + `save`) parece congelado. Fix: `parseSpeed: Fastest` y `objectsPerTick: Infinity` en plantillas (`pdfFormExporter`) y en el merge del lote (`ViaticosManager.mergeBytes` / `save`). El overlay cede el hilo con un Worker (`yieldExportLoop`), no rAF ni `setTimeout`. Con la pestaña oculta el spinner CSS puede verse quieto (Chrome pausa animaciones); el trabajo sigue. Al volver, el `[n/total]` debe haber avanzado.
 
 ## 4. Archivos tocados
@@ -96,6 +98,7 @@ COMMENT ON COLUMN public.giras_viaticos_config.rendicion_fecha IS 'Fecha límite
 | Fechas | `src/utils/dates.js` (`firstMondayAfter`) |
 | Hook | `src/hooks/viaticos/useViaticosIndividuales.js` |
 | Tabla | `src/views/Giras/Viaticos/ViaticosTable.jsx` |
+| Orden filas | `src/utils/viaticosRowSort.js` (`buildViaticosTableEntries`) |
 | Manager | `src/views/Giras/Viaticos/ViaticosManager.jsx` |
 | PDF | `src/utils/pdfFormExporter.js` |
 | Export pre-check | `src/utils/viaticosExportMotivoLugar.js` |

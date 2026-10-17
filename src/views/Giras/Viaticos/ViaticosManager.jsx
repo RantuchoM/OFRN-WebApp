@@ -96,6 +96,7 @@ import {
   MotivoLugarExportWarningTitle,
 } from "./MotivoLugarExportWarning";
 import { VIATICOS_ROOT_FOLDER_URL } from "../../../utils/driveFolders";
+import { formatRolGiraLabel } from "../../../utils/giraUtils";
 
 const uint8ArrayToBase64 = (uint8Array) => {
   let binary = "";
@@ -161,27 +162,26 @@ const zeroDestaqueMonetaryFields = (data) => {
   return cloned;
 };
 
-const MemberSearchSelect = ({ options = [], value, onChange, placeholder }) => {
-  const [isOpen, setIsOpen] = useState(false);
+const MemberSearchSelect = ({
+  options = [],
+  value = [],
+  onChange,
+  placeholder,
+  autoFocus = false,
+}) => {
   const [search, setSearch] = useState("");
-  const wrapperRef = useRef(null);
   const inputRef = useRef(null);
+  const selectedIds = useMemo(
+    () => new Set((Array.isArray(value) ? value : []).map(String)),
+    [value],
+  );
 
   useEffect(() => {
-    function handleClickOutside(event) {
-      if (wrapperRef.current && !wrapperRef.current.contains(event.target))
-        setIsOpen(false);
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
-  useEffect(() => {
-    if (isOpen) {
-      setSearch("");
-      setTimeout(() => inputRef.current?.focus(), 50);
-    }
-  }, [isOpen]);
+    setSearch("");
+    if (!autoFocus) return undefined;
+    const t = setTimeout(() => inputRef.current?.focus(), 50);
+    return () => clearTimeout(t);
+  }, [autoFocus]);
 
   const filteredOptions = useMemo(() => {
     if (!options) return [];
@@ -191,68 +191,111 @@ const MemberSearchSelect = ({ options = [], value, onChange, placeholder }) => {
     );
   }, [options, search]);
 
-  const selectedLabel = options?.find((o) => o.value === value)?.label || "";
+  const emitSelection = (nextIds) => {
+    onChange(
+      options.filter((opt) => nextIds.has(String(opt.value))).map((opt) => opt.value),
+    );
+  };
+
+  const toggleOption = (optValue) => {
+    const next = new Set(selectedIds);
+    const key = String(optValue);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    emitSelection(next);
+  };
+
+  const allVisibleSelected =
+    filteredOptions.length > 0 &&
+    filteredOptions.every((opt) => selectedIds.has(String(opt.value)));
+
+  const toggleVisible = () => {
+    const next = new Set(selectedIds);
+    if (allVisibleSelected) {
+      filteredOptions.forEach((opt) => next.delete(String(opt.value)));
+    } else {
+      filteredOptions.forEach((opt) => next.add(String(opt.value)));
+    }
+    emitSelection(next);
+  };
+
+  const firstOtherIndex = filteredOptions.findIndex((opt) => !opt.isIndividualPending);
+  const showPendingHeader = filteredOptions.some((opt) => opt.isIndividualPending);
+  const showOtherHeader =
+    showPendingHeader && firstOtherIndex > 0 && firstOtherIndex < filteredOptions.length;
 
   return (
-    <div className="relative w-full" ref={wrapperRef}>
-      <div
-        onClick={() => setIsOpen(!isOpen)}
-        className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white flex items-center justify-between cursor-pointer hover:border-indigo-400 shadow-sm select-none"
-      >
-        <span
-          className={value ? "text-slate-700 font-medium" : "text-slate-400"}
-        >
-          {value ? selectedLabel : placeholder}
-        </span>
-        <IconChevronDown size={16} className="text-slate-400" />
+    <div className="w-full flex flex-col border border-slate-200 rounded-lg overflow-hidden bg-white">
+      <div className="p-2 border-b bg-slate-50 relative shrink-0">
+        <IconSearch
+          size={14}
+          className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
+        />
+        <input
+          ref={inputRef}
+          type="text"
+          className="w-full pl-8 pr-2 py-1.5 text-sm border rounded-md focus:ring-2 focus:ring-indigo-500/50 outline-none"
+          placeholder={placeholder || "Buscar..."}
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
       </div>
-      {isOpen && (
-        <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl z-[100] overflow-hidden animate-in zoom-in-95 flex flex-col max-h-60">
-          <div className="p-2 border-b bg-slate-50 relative shrink-0">
-            <IconSearch
-              size={14}
-              className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
-            />
-            <input
-              ref={inputRef}
-              type="text"
-              className="w-full pl-8 pr-2 py-1.5 text-sm border rounded-md focus:ring-2 focus:ring-indigo-500/50 outline-none"
-              placeholder="Buscar..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              onClick={(e) => e.stopPropagation()}
-            />
+      {filteredOptions.length > 0 && (
+        <button
+          type="button"
+          onClick={toggleVisible}
+          className="px-3 py-1.5 text-[11px] font-bold text-indigo-700 bg-indigo-50/70 border-b border-slate-100 text-left hover:bg-indigo-50 shrink-0"
+        >
+          {allVisibleSelected ? "Quitar visibles" : "Marcar visibles"}
+        </button>
+      )}
+      <div className="overflow-y-auto max-h-72">
+        {filteredOptions.length === 0 ? (
+          <div className="p-3 text-xs text-slate-400 text-center italic">
+            Sin resultados
           </div>
-          <div className="overflow-y-auto">
-            {filteredOptions.length === 0 ? (
-              <div className="p-3 text-xs text-slate-400 text-center italic">
-                Sin resultados
-              </div>
-            ) : (
-              filteredOptions.map((opt, i) => (
+        ) : (
+          filteredOptions.map((opt, i) => {
+            const checked = selectedIds.has(String(opt.value));
+            const showPendingLabel = showPendingHeader && i === 0;
+            const showOthersLabel = showOtherHeader && i === firstOtherIndex;
+            return (
+              <div key={`${opt.value}-${i}`}>
+                {showPendingLabel && (
+                  <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-amber-700 bg-amber-50 border-b border-amber-100">
+                    Pendientes (+ Todos los Indiv.)
+                  </div>
+                )}
+                {showOthersLabel && (
+                  <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-slate-500 bg-slate-50 border-b border-slate-100">
+                    Resto del roster
+                  </div>
+                )}
                 <div
-                  key={`${opt.value}-${i}`}
-                  onClick={() => {
-                    onChange(opt.value);
-                    setIsOpen(false);
-                  }}
-                  className={`px-3 py-2 text-sm cursor-pointer hover:bg-indigo-50 flex justify-between ${value === opt.value ? "bg-indigo-50 text-indigo-700 font-bold" : "text-slate-700"}`}
+                  role="button"
+                  aria-pressed={checked}
+                  onClick={() => toggleOption(opt.value)}
+                  className={`px-3 py-2 text-sm cursor-pointer hover:bg-indigo-50 flex items-center gap-2 ${checked ? "bg-indigo-50 text-indigo-700 font-bold" : "text-slate-700"} ${opt.isIndividualPending ? "bg-amber-50/40" : ""}`}
                 >
-                  <div className="flex flex-col">
-                    <span>{opt.label}</span>
+                  <div
+                    className={`w-4 h-4 rounded-sm border flex items-center justify-center shrink-0 ${checked ? "bg-indigo-600 border-indigo-600" : "border-slate-300 bg-white"}`}
+                  >
+                    {checked && <IconCheck size={12} className="text-white" />}
+                  </div>
+                  <div className="flex flex-col min-w-0">
+                    <span className="truncate">{opt.label}</span>
                     {opt.subLabel && (
-                      <span className="text-[10px] text-slate-400">
+                      <span className="text-[10px] text-slate-400 font-normal">
                         {opt.subLabel}
                       </span>
                     )}
                   </div>
-                  {value === opt.value && <IconCheck size={14} />}
                 </div>
-              ))
-            )}
-          </div>
-        </div>
-      )}
+              </div>
+            );
+          })
+        )}
+      </div>
     </div>
   );
 };
@@ -319,7 +362,7 @@ export default function ViaticosManager({ supabase, giraId }) {
     fetchRows: fetchViaticos,
     updateRow,
     deleteRow,
-    addPerson,
+    addPeople,
     addBatch,
     splitViaticoRow,
     mergeViaticoTramos,
@@ -370,7 +413,8 @@ export default function ViaticosManager({ supabase, giraId }) {
   const [loadingConfig, setLoadingConfig] = useState(false);
   const [selection, setSelection] = useState(new Set());
   const [isAddOpen, setIsAddOpen] = useState(false);
-  const [selectedToAdd, setSelectedToAdd] = useState(null);
+  const [selectedToAdd, setSelectedToAdd] = useState([]);
+  const [addingPeople, setAddingPeople] = useState(false);
 
   const [showDatos, setShowDatos] = useState(false);
   const [showAnticipo, setShowAnticipo] = useState(true);
@@ -582,7 +626,7 @@ export default function ViaticosManager({ supabase, giraId }) {
     }, 1000);
   };
 
-  /** Integrantes del roster que aún no tienen fila en viáticos (no ausentes, no perfil masivo). */
+  /** Integrantes del roster que aún no tienen fila en viáticos (no ausentes, no perfil masivo, no vacantes). */
   const individualsPending = useMemo(() => {
     if (!roster || roster.length === 0) return [];
     const existingIds = new Set(
@@ -590,6 +634,7 @@ export default function ViaticosManager({ supabase, giraId }) {
     );
     return roster.filter((p) => {
       if (p.estado_gira === "ausente") return false;
+      if (p.es_simulacion) return false;
       if (existingIds.has(String(p.id))) return false;
       if (esPerfilMasivo(p)) return false;
       return true;
@@ -598,15 +643,31 @@ export default function ViaticosManager({ supabase, giraId }) {
 
   const individualsPendingCount = individualsPending.length;
 
-  const individualsPendingNamesSorted = useMemo(() => {
+  const individualsPendingRowsSorted = useMemo(() => {
     return [...individualsPending]
-      .map((p) =>
-        seatingApellidoNombre(p) ||
-        p.rol_gira ||
-        p.rol ||
-        "Sin nombre",
-      )
-      .sort((a, b) => a.localeCompare(b, "es"));
+      .map((p) => {
+        const name =
+          seatingApellidoNombre(p) ||
+          p.rol_gira ||
+          p.rol ||
+          "Sin nombre";
+        const rol = formatRolGiraLabel(p.rol_gira || p.rol) || "";
+        const instrRel = Array.isArray(p.instrumentos)
+          ? p.instrumentos[0]
+          : p.instrumentos;
+        const instrumento =
+          instrRel?.abreviatura ||
+          instrRel?.instrumento ||
+          p.instrumento ||
+          "";
+        return {
+          id: p.id,
+          name,
+          rol,
+          instrumento,
+        };
+      })
+      .sort((a, b) => a.name.localeCompare(b.name, "es"));
   }, [individualsPending]);
 
   const rendicionFechaDefault = useMemo(
@@ -622,6 +683,9 @@ export default function ViaticosManager({ supabase, giraId }) {
     const existingIds = new Set(
       viaticosRows.map((r) => String(r.id_integrante)),
     );
+    const pendingIds = new Set(
+      individualsPending.map((p) => String(p.id)),
+    );
     return roster
       .filter(
         (p) => p.estado_gira !== "ausente" && !existingIds.has(String(p.id)),
@@ -629,10 +693,16 @@ export default function ViaticosManager({ supabase, giraId }) {
       .map((p) => ({
         value: p.id,
         label: seatingApellidoNombre(p),
-        subLabel: p.rol_gira || p.rol || "Sin Rol",
+        subLabel: formatRolGiraLabel(p.rol_gira || p.rol) || "Sin Rol",
+        isIndividualPending: pendingIds.has(String(p.id)),
       }))
-      .sort((a, b) => a.label.localeCompare(b.label));
-  }, [roster, viaticosRows]);
+      .sort((a, b) => {
+        if (a.isIndividualPending !== b.isIndividualPending) {
+          return a.isIndividualPending ? -1 : 1;
+        }
+        return a.label.localeCompare(b.label, "es");
+      });
+  }, [roster, viaticosRows, individualsPending]);
 
   const massiveRoster = useMemo(() => {
     return (roster || []).filter(
@@ -641,18 +711,25 @@ export default function ViaticosManager({ supabase, giraId }) {
   }, [roster]);
 
   const handleAddIndividuals = async () => {
-    const existingIds = new Set(
-      viaticosRows.map((r) => String(r.id_integrante)),
-    );
-    roster.forEach((p) => {
-      if (
-        !esPerfilMasivo(p) &&
-        p.estado_gira !== "ausente" &&
-        !existingIds.has(String(p.id))
-      ) {
-        addPerson(p.id);
+    const ids = individualsPending.map((p) => p.id);
+    if (!ids.length) return;
+    await addPeople(ids);
+  };
+
+  const handleConfirmAdd = async () => {
+    const valid = new Set(candidateOptions.map((opt) => String(opt.value)));
+    const ids = selectedToAdd.filter((id) => valid.has(String(id)));
+    if (!ids.length || addingPeople) return;
+    setAddingPeople(true);
+    try {
+      const ok = await addPeople(ids);
+      if (ok) {
+        setIsAddOpen(false);
+        setSelectedToAdd([]);
       }
-    });
+    } finally {
+      setAddingPeople(false);
+    }
   };
 
   const handleApplyBatch = async () => {
@@ -1039,6 +1116,10 @@ const collectTransportSupportDocs = (personData) => {
     };
 
     const updateViaticoExportAudit = async (detalleId, row) => {
+      const exportedAnticipo = getAnticipoSubtotalForExport(
+        row,
+        useHistoricalCalc,
+      );
       const basePayload = {
         fecha_ultima_exportacion: now,
         backup_fecha_salida: row.fecha_salida,
@@ -1049,8 +1130,13 @@ const collectTransportSupportDocs = (personData) => {
       };
       const payloadWithBackupViatico = {
         ...basePayload,
-        backup_viatico: getAnticipoSubtotalForExport(row, useHistoricalCalc),
+        backup_viatico: exportedAnticipo,
       };
+      // Congelar el anticipo exportado: si luego cambia logística/cálculo,
+      // la tabla muestra divergencia + ruedita de refresh.
+      if (options?.viatico) {
+        payloadWithBackupViatico.anticipo_custom = exportedAnticipo;
+      }
 
       let res = await supabase
         .from("giras_viaticos_detalle")
@@ -1412,6 +1498,13 @@ const collectTransportSupportDocs = (personData) => {
     }
     setExportDetail("");
     setExportStatus("");
+    if (individualUpdates.length > 0) {
+      try {
+        await fetchViaticos();
+      } catch (err) {
+        console.error("[Export viáticos] Error al refrescar filas:", err);
+      }
+    }
   };
 
   const clearPendingExport = () => {
@@ -2208,24 +2301,36 @@ const collectTransportSupportDocs = (personData) => {
                     </button>
                     {individualsPendingCount > 0 && (
                       <div
-                        className="pointer-events-none invisible absolute bottom-full left-1/2 z-[200] flex w-max max-w-[min(22rem,calc(100vw-2rem))] -translate-x-1/2 flex-col items-stretch opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:visible group-hover:opacity-100"
+                        className="pointer-events-none invisible absolute top-full left-1/2 z-[110] mt-0 flex w-max max-w-[min(26rem,calc(100vw-2rem))] -translate-x-1/2 flex-col items-stretch opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:visible group-hover:opacity-100"
                         role="tooltip"
                       >
+                        {/* Puente invisible: mantener hover al cruzar desde el botón */}
+                        <div
+                          className="h-2 w-full min-w-[8rem] shrink-0"
+                          aria-hidden
+                        />
                         <div className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-left text-xs text-white shadow-xl">
                           <p className="mb-1.5 border-b border-slate-600 pb-1 text-[11px] font-bold uppercase tracking-wide text-amber-200/90">
                             Pendientes ({individualsPendingCount})
                           </p>
-                          <ul className="max-h-64 list-none space-y-0.5 overflow-y-auto pr-1 font-normal leading-snug">
-                            {individualsPendingNamesSorted.map((name, i) => (
-                              <li key={`${name}-${i}`}>{name}</li>
+                          <ul className="max-h-64 list-none space-y-1 overflow-y-auto pr-1 font-normal leading-snug">
+                            {individualsPendingRowsSorted.map((row) => (
+                              <li
+                                key={row.id}
+                                className="flex items-baseline justify-between gap-3"
+                              >
+                                <span className="min-w-0 truncate">
+                                  {row.name}
+                                </span>
+                                <span className="shrink-0 text-[10px] text-slate-300">
+                                  {[row.rol, row.instrumento]
+                                    .filter(Boolean)
+                                    .join(" · ") || "—"}
+                                </span>
+                              </li>
                             ))}
                           </ul>
                         </div>
-                        {/* Puente invisible: mismo ancho que el panel para mantener hover al cruzar desde el botón */}
-                        <div
-                          className="h-3 w-full min-w-[8rem] shrink-0"
-                          aria-hidden
-                        />
                       </div>
                     )}
                   </div>
@@ -2238,25 +2343,28 @@ const collectTransportSupportDocs = (personData) => {
                       <IconUserPlus size={16} /> Agregar...
                     </button>
                     {isAddOpen && (
-                      <div className="absolute right-0 top-full mt-2 w-80 bg-white rounded-xl shadow-2xl border border-slate-200 p-4 z-[100] animate-in zoom-in-95">
+                      <div className="absolute right-0 top-full mt-2 w-96 bg-white rounded-xl shadow-2xl border border-slate-200 p-4 z-[100] animate-in zoom-in-95">
                         <h4 className="text-xs font-bold text-slate-500 uppercase mb-3">
-                          Agregar Integrante
+                          Agregar integrantes
                         </h4>
                         <MemberSearchSelect
                           options={candidateOptions}
                           value={selectedToAdd}
                           onChange={setSelectedToAdd}
                           placeholder="Buscar..."
+                          autoFocus
                         />
                         <button
-                          onClick={() => {
-                            addPerson(selectedToAdd);
-                            setIsAddOpen(false);
-                            setSelectedToAdd(null);
-                          }}
-                          className="mt-3 w-full bg-indigo-600 text-white py-2 rounded-lg font-bold"
+                          type="button"
+                          onClick={handleConfirmAdd}
+                          disabled={!selectedToAdd.length || addingPeople}
+                          className="mt-3 w-full bg-indigo-600 text-white py-2 rounded-lg font-bold disabled:opacity-50"
                         >
-                          Confirmar
+                          {addingPeople
+                            ? "Cargando..."
+                            : selectedToAdd.length
+                              ? `Cargar ${selectedToAdd.length}`
+                              : "Cargar"}
                         </button>
                       </div>
                     )}

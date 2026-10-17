@@ -10,7 +10,7 @@ import { ConflictoResolvedChip } from "../../views/Management/ConflictoEnsayoAct
 import EnsayoConflictoTag from "./EnsayoConflictoTag";
 import EnsayoTuttiMinusTag from "./EnsayoTuttiMinusTag";
 
-/** nomenclador + nombre_gira, mismo texto que Servicios. */
+/** nomenclador + nombre_gira, mismo texto que Prestaciones. */
 export function ensayoConflictoOverlapLabels(impact) {
   if (!impact || impact.conflictKind !== CONFLICTO_KIND.full) return [];
   const list = impact.overlappingGiras?.length

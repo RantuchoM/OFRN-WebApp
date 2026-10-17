@@ -163,6 +163,34 @@ export const DEFAULT_ROL_ID = "musico";
 /** Rol por defecto si el integrante está en Prod. y también en un ensamble músico. */
 export const ROLE_MUS_PROD = "mus_prod";
 
+/**
+ * Etiquetas de UI para `roles.id` (el id sigue siendo la clave técnica / FK).
+ * No cambiar los ids en BD: se usan en lógica y en `giras_integrantes.rol`.
+ */
+export const ROLE_LABELS = Object.freeze({
+  director: "Director",
+  solista: "Solista",
+  musico: "Músico",
+  mus_prod: "Mús./Prod.",
+  produccion: "Producción",
+  staff: "Staff",
+  chofer: "Chofer",
+  acompañante: "Acompañante",
+  tecnico: "Técnico",
+  técnico: "Técnico",
+  iluminacion: "Iluminación",
+  coordinacion: "Coordinación",
+});
+
+/** Label de visualización para un rol de gira (`roles.id` o texto libre). */
+export const formatRolGiraLabel = (rolId) => {
+  const raw = String(rolId ?? "").trim();
+  if (!raw) return "";
+  const known = ROLE_LABELS[raw] || ROLE_LABELS[raw.toLowerCase()];
+  if (known) return known;
+  return raw.charAt(0).toUpperCase() + raw.slice(1);
+};
+
 /** Cargo por defecto para exportaciones (label de visualización). */
 export const DEFAULT_CARGO = "Músico";
 

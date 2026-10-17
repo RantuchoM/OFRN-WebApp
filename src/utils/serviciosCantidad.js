@@ -123,7 +123,7 @@ export const SERVICIO_COLUMN_DEFS = [
     key: "total",
     label: "Total",
     shortLabel: "Total",
-    title: "Total de servicios (conciertos + didácticos + ensayos; sin doble conteo)",
+    title: "Total de prestaciones (conciertos + didácticos + ensayos; sin doble conteo)",
     sources: ATOMIC_KIND_KEYS,
     chipClass: "bg-slate-100 text-slate-800",
   },
@@ -173,10 +173,10 @@ export function splitServicioListingColumns(view = ENSAYO_COLUMN_VIEWS.duracion)
 /** Columna derivada: total ÷ meses feb–dic de presencia. No entra en el Total. */
 export const SERVICIO_POR_MES_COLUMN = {
   key: "por_mes",
-  label: "Servicios/mes",
-  shortLabel: "Serv/mes",
+  label: "Prestaciones/mes",
+  shortLabel: "Prest/mes",
   title:
-    "Total de servicios ÷ meses de presencia en febrero–diciembre (según fecha_alta) que solapan el rango",
+    "Total de prestaciones ÷ meses de presencia en febrero–diciembre (según fecha_alta) que solapan el rango",
   chipClass: "bg-orange-50 text-orange-900",
 };
 
@@ -639,7 +639,7 @@ export function getFixedGiraServiciosAverage() {
 
 export function formatGiraAveragePlain(avg) {
   if (avg?.mean == null) return "sin promedio";
-  return `promedio ${formatServicioNumber(avg.mean)} serv./gira`;
+  return `promedio ${formatServicioNumber(avg.mean)} prest./gira`;
 }
 
 /** `nomenclador` + nombre de programa (sin mes ni zona). */
@@ -972,7 +972,7 @@ export function computeServiciosPorMes(totalServicios, integrante, range) {
   return { months, rate: total / months };
 }
 
-/** Texto de celda Servicios/mes: `1,23 (10)` o `—`. */
+/** Texto de celda Prestaciones/mes: `1,23 (10)` o `—`. */
 export function formatServiciosPorMesPlain(totalServicios, integrante, range) {
   const { months, rate } = computeServiciosPorMes(
     totalServicios,

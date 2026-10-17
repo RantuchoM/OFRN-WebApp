@@ -10,6 +10,7 @@ import { createPortal } from "react-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   IconPlus,
+  IconClock,
   IconLoader,
   IconArrowLeft,
   IconDrive,
@@ -77,7 +78,7 @@ import {
 } from "../../components/giras/GiraManipulationModals";
 import { moveGira, duplicateGira } from "../../services/giraActions";
 import { touchOrganicoConvocado } from "../../services/organicoConvocadoService";
-import { addDays, differenceInCalendarDays, format, parseISO } from "date-fns";
+import { addDays, differenceInCalendarDays, format, parseISO, subMonths } from "date-fns";
 import { es } from "date-fns/locale";
 
 function readCachedGirasVista() {
@@ -100,6 +101,57 @@ function rememberCachedGirasVista(vista) {
     localStorage.setItem("app_user", JSON.stringify(parsed));
   } catch {
     /* la preferencia queda en la base aunque el caché local falle */
+  }
+}
+
+const GIRAS_PROGRAM_TYPES = [
+  "Sinfónico",
+  "Camerata Filarmónica",
+  "Ensamble",
+  "Jazz Band",
+  "Comisión",
+];
+const GIRAS_PROGRAM_STATUSES = ["Vigente", "Borrador", "Pausada"];
+
+function girasListFiltersKey(userId) {
+  if (userId == null || userId === "") return null;
+  return `ofrn-giras-list-filters:${userId}`;
+}
+
+function readGirasListFilters(userId) {
+  const key = girasListFiltersKey(userId);
+  if (!key) return null;
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed?.types) || !Array.isArray(parsed?.statuses)) {
+      return null;
+    }
+    return {
+      types: parsed.types.filter((type) => GIRAS_PROGRAM_TYPES.includes(type)),
+      statuses: parsed.statuses.filter((status) =>
+        GIRAS_PROGRAM_STATUSES.includes(status),
+      ),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeGirasListFilters(userId, types, statuses) {
+  const key = girasListFiltersKey(userId);
+  if (!key) return;
+  try {
+    localStorage.setItem(
+      key,
+      JSON.stringify({
+        types: [...types],
+        statuses: [...statuses],
+      }),
+    );
+  } catch {
+    /* el filtro sigue en memoria aunque el navegador rechace el guardado */
   }
 }
 
@@ -172,11 +224,30 @@ export default function GirasView({ supabase, trigger = 0 }) {
   const giraId = searchParams.get("giraId");
   const currentTab = searchParams.get("subTab");
 
-  const today = new Date().toISOString().split("T")[0];
+  const today = toLocalDateString();
   const [filterDateStart, setFilterDateStart] = useState(today);
   const [filterDateEnd, setFilterDateEnd] = useState(() =>
     endOfCurrentYearLocal(),
   );
+  const yearEnd = endOfCurrentYearLocal();
+  const yearStart = `${today.slice(0, 4)}-01-01`;
+  const twoMonthsAgo = format(subMonths(parseISO(today), 2), "yyyy-MM-dd");
+  const isFullYearRange =
+    filterDateStart === yearStart && filterDateEnd === yearEnd;
+  const isTwoMonthsRange =
+    filterDateStart === twoMonthsAgo && filterDateEnd === yearEnd;
+
+  const applyListDatePreset = (preset) => {
+    const active =
+      preset === "year" ? isFullYearRange : isTwoMonthsRange;
+    if (active) {
+      setFilterDateStart(today);
+      setFilterDateEnd(yearEnd);
+      return;
+    }
+    setFilterDateStart(preset === "year" ? yearStart : twoMonthsAgo);
+    setFilterDateEnd(yearEnd);
+  };
 
   const coordinatedEnsembleIds = useMemo(
     () => [...coordinatedEnsembles],
@@ -453,24 +524,24 @@ export default function GirasView({ supabase, trigger = 0 }) {
   }, [realUser?.id, supabase]);
   const [showFiltersMobile, setShowFiltersMobile] = useState(false);
   const [activeMenuId, setActiveMenuId] = useState(null);
-  // Por defecto "Comisión" solo activo para editores y admins; el resto lo puede activar manualmente
-  const [filterType, setFilterType] = useState(
-    () =>
-      new Set([
-        "Sinfónico",
-        "Camerata Filarmónica",
-        "Ensamble",
-        "Jazz Band",
-        // "Comisión" se añade en useEffect solo si isEditor
-      ]),
-  );
-  const PROGRAM_TYPES = [
-    "Sinfónico",
-    "Camerata Filarmónica",
-    "Ensamble",
-    "Jazz Band",
-    "Comisión",
-  ];
+  // Por defecto "Comisión" solo activo para editores y admins; el resto lo puede activar manualmente.
+  // Si el usuario ya eligió tipos o estados, se restauran desde localStorage (las fechas no).
+  const [filterType, setFilterType] = useState(() => {
+    const stored = readGirasListFilters(user?.id);
+    if (stored) return new Set(stored.types);
+    return new Set([
+      "Sinfónico",
+      "Camerata Filarmónica",
+      "Ensamble",
+      "Jazz Band",
+    ]);
+  });
+  const [filterStatus, setFilterStatus] = useState(() => {
+    const stored = readGirasListFilters(user?.id);
+    if (stored) return new Set(stored.statuses);
+    return new Set(["Vigente", "Borrador", "Pausada"]);
+  });
+  const PROGRAM_TYPES = GIRAS_PROGRAM_TYPES;
   const [editingId, setEditingId] = useState(null);
   const [isAdding, setIsAdding] = useState(false);
   const [formFocusSection, setFormFocusSection] = useState(null);
@@ -580,41 +651,32 @@ export default function GirasView({ supabase, trigger = 0 }) {
     fetchCoordinations();
   }, [user, supabase]);
 
-  // Forzar filterStatus según rol al cargar/recargar (isCoord prima sobre isPersonal)
+  // Sin preferencia guardada, el rol define el primer filtro.
+  // Con preferencia, esa gana y no se vuelve a pisar al recargar.
   useEffect(() => {
-    if (!user) return;
+    if (!user?.id) return;
+
+    const stored = readGirasListFilters(user.id);
+    if (stored) {
+      setFilterType(new Set(stored.types));
+      setFilterStatus(new Set(stored.statuses));
+      return;
+    }
 
     const isCoord = !isEditor && coordinatedEnsembles.size > 0;
-
-    // Prioridad de permisos:
-    // 1) Admin / Management / Consulta General -> ve todo
-    // 2) Coordinador de ensambles -> Vigente + Borrador
-    // 3) Músico de fila -> Vigente + Borrador (sin Sinfónico / Comisión / Camerata en borrador)
     if (isEditor || isManagement) {
       setFilterStatus(new Set(["Vigente", "Borrador", "Pausada"]));
-    } else if (isCoord) {
-      setFilterStatus(new Set(["Vigente", "Borrador"]));
-    } else if (isPersonal) {
+    } else if (isCoord || isPersonal) {
       setFilterStatus(new Set(["Vigente", "Borrador"]));
     }
-  }, [user, isEditor, isManagement, isPersonal, coordinatedEnsembles.size]);
 
-  // Filtro "Comisión" por defecto solo para editores y admins
-  useEffect(() => {
-    if (!user) return;
-    if (isEditor) {
-      setFilterType((prev) =>
-        prev.has("Comisión") ? prev : new Set([...prev, "Comisión"])
-      );
-    } else {
-      setFilterType((prev) => {
-        if (!prev.has("Comisión")) return prev;
-        const next = new Set(prev);
-        next.delete("Comisión");
-        return next;
-      });
-    }
-  }, [user, isEditor]);
+    setFilterType((prev) => {
+      const next = new Set(prev);
+      if (isEditor) next.add("Comisión");
+      else next.delete("Comisión");
+      return next;
+    });
+  }, [user?.id, isEditor, isManagement, isPersonal, coordinatedEnsembles.size]);
 
   useEffect(() => {
     fetchLocationsList();
@@ -1291,10 +1353,6 @@ export default function GirasView({ supabase, trigger = 0 }) {
       updateView("LOGISTICS", currentGira.id, "rooming");
   };
 
-  const [filterStatus, setFilterStatus] = useState(
-    () => new Set(["Vigente", "Borrador", "Pausada"]),
-  );
-  // -----------------------------------------------
   const [resolvedRoster, setResolvedRoster] = useState(null);
   const handleRosterResolved = (rosterData) => setResolvedRoster(rosterData);
   const enrichedRoster = useMemo(
@@ -1306,6 +1364,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
       const newSet = new Set(prev);
       if (newSet.has(status)) newSet.delete(status);
       else newSet.add(status);
+      writeGirasListFilters(user?.id, filterType, newSet);
       return newSet;
     });
 
@@ -1346,6 +1405,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
       const newSet = new Set(prev);
       if (newSet.has(type)) newSet.delete(type);
       else newSet.add(type);
+      writeGirasListFilters(user?.id, newSet, filterStatus);
       return newSet;
     });
 
@@ -1873,60 +1933,101 @@ export default function GirasView({ supabase, trigger = 0 }) {
 
         {mode === "LIST" && (
           <div className="p-4 space-y-4">
-            {canCreate && !editingId && (
+            {!editingId && (
               <>
-                {!isAdding && (
+                <div className="flex flex-col gap-1.5 sm:flex-row">
                   <button
-                    onClick={() => {
-                      setIsAdding(true);
-
-                      // 1. PRE-SELECCIONAR ENSAMBLES SI ES COORDINADOR (pero no coordinador general)
-                      let initialSources = [];
-                      if (isCoordinator && !isCoordGeneral) {
-                        initialSources = Array.from(coordinatedEnsembles).map(
-                          (id) => {
-                            const ens = ensemblesList.find(
-                              (e) => e.value === id,
-                            );
-                            return {
-                              tipo: "ENSAMBLE",
-                              valor_id: id,
-                              label: ens ? ens.label : "Mi Ensamble",
-                            };
-                          },
-                        );
-                      }
-
-                      setFormData({
-                        nombre_gira: "",
-                        subtitulo: "",
-                        fecha_desde: "",
-                        fecha_hasta: "",
-                        // 2. FORZAR TIPO
-                        tipo: isCoordinator
-                          ? "Ensamble"
-                          : isEditor
-                            ? "Sinfónico"
-                            : "Ensamble",
-                        zona: "",
-                        token_publico: "",
-                        otros_comentarios: "",
-                      });
-
-                      setSelectedLocations(new Set());
-                      setSelectedSources(initialSources); // <--- APLICAR PRE-SELECCIÓN
-                      setSelectedStaff([]);
-                    }}
-                    className="w-full py-3 border-2 border-dashed border-slate-300 rounded-xl text-slate-500 hover:border-indigo-500 hover:bg-indigo-50 flex justify-center gap-2 font-medium"
+                    type="button"
+                    onClick={() => applyListDatePreset("year")}
+                    aria-pressed={isFullYearRange}
+                    title={
+                      isFullYearRange
+                        ? "Volver al listado desde hoy"
+                        : "Mostrar programas de todo el año en curso"
+                    }
+                    className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium ${
+                      isFullYearRange
+                        ? "border-indigo-500 bg-indigo-50 text-indigo-700"
+                        : "border-dashed border-slate-300 text-slate-500 hover:border-indigo-500 hover:bg-indigo-50"
+                    }`}
                   >
-                    <IconPlus size={20} />
-                    {/* 3. TEXTO DINÁMICO */}
-                    {isCoordinator
-                      ? "Nuevo Programa de Ensamble"
-                      : "Crear Nuevo Programa"}
+                    <IconCalendar size={14} />
+                    Ver año completo
                   </button>
-                )}
-                {isAdding && (
+                  <button
+                    type="button"
+                    onClick={() => applyListDatePreset("twoMonths")}
+                    aria-pressed={isTwoMonthsRange}
+                    title={
+                      isTwoMonthsRange
+                        ? "Volver al listado desde hoy"
+                        : "Incluir programas desde hace dos meses"
+                    }
+                    className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium ${
+                      isTwoMonthsRange
+                        ? "border-indigo-500 bg-indigo-50 text-indigo-700"
+                        : "border-dashed border-slate-300 text-slate-500 hover:border-indigo-500 hover:bg-indigo-50"
+                    }`}
+                  >
+                    <IconClock size={14} />
+                    Ver dos meses atrás
+                  </button>
+                  {canCreate && !isAdding && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsAdding(true);
+
+                        // 1. PRE-SELECCIONAR ENSAMBLES SI ES COORDINADOR (pero no coordinador general)
+                        let initialSources = [];
+                        if (isCoordinator && !isCoordGeneral) {
+                          initialSources = Array.from(coordinatedEnsembles).map(
+                            (id) => {
+                              const ens = ensemblesList.find(
+                                (e) => e.value === id,
+                              );
+                              return {
+                                tipo: "ENSAMBLE",
+                                valor_id: id,
+                                label: ens ? ens.label : "Mi Ensamble",
+                              };
+                            },
+                          );
+                        }
+
+                        setFormData({
+                          nombre_gira: "",
+                          subtitulo: "",
+                          fecha_desde: "",
+                          fecha_hasta: "",
+                          // 2. FORZAR TIPO
+                          tipo: isCoordinator
+                            ? "Ensamble"
+                            : isEditor
+                              ? "Sinfónico"
+                              : "Ensamble",
+                          zona: "",
+                          token_publico: "",
+                          otros_comentarios: "",
+                        });
+
+                        setSelectedLocations(new Set());
+                        setSelectedSources(initialSources);
+                        setSelectedStaff([]);
+                      }}
+                      title={
+                        isCoordinator
+                          ? "Nuevo Programa de Ensamble"
+                          : "Crear Nuevo Programa"
+                      }
+                      className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-dashed border-slate-300 px-2.5 py-1.5 text-xs font-medium text-slate-500 hover:border-indigo-500 hover:bg-indigo-50"
+                    >
+                      <IconPlus size={14} />
+                      Programa
+                    </button>
+                  )}
+                </div>
+                {canCreate && isAdding && (
                   <GiraForm
                     supabase={supabase}
                     giraId={null}

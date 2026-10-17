@@ -726,7 +726,7 @@ export default function InstrumentationSandbox({
 
         <section className="flex flex-col min-h-0 bg-white border border-slate-200 rounded-xl overflow-hidden">
           <header className="shrink-0 px-2 py-1.5 border-b border-slate-100 text-[10px] font-bold text-slate-600 uppercase">
-            Servicios por ensamble (Sinf + CF) - año {histogramYear}
+            Prestaciones por ensamble (Sinf + CF) - año {histogramYear}
           </header>
           <div className="flex-1 overflow-hidden min-h-0">
             <SandboxEnsambleHistogram

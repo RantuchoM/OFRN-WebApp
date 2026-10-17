@@ -598,16 +598,18 @@ const RESUMEN_FUERA = {
   fill: [255, 237, 213],
   text: [154, 52, 18],
 };
+const RESUMEN_TOTAL_GIRAS = {
+  fill: [241, 245, 249],
+  text: [51, 65, 85],
+};
 const RESUMEN_CONFLICTO = {
   fill: [254, 226, 226],
   text: [153, 27, 27],
 };
 
-function resumenHeadCell(content, { rowSpan, colSpan, styles } = {}) {
+function resumenHeadCell(content, { styles } = {}) {
   return {
     content: toServiciosPdfText(content),
-    ...(rowSpan ? { rowSpan } : {}),
-    ...(colSpan ? { colSpan } : {}),
     styles: {
       halign: "center",
       valign: "middle",
@@ -617,29 +619,34 @@ function resumenHeadCell(content, { rowSpan, colSpan, styles } = {}) {
 }
 
 function resumenToneForColumn(index) {
-  if (index === 1 || index === 2) return RESUMEN_CASA;
-  if (index === 3 || index === 4) return RESUMEN_FUERA;
-  if (index === 6) return RESUMEN_CONFLICTO;
+  if (index === 1) return RESUMEN_FUERA;
+  if (index === 2) return RESUMEN_CASA;
+  if (index === 3) return RESUMEN_TOTAL_GIRAS;
+  if (index === 7) return RESUMEN_CONFLICTO;
   return null;
 }
 
-function resumenPairHead(content, tone, span) {
+function resumenToneHead(content, tone) {
   return resumenHeadCell(content, {
-    ...(span || {}),
     styles: { fillColor: tone.fill, textColor: tone.text },
   });
+}
+
+/** Encabezados estrechos en A4 vertical: salto de línea explícito. */
+function resumenHeadLines(...lines) {
+  return lines.map((line) => toServiciosPdfText(line)).join("\n");
 }
 
 function resumenCells(row) {
   return [
     toServiciosPdfText(row.ensambleName),
-    formatServicioNumber(row.girasEnCasa),
-    formatServicioNumber(row.serviciosEnCasa),
     formatServicioNumber(row.girasFuera),
-    formatServicioNumber(row.serviciosFuera),
+    formatServicioNumber(row.girasEnCasa),
+    formatServicioNumber(row.girasTotal),
+    String(row.programasEnsamble),
+    String(row.conciertosEnsamble),
     String(row.ensayosEnsamble),
     String(row.ensayosConflicto),
-    formatServicioNumber(row.serviciosNetos),
   ];
 }
 
@@ -647,27 +654,27 @@ function sumResumen(rows) {
   const total = {
     ensambleName: "Total",
     girasEnCasa: 0,
-    serviciosEnCasa: 0,
     girasFuera: 0,
-    serviciosFuera: 0,
+    girasTotal: 0,
+    programasEnsamble: 0,
+    conciertosEnsamble: 0,
     ensayosEnsamble: 0,
     ensayosConflicto: 0,
-    serviciosNetos: 0,
   };
   for (const row of rows) {
     total.girasEnCasa += row.girasEnCasa;
-    total.serviciosEnCasa += row.serviciosEnCasa;
     total.girasFuera += row.girasFuera;
-    total.serviciosFuera += row.serviciosFuera;
+    total.girasTotal += row.girasTotal;
+    total.programasEnsamble += row.programasEnsamble;
+    total.conciertosEnsamble += row.conciertosEnsamble;
     total.ensayosEnsamble += row.ensayosEnsamble;
     total.ensayosConflicto += row.ensayosConflicto;
-    total.serviciosNetos += row.serviciosNetos;
   }
   return total;
 }
 
 /**
- * Primera página apaisada: un ensamble por fila.
+ * Primera página A4 vertical: un ensamble por fila (headers con salto de línea).
  * Después, cada informe en A4 vertical.
  */
 export function buildEnsambleServiciosTodosPdfDoc({
@@ -686,11 +693,11 @@ export function buildEnsambleServiciosTodosPdfDoc({
     summarizeEnsambleServiciosReport(report, slices[index].pendingIds),
   );
 
-  const doc = createServiciosPdfDoc("landscape");
+  const doc = createServiciosPdfDoc("portrait");
   doc.setFont("helvetica", "bold");
   doc.setFontSize(14);
   doc.setTextColor(0);
-  doc.text("Informe de ensambles", 10, 12);
+  doc.text("Informe de ensambles", 12, 12);
 
   const rango =
     fechaDesde && fechaHasta
@@ -698,8 +705,9 @@ export function buildEnsambleServiciosTodosPdfDoc({
       : "";
   const note = [
     rango,
-    "Servicios de gira = conciertos + ensayos de giras ya terminadas. Las giras en curso o futuras cuentan en las columnas de giras y suman 0 servicios.",
-    "Servicios netos = servicios de esas giras + ensayos de ensamble (1 si >= 2 h, 1/2 si > 30 min), sin ensayos en conflicto pendiente.",
+    "Giras fuera de casa / en casa: pesos por tramo (1/n). Total giras = suma de ambas.",
+    "Programas y conciertos de ensamble: bloque propio del informe (anidados + sueltos).",
+    "Ensayos de ensamble: sin conflicto pleno pendiente. Ensayos en conflicto = ese pendiente.",
     `Generado ${new Date().toLocaleString("es-AR")}`,
   ]
     .filter(Boolean)
@@ -707,8 +715,8 @@ export function buildEnsambleServiciosTodosPdfDoc({
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8);
   doc.setTextColor(80);
-  const noteLines = doc.splitTextToSize(toServiciosPdfText(note), 277);
-  doc.text(noteLines, 10, 18, { maxWidth: 277 });
+  const noteLines = doc.splitTextToSize(toServiciosPdfText(note), 186);
+  doc.text(noteLines, 12, 18, { maxWidth: 186 });
   doc.setTextColor(0);
 
   const startY = 18 + noteLines.length * 3.6 + 3;
@@ -721,47 +729,49 @@ export function buildEnsambleServiciosTodosPdfDoc({
   autoTable(doc, {
     ...ENSAMBLE_PDF_TABLE,
     startY,
-    margin: { left: 10, right: 10 },
+    margin: { left: 12, right: 12 },
     head: [
       [
-        resumenHeadCell("Ensamble", { rowSpan: 2 }),
-        resumenPairHead("En casa", RESUMEN_CASA, { colSpan: 2 }),
-        resumenPairHead("Fuera de casa", RESUMEN_FUERA, { colSpan: 2 }),
-        resumenHeadCell("Ensayos de ensamble", { rowSpan: 2 }),
-        resumenPairHead("Ensayos en conflicto", RESUMEN_CONFLICTO, {
-          rowSpan: 2,
-        }),
-        resumenHeadCell("Servicios netos", { rowSpan: 2 }),
-      ],
-      [
-        resumenPairHead("Giras", RESUMEN_CASA),
-        resumenPairHead("Servicios", RESUMEN_CASA),
-        resumenPairHead("Giras", RESUMEN_FUERA),
-        resumenPairHead("Servicios", RESUMEN_FUERA),
+        resumenHeadCell("Ensamble"),
+        resumenToneHead(
+          resumenHeadLines("Giras", "fuera de", "casa"),
+          RESUMEN_FUERA,
+        ),
+        resumenToneHead(resumenHeadLines("Giras", "en casa"), RESUMEN_CASA),
+        resumenToneHead(resumenHeadLines("Total", "giras"), RESUMEN_TOTAL_GIRAS),
+        resumenHeadCell(resumenHeadLines("Programas", "de Ensamble")),
+        resumenHeadCell(resumenHeadLines("Conciertos", "de Ensamble")),
+        resumenHeadCell(resumenHeadLines("Ensayos de", "ensamble")),
+        resumenToneHead(
+          resumenHeadLines("Ensayos en", "conflicto"),
+          RESUMEN_CONFLICTO,
+        ),
       ],
     ],
     body,
     styles: {
       ...ENSAMBLE_PDF_TABLE.styles,
-      fontSize: 8,
-      cellPadding: 1.2,
+      fontSize: 7.5,
+      cellPadding: 1.1,
       halign: "center",
     },
     headStyles: {
       ...ENSAMBLE_PDF_TABLE.headStyles,
-      fontSize: 8,
+      fontSize: 6.5,
+      cellPadding: 1.1,
       halign: "center",
       valign: "middle",
+      overflow: "linebreak",
     },
     columnStyles: {
-      0: { cellWidth: 42, halign: "left" },
-      1: { cellWidth: 33 },
-      2: { cellWidth: 34 },
-      3: { cellWidth: 33 },
-      4: { cellWidth: 34 },
-      5: { cellWidth: 34 },
-      6: { cellWidth: 33 },
-      7: { cellWidth: 34 },
+      0: { cellWidth: 32, halign: "left" },
+      1: { cellWidth: 22 },
+      2: { cellWidth: 20 },
+      3: { cellWidth: 16 },
+      4: { cellWidth: 24 },
+      5: { cellWidth: 24 },
+      6: { cellWidth: 22 },
+      7: { cellWidth: 26 },
     },
     didParseCell: (data) => {
       const tone = resumenToneForColumn(data.column.index);

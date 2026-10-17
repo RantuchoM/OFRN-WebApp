@@ -18,7 +18,7 @@ Tabla: `public.integrantes`
 |---|---|
 | `nombre` / `apellido` | Nombre legal. Exportaciones de documentación (CNRT, formularios de viáticos, padrón con DNI). |
 | `nombre_preferencia` / `apellido_preferencia` | Opcionales. Si hay valor, reemplazan el legal en la interfaz. Cada campo se aplica por separado. |
-| `alimentacion` | Ya existía. Ahora editable desde Mi Perfil. Vacío, **General** (histórico) y **Estándar** son el mismo bucket en Comidas. |
+| `alimentacion` | Editable desde Mi Perfil. Backfill histórico null/vacío/`General` → `Estándar` (`20261017140000_…`); luego nullable otra vez (`20261017143000_…`). Si no se carga queda `null`; Comidas trata null/General/Estándar como Estándar; el indicador de `GiraRoster` avisa si está vacío. |
 
 Cada campo de preferencia se aplica por separado: se puede cambiar solo el nombre, solo el apellido, o ambos.
 

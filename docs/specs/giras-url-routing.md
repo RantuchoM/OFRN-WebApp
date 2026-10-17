@@ -10,7 +10,9 @@ La aplicación usa **query params** en la ruta raíz (`/`) para abrir la pestañ
 | `giraId` | ID numérico (ej. `2`) | ID del programa/gira seleccionado. Obligatorio para ver Agenda, Repertorio, etc. |
 
 ### Deep-link desde Ctrl+K (giras pasadas)
-El listado de Giras filtra por rango de fechas (hoy → fin de año). Las giras anteriores no aparecen en la lista pero sí en **Historial de Giras** (Ctrl+K).
+El listado de Giras filtra por rango de fechas (hoy → fin de año). Encima de las tarjetas hay tres botones: **Ver año completo** (1/ene → 31/dic del año en curso), **Ver dos meses atrás** (hoy − 2 meses → 31/dic) y **+ Programa** (el alta que antes decía «Crear Nuevo Programa»; en coordinadores el tooltip sigue siendo «Nuevo Programa de Ensamble»). El botón de rango activo se marca en índigo; volver a pulsarlo restaura hoy → fin de año. Los inputs Desde/Hasta de la barra siguen el mismo rango. Las fechas no se guardan: cada carga vuelve a hoy → fin de año. Las giras anteriores a esa ventana no aparecen en la lista pero sí en **Historial de Giras** (Ctrl+K).
+
+Los filtros de tipo (Sinfónico, Cámara, Jazz, Comisión) y de estado (Vigente, Borrador, Pausada) se guardan en `localStorage` por usuario (`ofrn-giras-list-filters:<id>`). Al volver a entrar se restauran. Si esa persona nunca los tocó, sigue el default por rol (editor/admin: los cuatro tipos más Comisión, y Vigente + Borrador + Pausada; coordinador o músico: sin Comisión y sin Pausada).
 
 Al navegar con `giraId` que no está en el listado filtrado, `GirasView` carga el programa completo vía `fetchProgramsByIds` (`useGirasList.js`) y lo usa como `selectedGira`. Desde Ctrl+K el destino por defecto es `view=ROSTER` (management) o `view=AGENDA` (personal).
 | `view` | Ver tabla abajo | Vista interna dentro de la gira. |
@@ -110,6 +112,7 @@ const url = `${window.location.origin}${window.location.pathname}?tab=giras&view
 - **Ensayos de ensamble convocados**: solo para usuarios integrante (no invitados). Cuenta eventos `id_tipo_evento = 13`, no técnicos, no eliminados, en el año en curso, donde el músico está convocado (membresía activa en el ensamble del evento ± overrides `eventos_asistencia_custom`). El número principal **excluye** ensayos cuyo programa asociado está en `Borrador`; esos ensayos se muestran aparte como **`+ n [Borrador]`** cuando n > 0.
 - Implementación: `GirasYearSummaryBar.jsx`, `useGirasYearSummary.js`, `girasYearSummary.js` (`countProgramsByTypeSplit`, `countConvokedEnsayos`).
 - Visible solo en `mode === LIST` y cuando `filterDateEnd >= endOfCurrentYearLocal()`.
+- [x] Atajos de rango en el listado: «Ver año completo» y «Ver dos meses atrás», junto a «+ Programa».
 
 ## Resumen
 

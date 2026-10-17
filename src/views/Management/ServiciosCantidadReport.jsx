@@ -425,7 +425,7 @@ function ServiciosTipoResumenRecuadro({
           </span>
         </div>
         <div className="inline-flex items-center gap-2 rounded-lg border border-orange-200 bg-orange-50 px-3 py-1.5 text-sm font-semibold text-orange-900">
-          <span>Serv/mes</span>
+          <span>Prest/mes</span>
           <span className="inline-flex items-center rounded-md bg-white/70 px-1.5 py-0.5 text-base font-bold tabular-nums leading-none">
             {porMes}
           </span>
@@ -728,7 +728,7 @@ function ServicioDetalleModal({
 }
 
 /**
- * Gestión → Servicios. Árbol y nómina = informe de Convocatorias.
+ * Gestión → Prestaciones. Árbol y nómina = informe de Convocatorias.
  * Eventos/roster solo cuando hay integrantes seleccionados.
  */
 export default function ServiciosCantidadReport({ supabase }) {
@@ -1535,7 +1535,7 @@ export default function ServiciosCantidadReport({ supabase }) {
         rowGroups: groupByEnsambles ? rowGroups : null,
         fechaDesde,
         fechaHasta,
-        fileName: "cantidad_servicios",
+        fileName: "cantidad_prestaciones",
         estimateNote,
         ensayoColumnView,
       }),
@@ -1562,7 +1562,7 @@ export default function ServiciosCantidadReport({ supabase }) {
       fechaDesde,
       fechaHasta,
       groupByEnsambles,
-      fileName: "cantidad_servicios",
+      fileName: "cantidad_prestaciones",
       estimateNote,
       ensayoColumnView,
     }),
@@ -2095,7 +2095,7 @@ export default function ServiciosCantidadReport({ supabase }) {
               </label>
               <label
                 className="inline-flex cursor-pointer items-center gap-1.5 text-[11px] font-medium text-slate-600"
-                title={`Giras sinfónicas con fecha_hasta de hoy en adelante: reemplaza ensayos de gira y conciertos por ${FIXED_FUTURE_GIRA_SERVICIOS} servicios. Ensamble queda exacto.`}
+                title={`Giras sinfónicas con fecha_hasta de hoy en adelante: reemplaza ensayos de gira y conciertos por ${FIXED_FUTURE_GIRA_SERVICIOS} prestaciones. Ensamble queda exacto.`}
               >
                 <input
                   type="checkbox"
@@ -2155,7 +2155,7 @@ export default function ServiciosCantidadReport({ supabase }) {
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-50 px-3 py-1.5 text-[11px] text-slate-500">
           <span>
             {!hasSelection
-              ? "Seleccioná integrantes a la izquierda para cargar servicios"
+              ? "Seleccioná integrantes a la izquierda para cargar prestaciones"
               : loading
                 ? "Calculando…"
                 : `${visibleRows.length} integrante(s)`}
@@ -2178,7 +2178,7 @@ export default function ServiciosCantidadReport({ supabase }) {
             ) : null}
           </span>
           <span className="hidden text-[10px] text-slate-400 sm:inline">
-            ½ = 0,5 (más de 30 min y menos de 2 h) · 15/30 min = 0 · R celeste · L ámbar · Serv/mes = total ÷ meses feb–dic · Estimar futuros: gira en curso/futura = {FIXED_FUTURE_GIRA_SERVICIOS} · clic en la fila para el detalle
+            ½ = 0,5 (más de 30 min y menos de 2 h) · 15/30 min = 0 · R celeste · L ámbar · Prest/mes = total ÷ meses feb–dic · Estimar futuros: gira en curso/futura = {FIXED_FUTURE_GIRA_SERVICIOS} · clic en la fila para el detalle
           </span>
           <span className="text-[10px] text-slate-400 sm:hidden">
             Tocá una persona para el resumen. Deslizá para ver el resto.
@@ -2386,7 +2386,7 @@ export default function ServiciosCantidadReport({ supabase }) {
                     ))}
                     <td
                       className="bg-orange-50 px-2 py-1.5 text-right text-slate-400"
-                      title="No se promedia Servicios/mes en el pie"
+                      title="No se promedia Prestaciones/mes en el pie"
                     >
                       —
                     </td>
