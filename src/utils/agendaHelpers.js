@@ -212,30 +212,8 @@ export function eventPassesOnlyMyTransportFilter(
   return getAgendaTransportFlags(item, myTransportLogistics).isMyTransport;
 }
 
-/** Tipos check-in / check-out / early / late (misma set que hotelStayEvents). */
-const STAY_TIPO_IDS = new Set([22, 23, 40, 41]);
-
 export function isAgendaStayEvent(item) {
-  return STAY_TIPO_IDS.has(Number(item?.id_tipo_evento));
-}
-
-/**
- * «Solo mi hotelería»: deja el resto de la agenda; oculta check-in/out
- * que no sean de la regla ganadora del viewer (`myStayLogistics.byEventId`).
- * Si la gira aún no se evaluó, no oculta (evita parpadeo vacío).
- *
- * @param {object} item
- * @param {{ byEventId?: Record<string, { propio?: boolean }>, evaluatedGiraIds?: Record<string, boolean> }} [myStayLogistics]
- */
-export function eventPassesOnlyMyStayFilter(item, myStayLogistics = {}) {
-  if (!item || item.isProgramMarker) return true;
-  if (!isAgendaStayEvent(item)) return true;
-  const giraKey =
-    item.id_gira != null && item.id_gira !== ""
-      ? String(item.id_gira)
-      : null;
-  if (!giraKey || !myStayLogistics?.evaluatedGiraIds?.[giraKey]) return true;
-  return Boolean(myStayLogistics?.byEventId?.[String(item.id)]?.propio);
+  return isStayTipoEvento(item?.id_tipo_evento);
 }
 
 /**
@@ -248,7 +226,7 @@ export function eventPassesOnlyMyStayFilter(item, myStayLogistics = {}) {
  */
 export function eventPassesOnlyMyStayFilter(item, myStayLogistics = {}) {
   if (!item || item.isProgramMarker) return true;
-  if (!isStayTipoEvento(item.id_tipo_evento)) return true;
+  if (!isAgendaStayEvent(item)) return true;
   const giraKey =
     item.id_gira != null && item.id_gira !== ""
       ? String(item.id_gira)

@@ -41,7 +41,7 @@ Ausente = cero habitaciones (sin cambio). Vacantes: las noches siguen la logíst
   - Check-in/out (tipos 22/23/40/41) de **su** regla: tag **Propio**; locación mostrada = hotel de rooming (`hoteles.id_locacion`) si hay habitación, si no la del evento vinculado en la regla (priorizada sobre `eventos.id_locacion` crudo cuando difieren).
   - Resto de estadías de la misma gira evaluada: tag **No propio**, tarjeta atenuada (respeta «Sin gris»).
   - Helpers: `collectOwnStayAgendaMeta` / `hotelLocacionFromHabitacion` en `hotelStayEvents.js`.
-  - Filtro **Solo mi hotelería** (`showOnlyMyStay`): mismo default que transporte/comidas (`defaultPersonalFilter`); oculta check-in/out no propios (`eventPassesOnlyMyStayFilter`).
+  - Filtro **Solo mi hotelería** (`showOnlyMyStay`): mismo default que transporte/comidas (`defaultPersonalFilter`); oculta check-in/out no propios (`eventPassesOnlyMyStayFilter` — un solo export en `agendaHelpers.js`; Vite falla si se declara dos veces).
 
 ## Reportes hotel
 
