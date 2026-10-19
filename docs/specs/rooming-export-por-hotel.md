@@ -20,6 +20,7 @@ Poder exportar el rooming (quién en cada habitación, tipo, fechas) **filtrado 
 
 ## Contenido exportado
 - Habitación / tipo / extras (matrimonial, cuna OFRN).
+- Tipo OFRN por camas ocupadas: Simple, Doble, Triple, Cuádruple, **Quíntuple (5)**, **Séxtuple (6)**, **Séptuple (7)**. Ocho o más camas: Múltiple. Misma etiqueta en la vista, el PDF y el Excel (`reportCapacityType`).
 - Ocupantes con check-in/out (OFRN: confirmados; FIMBA: inventario + artista).
 - Columna Hotel / Artista según módulo.
 
@@ -28,3 +29,4 @@ Poder exportar el rooming (quién en cada habitación, tipo, fechas) **filtrado 
 - [x] FIMBA: filtro por hotel en reporte rooming + Excel multi-hoja por hotel
 - [x] Iconos desde `Icons.jsx`
 - [x] Spec actualizada
+- [x] Tipos quíntuple, séxtuple y séptuple en resumen, desglose por fechas y Excel

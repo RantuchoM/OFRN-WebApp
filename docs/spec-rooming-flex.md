@@ -6,7 +6,10 @@ Implementar un sistema donde los integrantes asignados a una habitación puedan 
 ## Reglas de Negocio
 1. **Persistencia**: Se usa `asignaciones_config` (JSONB) en lugar de depender únicamente de `id_integrantes_asignados`.
 2. **Lógica de Capacidad**: 
-   - La capacidad de la habitación (SGL, DBL, TPL) se calcula contando SOLO a los integrantes con `ocupa_cama: true`.
+   - La capacidad de la habitación se calcula contando SOLO a los integrantes con `ocupa_cama: true`.
+   - Tipos (`src/utils/roomCapacity.js`): 1 Single/Simple, 2 Doble, 3 Triple, 4 Cuádruple, 5 Quíntuple, 6 Séxtuple, 7 Séptuple. 8 o más camas queda como Múltiple.
+   - El mismo catálogo alimenta la tarjeta y los chips de `RoomingManager`, el resumen del reporte (PDF) y la columna Tipo del Excel.
+   - Pedido inicial: la base de habitación sugerida acepta 1–7 camas (`INITIAL_ORDER_BEDS_PER_ROOM_OPTIONS`).
    - Los integrantes con `ocupa_cama: false` son "Adicionales" y no suman al tipo de habitación técnica para el hotel.
 3. **Comportamiento Visual**:
    - `ocupa_cama: true`: Se muestra el `MusicianCard` normal.
@@ -23,3 +26,4 @@ Implementar un sistema donde los integrantes asignados a una habitación puedan 
 - [x] Sincronizar cambios inmediatamente a Supabase.
 - [x] Excluir bebés en cuna del conteo y convocatoria de comidas (matriz, asistencia, reporte, mis comidas).
 - [x] Pedido Inicial / ajuste / texto hotelería: cunas diferenciadas sin sumar noches pagas.
+- [x] Tipos Quíntuple (5), Séxtuple (6) y Séptuple (7) en RoomingManager, pedido inicial y reportes (PDF/Excel). 8+ sigue como Múltiple.

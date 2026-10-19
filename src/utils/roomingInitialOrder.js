@@ -35,6 +35,9 @@ export const INITIAL_ORDER_BEDS_PER_ROOM_OPTIONS = [
   { value: 2, label: "2", title: "Base doble (2 camas por hab.)" },
   { value: 3, label: "3", title: "Base triple (3 camas por hab.)" },
   { value: 4, label: "4", title: "Base cuádruple (4 camas por hab.)" },
+  { value: 5, label: "5", title: "Base quíntuple (5 camas por hab.)" },
+  { value: 6, label: "6", title: "Base séxtuple (6 camas por hab.)" },
+  { value: 7, label: "7", title: "Base séptuple (7 camas por hab.)" },
 ];
 
 /** Habitaciones sugeridas por género (F con F, M con M), según camas por habitación. */
@@ -57,6 +60,9 @@ export function getSuggestedRoomsLabel(bedsPerRoom = DEFAULT_BEDS_PER_ROOM) {
   if (cap === 2) return "Habs Sugeridas (DOBLE)";
   if (cap === 3) return "Habs Sugeridas (TRIPLE)";
   if (cap === 4) return "Habs Sugeridas (CUÁDR.)";
+  if (cap === 5) return "Habs Sugeridas (QUÍNT.)";
+  if (cap === 6) return "Habs Sugeridas (SÉXT.)";
+  if (cap === 7) return "Habs Sugeridas (SÉPT.)";
   return `Habs Sugeridas (×${cap})`;
 }
 

@@ -22,6 +22,10 @@ import {
   STAY_EVENT_FOOTNOTE,
 } from "../../utils/hotelStayEvents";
 import { toast } from "sonner";
+import {
+  pluralizeCapacityType,
+  ROOM_REPORT_CAPACITY_ORDER,
+} from "../../utils/roomCapacity";
 
 const formatDate = (d) =>
   d
@@ -274,13 +278,9 @@ const RoomingReportModal = ({
                 const processedRooms = hotel.rooms;
                 const totalBedNights = totalBedNightsFromRooms(processedRooms);
 
-                const stats = {
-                  Simple: getEmptyStats(),
-                  Doble: getEmptyStats(),
-                  Triple: getEmptyStats(),
-                  Cuádruple: getEmptyStats(),
-                  Múltiple: getEmptyStats(),
-                };
+                const stats = Object.fromEntries(
+                  ROOM_REPORT_CAPACITY_ORDER.map((type) => [type, getEmptyStats()]),
+                );
                 processedRooms.forEach((r) => {
                   if (stats[r.capacityType]) {
                     stats[r.capacityType].total++;
@@ -304,10 +304,7 @@ const RoomingReportModal = ({
                   if (!r.effectiveCheckIn || !r.effectiveCheckOut) return;
                   const dateKey = `${formatDate(r.effectiveCheckIn)} al ${formatDate(r.effectiveCheckOut)}`;
                   if (!dateGroups[dateKey]) dateGroups[dateKey] = {};
-                  const capLower = r.capacityType.toLowerCase();
-                  const capPlural = capLower.endsWith("e")
-                    ? `${capLower}s`
-                    : `${capLower}es`;
+                  const capPlural = pluralizeCapacityType(r.capacityType);
                   let baseDesc = `${capPlural} ${r.isPlus ? "superior" : "básico"}`;
                   if (r.isMatri) baseDesc += " matrimonial";
                   if (r.hasCuna) baseDesc += " c/cuna";

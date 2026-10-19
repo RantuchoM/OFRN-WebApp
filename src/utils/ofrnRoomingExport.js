@@ -12,6 +12,7 @@ import {
   stayExtraFlagsFromStay,
   STAY_EVENT_FOOTNOTE,
 } from "./hotelStayEvents";
+import { reportCapacityType } from "./roomCapacity";
 
 async function loadExcelJS() {
   const { default: ExcelJS } = await import("exceljs");
@@ -178,18 +179,7 @@ function processRoom(r, logisticsMap, bk, segmentRow) {
   const bedOccupants = occupantsWithDates.filter((o) => o.ocupa_cama !== false);
   const extraOccupants = occupantsWithDates.filter((o) => o.ocupa_cama === false);
   const count = bedOccupants.length;
-  const capacityType =
-    count === 1
-      ? "Simple"
-      : count === 2
-        ? "Doble"
-        : count === 3
-          ? "Triple"
-          : count === 4
-            ? "Cuádruple"
-            : count > 4
-              ? "Múltiple"
-              : "Vacía";
+  const capacityType = reportCapacityType(count);
   const isPlus = r.tipo === "Plus";
   const isMatri = r.es_matrimonial;
   const hasCuna =

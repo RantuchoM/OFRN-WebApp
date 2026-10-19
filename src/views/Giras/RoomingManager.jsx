@@ -39,6 +39,11 @@ import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 import { ensureDefaultSegment } from "../../services/giraSegmentosService";
 import GiraCorteTransitionsPanel from "./GiraCorteTransitionsPanel";
 import {
+  cardCapacityLabel,
+  ROOM_MANAGER_CAPACITY_CHIPS,
+  roomCardColorClass,
+} from "../../utils/roomCapacity";
+import {
   buildSegmentSpecs,
   formatTramoTitle,
   isLocalForTramoIndex,
@@ -187,6 +192,11 @@ const HelpModal = ({ onClose }) => (
             <li>
               Puedes arrastrar personas al cuadro punteado para crear una
               habitación nueva automáticamente.
+            </li>
+            <li>
+              El tipo (Single, Doble, Triple, Cuádruple, Quíntuple, Séxtuple,
+              Séptuple) sigue la cantidad de camas ocupadas. Ocho o más queda
+              como Múltiple.
             </li>
           </ul>
         </div>
@@ -1372,6 +1382,29 @@ const AssignRoomModal = ({
     </div>
   );
 };
+
+function CapacityStatChips({ stats, compact = false }) {
+  const chips = [...ROOM_MANAGER_CAPACITY_CHIPS];
+  if (stats.PLUS > 0) {
+    chips.push({
+      key: "PLUS",
+      label: "8+",
+      title: "Múltiple (8 o más camas)",
+      dot: "bg-slate-400",
+    });
+  }
+  const pad = compact ? "px-1.5" : "px-2";
+  return chips.map((chip) => (
+    <span
+      key={chip.key}
+      title={chip.title}
+      className={`flex items-center gap-1 ${pad} py-0.5 bg-white border rounded`}
+    >
+      <div className={`w-2 h-2 rounded-full ${chip.dot}`}></div>
+      {chip.label}: {stats[chip.key] || 0}
+    </span>
+  ));
+}
 
 // --- COMPONENTE PRINCIPAL ---
 export default function RoomingManager({
@@ -2937,26 +2970,21 @@ export default function RoomingManager({
   const getRoomBedCount = (room) =>
     (room.occupants || []).filter((m) => m.ocupa_cama !== false).length;
 
-  const getCapacityLabel = (c) => {
-    if (c === 0) return "Vacía";
-    if (c === 1) return "Single";
-    if (c === 2) return "Doble";
-    if (c === 3) return "Triple";
-    return `Múltiple (${c})`;
-  };
-  const getRoomColor = (c) => {
-    if (c === 0) return "bg-slate-50 border-slate-200";
-    if (c === 1) return "bg-blue-50 border-blue-200 text-blue-800";
-    if (c === 2) return "bg-emerald-50 border-emerald-200 text-emerald-800";
-    if (c === 3) return "bg-amber-50 border-amber-200 text-amber-800";
-    return "bg-rose-50 border-rose-200 text-rose-800";
-  };
+  const getCapacityLabel = cardCapacityLabel;
+  const getRoomColor = roomCardColorClass;
+
+  const countRoomsWithBeds = (beds) =>
+    visibleRooms.filter((r) => getRoomBedCount(r) === beds).length;
 
   const stats = {
-    SGL: visibleRooms.filter((r) => getRoomBedCount(r) === 1).length,
-    DBL: visibleRooms.filter((r) => getRoomBedCount(r) === 2).length,
-    TPL: visibleRooms.filter((r) => getRoomBedCount(r) === 3).length,
-    QDP: visibleRooms.filter((r) => getRoomBedCount(r) >= 4).length,
+    SGL: countRoomsWithBeds(1),
+    DBL: countRoomsWithBeds(2),
+    TPL: countRoomsWithBeds(3),
+    QAD: countRoomsWithBeds(4),
+    QNT: countRoomsWithBeds(5),
+    SXT: countRoomsWithBeds(6),
+    SPT: countRoomsWithBeds(7),
+    PLUS: visibleRooms.filter((r) => getRoomBedCount(r) >= 8).length,
     F: visibleRooms.filter((r) => r.roomGender === "F" && getRoomBedCount(r) > 0)
       .length,
     M: visibleRooms.filter((r) => r.roomGender === "M" && getRoomBedCount(r) > 0)
@@ -3106,18 +3134,7 @@ export default function RoomingManager({
           {showRoomingPanel && (
             <div className="mt-1 space-y-1.5 text-[10px]">
               <div className="flex gap-1.5 flex-wrap bg-slate-50 px-2 py-1.5 rounded-lg border border-slate-100 justify-center">
-                <span className="flex items-center gap-1 px-1.5 py-0.5 bg-white border rounded">
-                  <div className="w-2 h-2 rounded-full bg-blue-400"></div> SGL: {stats.SGL}
-                </span>
-                <span className="flex items-center gap-1 px-1.5 py-0.5 bg-white border rounded">
-                  <div className="w-2 h-2 rounded-full bg-emerald-400"></div> DBL: {stats.DBL}
-                </span>
-                <span className="flex items-center gap-1 px-1.5 py-0.5 bg-white border rounded">
-                  <div className="w-2 h-2 rounded-full bg-amber-400"></div> TPL: {stats.TPL}
-                </span>
-                <span className="flex items-center gap-1 px-1.5 py-0.5 bg-white border rounded">
-                  <div className="w-2 h-2 rounded-full bg-rose-400"></div> 4+: {stats.QDP}
-                </span>
+                <CapacityStatChips stats={stats} compact />
                 <span className="text-pink-600">♀ {stats.F} Habs</span>
                 <span className="text-blue-600">♂ {stats.M} Habs</span>
                 <span className="text-purple-600">⚤ {stats.Mix} Mixtas</span>
@@ -3221,18 +3238,7 @@ export default function RoomingManager({
         </div>
         {/* Resumen siempre visible en desktop, compactado */}
         <div className="hidden lg:flex gap-3 text-[10px] font-bold text-slate-500 bg-slate-50 px-2 py-1.5 rounded-lg border border-slate-100 justify-center flex-wrap mt-1">
-          <span className="flex items-center gap-1 px-2 py-0.5 bg-white border rounded">
-            <div className="w-2 h-2 rounded-full bg-blue-400"></div> SGL: {stats.SGL}
-          </span>
-          <span className="flex items-center gap-1 px-2 py-0.5 bg-white border rounded">
-            <div className="w-2 h-2 rounded-full bg-emerald-400"></div> DBL: {stats.DBL}
-          </span>
-          <span className="flex items-center gap-1 px-2 py-0.5 bg-white border rounded">
-            <div className="w-2 h-2 rounded-full bg-amber-400"></div> TPL: {stats.TPL}
-          </span>
-          <span className="flex items-center gap-1 px-2 py-0.5 bg-white border rounded">
-            <div className="w-2 h-2 rounded-full bg-rose-400"></div> 4+: {stats.QDP}
-          </span>
+          <CapacityStatChips stats={stats} />
           <div className="w-px h-4 bg-slate-300 mx-1"></div>
           <span className="text-pink-600">♀ {stats.F} Habs</span>
           <span className="text-blue-600">♂ {stats.M} Habs</span>
