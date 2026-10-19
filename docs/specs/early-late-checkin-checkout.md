@@ -36,6 +36,12 @@ Ausente = cero habitaciones (sin cambio). Vacantes: las noches siguen la logíst
   - Al **guardar** o al **cambiar hora**, con tilde off: Check-in 22 y hora **&lt; 14:00** → «¿Es early check-in?»; Check-Out 23 y hora **&gt; 10:00** → «¿Es late check-out?».
   - Sí = tipo 40/41 (y en reglas, tilda + vincula extra). No = deja 22/23. Iconos de `Icons.jsx`.
 - **Validación de regla** (no persiste): check-in / early posterior a check-out / late; comida inicial posterior a la final. Error visible en la fila.
+- **Agenda (viewer)** — Propio / No propio (gira con varias reglas/hoteles, p. ej. gira 22):
+  - `useAgendaData` resuelve la regla ganadora de estadía del usuario (`calculateLogisticsSummary` + habitación/hotel de rooming).
+  - Check-in/out (tipos 22/23/40/41) de **su** regla: tag **Propio**; locación mostrada = hotel de rooming (`hoteles.id_locacion`) si hay habitación, si no la del evento vinculado en la regla (priorizada sobre `eventos.id_locacion` crudo cuando difieren).
+  - Resto de estadías de la misma gira evaluada: tag **No propio**, tarjeta atenuada (respeta «Sin gris»).
+  - Helpers: `collectOwnStayAgendaMeta` / `hotelLocacionFromHabitacion` en `hotelStayEvents.js`.
+  - Filtro **Solo mi hotelería** (`showOnlyMyStay`): mismo default que transporte/comidas (`defaultPersonalFilter`); oculta check-in/out no propios (`eventPassesOnlyMyStayFilter`).
 
 ## Reportes hotel
 
@@ -75,3 +81,5 @@ FIMBA sigue con sus flags booleanos propios; no comparte este helper OFRN.
 - [x] Texto pedido inicial: primeras líneas con `Check-in:` / `early check-in:` y `check-out:` / `late check-out:`, coma final, sin noches ni +0,5
 - [x] Horas 14:00 / 10:00 al generar
 - [x] Validación CI&gt;CO y comida inicial&gt;final
+- [x] Agenda: tag Propio/No propio + locación hotel/regla en eventos propios
+- [x] Filtro «Solo mi hotelería» (mismo default que transporte/comidas personales)

@@ -25,6 +25,7 @@ import {
   IconPrinter,
   IconUpload,
   IconDownload,
+  IconHotel,
   IconBus,
   IconBusGrande,
   IconTruck,
@@ -100,6 +101,7 @@ import {
   eventMatchesAgendaSearch,
   eventPassesAgendaCategoryFilter,
   eventPassesOnlyMyTransportFilter,
+  eventPassesOnlyMyStayFilter,
   getAccentInsensitiveHighlightRanges,
   isFimbaOnlyAgendaEvent,
   ID_TIPO_TRASLADO_INTERNO,
@@ -141,7 +143,10 @@ import { normalizeEventosInternasHtml } from "../../utils/eventosInternas";
 import {
   resolveEventHoraFinForSave,
 } from "../../utils/mealLogistics";
-import { resolveEventFormSaveData } from "../../utils/hotelStayEvents";
+import {
+  isStayTipoEvento,
+  resolveEventFormSaveData,
+} from "../../utils/hotelStayEvents";
 import { useEnsayosConflictoImpact } from "../../hooks/useEnsayosConflictoImpact";
 import {
   EnsayoImpactTags,
@@ -1053,6 +1058,8 @@ export default function UnifiedAgenda({
     setShowOnlyMyTransport,
     showOnlyMyMeals,
     setShowOnlyMyMeals,
+    showOnlyMyStay,
+    setShowOnlyMyStay,
     showNoGray,
     setShowNoGray,
     filterDateFrom,
@@ -1129,6 +1136,7 @@ export default function UnifiedAgenda({
     fetchAgenda,
     feriados,
     myTransportLogistics,
+    myStayLogistics,
     toursWithRules,
     recentlyUpdatedEventIds,
     isOfflineMode,
@@ -1539,22 +1547,26 @@ export default function UnifiedAgenda({
     };
   }, [userProfile, fetchAgenda]);
 
+  const hospedajeExcluidosKey = hospedajeExcluidosIds.join(",");
+
   useEffect(() => {
-    if (!userProfile) return;
+    if (!userProfile?.id) return;
     const background = items.length > 0;
     const delay = background ? 250 : 0;
     const t = setTimeout(() => fetchAgenda(background), delay);
     return () => clearTimeout(t);
     // items.length no va en deps (evitar loop al pintar).
+    // userProfile?.id (no el objeto) evita re-fetch al hidratar caché→red.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- background vs spinner
   }, [
-    userProfile,
+    userProfile?.id,
     giraId,
     monthsLimit,
     filterDateFrom,
     filterDateTo,
     showDeletedEvents,
     fetchAgenda,
+    hospedajeExcluidosKey,
   ]);
 
   /** Ancla de scroll al expandir el pasado (semana/mes antes). */
@@ -1675,6 +1687,14 @@ export default function UnifiedAgenda({
         if (isMeal && !item.is_convoked) return false;
       }
 
+      // Filtro "Solo mi hotelería": check-in/out de la regla ganadora del viewer.
+      if (
+        showOnlyMyStay &&
+        !eventPassesOnlyMyStayFilter(item, myStayLogistics)
+      ) {
+        return false;
+      }
+
       // Filtro por grupos de convocatoria (editores/admins en agenda de gira)
       if (
         hasEditorialGrupoFilter(filterGrupoIds, includeGeneralEvents) &&
@@ -1699,8 +1719,10 @@ export default function UnifiedAgenda({
     showNonActiveForFilter,
     showOnlyMyTransport,
     showOnlyMyMeals,
+    showOnlyMyStay,
     hideDeletedEvents,
     myTransportLogistics,
+    myStayLogistics,
     techFilter,
     filterCanSeeTechEvents,
     filterCanSeeHiddenAgendaEvents,
@@ -2859,6 +2881,9 @@ export default function UnifiedAgenda({
     if (showOnlyMyMeals) {
       subTitle += subTitle ? " | Solo mis comidas" : "Solo mis comidas";
     }
+    if (showOnlyMyStay) {
+      subTitle += subTitle ? " | Solo mi hotelería" : "Solo mi hotelería";
+    }
     if (techFilter === "only_tech") {
       subTitle += subTitle ? " | Sólo técnica" : "Sólo técnica";
     } else if (techFilter === "no_tech") {
@@ -2880,6 +2905,7 @@ export default function UnifiedAgenda({
     selectedCategoryIds,
     showOnlyMyTransport,
     showOnlyMyMeals,
+    showOnlyMyStay,
     techFilter,
     hideDeletedEvents,
     giraId,
@@ -3039,6 +3065,7 @@ export default function UnifiedAgenda({
                       selectedCategoryIds.length < availableCategories.length ||
                       showOnlyMyTransport ||
                       showOnlyMyMeals ||
+                      showOnlyMyStay ||
                       showNoGray ||
                       dateRangeFilterLooksActive
                         ? "bg-slate-800 text-white border-slate-800"
@@ -3050,6 +3077,7 @@ export default function UnifiedAgenda({
                     {(selectedCategoryIds.length < availableCategories.length ||
                       showOnlyMyTransport ||
                       showOnlyMyMeals ||
+                      showOnlyMyStay ||
                       showNoGray) && (
                       <span className="flex h-2 w-2 rounded-full bg-indigo-400"></span>
                     )}
@@ -3086,6 +3114,7 @@ export default function UnifiedAgenda({
                             setSelectedCategoryIds(catsToSelect);
                             setShowOnlyMyTransport(filterDefaultPersonalFilter);
                             setShowOnlyMyMeals(filterDefaultPersonalFilter);
+                            setShowOnlyMyStay(filterDefaultPersonalFilter);
                             setShowNoGray(false);
                             if (isGiraFinishedTour && giraFirstDate) {
                               setFilterDateFrom(giraFirstDate);
@@ -3179,6 +3208,20 @@ export default function UnifiedAgenda({
                               checked={showOnlyMyMeals}
                               onChange={(e) =>
                                 setShowOnlyMyMeals(e.target.checked)
+                              }
+                            />
+                          </label>
+                          <label className="flex items-center justify-between p-2 hover:bg-slate-50 rounded cursor-pointer group">
+                            <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                              <IconHotel size={16} className="text-sky-600" />
+                              <span>Solo mi hotelería</span>
+                            </div>
+                            <input
+                              type="checkbox"
+                              className="accent-indigo-600 w-4 h-4"
+                              checked={showOnlyMyStay}
+                              onChange={(e) =>
+                                setShowOnlyMyStay(e.target.checked)
                               }
                             />
                           </label>
@@ -3520,6 +3563,32 @@ export default function UnifiedAgenda({
                       isMyTransport &&
                       myStatus &&
                       String(myStatus.bajadaId) === String(evt.id);
+                    const isStayEvent = isStayTipoEvento(evt.id_tipo_evento);
+                    const stayGiraEvaluated = Boolean(
+                      isStayEvent &&
+                        evt.id_gira != null &&
+                        myStayLogistics?.evaluatedGiraIds?.[
+                          String(evt.id_gira)
+                        ],
+                    );
+                    const stayMeta =
+                      stayGiraEvaluated
+                        ? myStayLogistics?.byEventId?.[String(evt.id)]
+                        : null;
+                    const isStayPropio = Boolean(
+                      stayGiraEvaluated && stayMeta?.propio,
+                    );
+                    const isStayAjeno = Boolean(
+                      stayGiraEvaluated && !isStayPropio,
+                    );
+                    const displayLocacion =
+                      isStayPropio && stayMeta?.locaciones
+                        ? stayMeta.locaciones
+                        : evt.locaciones;
+                    const displayLocId =
+                      isStayPropio && stayMeta?.id_locacion != null
+                        ? stayMeta.id_locacion
+                        : evt.id_locacion;
                     let debugReason = null;
 
                     if (isTransportEvent && !isMyTransport) {
@@ -3543,7 +3612,11 @@ export default function UnifiedAgenda({
                     if (Number(evt.id_tipo_evento) === ID_TIPO_TRASLADO_INTERNO)
                       isTransportDimmed = false;
 
-                    let shouldDim = isTransportDimmed || evt.is_absent;
+                    let isStayDimmed = isStayAjeno;
+                    if (showNoGray && isStayEvent) isStayDimmed = false;
+
+                    let shouldDim =
+                      isTransportDimmed || isStayDimmed || evt.is_absent;
                     if (!showNoGray && isNonConvokedMeal) shouldDim = true;
 
                     const deadlineStatus =
@@ -3556,12 +3629,17 @@ export default function UnifiedAgenda({
                     const showDay = evt.fecha !== lastDateRendered;
                     if (showDay) lastDateRendered = evt.fecha;
 
-                    const locName = evt.locaciones?.nombre || "";
-                    const locCity = evt.locaciones?.localidades?.localidad;
+                    const locName = displayLocacion?.nombre || "";
+                    const locCity = displayLocacion?.localidades?.localidad;
                     const locDisplayName = resolveLocacionNombre({
                       nombre: locName,
-                      idLocacion: evt.id_locacion,
-                      locacion: evt.locaciones,
+                      idLocacion: displayLocId,
+                      locacion: displayLocacion,
+                    });
+                    const showLocacion = shouldShowLocacionEnEvento({
+                      ...evt,
+                      id_locacion: displayLocId,
+                      locaciones: displayLocacion,
                     });
                     const isConcertEvent =
                       Number(evt.id_tipo_evento) === 1 ||
@@ -4018,7 +4096,17 @@ export default function UnifiedAgenda({
                                         <IconDownload size={12} /> Mi Bajada
                                       </span>
                                     )}
-                                    {shouldShowLocacionEnEvento(evt) && (
+                                    {isStayPropio && (
+                                      <span className="md:hidden flex items-center gap-1 text-[10px] font-bold text-sky-700 bg-sky-50 px-2 py-0.5 rounded border border-sky-200 mb-0.5">
+                                        <IconHotel size={12} /> Propio
+                                      </span>
+                                    )}
+                                    {isStayAjeno && (
+                                      <span className="md:hidden flex items-center gap-1 text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded border border-slate-200 mb-0.5">
+                                        No propio
+                                      </span>
+                                    )}
+                                    {showLocacion && (
                                       <div
                                         className={`flex min-w-0 items-start gap-1 text-xs mt-0.5 ${isDeleted ? "text-orange-700" : "text-slate-500"}`}
                                       >
@@ -4042,8 +4130,8 @@ export default function UnifiedAgenda({
                                             ) : (
                                               <LocacionNombreSpan
                                                 nombre={locName}
-                                                idLocacion={evt.id_locacion}
-                                                locacion={evt.locaciones}
+                                                idLocacion={displayLocId}
+                                                locacion={displayLocacion}
                                               />
                                             )}
                                             {locCity ? (
@@ -4057,10 +4145,10 @@ export default function UnifiedAgenda({
                                               </>
                                             ) : null}
                                           </span>
-                                          {evt.locaciones?.direccion && (
+                                          {displayLocacion?.direccion && (
                                             <a
                                               href={getGoogleMapsUrl(
-                                                evt.locaciones,
+                                                displayLocacion,
                                               )}
                                               target="_blank"
                                               rel="noopener noreferrer"
@@ -4070,7 +4158,7 @@ export default function UnifiedAgenda({
                                               }
                                             >
                                               <AgendaSearchHighlight
-                                                text={evt.locaciones.direccion}
+                                                text={displayLocacion.direccion}
                                                 query={agendaSearchQuery}
                                               />{" "}
                                               ↗
@@ -4552,6 +4640,16 @@ export default function UnifiedAgenda({
                                           <IconDownload size={10} /> Mi Bajada
                                         </span>
                                       )}
+                                      {isStayPropio && (
+                                        <span className="flex items-center gap-1 text-[9px] font-bold text-sky-700 bg-sky-50 px-1.5 py-0.5 rounded border border-sky-200">
+                                          <IconHotel size={10} /> Propio
+                                        </span>
+                                      )}
+                                      {isStayAjeno && (
+                                        <span className="flex items-center gap-1 text-[9px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+                                          No propio
+                                        </span>
+                                      )}
                                     </div>
                                   </div>
 
@@ -4598,7 +4696,7 @@ export default function UnifiedAgenda({
                                 <div
                                   className={`${showGruposColumn ? "col-span-2" : "col-span-3"} min-w-0`}
                                 >
-                                  {shouldShowLocacionEnEvento(evt) && (
+                                  {showLocacion && (
                                     <div
                                       className={`flex items-start gap-1.5 ${isDeleted ? "text-orange-700" : ""}`}
                                     >
@@ -4622,8 +4720,8 @@ export default function UnifiedAgenda({
                                           ) : (
                                             <LocacionNombreSpan
                                               nombre={locName}
-                                              idLocacion={evt.id_locacion}
-                                              locacion={evt.locaciones}
+                                              idLocacion={displayLocId}
+                                              locacion={displayLocacion}
                                             />
                                           )}
                                           {locCity ? (
@@ -4637,10 +4735,10 @@ export default function UnifiedAgenda({
                                             </>
                                           ) : null}
                                         </span>
-                                        {evt.locaciones?.direccion && (
+                                        {displayLocacion?.direccion && (
                                           <a
                                             href={getGoogleMapsUrl(
-                                              evt.locaciones,
+                                              displayLocacion,
                                             )}
                                             target="_blank"
                                             rel="noopener noreferrer"
@@ -4648,7 +4746,7 @@ export default function UnifiedAgenda({
                                             onClick={(e) => e.stopPropagation()}
                                           >
                                             <AgendaSearchHighlight
-                                              text={evt.locaciones.direccion}
+                                              text={displayLocacion.direccion}
                                               query={agendaSearchQuery}
                                             />{" "}
                                             ↗

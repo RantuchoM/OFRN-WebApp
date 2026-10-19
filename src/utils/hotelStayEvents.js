@@ -574,3 +574,67 @@ export function ruleEventColumn(field) {
 
 export const STAY_EVENT_FOOTNOTE =
   "Noches facturadas = (check-out − check-in) + 0,5 early + 0,5 late (se acumulan). Late: tipo 41, tilde/FK extra, o check-out después de las 10:00 (el 12:00 de logística no cuenta). Early: tipo 40, tilde/FK extra, o check-in antes de las 14:00 (el 12:00 de logística no cuenta). Cunas no facturan.";
+
+const STAY_LOGISTICS_FIELDS = [
+  "checkin",
+  "checkout",
+  "checkin_early",
+  "checkout_late",
+];
+
+/**
+ * Locación espejo del hotel de la habitación (`programas_hospedajes.hoteles`).
+ * Espera habitación enriquecida con `_hospedaje.hoteles.locaciones` (agenda).
+ */
+export function hotelLocacionFromHabitacion(habitacion) {
+  const hotel =
+    habitacion?._hospedaje?.hoteles ||
+    habitacion?.hoteles ||
+    habitacion?.programas_hospedajes?.hoteles ||
+    null;
+  if (!hotel) return { id_locacion: null, locaciones: null };
+  const rawId = hotel.id_locacion ?? hotel.locaciones?.id ?? null;
+  const id_locacion =
+    rawId != null && rawId !== "" && Number.isFinite(Number(rawId))
+      ? Number(rawId)
+      : null;
+  return {
+    id_locacion,
+    locaciones: hotel.locaciones || null,
+  };
+}
+
+/**
+ * Eventos de estadía de la regla ganadora del viewer + locación a mostrar.
+ * Prioridad de locación: hotel de rooming → locación del evento vinculado en la regla.
+ *
+ * @returns {Record<string, { propio: true, id_locacion: number|null, locaciones: object|null, ruleId: number|string|null }>}
+ */
+export function collectOwnStayAgendaMeta(person) {
+  const own = {};
+  if (!person) return own;
+  const hotel = hotelLocacionFromHabitacion(person.habitacion);
+  for (const field of STAY_LOGISTICS_FIELDS) {
+    const hit = person.logistics?.[field] || person[field];
+    if (!hit || hit.isLinked !== true) continue;
+    const eid = hit.id_evento ?? hit.id;
+    if (eid == null || eid === "") continue;
+    const key = String(eid);
+    const fromHitId =
+      hit.id_locacion != null && hit.id_locacion !== ""
+        ? Number(hit.id_locacion)
+        : hit.locaciones?.id != null
+          ? Number(hit.locaciones.id)
+          : null;
+    const id_locacion =
+      hotel.id_locacion ??
+      (Number.isFinite(fromHitId) ? fromHitId : null);
+    own[key] = {
+      propio: true,
+      id_locacion,
+      locaciones: hotel.locaciones || hit.locaciones || null,
+      ruleId: hit.ruleId ?? null,
+    };
+  }
+  return own;
+}

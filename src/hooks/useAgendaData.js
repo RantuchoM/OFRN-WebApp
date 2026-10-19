@@ -14,6 +14,7 @@ import {
   resolveLocalidadResidencia,
 } from "../utils/integranteDomicilioViaticos";
 import { isAssignedVehicleAgendaStop } from "../utils/agendaHelpers";
+import { collectOwnStayAgendaMeta } from "../utils/hotelStayEvents";
 
 /** tipos_evento.id — Ensayo de ensamble (independiente o en programa). */
 const ID_TIPO_ENSAYO_ENSAMBLE = 13;
@@ -523,6 +524,233 @@ async function fetchAssociatedEnsembleRehearsals(
  * @param {boolean} [opts.includeDeletedBeyond24h=false] - si true, incluye todos los eventos con is_deleted, incluso más antiguos de 24h
  * @param {boolean} [opts.includeAssociatedEnsembleRehearsals=false] - agenda de programa Ensamble: incluye ensayos de ensamble vinculados por eventos_programas_asociados
  */
+
+/**
+ * Segundo paso: regla ganadora de estadía + hotel de rooming para tags Propio/No propio.
+ * No debe bloquear ni invalidar el pintado principal de agenda.
+ */
+async function enrichStayLogisticsAfterPaint({
+  supabase,
+  signal,
+  activeTourIds,
+  eventsData,
+  profile,
+  effectiveUserId,
+  giraId,
+  todayStr,
+  myGruposRes,
+  setMyStayLogistics,
+}) {
+  const stayByEventId = {};
+  const stayEvaluatedGiraIds = {};
+  try {
+    if (signal?.aborted || !profile || !activeTourIds?.size) {
+      setMyStayLogistics({ byEventId: {}, evaluatedGiraIds: {} });
+      return;
+    }
+
+    let ensamblesRows = profile.integrantes_ensambles;
+    if (!ensamblesRows?.length && effectiveUserId !== "guest-general") {
+      const { data: ieData } = await supabase
+        .from("integrantes_ensambles")
+        .select("id_ensamble, fecha_desde, fecha_hasta")
+        .eq("id_integrante", effectiveUserId);
+      if (signal?.aborted) return;
+      ensamblesRows = ieData || [];
+    }
+
+    const tourIdList = Array.from(activeTourIds);
+    const [rulesRes, hospRes, locsRes] = await Promise.all([
+      supabase
+        .from("giras_logistica_reglas")
+        .select("*")
+        .in("id_gira", tourIdList),
+      supabase
+        .from("programas_hospedajes")
+        .select(
+          "id, id_programa, id_hotel, hoteles(id, nombre, id_locacion, locaciones(id, nombre, direccion, link_mapa, localidades(localidad)))",
+        )
+        .in("id_programa", tourIdList),
+      supabase.from("localidades").select("id, localidad, id_region"),
+    ]);
+    if (signal?.aborted) return;
+
+    const logisticsRulesData = rulesRes.data || [];
+    const hospRows = hospRes.data || [];
+    const allLocalities = locsRes.data || [];
+    if (logisticsRulesData.length === 0) {
+      setMyStayLogistics({ byEventId: {}, evaluatedGiraIds: {} });
+      return;
+    }
+
+    const hospIds = hospRows.map((h) => h.id).filter(Boolean);
+    let roomsData = [];
+    if (hospIds.length > 0) {
+      const { data: rData } = await supabase
+        .from("hospedaje_habitaciones")
+        .select("*")
+        .in("id_hospedaje", hospIds);
+      if (signal?.aborted) return;
+      const hospById = Object.fromEntries(
+        hospRows.map((h) => [String(h.id), h]),
+      );
+      roomsData = (rData || []).map((room) => ({
+        ...room,
+        _hospedaje: hospById[String(room.id_hospedaje)] || null,
+      }));
+    }
+
+    const rulesByGira = {};
+    const roomsByGira = {};
+    logisticsRulesData.forEach((r) => {
+      if (!rulesByGira[r.id_gira]) rulesByGira[r.id_gira] = [];
+      rulesByGira[r.id_gira].push(r);
+    });
+    const hospProgramaById = Object.fromEntries(
+      hospRows.map((h) => [String(h.id), h.id_programa]),
+    );
+    roomsData.forEach((room) => {
+      const gId = hospProgramaById[String(room.id_hospedaje)];
+      if (gId == null) return;
+      if (!roomsByGira[gId]) roomsByGira[gId] = [];
+      roomsByGira[gId].push(room);
+    });
+
+    const grupoIdsByGira = {};
+    (myGruposRes?.data || []).forEach((row) => {
+      const gidGira = row.giras_grupos?.id_gira;
+      const gid = row.id_grupo;
+      if (gidGira == null || gid == null) return;
+      const key = String(gidGira);
+      if (!grupoIdsByGira[key]) grupoIdsByGira[key] = [];
+      grupoIdsByGira[key].push(String(gid));
+    });
+
+    const profileWithResidencia = {
+      ...profile,
+      _loc_residencia: profile.datos_residencia || profile._loc_residencia,
+      residencia: profile.datos_residencia || profile.residencia,
+    };
+    const locViaticos = resolveLocalidadEfectivaViaticos(profileWithResidencia);
+    const locResidencia = resolveLocalidadResidencia(profileWithResidencia);
+    const locId =
+      locViaticos.id != null && locViaticos.id !== ""
+        ? String(locViaticos.id)
+        : profile.id_localidad != null && profile.id_localidad !== ""
+          ? String(profile.id_localidad)
+          : "";
+    const locObj =
+      allLocalities.find((l) => String(l.id) === locId) || locViaticos.objeto;
+    const profileResidenciaFallback =
+      profile.id_localidad != null && profile.id_localidad !== ""
+        ? String(profile.id_localidad)
+        : "";
+    const residenciaId =
+      locResidencia.id != null && locResidencia.id !== ""
+        ? String(locResidencia.id)
+        : profileResidenciaFallback;
+    const residenciaObj =
+      (residenciaId
+        ? allLocalities.find((l) => String(l.id) === residenciaId)
+        : null) ||
+      locResidencia.objeto ||
+      profile.datos_residencia ||
+      profile.residencia ||
+      null;
+
+    const eventsByGira = {};
+    (eventsData || []).forEach((e) => {
+      if (e.id_gira == null) return;
+      if (!eventsByGira[e.id_gira]) eventsByGira[e.id_gira] = [];
+      eventsByGira[e.id_gira].push(e);
+    });
+
+    activeTourIds.forEach((gId) => {
+      const currentRules = rulesByGira[gId] || [];
+      if (currentRules.length === 0) return;
+
+      const sampleEvt = (eventsData || []).find(
+        (e) => String(e.id_gira) === String(gId) && e.programas,
+      );
+      let tourRole = "musico";
+      let estadoGira = null;
+      if (sampleEvt?.programas) {
+        const members = sampleEvt.programas.giras_integrantes || [];
+        const myRecord = members.find(
+          (i) => String(i.id_integrante) === String(effectiveUserId),
+        );
+        if (myRecord) {
+          tourRole = myRecord.rol;
+          estadoGira = myRecord.estado;
+          if (["baja", "no_convocado", "ausente"].includes(estadoGira)) return;
+        }
+        const sources = sampleEvt.programas.giras_fuentes || [];
+        const progFd =
+          sampleEvt.programas.fecha_desde?.slice?.(0, 10) ||
+          String(sampleEvt.programas.fecha_desde || "").slice(0, 10) ||
+          todayStr;
+        const matchesSource = matchesGiraFuente(
+          sources,
+          profile,
+          ensamblesRows,
+          progFd,
+        );
+        if (!giraId && !myRecord && !matchesSource) return;
+      }
+
+      const mockPerson = {
+        ...profileWithResidencia,
+        id: profile.id ?? effectiveUserId,
+        condicion: profile.condicion,
+        id_localidad: locId || residenciaId,
+        localidades: locObj || {
+          id: locId || residenciaId,
+          id_region:
+            locResidencia.regionId ?? residenciaObj?.id_region ?? null,
+        },
+        ...(residenciaId ? { id_localidad_residencia: residenciaId } : {}),
+        localidades_residencia: residenciaObj,
+        id_region_residencia:
+          locResidencia.regionId ?? residenciaObj?.id_region ?? null,
+        instrumentos: profile.instrumentos || {},
+        rol_gira: tourRole,
+        estado_gira: estadoGira,
+        grupo_ids: grupoIdsByGira[String(gId)] || [],
+        es_adicional: false,
+        logistics: {},
+      };
+      const result = calculateLogisticsSummary(
+        [mockPerson],
+        currentRules,
+        [],
+        [],
+        [],
+        roomsByGira[gId] || [],
+        allLocalities,
+        eventsByGira[gId] || [],
+      );
+      stayEvaluatedGiraIds[String(gId)] = true;
+      Object.assign(stayByEventId, collectOwnStayAgendaMeta(result[0]));
+    });
+
+    if (signal?.aborted) return;
+    setMyStayLogistics({
+      byEventId: stayByEventId,
+      evaluatedGiraIds: stayEvaluatedGiraIds,
+    });
+  } catch (err) {
+    if (
+      err?.name === "AbortError" ||
+      err?.code === 20 ||
+      String(err?.message || "").includes("AbortError") ||
+      signal?.aborted
+    ) {
+      return;
+    }
+    console.warn("Estadía Propio/No propio omitida:", err);
+  }
+}
+
 export function useAgendaData({
   supabase,
   effectiveUserId,
@@ -561,6 +789,11 @@ export function useAgendaData({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [feriados, setFeriados] = useState([]);
   const [myTransportLogistics, setMyTransportLogistics] = useState({});
+  /** Stay events: own IDs + locación (hotel/regla) y giras evaluadas para tag Propio/No propio. */
+  const [myStayLogistics, setMyStayLogistics] = useState({
+    byEventId: {},
+    evaluatedGiraIds: {},
+  });
   const [toursWithRules, setToursWithRules] = useState(() => new Set());
   const [recentlyUpdatedEventIds, setRecentlyUpdatedEventIds] = useState(
     () => new Set(),
@@ -576,9 +809,25 @@ export function useAgendaData({
   const locallyMutatedAtRef = useRef(new Map());
   const remoteDirtyGenRef = useRef(0);
   const itemsRef = useRef(items);
+  const userProfileRef = useRef(userProfile);
+  const checkIsConvokedRef = useRef(checkIsConvoked);
+  const selectedCategoryLenRef = useRef(selectedCategoryIds?.length ?? 0);
+  const myTransportLogisticsRef = useRef(myTransportLogistics);
   useEffect(() => {
     itemsRef.current = items;
   }, [items]);
+  useEffect(() => {
+    userProfileRef.current = userProfile;
+  }, [userProfile]);
+  useEffect(() => {
+    checkIsConvokedRef.current = checkIsConvoked;
+  }, [checkIsConvoked]);
+  useEffect(() => {
+    selectedCategoryLenRef.current = selectedCategoryIds?.length ?? 0;
+  }, [selectedCategoryIds?.length]);
+  useEffect(() => {
+    myTransportLogisticsRef.current = myTransportLogistics;
+  }, [myTransportLogistics]);
 
   const processCategories = useCallback(
     (eventsList) => {
@@ -592,7 +841,8 @@ export function useAgendaData({
         a.nombre.localeCompare(b.nombre),
       );
       setAvailableCategories(uniqueCats);
-      if (selectedCategoryIds?.length === 0 && uniqueCats.length > 0) {
+      // Ref: no recrear processCategories/fetchAgenda al setear categorías por defecto.
+      if (selectedCategoryLenRef.current === 0 && uniqueCats.length > 0) {
         const defaultSelection = uniqueCats
           .filter((cat) => {
             if (isEditor || isManagement) return true;
@@ -603,14 +853,17 @@ export function useAgendaData({
       }
     },
     [
-      selectedCategoryIds?.length,
       isEditor,
       isManagement,
       setSelectedCategoryIds,
       setAvailableCategories,
-      includeDeletedBeyond24h,
     ],
   );
+
+  const processCategoriesRef = useRef(processCategories);
+  useEffect(() => {
+    processCategoriesRef.current = processCategories;
+  }, [processCategories]);
 
   const fetchAgenda = useCallback(
     async (isBackground = false) => {
@@ -618,6 +871,9 @@ export function useAgendaData({
       const controller = new AbortController();
       abortControllerRef.current = controller;
       const signal = controller.signal;
+      const profile = userProfileRef.current;
+      const isConvoked = checkIsConvokedRef.current;
+      const runProcessCategories = processCategoriesRef.current;
 
       if (!isBackground) setLoading(true);
       else setIsRefreshing(true);
@@ -644,7 +900,7 @@ export function useAgendaData({
               });
               if (Array.isArray(cachedItems) && cachedItems.length > 0) {
                 setItems(cachedItems);
-                processCategories(
+                runProcessCategories(
                   cachedItems.filter((i) => !i.isProgramMarker),
                 );
               }
@@ -661,7 +917,7 @@ export function useAgendaData({
 
         const todayStr = getTodayDateStringLocal();
 
-        const rawProfileRole = userProfile?.rol_sistema;
+        const rawProfileRole = profile?.rol_sistema;
         const profileRole = (() => {
           if (rawProfileRole == null) return "musico";
           if (Array.isArray(rawProfileRole)) return rawProfileRole[0]?.toLowerCase?.()?.trim() || "musico";
@@ -669,13 +925,13 @@ export function useAgendaData({
         })();
         let myEnsembles = new Set();
         let myFamily = null;
-        if (userProfile) {
-          userProfile.integrantes_ensambles?.forEach((ie) => {
+        if (profile) {
+          profile.integrantes_ensambles?.forEach((ie) => {
             if (membershipActiveOnProgramDate(ie, todayStr)) {
               myEnsembles.add(ie.id_ensamble);
             }
           });
-          myFamily = userProfile.instrumentos?.familia;
+          myFamily = profile.instrumentos?.familia;
         }
 
         const [customAttendance, ensembleEvents, feriadosData, myGruposRes] =
@@ -745,195 +1001,215 @@ export function useAgendaData({
         let logisticsMap = {};
         const foundRuleTours = new Set();
 
-        if (activeTourIds.size > 0 && userProfile) {
-          let ensamblesRows = userProfile.integrantes_ensambles;
-          if (!ensamblesRows?.length && effectiveUserId !== "guest-general") {
-            const { data: ieData } = await supabase
-              .from("integrantes_ensambles")
-              .select("id_ensamble, fecha_desde, fecha_hasta")
-              .eq("id_integrante", effectiveUserId);
-            ensamblesRows = ieData || [];
-          }
+        // Transporte en el fetch principal (pocas queries). Estadía Propio/No propio
+        // se resuelve después de pintar, para no abortar/saturar el lock de auth.
+        try {
+          if (activeTourIds.size > 0 && profile) {
+            let ensamblesRows = profile.integrantes_ensambles;
+            if (!ensamblesRows?.length && effectiveUserId !== "guest-general") {
+              const { data: ieData } = await supabase
+                .from("integrantes_ensambles")
+                .select("id_ensamble, fecha_desde, fecha_hasta")
+                .eq("id_integrante", effectiveUserId)
+                .abortSignal(signal);
+              ensamblesRows = ieData || [];
+            }
 
-          const [admRes, routesRes, transRes, locsRes] = await Promise.all([
-            supabase
-              .from("giras_logistica_admision")
-              .select("*")
-              .in("id_gira", Array.from(activeTourIds)),
-            supabase
-              .from("giras_logistica_rutas")
-              .select(
-                "*, evento_subida:id_evento_subida(id, fecha, hora_inicio), evento_bajada:id_evento_bajada(id, fecha, hora_inicio)",
-              )
-              .in("id_gira", Array.from(activeTourIds)),
-            supabase
-              .from("giras_transportes")
-              .select("id, id_gira, detalle, categoria_logistica, transportes(nombre)")
-              .in("id_gira", Array.from(activeTourIds)),
-            supabase.from("localidades").select("id, localidad, id_region"),
-          ]);
+            const tourIdList = Array.from(activeTourIds);
+            const [admRes, routesRes, transRes, locsRes] = await Promise.all([
+              supabase
+                .from("giras_logistica_admision")
+                .select("*")
+                .in("id_gira", tourIdList)
+                .abortSignal(signal),
+              supabase
+                .from("giras_logistica_rutas")
+                .select(
+                  "*, evento_subida:id_evento_subida(id, fecha, hora_inicio), evento_bajada:id_evento_bajada(id, fecha, hora_inicio)",
+                )
+                .in("id_gira", tourIdList)
+                .abortSignal(signal),
+              supabase
+                .from("giras_transportes")
+                .select(
+                  "id, id_gira, detalle, categoria_logistica, transportes(nombre)",
+                )
+                .in("id_gira", tourIdList)
+                .abortSignal(signal),
+              supabase
+                .from("localidades")
+                .select("id, localidad, id_region")
+                .abortSignal(signal),
+            ]);
 
-          const admissionData = admRes.data || [];
-          const routesData = routesRes.data || [];
-          const transportsData = transRes.data || [];
-          const allLocalities = locsRes.data || [];
+            const admissionData = admRes.data || [];
+            const routesData = routesRes.data || [];
+            const transportsData = transRes.data || [];
+            const allLocalities = locsRes.data || [];
 
-          if (transportsData.length > 0) {
-            const admissionByGira = {};
-            const routesByGira = {};
-            const transportsByGira = {};
-            admissionData.forEach((r) => {
-              if (!admissionByGira[r.id_gira]) admissionByGira[r.id_gira] = [];
-              admissionByGira[r.id_gira].push(r);
-              foundRuleTours.add(r.id_gira);
-            });
-            routesData.forEach((r) => {
-              if (!routesByGira[r.id_gira]) routesByGira[r.id_gira] = [];
-              routesByGira[r.id_gira].push(r);
-              foundRuleTours.add(r.id_gira);
-            });
-            transportsData.forEach((t) => {
-              if (!transportsByGira[t.id_gira]) transportsByGira[t.id_gira] = [];
-              transportsByGira[t.id_gira].push(t);
-            });
+            if (transportsData.length > 0) {
+              const admissionByGira = {};
+              const routesByGira = {};
+              const transportsByGira = {};
+              admissionData.forEach((r) => {
+                if (!admissionByGira[r.id_gira]) admissionByGira[r.id_gira] = [];
+                admissionByGira[r.id_gira].push(r);
+                foundRuleTours.add(r.id_gira);
+              });
+              routesData.forEach((r) => {
+                if (!routesByGira[r.id_gira]) routesByGira[r.id_gira] = [];
+                routesByGira[r.id_gira].push(r);
+                foundRuleTours.add(r.id_gira);
+              });
+              transportsData.forEach((t) => {
+                if (!transportsByGira[t.id_gira])
+                  transportsByGira[t.id_gira] = [];
+                transportsByGira[t.id_gira].push(t);
+              });
 
-            const grupoIdsByGira = {};
-            (myGruposRes?.data || []).forEach((row) => {
-              const gidGira = row.giras_grupos?.id_gira;
-              const gid = row.id_grupo;
-              if (gidGira == null || gid == null) return;
-              const key = String(gidGira);
-              if (!grupoIdsByGira[key]) grupoIdsByGira[key] = [];
-              grupoIdsByGira[key].push(String(gid));
-            });
+              const grupoIdsByGira = {};
+              (myGruposRes?.data || []).forEach((row) => {
+                const gidGira = row.giras_grupos?.id_gira;
+                const gid = row.id_grupo;
+                if (gidGira == null || gid == null) return;
+                const key = String(gidGira);
+                if (!grupoIdsByGira[key]) grupoIdsByGira[key] = [];
+                grupoIdsByGira[key].push(String(gid));
+              });
 
-            const profileWithResidencia = {
-              ...userProfile,
-              _loc_residencia:
-                userProfile.datos_residencia || userProfile._loc_residencia,
-              residencia:
-                userProfile.datos_residencia || userProfile.residencia,
-            };
-            const locViaticos = resolveLocalidadEfectivaViaticos(
-              profileWithResidencia,
-            );
-            const locResidencia = resolveLocalidadResidencia(
-              profileWithResidencia,
-            );
-            const locId =
-              locViaticos.id != null && locViaticos.id !== ""
-                ? String(locViaticos.id)
-                : userProfile.id_localidad != null &&
-                    userProfile.id_localidad !== ""
-                  ? String(userProfile.id_localidad)
-                  : "";
-            const locObj =
-              allLocalities.find((l) => String(l.id) === locId) ||
-              locViaticos.objeto;
-            // Nunca setear id_localidad_residencia en "" (rompe resolvePersonTerritoryIds:
-            // `??` no cae a id_localidad y las reglas por Viedma/etc. dejan de matchear).
-            const profileResidenciaFallback =
-              userProfile.id_localidad != null &&
-              userProfile.id_localidad !== ""
-                ? String(userProfile.id_localidad)
-                : "";
-            const residenciaId =
-              locResidencia.id != null && locResidencia.id !== ""
-                ? String(locResidencia.id)
-                : profileResidenciaFallback;
-            const residenciaObj =
-              (residenciaId
-                ? allLocalities.find((l) => String(l.id) === residenciaId)
-                : null) ||
-              locResidencia.objeto ||
-              userProfile.datos_residencia ||
-              userProfile.residencia ||
-              null;
-
-            activeTourIds.forEach((gId) => {
-              const sampleEvt = eventsData.find(
-                (e) => String(e.id_gira) === String(gId) && e.programas,
+              const profileWithResidencia = {
+                ...profile,
+                _loc_residencia:
+                  profile.datos_residencia || profile._loc_residencia,
+                residencia: profile.datos_residencia || profile.residencia,
+              };
+              const locViaticos = resolveLocalidadEfectivaViaticos(
+                profileWithResidencia,
               );
-              const currentTransports = transportsByGira[gId] || [];
-              if (currentTransports.length === 0) return;
+              const locResidencia = resolveLocalidadResidencia(
+                profileWithResidencia,
+              );
+              const locId =
+                locViaticos.id != null && locViaticos.id !== ""
+                  ? String(locViaticos.id)
+                  : profile.id_localidad != null && profile.id_localidad !== ""
+                    ? String(profile.id_localidad)
+                    : "";
+              const locObj =
+                allLocalities.find((l) => String(l.id) === locId) ||
+                locViaticos.objeto;
+              const profileResidenciaFallback =
+                profile.id_localidad != null && profile.id_localidad !== ""
+                  ? String(profile.id_localidad)
+                  : "";
+              const residenciaId =
+                locResidencia.id != null && locResidencia.id !== ""
+                  ? String(locResidencia.id)
+                  : profileResidenciaFallback;
+              const residenciaObj =
+                (residenciaId
+                  ? allLocalities.find((l) => String(l.id) === residenciaId)
+                  : null) ||
+                locResidencia.objeto ||
+                profile.datos_residencia ||
+                profile.residencia ||
+                null;
 
-              let tourRole = "musico";
-              let estadoGira = null;
-
-              if (sampleEvt?.programas) {
-                const members = sampleEvt.programas.giras_integrantes || [];
-                const myRecord = members.find(
-                  (i) => String(i.id_integrante) === String(effectiveUserId),
+              activeTourIds.forEach((gId) => {
+                const sampleEvt = eventsData.find(
+                  (e) => String(e.id_gira) === String(gId) && e.programas,
                 );
-                if (myRecord) {
-                  tourRole = myRecord.rol;
-                  estadoGira = myRecord.estado;
-                  if (["baja", "no_convocado", "ausente"].includes(estadoGira))
-                    return;
+                const currentTransports = transportsByGira[gId] || [];
+                if (currentTransports.length === 0) return;
+
+                let tourRole = "musico";
+                let estadoGira = null;
+
+                if (sampleEvt?.programas) {
+                  const members = sampleEvt.programas.giras_integrantes || [];
+                  const myRecord = members.find(
+                    (i) => String(i.id_integrante) === String(effectiveUserId),
+                  );
+                  if (myRecord) {
+                    tourRole = myRecord.rol;
+                    estadoGira = myRecord.estado;
+                    if (
+                      ["baja", "no_convocado", "ausente"].includes(estadoGira)
+                    )
+                      return;
+                  }
+                  const sources = sampleEvt.programas.giras_fuentes || [];
+                  const progFd =
+                    sampleEvt.programas.fecha_desde?.slice?.(0, 10) ||
+                    String(sampleEvt.programas.fecha_desde || "").slice(0, 10) ||
+                    todayStr;
+                  const matchesSource = matchesGiraFuente(
+                    sources,
+                    profile,
+                    ensamblesRows,
+                    progFd,
+                  );
+                  if (!giraId && !myRecord && !matchesSource) return;
                 }
-                const sources = sampleEvt.programas.giras_fuentes || [];
-                const progFd =
-                  sampleEvt.programas.fecha_desde?.slice?.(0, 10) ||
-                  String(sampleEvt.programas.fecha_desde || "").slice(0, 10) ||
-                  todayStr;
-                const matchesSource = matchesGiraFuente(
-                  sources,
-                  userProfile,
-                  ensamblesRows,
-                  progFd,
-                );
-                // Agenda de gira: el usuario ya está en esa vista; calcular logística
-                // salvo ausente explícito. En agenda general, exigir roster o fuente.
-                if (!giraId && !myRecord && !matchesSource) return;
-              }
 
-              const mockPerson = {
-                ...profileWithResidencia,
-                id: userProfile.id ?? effectiveUserId,
-                condicion: userProfile.condicion,
-                id_localidad: locId || residenciaId,
-                localidades: locObj || {
-                  id: locId || residenciaId,
-                  id_region:
+                const mockPerson = {
+                  ...profileWithResidencia,
+                  id: profile.id ?? effectiveUserId,
+                  condicion: profile.condicion,
+                  id_localidad: locId || residenciaId,
+                  localidades: locObj || {
+                    id: locId || residenciaId,
+                    id_region:
+                      locResidencia.regionId ??
+                      residenciaObj?.id_region ??
+                      null,
+                  },
+                  ...(residenciaId
+                    ? { id_localidad_residencia: residenciaId }
+                    : {}),
+                  localidades_residencia: residenciaObj,
+                  id_region_residencia:
                     locResidencia.regionId ??
                     residenciaObj?.id_region ??
                     null,
-                },
-                ...(residenciaId
-                  ? { id_localidad_residencia: residenciaId }
-                  : {}),
-                localidades_residencia: residenciaObj,
-                id_region_residencia:
-                  locResidencia.regionId ??
-                  residenciaObj?.id_region ??
-                  null,
-                instrumentos: userProfile.instrumentos || {},
-                rol_gira: tourRole,
-                estado_gira: estadoGira,
-                grupo_ids: grupoIdsByGira[String(gId)] || [],
-                es_adicional: false,
-                logistics: {},
-              };
-              const result = calculateLogisticsSummary(
-                [mockPerson],
-                [],
-                admissionByGira[gId] || [],
-                routesByGira[gId] || [],
-                currentTransports,
-                [],
-                allLocalities,
-              );
-              const myTransports = result[0]?.logistics?.transports || [];
-              myTransports.forEach((t) => {
-                logisticsMap[String(t.id)] = {
-                  assigned: true,
-                  subidaId: t.subidaId,
-                  bajadaId: t.bajadaId,
-                  priority: t.priority,
+                  instrumentos: profile.instrumentos || {},
+                  rol_gira: tourRole,
+                  estado_gira: estadoGira,
+                  grupo_ids: grupoIdsByGira[String(gId)] || [],
+                  es_adicional: false,
+                  logistics: {},
                 };
+                const result = calculateLogisticsSummary(
+                  [mockPerson],
+                  [],
+                  admissionByGira[gId] || [],
+                  routesByGira[gId] || [],
+                  currentTransports,
+                  [],
+                  allLocalities,
+                );
+                const myTransports = result[0]?.logistics?.transports || [];
+                myTransports.forEach((t) => {
+                  logisticsMap[String(t.id)] = {
+                    assigned: true,
+                    subidaId: t.subidaId,
+                    bajadaId: t.bajadaId,
+                    priority: t.priority,
+                  };
+                });
               });
-            });
+            }
           }
+        } catch (logisticsErr) {
+          if (
+            logisticsErr?.name === "AbortError" ||
+            logisticsErr?.code === 20 ||
+            String(logisticsErr?.message || "").includes("AbortError") ||
+            signal.aborted
+          ) {
+            throw logisticsErr;
+          }
+          console.warn("Logística de transporte en agenda omitida:", logisticsErr);
         }
 
         setMyTransportLogistics(logisticsMap);
@@ -1075,9 +1351,9 @@ export function useAgendaData({
           },
         );
 
-        processCategories(visibleEvents);
+        runProcessCategories(visibleEvents);
 
-        const integrantesEnsambles = userProfile?.integrantes_ensambles || [];
+        const integrantesEnsambles = profile?.integrantes_ensambles || [];
         visibleEvents.forEach((evt) => {
           const custom = customMap.get(evt.id);
           if (custom) {
@@ -1104,7 +1380,8 @@ export function useAgendaData({
             .from("eventos_asistencia")
             .select("id_evento, estado")
             .in("id_evento", eventIds)
-            .eq("id_integrante", effectiveUserId);
+            .eq("id_integrante", effectiveUserId)
+            .abortSignal(signal);
 
           const attendanceMap = {};
           attendanceData?.forEach((a) => {
@@ -1125,7 +1402,7 @@ export function useAgendaData({
             ].includes(estadoTour);
             const convocadosOk = noParticipaEnGira
               ? false
-              : checkIsConvoked(evt.convocados, myTourRole);
+              : isConvoked(evt.convocados, myTourRole);
             // is_convoked también exige pertenecer a algún grupo del evento (AND).
             evt.is_convoked =
               convocadosOk &&
@@ -1152,6 +1429,24 @@ export function useAgendaData({
             queryTo: queryDateTo,
           });
         }, 0);
+
+        // Estadía Propio/No propio: segundo paso, no bloquea ni aborta el pintado.
+        if (activeTourIds.size > 0 && profile) {
+          void enrichStayLogisticsAfterPaint({
+            supabase,
+            signal,
+            activeTourIds,
+            eventsData,
+            profile,
+            effectiveUserId,
+            giraId,
+            todayStr,
+            myGruposRes,
+            setMyStayLogistics,
+          });
+        } else {
+          setMyStayLogistics({ byEventId: {}, evaluatedGiraIds: {} });
+        }
       } catch (err) {
         if (
           err.name === "AbortError" ||
@@ -1163,7 +1458,10 @@ export function useAgendaData({
         }
         if (err.message === "OFFLINE_MODE") return;
         console.error("Error fetching agenda:", err);
-        if (!isBackground) setIsOfflineMode(true);
+        // Solo marcar offline si el navegador realmente no tiene red.
+        // Un fallo de query/auth no debe mostrar «Sin conexión» mientras
+        // el badge de realtime sigue en «En línea».
+        if (!navigator.onLine) setIsOfflineMode(true);
       } finally {
         if (abortControllerRef.current === controller) {
           setLoading(false);
@@ -1175,11 +1473,8 @@ export function useAgendaData({
       supabase,
       effectiveUserId,
       giraId,
-      userProfile,
       queryDateFrom,
       queryDateTo,
-      checkIsConvoked,
-      processCategories,
       includeDeletedBeyond24h,
       includeAssociatedEnsembleRehearsals,
       isEditor,
@@ -1314,7 +1609,7 @@ export function useAgendaData({
               evt,
               myGrupoIdsRt,
               false,
-              myTransportLogistics,
+              myTransportLogisticsRef.current,
             )
           ) {
             setItems((prev) => prev.filter((item) => item.id !== id));
@@ -1356,7 +1651,6 @@ export function useAgendaData({
       userProfile,
       isEditor,
       isManagement,
-      myTransportLogistics,
     ],
   );
 
@@ -1426,6 +1720,7 @@ export function useAgendaData({
     fetchAgenda,
     feriados,
     myTransportLogistics,
+    myStayLogistics,
     toursWithRules,
     recentlyUpdatedEventIds,
     isOfflineMode,

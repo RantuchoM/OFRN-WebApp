@@ -6,7 +6,7 @@ const STORAGE_KEY_PREFIX = "unified_agenda_filters_v4_";
 /**
  * Lee un valor guardado de filtros desde localStorage (solo keys que persistimos).
  * @param {string} storageKey
- * @param {string} key - categories | showNonActive | showOnlyMyTransport | showOnlyMyMeals | showAllTransport
+ * @param {string} key - categories | showNonActive | showOnlyMyTransport | showOnlyMyMeals | showOnlyMyStay | showAllTransport
  * @param {*} defaultVal
  * @returns {*}
  */
@@ -57,6 +57,7 @@ function applyRoleDefaultFilters({
   setShowNonActive,
   setShowOnlyMyTransport,
   setShowOnlyMyMeals,
+  setShowOnlyMyStay,
   setShowNoGray,
   setTechFilter,
 }) {
@@ -67,6 +68,7 @@ function applyRoleDefaultFilters({
   if (giraId) {
     setShowOnlyMyTransport(usePersonalAgendaView);
     setShowOnlyMyMeals(usePersonalAgendaView);
+    setShowOnlyMyStay(usePersonalAgendaView);
     setShowNoGray(false);
     setShowNonActive(!!preferDrafts);
     setTechFilter(canSeeTechEvents ? "all" : "no_tech");
@@ -84,6 +86,7 @@ function applyRoleDefaultFilters({
   setShowNonActive(!!preferDrafts);
   setShowOnlyMyTransport(defaultPersonalFilter);
   setShowOnlyMyMeals(defaultPersonalFilter);
+  setShowOnlyMyStay(defaultPersonalFilter);
   setShowNoGray(false);
   setTechFilter(canSeeTechEvents ? "all" : "no_tech");
 }
@@ -99,6 +102,7 @@ function loadFiltersFromStorage({
   setShowNonActive,
   setShowOnlyMyTransport,
   setShowOnlyMyMeals,
+  setShowOnlyMyStay,
   setShowNoGray,
 }) {
   const hasLogisticsAccess = isEditor || isManagement || isTechnician;
@@ -114,6 +118,7 @@ function loadFiltersFromStorage({
       setShowNonActive(resolveShowNonActive(storageKey, preferDrafts, false));
       setShowOnlyMyTransport(p.showOnlyMyTransport ?? defaultPersonalFilter);
       setShowOnlyMyMeals(p.showOnlyMyMeals ?? defaultPersonalFilter);
+      setShowOnlyMyStay(p.showOnlyMyStay ?? defaultPersonalFilter);
       setShowNoGray(p.showAllTransport || false);
       return;
     }
@@ -125,6 +130,7 @@ function loadFiltersFromStorage({
   setShowNonActive(!!preferDrafts);
   setShowOnlyMyTransport(defaultPersonalFilter);
   setShowOnlyMyMeals(defaultPersonalFilter);
+  setShowOnlyMyStay(defaultPersonalFilter);
   setShowNoGray(false);
 }
 
@@ -138,7 +144,7 @@ function loadFiltersFromStorage({
  * @param {boolean} opts.isEditor
  * @param {boolean} opts.isManagement
  * @param {Array} opts.availableCategories - Lista de categorías disponibles (para gira defaults)
- * @param {boolean} [opts.defaultPersonalFilter=false] - Valor por defecto para showOnlyMyTransport/Meals cuando no hay saved
+ * @param {boolean} [opts.defaultPersonalFilter=false] - Valor por defecto para showOnlyMyTransport/Meals/Stay cuando no hay saved
  * @param {boolean} [opts.isViewAsMode=false] - Modo "Ver como": aplica defaults por rol, sin localStorage
  * @returns {object} Estado de filtros, setters, effectiveDateFrom y handleCategoryToggle
  */
@@ -191,6 +197,15 @@ export function useAgendaFilters({
           defaultPersonalFilter,
         ),
   );
+  const [showOnlyMyStay, setShowOnlyMyStay] = useState(() =>
+    isViewAsMode
+      ? defaultPersonalFilter
+      : getInitialFilterState(
+          storageKey,
+          "showOnlyMyStay",
+          defaultPersonalFilter,
+        ),
+  );
   const [showNoGray, setShowNoGray] = useState(() =>
     isViewAsMode
       ? false
@@ -220,6 +235,7 @@ export function useAgendaFilters({
       setShowNonActive,
       setShowOnlyMyTransport,
       setShowOnlyMyMeals,
+      setShowOnlyMyStay,
       setShowNoGray,
       setTechFilter,
     }),
@@ -254,6 +270,7 @@ export function useAgendaFilters({
       showNonActive,
       showOnlyMyTransport,
       showOnlyMyMeals,
+      showOnlyMyStay,
       showAllTransport: showNoGray,
       ...(musicianDraftsChoiceRef.current
         ? { musicianDraftsChoice: true }
@@ -268,6 +285,7 @@ export function useAgendaFilters({
     showNonActive,
     showOnlyMyTransport,
     showOnlyMyMeals,
+    showOnlyMyStay,
     showNoGray,
   ]);
 
@@ -304,6 +322,7 @@ export function useAgendaFilters({
         setShowNonActive,
         setShowOnlyMyTransport,
         setShowOnlyMyMeals,
+        setShowOnlyMyStay,
         setShowNoGray,
       });
     }
@@ -427,6 +446,8 @@ export function useAgendaFilters({
     setShowOnlyMyTransport,
     showOnlyMyMeals,
     setShowOnlyMyMeals,
+    showOnlyMyStay,
+    setShowOnlyMyStay,
     showNoGray,
     setShowNoGray,
     filterDateFrom,
