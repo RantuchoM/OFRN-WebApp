@@ -1,8 +1,26 @@
     import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
     import nodemailer from "npm:nodemailer@6.9.7";
+    import { MAIL_ICON_PNGS } from "./mailIcons.ts";
 
     const GMAIL_USER = Deno.env.get("GMAIL_USER");
     const GMAIL_PASS = Deno.env.get("GMAIL_PASS");
+
+    function b64ToBytes(b64: string): Uint8Array {
+      const bin = atob(b64);
+      const out = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i += 1) out[i] = bin.charCodeAt(i);
+      return out;
+    }
+
+    /** Adjuntos CID para el mail de acceso personal (Gmail no muestra SVG inline). */
+    function convocatoriaAccesoPersonalAttachments() {
+      return [
+        { filename: "icon-agenda.png", cid: "mail-icon-agenda", content: b64ToBytes(MAIL_ICON_PNGS["icon-agenda"]), contentType: "image/png" },
+        { filename: "icon-repertorio.png", cid: "mail-icon-repertorio", content: b64ToBytes(MAIL_ICON_PNGS["icon-repertorio"]), contentType: "image/png" },
+        { filename: "icon-comidas.png", cid: "mail-icon-comidas", content: b64ToBytes(MAIL_ICON_PNGS["icon-comidas"]), contentType: "image/png" },
+        { filename: "giras-tabs.png", cid: "mail-giras-tabs", content: b64ToBytes(MAIL_ICON_PNGS["giras-tabs"]), contentType: "image/png" },
+      ];
+    }
 
     const corsHeaders = {
       "Access-Control-Allow-Origin": "*",
@@ -592,6 +610,82 @@
             ${linkRepertorio ? `<p><a href="${linkRepertorio}" style="color:#4f46e5; font-weight:bold;">Ver repertorio y material</a></p>` : ""}
             <p>Saludos.</p>
           `;
+        } else if (variant === "ALTA_ACCESO_PERSONAL") {
+          // Alta de no estable / refuerzo / invitado: convocatoria + link /share/:token + guía de vistas
+          const linkAcceso = String(d?.link_acceso_personal || d?.link_acceso || "").trim();
+          const safeLink = escapeHtmlMail(linkAcceso);
+          const linkAppGeneral = String(
+            d?.link_app_general || "https://ofrn-web-app.vercel.app/login",
+          ).trim();
+          const safeAppLink = escapeHtmlMail(linkAppGeneral);
+          const fechasSolo =
+            fechaDesde && fechaHasta
+              ? `${fechaDesde} – ${fechaHasta}`
+              : fechaDesde || fechaHasta || "";
+          const bannerModelo = d?.es_modelo
+            ? `<p style="margin:0 0 14px 0; padding:10px 12px; background:#fef3c7; border:1px solid #f59e0b; border-radius:6px; font-size:12px; color:#92400e;"><strong>MODELO PARA REVISIÓN</strong> — borrador del mail que recibirían refuerzos / invitados al ser agregados al roster. No es una convocatoria real.</p>`
+            : "";
+          // PNG vía CID (adjuntos); Gmail elimina SVG inline
+          const iconAgenda = `<img src="cid:mail-icon-agenda" width="18" height="18" alt="" style="vertical-align:-3px;display:inline-block;border:0;" />`;
+          const iconRepertorio = `<img src="cid:mail-icon-repertorio" width="18" height="18" alt="" style="vertical-align:-3px;display:inline-block;border:0;" />`;
+          const iconComidas = `<img src="cid:mail-icon-comidas" width="18" height="18" alt="" style="vertical-align:-3px;display:inline-block;border:0;" />`;
+          const ctaAcceso = linkAcceso
+            ? `
+              <div style="margin:18px 0; padding:16px; background:#eef2ff; border:1px solid #c7d2fe; border-radius:8px; text-align:center;">
+                <p style="margin:0 0 10px 0; font-size:13px; color:#312e81;">Tu acceso personal a esta gira (no hace falta usuario ni contraseña):</p>
+                <a href="${safeLink}" style="display:inline-block; background:#4f46e5; color:#ffffff; text-decoration:none; font-weight:bold; font-size:14px; padding:12px 22px; border-radius:6px;">Abrir app</a>
+                <p style="margin:12px 0 0 0; font-size:11px; color:#64748b; word-break:break-all;">Si el botón no funciona, copiá este enlace:<br><a href="${safeLink}" style="color:#4f46e5;">${safeLink}</a></p>
+              </div>
+            `
+            : "";
+          const guiaVistas = `
+            <p style="margin:16px 0 8px 0; font-weight:bold; color:#111;">Qué vas a encontrar al entrar</p>
+            <p style="margin:0 0 14px 0; text-align:center;">
+              <img src="cid:mail-giras-tabs" width="480" height="56" alt="Agenda · Repertorio · Mis Comidas" style="max-width:100%;height:auto;border:0;border-radius:10px;" />
+            </p>
+            <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse; font-size:13px;">
+              <tr>
+                <td style="padding:10px 12px; border:1px solid #e2e8f0; background:#ffffff; vertical-align:top;">
+                  <p style="margin:0 0 4px 0; color:#4f46e5; font-weight:bold;">${iconAgenda}&nbsp;Agenda</p>
+                  <p style="margin:0; color:#475569; line-height:1.45;">Cronograma de la gira filtrado para vos: ensayos, conciertos, <em>tu</em> transporte y <em>tus</em> comidas (sin la logística general del resto).</p>
+                </td>
+              </tr>
+              <tr><td style="height:8px; font-size:0; line-height:0;">&nbsp;</td></tr>
+              <tr>
+                <td style="padding:10px 12px; border:1px solid #e2e8f0; background:#ffffff; vertical-align:top;">
+                  <p style="margin:0 0 4px 0; color:#4f46e5; font-weight:bold;">${iconRepertorio}&nbsp;Repertorio</p>
+                  <p style="margin:0; color:#475569; line-height:1.45;">Obras del programa, materiales y (cuando estén cargados) links a particellas / audio. Dentro de Repertorio también está <strong>Mis partes</strong>, para descargar más fácilmente los PDFs de las partes que te fueron asignadas.</p>
+                </td>
+              </tr>
+              <tr><td style="height:8px; font-size:0; line-height:0;">&nbsp;</td></tr>
+              <tr>
+                <td style="padding:10px 12px; border:1px solid #e2e8f0; background:#ffffff; vertical-align:top;">
+                  <p style="margin:0 0 4px 0; color:#4f46e5; font-weight:bold;">${iconComidas}&nbsp;Mis Comidas</p>
+                  <p style="margin:0; color:#475569; line-height:1.45;">Confirmá asistencia a cada comida y revisá tu preferencia alimentaria para la gira.</p>
+                </td>
+              </tr>
+            </table>
+            <p style="margin:14px 0 0 0; font-size:12px; color:#64748b;">Arriba vas a ver esas pestañas. Guardá el enlace personal: te lleva directo a esta gira.</p>
+          `;
+          const bloquePerfil = `
+            <div style="margin:18px 0; padding:14px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; font-size:13px; color:#334155; line-height:1.5;">
+              <p style="margin:0 0 8px 0;"><strong>Mi perfil</strong> (arriba a la derecha)</p>
+              <p style="margin:0 0 8px 0;">Desde ahí podés verificar y editar tus datos si lo deseás. También podés <strong>generar</strong> una contraseña (si todavía no tenés) o <strong>recuperarla por correo</strong> a tu email de acceso, para entrar de forma directa a la aplicación y ver <em>todas</em> las giras en las que hayas sido convocado/a.</p>
+              <p style="margin:0;">App general (login con email + contraseña):<br><a href="${safeAppLink}" style="color:#4f46e5; font-weight:bold; word-break:break-all;">${safeAppLink}</a></p>
+            </div>
+          `;
+          titulo = "Convocado/a a la gira";
+          parrafo = `
+            ${bannerModelo}
+            <p>${saludo}</p>
+            <p>Te convocamos a la gira <strong>${escapeHtmlMail(gira)}</strong> (${escapeHtmlMail(String(nomenclador))}).</p>
+            ${fechasSolo ? `<p>Se te convoca en las siguientes fechas: <strong>${fechasSolo}</strong>.</p>` : ""}
+            ${ctaAcceso}
+            ${guiaVistas}
+            ${bloquePerfil}
+            <p style="margin-top:18px;">Cualquier consulta, respondé a este correo.</p>
+            <p>¡Saludos!<br>Orquesta Filarmónica de Río Negro</p>
+          `;
         } else if (variant === "BAJA") {
           titulo = "Baja de gira";
           parrafo = `
@@ -698,7 +792,49 @@
           </html>
         `;
       },
-      // 10. Cambio de alimentación (autogestión del músico)
+      // 10. Contraseña de acceso (generada o recuperada desde Mi Perfil)
+      acceso_clave: (nombre: string, _gira: string, d: any) => {
+        const saludo = String(nombre || "").trim() ? `Hola ${String(nombre || "").trim()},` : "Hola,";
+        const clave = escapeHtmlMail(String(d?.clave_acceso || "").trim());
+        const mail = escapeHtmlMail(String(d?.mail || "").trim());
+        const linkApp = escapeHtmlMail(
+          String(d?.link_app || "https://ofrn-web-app.vercel.app/login").trim(),
+        );
+        const mode = String(d?.mode || "recuperada").toLowerCase();
+        const esGenerada = mode === "generada";
+        const titulo = esGenerada ? "Tu contraseña de acceso" : "Recuperación de contraseña";
+        const intro = esGenerada
+          ? "Se generó una contraseña para que puedas entrar a la aplicación OFRN."
+          : "Pediste recuperar tu contraseña de acceso a la aplicación OFRN.";
+        return `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <style>
+              body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #333; line-height: 1.6; font-size: 14px; }
+              .box { border-left: 4px solid #4f46e5; background-color: #f5f3ff; padding: 15px; margin: 20px 0; border-radius: 4px; }
+              .clave { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 20px; font-weight: bold; letter-spacing: 0.08em; color: #111; }
+            </style>
+          </head>
+          <body>
+            <p>${saludo}</p>
+            <p>${intro}</p>
+            <div class="box">
+              <h2 style="margin-top:0; color:#111;">${titulo}</h2>
+              ${mail ? `<p style="margin:0 0 8px 0; font-size:13px; color:#555;">Email: <strong>${mail}</strong></p>` : ""}
+              <p style="margin:0 0 6px 0; font-size:13px;">Contraseña:</p>
+              <p class="clave" style="margin:0;">${clave || "—"}</p>
+            </div>
+            <p>Entrá acá con ese email y contraseña:</p>
+            <p><a href="${linkApp}" style="color:#4f46e5; font-weight:bold;">${linkApp}</a></p>
+            <p style="font-size:12px; color:#64748b;">Si no pediste este correo, respondé a este mensaje para avisar a administración.</p>
+            <p style="color: #666; font-size: 12px;">Orquesta Filarmónica de Río Negro – Sistema de Gestión</p>
+          </body>
+          </html>
+        `;
+      },
+
+      // 11. Cambio de alimentación (autogestión del músico)
       cambio_alimentacion: (nombre: string, _gira: string, d: any) => {
         const display = nombre || [d?.nombre, d?.apellido].filter(Boolean).join(" ") || "Integrante";
         const anterior = d?.alimentacion_anterior || "(sin dato)";
@@ -803,6 +939,11 @@
             const v = (detalle?.variant || 'INITIAL_BROADCAST').toUpperCase();
             if (v === 'INITIAL_BROADCAST') subject = `Convocatoria a gira | ${nombreGira}`;
             else if (v === 'ALTA') subject = `Alta en gira | ${nombreGira}`;
+            else if (v === 'ALTA_ACCESO_PERSONAL') {
+              subject = detalle?.es_modelo
+                ? `[MODELO] Convocatoria + acceso personal | ${nombreGira}`
+                : `Convocado/a a la gira | ${nombreGira}`;
+            }
             else if (v === 'BAJA') subject = `Baja de gira | ${nombreGira}`;
             else if (v === 'AUSENTE') subject = `Ausencia en gira | ${nombreGira}`;
             else if (v === 'GIRA_ELIMINADA') subject = `Gira cancelada | ${nombreGira}`;
@@ -810,6 +951,12 @@
             else subject = `Convocatoria OFRN | ${nombreGira}`;
           } else if (tid === "scrn_transporte_evento") {
             subject = detalle?.titulo ? `[SCRN] ${detalle.titulo}` : "Aviso Transporte SCRN";
+          } else if (tid === "acceso_clave") {
+            const mode = String(detalle?.mode || "recuperada").toLowerCase();
+            subject =
+              mode === "generada"
+                ? "Tu contraseña de acceso | OFRN"
+                : "Recuperación de contraseña | OFRN";
           } else if (tid === "cambio_alimentacion") {
             subject = `Cambio de alimentación | ${nombreParaTemplate || "Integrante"}`;
           }
@@ -834,6 +981,11 @@
             if (!email) {
               mailOptions.to = GMAIL_USER;
             }
+          }
+
+          const convocatoriaVariant = String(detalle?.variant || "").toUpperCase();
+          if (tid === "convocatoria_gira" && convocatoriaVariant === "ALTA_ACCESO_PERSONAL") {
+            mailOptions.attachments = convocatoriaAccesoPersonalAttachments();
           }
 
           // console.log(`[LOG] Enviando mail (${tid}). TO: ${email || 'Self'}, BCC: ${bcc?.length || 0}`);

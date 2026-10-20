@@ -1268,4 +1268,22 @@ Quedó al final del bloque **Repertorio** de la gira **22** (`programas_repertor
 
 Scripts: `scripts/lib/piazzollaAveMariaCatalog.mjs`, `scripts/process-piazzolla-ave-maria-local.mjs`, `scripts/generate-piazzolla-ave-maria-sync.mjs`.
 
+---
+
+### Completado (2026-10-20) — Piazzolla ×3 fagot solista (gira 138)
+
+La solicitud combinada **#3663** (`Oblivion` / `Lo que vendra` / `Escualo`, estado `Solicitud`) se partió en **3 encargos** independientes **`Para arreglar`**. Arreglador estándar **Lema** (integrante **4340365**, compositor **198**), `fecha_esperada = 2026-10-31`, tag **Tango**, compositor **Piazzolla, Astor** (264). Brief conservado: fagot solista reemplaza solos de violín y toma protagonismo. **Sin mail** `encargo_arreglo`. Seed `supabase/seed_piazzolla_fagot_tres_encargos.sql` aplicado en linked.
+
+Gira **138** *Concierto de tango (Piazzolla y mas)* — bloque Repertorio (**110**).
+
+| id | Título | Año | Dur. | Refs archivo |
+|---:|--------|----:|-----:|--------------|
+| **3663** | Oblivion (era la combinada) | 1982 | 240s | 1019, 1512 + YouTube |
+| **3666** | Lo que vendrá | 1954 | 240s | 1105, 1108 |
+| **3667** | Escualo | 1979 | 210s | 1517, 3550 + YouTube |
+
+- [x] #3663 convertida a Oblivion; #3666 y #3667 creadas
+- [x] Las tres en repertorio 110 (órdenes 2–4)
+- [x] Lema + Piazzolla + Tango + refs; sin mail
+
 

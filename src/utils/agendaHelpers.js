@@ -220,6 +220,7 @@ export function isAgendaStayEvent(item) {
  * «Solo mi hotelería»: deja el resto de la agenda; oculta check-in/out
  * (22/23/40/41) que no son de la regla ganadora del viewer.
  * Si la gira aún no se evaluó, no oculta (evita parpadeo al cargar).
+ * (Un solo export — no duplicar esta función.)
  *
  * @param {object} item
  * @param {{ byEventId?: Record<string, { propio?: boolean }>, evaluatedGiraIds?: Record<string, boolean> }} [myStayLogistics]

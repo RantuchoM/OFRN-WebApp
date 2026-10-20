@@ -53,6 +53,7 @@ import { currentYearBounds } from "../utils/girasYearSummary";
 import { integranteKey } from "../utils/integranteIds";
 import { formatProgramSelectLabel } from "../utils/giraUtils";
 import { attachEnsambleCfIds } from "../utils/serviciosEnsambleReport";
+import { eventGrupoIdsFromEvent } from "./giraGruposService";
 
 const PAGE_SIZE = 1000;
 const MAX_PAGES = 40;
@@ -67,7 +68,8 @@ const EVENT_SELECT = `
   tipos_evento ( id, nombre ),
   locaciones ( id, nombre ),
   eventos_ensambles ( id_ensamble ),
-  eventos_programas_asociados ( id_programa )
+  eventos_programas_asociados ( id_programa ),
+  eventos_grupos ( id_grupo )
 `;
 
 async function fetchAllPaged(makeQuery) {
@@ -550,6 +552,80 @@ async function attachGiraTramoSegmentos(supabase, programas) {
   }
 }
 
+async function attachGiraLocalidades(supabase, programas) {
+  const ids = (programas || []).map((p) => p.id).filter((id) => id != null);
+  if (!ids.length) return;
+  const rows = await fetchInIdChunks(
+    supabase,
+    "giras_localidades",
+    "id_gira, id_localidad, localidades ( id, localidad )",
+    "id_gira",
+    ids,
+  );
+  const byGira = new Map();
+  for (const row of rows || []) {
+    const gid = Number(row.id_gira);
+    if (!byGira.has(gid)) byGira.set(gid, []);
+    byGira.get(gid).push(row);
+  }
+  for (const program of programas) {
+    // Siempre pisar: el catálogo a veces trae sedes sin id_localidad.
+    program.giras_localidades = byGira.get(Number(program.id)) || [];
+  }
+}
+
+/**
+ * Eventos de transporte (con `id_gira_transporte`) para horarios de PCV.
+ * @returns {Map<number, object[]>}
+ */
+async function fetchTransportEventsByGiraId(supabase, giraIds) {
+  const ids = [...new Set((giraIds || []).filter((id) => id != null))];
+  const map = new Map();
+  if (!ids.length || !supabase) return map;
+  const rows = [];
+  for (let i = 0; i < ids.length; i += IN_CHUNK) {
+    const slice = ids.slice(i, i + IN_CHUNK);
+    const page = await fetchAllPaged(() =>
+      supabase
+        .from("eventos")
+        .select("id, id_gira, fecha, hora_inicio, id_gira_transporte")
+        .in("id_gira", slice)
+        .eq("is_deleted", false)
+        .not("id_gira_transporte", "is", null)
+        .order("fecha", { ascending: true })
+        .order("hora_inicio", { ascending: true }),
+    );
+    rows.push(...page);
+  }
+  for (const evt of rows) {
+    const gid = Number(evt.id_gira);
+    if (!Number.isFinite(gid)) continue;
+    if (!map.has(gid)) map.set(gid, []);
+    map.get(gid).push(evt);
+  }
+  return map;
+}
+
+/**
+ * Enriquecer programas del período con sedes, tramos y eventos de transporte
+ * (columnas Giras fuera/en casa + PCV del listado).
+ */
+export async function fetchPrestacionesGirasMeta(supabase, programas) {
+  const list = (programas || []).filter((p) => p?.id != null);
+  if (!supabase || !list.length) {
+    return { programs: list, transportEventsByGiraId: new Map() };
+  }
+  await Promise.all([
+    attachGiraTramoSegmentos(supabase, list),
+    attachGiraLocalidades(supabase, list),
+  ]);
+  const transportEventsByGiraId = await fetchTransportEventsByGiraId(
+    supabase,
+    list.map((p) => p.id),
+  );
+  return { programs: list, transportEventsByGiraId };
+}
+
 /**
  * Roster y grupos de FIMBA (id 12) para promediar servicios por músico del ensamble.
  * Si la gira no está en el rango, devuelve null.
@@ -689,6 +765,44 @@ export async function fetchEnsambleServiciosBundle(
   }
 }
 
+/**
+ * Membresía de grupos por gira para recortar conciertos/ensayos con tags.
+ * Solo pide giras que tengan al menos un evento con `eventos_grupos`.
+ * @returns {Map<number, Map<string, Set<number>>>} giraId → integranteId → grupoIds
+ */
+export async function fetchIntegranteGrupoIdsByGiraId(supabase, events) {
+  const giraIds = new Set();
+  for (const evt of events || []) {
+    if (!eventGrupoIdsFromEvent(evt).length) continue;
+    const gid = Number(evt?.id_gira);
+    if (Number.isFinite(gid) && gid > 0) giraIds.add(gid);
+  }
+  if (!supabase || !giraIds.size) return new Map();
+
+  const rows = await fetchInIdChunks(
+    supabase,
+    "giras_grupos",
+    "id, id_gira, giras_grupos_integrantes ( id_integrante )",
+    "id_gira",
+    [...giraIds],
+  );
+  const byGira = new Map();
+  for (const g of rows || []) {
+    const giraId = Number(g?.id_gira);
+    const grupoId = Number(g?.id);
+    if (!Number.isFinite(giraId) || !Number.isFinite(grupoId)) continue;
+    if (!byGira.has(giraId)) byGira.set(giraId, new Map());
+    const byIntegrante = byGira.get(giraId);
+    for (const row of g.giras_grupos_integrantes || []) {
+      const iid = integranteKey(row?.id_integrante);
+      if (!iid) continue;
+      if (!byIntegrante.has(iid)) byIntegrante.set(iid, new Set());
+      byIntegrante.get(iid).add(grupoId);
+    }
+  }
+  return byGira;
+}
+
 export function buildServiciosComputeContext({
   rosterByGiraId,
   memberships,
@@ -703,6 +817,8 @@ export function buildServiciosComputeContext({
   giraAverage = null,
   programasById = null,
   pendingConflictoEventIds = null,
+  prestacionesMetaByIntegranteId = null,
+  integranteGrupoIdsByGiraId = null,
 }) {
   return {
     rosterByGiraId: rosterByGiraId || {},
@@ -723,6 +839,14 @@ export function buildServiciosComputeContext({
       pendingConflictoEventIds instanceof Set
         ? pendingConflictoEventIds
         : new Set(),
+    prestacionesMetaByIntegranteId:
+      prestacionesMetaByIntegranteId instanceof Map
+        ? prestacionesMetaByIntegranteId
+        : new Map(),
+    integranteGrupoIdsByGiraId:
+      integranteGrupoIdsByGiraId instanceof Map
+        ? integranteGrupoIdsByGiraId
+        : new Map(),
   };
 }
 
@@ -872,6 +996,9 @@ export async function downloadServiciosCantidadExcel({
 
 const PDF_POR_MES_FILL = [255, 247, 237];
 const PDF_ENSAYO_FILL = [236, 253, 245];
+const PDF_GIRAS_FUERA_FILL = [255, 247, 237];
+const PDF_GIRAS_CASA_FILL = [240, 249, 255]; // sky — distinto del verde de Ensayos
+const PDF_PCV_FILL = [240, 253, 250];
 const DETALLE_COL_COUNT = 6;
 
 function rangoServiciosLabel(fechaDesde, fechaHasta) {
@@ -1445,8 +1572,20 @@ export function downloadServiciosCantidadPdf({
       const inEnsayos =
         data.column.index >= ensayoColStart &&
         data.column.index <= ensayoColEnd;
+      const fueraCol = 2;
+      const casaCol = 3;
+      const pcvCol = totalCol - 1;
       if (data.section === "head" && data.column.index === porMesCol) {
         data.cell.styles.fillColor = PDF_POR_MES_FILL;
+      }
+      if (data.column.index === fueraCol) {
+        data.cell.styles.fillColor = PDF_GIRAS_FUERA_FILL;
+      }
+      if (data.column.index === casaCol) {
+        data.cell.styles.fillColor = PDF_GIRAS_CASA_FILL;
+      }
+      if (data.column.index === pcvCol) {
+        data.cell.styles.fillColor = PDF_PCV_FILL;
       }
       if (inEnsayos && data.section === "head") {
         data.cell.styles.fillColor = PDF_ENSAYO_FILL;
@@ -1463,9 +1602,17 @@ export function downloadServiciosCantidadPdf({
       }
       if (isTotals) {
         data.cell.styles.fontStyle = "bold";
-        data.cell.styles.fillColor = inEnsayos
-          ? PDF_ENSAYO_FILL
-          : PDF_HEAD_FILL;
+        if (data.column.index === fueraCol) {
+          data.cell.styles.fillColor = PDF_GIRAS_FUERA_FILL;
+        } else if (data.column.index === casaCol) {
+          data.cell.styles.fillColor = PDF_GIRAS_CASA_FILL;
+        } else if (data.column.index === pcvCol) {
+          data.cell.styles.fillColor = PDF_PCV_FILL;
+        } else {
+          data.cell.styles.fillColor = inEnsayos
+            ? PDF_ENSAYO_FILL
+            : PDF_HEAD_FILL;
+        }
       }
     },
     margin: { left: 10, right: 10 },
@@ -1479,7 +1626,7 @@ export function downloadServiciosCantidadPdf({
     doc.setTextColor(100);
     doc.text(
       [
-        "Prestaciones/mes = Total / meses feb-dic de presencia (fecha_alta). Enero no cuenta. Totales de Prestaciones/mes: -.",
+        "Fuera/En casa = conteo de giras (pesos 1/n). PCV = dias viatico fuera de localidad. Total = ensayos + PCV. Prestaciones/mes = Total / meses feb-dic (fecha_alta). Enero no cuenta.",
         estimateNote,
       ]
         .filter(Boolean)

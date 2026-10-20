@@ -6,7 +6,6 @@ import {
   IconUsers,
   IconFileText,
   IconArrowLeft,
-  IconFolderMusic,
   IconCopy,
   IconX,
   IconCheck,
@@ -19,6 +18,7 @@ import {
   IconViolin,
   IconFolder,
   IconExternalLink,
+  IconDrive,
 } from "../../components/ui/Icons";
 import ConfirmModal from "../../components/ui/ConfirmModal";
 import { useSearchParams } from "react-router-dom";
@@ -1337,9 +1337,14 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
                 href={`https://drive.google.com/drive/folders/${program.google_drive_folder_id}`}
                 target="_blank"
                 rel="noreferrer"
-                className="px-1.5 md:px-2 py-1 md:py-1.5 rounded-md text-slate-500 hover:text-green-700 hover:bg-white transition-all"
+                title="Abrir carpeta de la gira en Google Drive"
+                aria-label="Abrir carpeta de la gira en Google Drive"
+                className="px-2 md:px-2.5 py-1 md:py-1.5 rounded-md text-[10px] md:text-xs font-bold whitespace-nowrap text-emerald-700 bg-emerald-50 border border-emerald-100 hover:bg-emerald-100 hover:border-emerald-200 transition-all flex items-center gap-1"
               >
-                <IconFolderMusic size={16} className="md:w-[18px] md:h-[18px]" />
+                <IconDrive size={14} className="md:w-4 md:h-4 shrink-0" />
+                <span className="hidden sm:inline">Carpeta Drive</span>
+                <span className="sm:hidden">Drive</span>
+                <IconExternalLink size={11} className="opacity-70 shrink-0" />
               </a>
             </>
           )}

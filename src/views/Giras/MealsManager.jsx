@@ -185,6 +185,40 @@ const portalMenuBoxStyle = (menuStyle) =>
 const SERVICE_IDS = CANONICAL_MEAL_TYPE_IDS;
 const SERVICIOS = ["Desayuno", "Almuerzo", "Merienda", "Cena"];
 const SERVICE_VALS = { Desayuno: 0, Almuerzo: 1, Merienda: 2, Cena: 3 };
+/** Vacantes A/M/C que materializa «Crear todas» (no Desayuno). */
+const CREATE_ALL_MEAL_SERVICIOS = ["Almuerzo", "Merienda", "Cena"];
+/** Horarios por defecto al materializar vacantes con «Crear todas». */
+const CREATE_ALL_MEAL_HORA = Object.freeze({
+  Almuerzo: "12:30",
+  Merienda: "17:30",
+  Cena: "21:30",
+});
+const CREATE_ALL_MEAL_CONVOCADOS = [ROSTER_CATEGORIES.NO_LOCALES];
+
+/** Snapshot de vacantes + defaults editables para el modal «Crear todas». */
+const buildCreateAllMealDraft = (tempRows = []) => {
+  const horas = { ...CREATE_ALL_MEAL_HORA };
+  const locaciones = { Almuerzo: "", Merienda: "", Cena: "" };
+  const sorted = [...(tempRows || [])].sort((a, b) => {
+    const fa = String(a.fecha || "");
+    const fb = String(b.fecha || "");
+    if (fa !== fb) return fa.localeCompare(fb);
+    return (SERVICE_VALS[a.servicio] ?? 9) - (SERVICE_VALS[b.servicio] ?? 9);
+  });
+  const items = sorted.map((r) => ({
+    key: String(r.id),
+    sourceId: r.id,
+    fecha: r.fecha,
+    servicio: r.servicio,
+    id_tipo_evento: r.id_tipo_evento,
+    tipo_nombre: r.tipo_nombre || r.servicio,
+    selected: true,
+    hora: horas[r.servicio] || "",
+    id_locacion: locaciones[r.servicio] ?? "",
+    convocados: [...CREATE_ALL_MEAL_CONVOCADOS],
+  }));
+  return { horas, locaciones, items };
+};
 
 const typeNombreById = (mealTypes, id) =>
   mealTypes?.find((t) => Number(t.id) === Number(id))?.nombre || null;
@@ -367,6 +401,341 @@ function SiblingMealAddModal({
     document.body,
   );
 }
+
+/**
+ * Preview antes de materializar vacantes A/M/C:
+ * defaults por tipo arriba; abajo una fila por evento (check / fecha / hora /
+ * locación / convocados), tintada por tipo de comida.
+ */
+function CreateAllMealsPreviewModal({
+  draft,
+  locaciones = [],
+  catalogs,
+  creating = false,
+  onChange,
+  onCancel,
+  onConfirm,
+}) {
+  if (!draft || typeof document === "undefined") return null;
+
+  const items = draft.items || [];
+  const counts = { Almuerzo: 0, Merienda: 0, Cena: 0 };
+  for (const it of items) {
+    if (counts[it.servicio] != null) counts[it.servicio] += 1;
+  }
+  const selectedItems = items.filter((it) => it.selected);
+  const selectedCount = selectedItems.length;
+  const canCreate =
+    selectedCount > 0 &&
+    selectedItems.every((it) => Boolean(String(it.hora || "").trim()));
+  const allSelected = items.length > 0 && selectedCount === items.length;
+  const someSelected = selectedCount > 0 && !allSelected;
+
+  const patchItem = (key, patch) => {
+    onChange({
+      ...draft,
+      items: items.map((it) => (it.key === key ? { ...it, ...patch } : it)),
+    });
+  };
+
+  const setDefaultHora = (svc, v) => {
+    onChange({
+      ...draft,
+      horas: { ...draft.horas, [svc]: v },
+      items: items.map((it) =>
+        it.servicio === svc ? { ...it, hora: v } : it,
+      ),
+    });
+  };
+
+  const setDefaultLocacion = (svc, v) => {
+    onChange({
+      ...draft,
+      locaciones: { ...draft.locaciones, [svc]: v },
+      items: items.map((it) =>
+        it.servicio === svc ? { ...it, id_locacion: v } : it,
+      ),
+    });
+  };
+
+  const toggleAllSelected = () => {
+    const next = !allSelected;
+    onChange({
+      ...draft,
+      items: items.map((it) => ({ ...it, selected: next })),
+    });
+  };
+
+  const rowGridClass =
+    "grid grid-cols-[1.75rem_7.5rem_5.5rem_minmax(7rem,1fr)_minmax(7rem,11rem)] gap-x-2 items-center";
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[100] bg-black/40 backdrop-blur-[1px] flex items-center justify-center p-4 print:hidden"
+      onClick={creating ? undefined : onCancel}
+      role="presentation"
+    >
+      <div
+        className="w-full max-w-4xl bg-white rounded-xl shadow-2xl border border-slate-200 animate-in zoom-in-95 fade-in duration-150 max-h-[90vh] flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-labelledby="create-all-meals-title"
+      >
+        <div className="px-4 py-3 border-b border-slate-200 flex items-start justify-between gap-3 shrink-0">
+          <div className="min-w-0">
+            <h3
+              id="create-all-meals-title"
+              className="text-sm font-bold text-slate-800"
+            >
+              Crear todas las comidas
+            </h3>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              {items.length} vacante{items.length === 1 ? "" : "s"} · defaults
+              por tipo arriba; destildá filas para no crearlas. Convocados
+              «Solo alojados» por defecto.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={creating}
+            className="p-1 text-slate-400 hover:text-slate-700 rounded disabled:opacity-40"
+            title="Cerrar"
+          >
+            <IconX size={18} />
+          </button>
+        </div>
+
+        <div className="px-4 py-3 space-y-4 overflow-y-auto min-h-0">
+          <div>
+            <div className="text-[9px] font-bold text-slate-500 uppercase tracking-wide mb-2">
+              Defaults por tipo
+            </div>
+            <div className="rounded-lg border border-slate-200 overflow-hidden bg-slate-50/80">
+              <div className="grid grid-cols-[7.5rem_5.5rem_minmax(0,1fr)] gap-x-2 px-2.5 py-1.5 border-b border-slate-200 bg-slate-100/80">
+                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">
+                  Servicio
+                </span>
+                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">
+                  Hora
+                </span>
+                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">
+                  Locación
+                </span>
+              </div>
+              <div className="divide-y divide-slate-100">
+                {CREATE_ALL_MEAL_SERVICIOS.map((svc) => (
+                  <div
+                    key={svc}
+                    className="grid grid-cols-[7.5rem_5.5rem_minmax(0,1fr)] gap-x-2 items-center px-2.5 py-2"
+                  >
+                    <span
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded truncate text-center ${
+                        getMealServiceStyle(svc).tag
+                      }`}
+                      title={`${svc} ×${counts[svc] || 0}`}
+                    >
+                      {svc}
+                      <span className="ml-1 font-black opacity-70">
+                        ×{counts[svc] || 0}
+                      </span>
+                    </span>
+                    <div
+                      className={
+                        creating ? "pointer-events-none opacity-60" : ""
+                      }
+                    >
+                      <TimeInput
+                        value={draft.horas?.[svc] || ""}
+                        onChange={(v) => setDefaultHora(svc, v)}
+                      />
+                    </div>
+                    <select
+                      value={draft.locaciones?.[svc] ?? ""}
+                      disabled={creating}
+                      onChange={(e) => setDefaultLocacion(svc, e.target.value)}
+                      className="w-full min-w-0 text-xs border border-slate-300 rounded px-2 py-1 bg-white outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 disabled:opacity-50"
+                      title={`Locación default para ${svc}`}
+                    >
+                      <option value="">Sin locación</option>
+                      {(locaciones || []).map((loc) => (
+                        <option key={loc.id} value={String(loc.id)}>
+                          {loc.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <div className="text-[9px] font-bold text-slate-500 uppercase tracking-wide mb-2">
+              Eventos a crear ({selectedCount}/{items.length})
+            </div>
+            {items.length === 0 ? (
+              <p className="text-xs text-slate-400 italic">Sin vacantes.</p>
+            ) : (
+              <div className="rounded-lg border border-slate-200 overflow-hidden">
+                <div
+                  className={`${rowGridClass} px-2.5 py-1.5 border-b border-slate-200 bg-slate-100/90`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    ref={(el) => {
+                      if (el) el.indeterminate = someSelected;
+                    }}
+                    disabled={creating}
+                    onChange={toggleAllSelected}
+                    className="rounded text-indigo-600 focus:ring-0"
+                    title={allSelected ? "Destildar todas" : "Tildar todas"}
+                  />
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">
+                    Fecha
+                  </span>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">
+                    Hora
+                  </span>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">
+                    Locación
+                  </span>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">
+                    Convocados
+                  </span>
+                </div>
+                <div className="divide-y divide-slate-100/80 max-h-[40vh] overflow-y-auto">
+                  {items.map((it) => {
+                    const style = getMealServiceStyle(it.servicio);
+                    return (
+                      <div
+                        key={it.key}
+                        className={`${rowGridClass} px-2.5 py-1.5 transition-opacity ${
+                          it.selected ? "" : "opacity-45"
+                        }`}
+                        style={{
+                          backgroundColor: style.print?.bg || "#e2e8f0",
+                          borderLeft: `4px solid ${
+                            style.print?.border || "#94a3b8"
+                          }`,
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={Boolean(it.selected)}
+                          disabled={creating}
+                          onChange={(e) =>
+                            patchItem(it.key, {
+                              selected: e.target.checked,
+                            })
+                          }
+                          className="rounded text-indigo-600 focus:ring-0"
+                          title={
+                            it.selected
+                              ? "Destildar para no crear"
+                              : "Incluir al crear"
+                          }
+                        />
+                        <div className="min-w-0">
+                          <div className="text-[11px] font-bold text-slate-800 capitalize truncate">
+                            {it.fecha
+                              ? format(parseISO(it.fecha), "EEE dd/MM", {
+                                  locale: es,
+                                })
+                              : "—"}
+                          </div>
+                          <div
+                            className={`text-[9px] font-bold truncate ${style.date}`}
+                          >
+                            {it.tipo_nombre || it.servicio}
+                          </div>
+                        </div>
+                        <div
+                          className={
+                            creating || !it.selected
+                              ? "pointer-events-none opacity-60"
+                              : ""
+                          }
+                        >
+                          <TimeInput
+                            value={it.hora || ""}
+                            onChange={(v) => patchItem(it.key, { hora: v })}
+                          />
+                        </div>
+                        <select
+                          value={it.id_locacion ?? ""}
+                          disabled={creating || !it.selected}
+                          onChange={(e) =>
+                            patchItem(it.key, {
+                              id_locacion: e.target.value,
+                            })
+                          }
+                          className="w-full min-w-0 text-xs border border-slate-300/80 rounded px-2 py-1 bg-white/90 outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 disabled:opacity-50"
+                          title={`Locación de ${it.servicio}`}
+                        >
+                          <option value="">Sin locación</option>
+                          {(locaciones || []).map((loc) => (
+                            <option key={loc.id} value={String(loc.id)}>
+                              {loc.label}
+                            </option>
+                          ))}
+                        </select>
+                        <div
+                          className={
+                            creating || !it.selected
+                              ? "pointer-events-none opacity-60"
+                              : ""
+                          }
+                        >
+                          <MultiGroupSelect
+                            value={it.convocados || []}
+                            onChange={(v) =>
+                              patchItem(it.key, { convocados: v })
+                            }
+                            catalogs={catalogs}
+                            disabled={creating || !it.selected}
+                            compact
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="px-4 py-3 border-t border-slate-100 flex items-center justify-end gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={creating}
+            className="px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg disabled:opacity-40"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            disabled={creating || !canCreate}
+            onClick={onConfirm}
+            className="px-3 py-1.5 text-xs font-bold text-white bg-orange-500 hover:bg-orange-600 disabled:opacity-40 disabled:pointer-events-none rounded-lg flex items-center gap-1.5"
+          >
+            {creating ? (
+              <IconLoader size={14} className="animate-spin" />
+            ) : (
+              <IconPlus size={14} />
+            )}
+            Crear {selectedCount} comida{selectedCount === 1 ? "" : "s"}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 const GROUP_DEFS = [
   {
     id: "GRP:TUTTI",
@@ -1697,6 +2066,10 @@ export default function MealsManager({
   );
   const [mealTypesEditorOpen, setMealTypesEditorOpen] = useState(false);
   const [resettingNames, setResettingNames] = useState(false);
+  /** Bulk materializar vacantes A/M/C («Crear todas»). */
+  const [creatingAllTempMeals, setCreatingAllTempMeals] = useState(false);
+  /** Draft del modal de preview «Crear todas»; null = cerrado. */
+  const [createAllMealDraft, setCreateAllMealDraft] = useState(null);
   const debounceRef = useRef({});
   /** Primera pasada la cubre `fetchAllData`; los cambios siguientes releen reglas. */
   const skipMealNavRulesRefresh = useRef(true);
@@ -2245,6 +2618,116 @@ export default function MealsManager({
     });
     await refreshGridData();
     onFimbaTagsSaved?.();
+  };
+
+  /** Vacantes grises A/M/C del rango de reglas (mismo set que deja filas en gris). */
+  const createAllTempMealRows = useMemo(
+    () =>
+      (grid || []).filter(
+        (r) =>
+          r?.isTemp &&
+          r.fecha &&
+          CREATE_ALL_MEAL_SERVICIOS.includes(r.servicio),
+      ),
+    [grid],
+  );
+
+  /** Abre el modal de preview «Crear todas» con defaults editables. */
+  const openCreateAllTempMealsPreview = () => {
+    if (readOnly || creatingAllTempMeals || !gira?.id) return;
+    if (!createAllTempMealRows.length) {
+      toast.info("No hay vacantes de Almuerzo, Merienda o Cena para crear.");
+      return;
+    }
+    setCreateAllMealDraft(emptyCreateAllMealDraft());
+  };
+
+  /**
+   * Materializa vacantes A/M/C del rango de reglas con los horarios/locaciones
+   * del draft del modal. Convocatoria «Solo alojados». No toca Desayunos.
+   */
+  const confirmCreateAllTempMeals = async () => {
+    if (readOnly || creatingAllTempMeals || !gira?.id || !createAllMealDraft) {
+      return;
+    }
+    const temps = createAllTempMealRows;
+    if (!temps.length) {
+      toast.info("No hay vacantes de Almuerzo, Merienda o Cena para crear.");
+      setCreateAllMealDraft(null);
+      return;
+    }
+    const horas = createAllMealDraft.horas || {};
+    const locs = createAllMealDraft.locaciones || {};
+    for (const svc of CREATE_ALL_MEAL_SERVICIOS) {
+      if (!String(horas[svc] || "").trim()) {
+        toast.error(`Completá el horario de ${svc}`);
+        return;
+      }
+    }
+
+    setCreatingAllTempMeals(true);
+    try {
+      const payloads = [];
+      for (const row of temps) {
+        const hora = String(horas[row.servicio] || "").trim();
+        if (!hora) continue;
+        const tipoId =
+          row.id_tipo_evento != null && row.id_tipo_evento !== ""
+            ? Number(row.id_tipo_evento)
+            : typeIdForBase(mealTypes, row.servicio);
+        if (!tipoId) {
+          toast.error(`Sin tipo de evento para ${row.servicio}`);
+          return;
+        }
+        const label =
+          row.tipo_nombre ||
+          typeNombreById(mealTypes, tipoId) ||
+          row.servicio;
+        const locRaw = locs[row.servicio];
+        const idLocacion =
+          locRaw === "" || locRaw == null ? null : Number(locRaw) || locRaw;
+        payloads.push({
+          id_gira: gira.id,
+          fecha: row.fecha,
+          id_tipo_evento: tipoId,
+          hora_inicio: hora,
+          hora_fin: null,
+          descripcion:
+            buildMealDescription(
+              label,
+              CREATE_ALL_MEAL_CONVOCADOS,
+              catalogs,
+            ) || `${label} Solo alojados`,
+          id_locacion: idLocacion,
+          convocados: CREATE_ALL_MEAL_CONVOCADOS,
+          visible_agenda: true,
+          tecnica: false,
+        });
+      }
+      if (!payloads.length) {
+        toast.info("No hay vacantes válidas para crear.");
+        return;
+      }
+
+      const { error } = await supabase.from("eventos").insert(payloads);
+      if (error) throw error;
+
+      toast.success(
+        `Creadas ${payloads.length} comida${payloads.length === 1 ? "" : "s"}.`,
+      );
+      setCreateAllMealDraft(null);
+      await refreshGridData();
+      onLogisticsRefresh?.();
+    } catch (e) {
+      console.error(e);
+      toast.error(
+        e?.message
+          ? `No se pudieron crear: ${e.message}`
+          : "No se pudieron crear las comidas.",
+      );
+    } finally {
+      setCreatingAllTempMeals(false);
+    }
   };
 
   const gridById = useMemo(() => {
@@ -3373,6 +3856,29 @@ export default function MealsManager({
             )}
             Renombrar
           </button>
+          {!readOnly && (
+            <button
+              type="button"
+              onClick={openCreateAllTempMealsPreview}
+              disabled={
+                creatingAllTempMeals ||
+                loading ||
+                createAllTempMealRows.length === 0
+              }
+              className="text-[10px] font-bold px-2.5 py-1 rounded border border-orange-400 bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-50 flex items-center gap-1 shrink-0"
+              title="Crear vacantes A/M/C del rango de reglas (preview: horarios/locaciones; default 12:30 · 17:30 · 21:30 · Solo alojados)"
+            >
+              {creatingAllTempMeals ? (
+                <IconLoader className="animate-spin" size={12} />
+              ) : (
+                <IconPlus size={12} />
+              )}
+              Crear todas
+              {createAllTempMealRows.length > 0
+                ? ` (${createAllTempMealRows.length})`
+                : ""}
+            </button>
+          )}
           <FoodMatrix roster={roster} />
           {loading && <IconLoader className="animate-spin text-orange-500" />}
         </div>
@@ -3396,6 +3902,29 @@ export default function MealsManager({
             )}
             Renombrar
           </button>
+          {!readOnly && (
+            <button
+              type="button"
+              onClick={openCreateAllTempMealsPreview}
+              disabled={
+                creatingAllTempMeals ||
+                loading ||
+                createAllTempMealRows.length === 0
+              }
+              className="text-[10px] font-bold px-2 py-1 rounded border border-orange-400 bg-orange-500 text-white disabled:opacity-50 flex items-center gap-1"
+              title="Crear vacantes A/M/C (preview; default 12:30 · 17:30 · 21:30 · Solo alojados)"
+            >
+              {creatingAllTempMeals ? (
+                <IconLoader className="animate-spin" size={12} />
+              ) : (
+                <IconPlus size={12} />
+              )}
+              Crear todas
+              {createAllTempMealRows.length > 0
+                ? ` (${createAllTempMealRows.length})`
+                : ""}
+            </button>
+          )}
           <button
             type="button"
             onClick={() => {
@@ -4307,6 +4836,20 @@ export default function MealsManager({
           onChange={setSiblingAddDraft}
           onCancel={() => setSiblingAddDraft(null)}
           onConfirm={confirmSiblingMealAdd}
+        />
+      )}
+
+      {createAllMealDraft && (
+        <CreateAllMealsPreviewModal
+          draft={createAllMealDraft}
+          rows={createAllTempMealRows}
+          locaciones={catalogs.locaciones}
+          creating={creatingAllTempMeals}
+          onChange={setCreateAllMealDraft}
+          onCancel={() => {
+            if (!creatingAllTempMeals) setCreateAllMealDraft(null);
+          }}
+          onConfirm={confirmCreateAllTempMeals}
         />
       )}
 

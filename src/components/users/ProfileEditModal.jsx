@@ -19,6 +19,9 @@
     IconEdit, // Asegúrate de importar este ícono
     IconPalette, // Agregamos ícono de paleta si lo tienes, si no usa IconEdit
     IconUtensils,
+    IconLock,
+    IconRefresh,
+    IconSend,
   } from "../ui/Icons";
   import SearchableSelect from "../ui/SearchableSelect";
   import { useConfirmDialog } from "../../hooks/useConfirmDialog";
@@ -33,6 +36,9 @@
     seatingApellido,
     seatingNombre,
   } from "../../utils/integranteDisplayName";
+  import { generateFimbaTempPassword } from "../../utils/fimbaUserSession";
+
+  const APP_LOGIN_URL = "https://ofrn-web-app.vercel.app/login";
 
   // --- CONSTANTES DE ESTILO ---
   const labelClass =
@@ -124,6 +130,8 @@
 
     const [locationsOptions, setLocationsOptions] = useState([]);
     const [initialData, setInitialData] = useState(null);
+    const [hasPassword, setHasPassword] = useState(false);
+    const [passwordBusy, setPasswordBusy] = useState(false);
     const [formData, setFormData] = useState({
       mail: "",
       telefono: "",
@@ -196,6 +204,7 @@
         setFormData(baseData);
         setInitialData(baseData);
         setPreviewUrl(userData.avatar_url);
+        setHasPassword(Boolean(String(userData.clave_acceso || "").trim()));
       } catch (error) {
         console.error("Error:", error);
       } finally {
@@ -316,6 +325,94 @@
         overlayClassName: "z-[10050]",
       }))) return;
       onClose();
+    };
+
+    const sendClaveAccessMail = async ({ clave, mode }) => {
+      const email = String(formData.mail || "").trim();
+      if (!email) {
+        throw new Error("Necesitás un email de acceso para enviar la contraseña.");
+      }
+      const nombre =
+        seatingNombre({
+          nombre: user.nombre,
+          nombre_preferencia: formData.nombre_preferencia,
+        }) || user.nombre || "Participante";
+      const { error } = await supabase.functions.invoke("mails_produccion", {
+        body: {
+          action: "enviar_mail",
+          templateId: "acceso_clave",
+          email,
+          nombre,
+          detalle: {
+            mode,
+            clave_acceso: clave,
+            link_app: APP_LOGIN_URL,
+            mail: email,
+          },
+        },
+      });
+      if (error) throw error;
+    };
+
+    /** Sin clave: genera y envía. Con clave: recupera (envía la actual) por mail. */
+    const handlePasswordByMail = async () => {
+      const email = String(formData.mail || "").trim();
+      if (!email) {
+        alert("Cargá un email de acceso antes de continuar.");
+        return;
+      }
+      const generating = !hasPassword;
+      if (
+        !(await confirm({
+          title: generating ? "Generar contraseña" : "Recuperar contraseña",
+          message: generating
+            ? `Se va a crear una contraseña y enviarla a ${email}.`
+            : `Se enviará tu contraseña actual a ${email}.`,
+          confirmText: generating ? "Generar y enviar" : "Enviar por mail",
+          overlayClassName: "z-[10050]",
+        }))
+      ) {
+        return;
+      }
+      setPasswordBusy(true);
+      try {
+        let clave = "";
+        if (generating) {
+          clave = generateFimbaTempPassword(8);
+          const { error } = await supabase
+            .from("integrantes")
+            .update({
+              clave_acceso: clave,
+              last_modified_at: new Date().toISOString(),
+            })
+            .eq("id", user.id);
+          if (error) throw error;
+          setHasPassword(true);
+          await sendClaveAccessMail({ clave, mode: "generada" });
+          alert(`✅ Contraseña generada y enviada a ${email}`);
+        } else {
+          const { data, error } = await supabase
+            .from("integrantes")
+            .select("clave_acceso")
+            .eq("id", user.id)
+            .single();
+          if (error) throw error;
+          clave = String(data?.clave_acceso || "").trim();
+          if (!clave) {
+            setHasPassword(false);
+            throw new Error(
+              "No hay contraseña guardada. Generá una nueva.",
+            );
+          }
+          await sendClaveAccessMail({ clave, mode: "recuperada" });
+          alert(`✅ Contraseña enviada a ${email}`);
+        }
+      } catch (err) {
+        console.error(err);
+        alert(err?.message || "No se pudo enviar la contraseña.");
+      } finally {
+        setPasswordBusy(false);
+      }
     };
 
     const handleSubmit = async (e) => {
@@ -750,6 +847,61 @@
                       className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all"
                     />
                   </div>
+                </div>
+
+                <div className="space-y-3 p-4 bg-indigo-50/40 rounded-[1.5rem] border border-indigo-100">
+                  <div className="flex items-center justify-between gap-2 text-slate-800">
+                    <div className="flex items-center gap-2">
+                      <IconLock size={16} className="text-indigo-500" />
+                      <h4 className="text-[10px] font-black uppercase tracking-widest">
+                        Contraseña de acceso
+                      </h4>
+                    </div>
+                    <span
+                      className={`text-[9px] font-black uppercase tracking-wide px-2 py-0.5 rounded-full ${
+                        hasPassword
+                          ? "bg-emerald-100 text-emerald-700"
+                          : "bg-amber-100 text-amber-800"
+                      }`}
+                    >
+                      {hasPassword ? "Configurada" : "Sin contraseña"}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 leading-snug">
+                    Con tu email y contraseña podés entrar en{" "}
+                    <a
+                      href={APP_LOGIN_URL}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-indigo-600 font-bold underline underline-offset-2"
+                    >
+                      la aplicación
+                    </a>{" "}
+                    y ver todas las giras en las que estás convocado/a. La
+                    contraseña no se muestra acá: se genera o se recupera por
+                    correo a tu email de acceso.
+                  </p>
+                  <button
+                    type="button"
+                    disabled={passwordBusy}
+                    onClick={handlePasswordByMail}
+                    className="w-full py-2.5 rounded-xl border border-indigo-200 bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-60 transition-colors flex items-center justify-center gap-2 text-[11px] font-bold uppercase tracking-wide"
+                  >
+                    {passwordBusy ? (
+                      <>
+                        <IconLoader size={14} className="animate-spin" />{" "}
+                        Enviando…
+                      </>
+                    ) : hasPassword ? (
+                      <>
+                        <IconSend size={14} /> Recuperar por mail
+                      </>
+                    ) : (
+                      <>
+                        <IconRefresh size={14} /> Generar y enviar por mail
+                      </>
+                    )}
+                  </button>
                 </div>
 
                 <div className="space-y-4 p-4 bg-slate-50 rounded-[1.5rem] border border-slate-100">

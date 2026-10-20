@@ -11,6 +11,10 @@ import {
   isProgramBorrador,
   orderedProgramTypeEntries,
 } from "./girasYearSummary";
+import {
+  eventGrupoIdsFromEvent,
+  personPassesEventoGrupos,
+} from "../services/giraGruposService";
 import { integranteKey } from "./integranteIds";
 import { formatSecondsToHm } from "./time";
 
@@ -44,6 +48,9 @@ export const ATOMIC_KIND_KEYS = [
   "ensayo_ensamble_half",
   "ensayo_gira_full",
   "ensayo_gira_half",
+  "giras_fuera",
+  "giras_casa",
+  "pcv",
 ];
 
 /** Átomos de gira (ensayos 2/3 + conciertos/didácticos). Ensamble no entra. */
@@ -54,6 +61,17 @@ export const GIRA_ATOMIC_KIND_KEYS = [
   "ensayo_gira_half",
 ];
 
+/** Entran al Total del listado (no conteos de giras). */
+export const TOTAL_ATOMIC_KIND_KEYS = [
+  "concierto",
+  "didactico",
+  "ensayo_ensamble_full",
+  "ensayo_ensamble_half",
+  "ensayo_gira_full",
+  "ensayo_gira_half",
+  "pcv",
+];
+
 /** Estimar futuros: solo programas Sinfónico (no CF / jazz / ensamble). */
 export const TIPO_PROGRAMA_ESTIMAR = "Sinfónico";
 
@@ -62,33 +80,52 @@ export function isSinfonicoProgram(program) {
 }
 
 /**
- * Columnas del listado. Ensayos ≥2h / <2h y Ensamble / Gira se solapan
- * (mismos ensayos, dos cortes); el Total suma solo los átomos.
- * El informe muestra un solo par a la vez, bajo el encabezado «Ensayos»
- * (`splitServicioListingColumns`).
+ * Columnas del listado. Giras fuera/en casa (conteos, como PDF Todos).
+ * Ensayos ≥2h / <2h y Ensamble / Gira se solapan; el Total = ensayos + PCV.
+ * El informe muestra un solo par de ensayos a la vez (`splitServicioListingColumns`).
  */
 export const SERVICIO_COLUMN_DEFS = [
   {
-    key: "concierto",
-    label: "Conciertos",
-    shortLabel: "Conc.",
-    title: "Conciertos · 1 servicio c/u",
-    sources: ["concierto"],
-    chipClass: "bg-indigo-50 text-indigo-800",
+    key: "giras_fuera",
+    label: "Giras fuera de casa",
+    shortLabel: "Fuera",
+    title:
+      "Giras (Sinfónico/CF/Jazz Band) fuera de casa · entre paréntesis cantidad de conciertos de esas giras. No suma al Total.",
+    sources: ["giras_fuera"],
+    chipClass: "bg-orange-50 text-orange-900",
   },
   {
-    key: "didactico",
-    label: "Didácticos",
-    shortLabel: "Didác.",
-    title: "Conciertos didácticos (es_didactico) · ½ servicio c/u",
-    sources: ["didactico"],
-    chipClass: "bg-violet-50 text-violet-800",
+    key: "giras_casa",
+    label: "Giras en casa",
+    shortLabel: "En casa",
+    title:
+      "Giras (Sinfónico/CF/Jazz Band) en casa · entre paréntesis cantidad de conciertos de esas giras. No suma al Total.",
+    sources: ["giras_casa"],
+    chipClass: "bg-sky-50 text-sky-900",
+  },
+  {
+    key: "conciertos_ensamble",
+    label: "Conciertos de ensamble",
+    shortLabel: "Conc.ens.",
+    title:
+      "Cantidad de conciertos (incl. didácticos) de programas tipo Ensamble. No suma al Total.",
+    sources: ["conciertos_ensamble"],
+    chipClass: "bg-violet-50 text-violet-900",
+  },
+  {
+    key: "conciertos_prest",
+    label: "Prestaciones conciertos",
+    shortLabel: "Prest.conc.",
+    title:
+      "Suma de prestaciones de conciertos y didácticos (1 o ½). Incluye gira y ensamble. Con tags de grupo, solo cuenta si el integrante está en alguno. Suma al Total.",
+    sources: ["concierto", "didactico"],
+    chipClass: "bg-rose-50 text-rose-950",
   },
   {
     key: "ensayo_ge2h",
     label: "Ensayos ≥2h",
     shortLabel: "≥2h",
-    title: "Ensayos de ensamble o gira de 2 h o más · 1 servicio c/u",
+    title: "Ensayos de ensamble o gira de 2 h o más · 1 prestación c/u",
     sources: ["ensayo_ensamble_full", "ensayo_gira_full"],
     chipClass: "bg-emerald-50 text-emerald-800",
   },
@@ -97,7 +134,7 @@ export const SERVICIO_COLUMN_DEFS = [
     label: "Ensayos <2h",
     shortLabel: "<2h",
     title:
-      "Ensayos de ensamble o gira de más de 30 min y menos de 2 h · ½ servicio c/u (15/30 min = 0)",
+      "Ensayos de ensamble o gira de más de 30 min y menos de 2 h · ½ prestación c/u (15/30 min = 0)",
     sources: ["ensayo_ensamble_half", "ensayo_gira_half"],
     chipClass: "bg-amber-50 text-amber-900",
   },
@@ -120,11 +157,21 @@ export const SERVICIO_COLUMN_DEFS = [
     chipClass: "bg-sky-50 text-sky-800",
   },
   {
+    key: "pcv",
+    label: "PCV",
+    shortLabel: "PCV",
+    title:
+      "Prestaciones Complementarias por Viáticos: días computables (fracciones de salida/llegada) en giras o tramos fuera de su localidad. Suma al Total.",
+    sources: ["pcv"],
+    chipClass: "bg-teal-50 text-teal-900",
+  },
+  {
     key: "total",
     label: "Total",
     shortLabel: "Total",
-    title: "Total de prestaciones (conciertos + didácticos + ensayos; sin doble conteo)",
-    sources: ATOMIC_KIND_KEYS,
+    title:
+      "Total de prestaciones (conciertos + ensayos + PCV; sin conteos de giras)",
+    sources: TOTAL_ATOMIC_KIND_KEYS,
     chipClass: "bg-slate-100 text-slate-800",
   },
 ];
@@ -148,7 +195,7 @@ const ENSAYO_COLUMN_KEYS = new Set([
 ]);
 
 /**
- * Conciertos, didácticos, un par de ensayos y Total.
+ * Giras fuera/en casa, un par de ensayos, PCV y Total.
  * `duracion` = ≥2h y <2h. `origen` = Ensamble y Gira.
  */
 export function servicioListingColumns(view = ENSAYO_COLUMN_VIEWS.duracion) {
@@ -164,9 +211,16 @@ export function splitServicioListingColumns(view = ENSAYO_COLUMN_VIEWS.duracion)
   const columns = servicioListingColumns(view);
   return {
     columns,
-    leading: columns.filter((col) => !ENSAYO_COLUMN_KEYS.has(col.key) && col.key !== "total"),
+    leading: columns.filter(
+      (col) =>
+        !ENSAYO_COLUMN_KEYS.has(col.key) &&
+        col.key !== "total" &&
+        col.key !== "pcv",
+    ),
     ensayos: columns.filter((col) => ENSAYO_COLUMN_KEYS.has(col.key)),
-    trailing: columns.filter((col) => col.key === "total"),
+    trailing: columns.filter(
+      (col) => col.key === "pcv" || col.key === "total",
+    ),
   };
 }
 
@@ -215,6 +269,10 @@ export function emptyAtomicBuckets() {
     ensayo_ensamble_half: { counted: 0, reemplazo: 0, licencia: 0 },
     ensayo_gira_full: { counted: 0, reemplazo: 0, licencia: 0 },
     ensayo_gira_half: { counted: 0, reemplazo: 0, licencia: 0 },
+    giras_fuera: { counted: 0, reemplazo: 0, licencia: 0 },
+    giras_casa: { counted: 0, reemplazo: 0, licencia: 0 },
+    conciertos_ensamble: { counted: 0, reemplazo: 0, licencia: 0 },
+    pcv: { counted: 0, reemplazo: 0, licencia: 0 },
   };
 }
 
@@ -418,6 +476,7 @@ export function resolveServicioForIntegrante(evt, integranteId, ctx) {
     ) {
       return null;
     }
+    if (!integrantePasaGruposDelEvento(evt, iid, ctx)) return null;
     return { ...classified, mark: "counted" };
   }
 
@@ -434,7 +493,22 @@ export function resolveServicioForIntegrante(evt, integranteId, ctx) {
     return null;
   }
 
+  if (!integrantePasaGruposDelEvento(evt, iid, ctx)) return null;
+
   return { ...classified, mark };
+}
+
+/** Evento con `eventos_grupos`: solo integrantes de esos grupos (Tutti = sin tags). */
+function integrantePasaGruposDelEvento(evt, iid, ctx) {
+  const eventoGrupoIds = eventGrupoIdsFromEvent(evt);
+  if (!eventoGrupoIds.length) return true;
+  const giraId = evt?.id_gira;
+  if (giraId == null) return true;
+  const byGira =
+    ctx?.integranteGrupoIdsByGiraId?.get?.(Number(giraId)) ||
+    ctx?.integranteGrupoIdsByGiraId?.get?.(giraId);
+  const personGrupos = byGira?.get?.(iid) || byGira?.get?.(String(iid));
+  return personPassesEventoGrupos(iid, eventoGrupoIds, personGrupos);
 }
 
 export function isGiraServiceKind(kind) {
@@ -822,7 +896,8 @@ function addToBucket(buckets, kind, mark, value) {
 }
 
 /**
- * Acumula servicios de un integrante sobre la lista de eventos (columnas de display).
+ * Acumula prestaciones de un integrante sobre la lista de eventos (columnas de display).
+ * Giras fuera/en casa y PCV vienen de `ctx.prestacionesMetaByIntegranteId`.
  */
 export function accumulateServiciosForIntegrante(integranteId, events, ctx) {
   const atomic = emptyAtomicBuckets();
@@ -835,7 +910,23 @@ export function accumulateServiciosForIntegrante(integranteId, events, ctx) {
     addToBucket(atomic, hit.kind, hit.mark, hit.value);
   }
   applyGiraEstimatesToAtomic(atomic, integranteId, ctx);
-  return deriveDisplayBuckets(atomic);
+
+  const meta =
+    ctx?.prestacionesMetaByIntegranteId?.get?.(String(integranteId)) ||
+    ctx?.prestacionesMetaByIntegranteId?.get?.(integranteId);
+  if (meta) {
+    atomic.giras_fuera.counted = Number(meta.girasFuera) || 0;
+    atomic.giras_casa.counted = Number(meta.girasEnCasa) || 0;
+    atomic.conciertos_ensamble.counted = Number(meta.conciertosEnsamble) || 0;
+    atomic.pcv.counted = Number(meta.pcv) || 0;
+  }
+
+  const display = deriveDisplayBuckets(atomic);
+  if (meta) {
+    display.giras_fuera.paren = Number(meta.conciertosFuera) || 0;
+    display.giras_casa.paren = Number(meta.conciertosEnCasa) || 0;
+  }
+  return display;
 }
 
 export function listServicioHitsForIntegrante(integranteId, events, ctx) {
@@ -882,6 +973,9 @@ export function sumBuckets(list) {
       acc[key].counted += Number(row?.[key]?.counted || 0);
       acc[key].reemplazo += Number(row?.[key]?.reemplazo || 0);
       acc[key].licencia += Number(row?.[key]?.licencia || 0);
+      if (row?.[key]?.paren != null) {
+        acc[key].paren = Number(acc[key].paren || 0) + Number(row[key].paren || 0);
+      }
     }
   }
   return acc;
@@ -992,10 +1086,21 @@ export function formatServicioParts(bucket) {
   const reemplazo = Number(bucket?.reemplazo || 0);
   const licencia = Number(bucket?.licencia || 0);
   const total = counted + reemplazo + licencia;
-  if (total === 0) return [{ text: "—", tone: "base" }];
+  const parenRaw =
+    bucket?.paren != null && bucket.paren !== ""
+      ? Number(bucket.paren)
+      : null;
+  const paren =
+    parenRaw != null && Number.isFinite(parenRaw) && parenRaw > 0
+      ? parenRaw
+      : null;
+  if (total === 0 && paren == null) return [{ text: "—", tone: "base" }];
+
+  const withParen = (text) =>
+    paren != null ? `${text} (${formatServicioNumber(paren)})` : text;
 
   if (reemplazo === 0 && licencia === 0) {
-    return [{ text: formatServicioNumber(counted), tone: "base" }];
+    return [{ text: withParen(formatServicioNumber(counted)), tone: "base" }];
   }
 
   const parts = [];
@@ -1025,6 +1130,12 @@ export function formatServicioParts(bucket) {
       text: formatServicioNumber(licencia),
       tone: "licencia",
     };
+  }
+  if (paren != null && parts.length) {
+    parts.push({
+      text: ` (${formatServicioNumber(paren)})`,
+      tone: "base",
+    });
   }
   return parts;
 }

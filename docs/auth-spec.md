@@ -25,9 +25,19 @@ role: Rol del sistema normalizado en minúsculas.
 - Agenda (deriveAgendaPermissions): `consulta_general` es management pero **no** tiene `canSeeTechEvents` ni `canSeeHiddenAgendaEvents` (no ve eventos Téc ni paradas ocultas).
 
 5. Funciones Clave
-login(email, password): Valida credenciales contra la tabla integrantes.
+login(email, password): Valida credenciales contra `integrantes.mail` + `integrantes.clave_acceso`.
 
-impersonate(targetUser): Permite a un administrador ver la App como si fuera otro usuario (útil para soporte).Especificación Técnica: Contexto de Autenticación (AuthContext)
+impersonate(targetUser): Permite a un administrador ver la App como si fuera otro usuario (útil para soporte).
+
+6. Mi Perfil (`ProfileEditModal`)
+- Cualquier sesión con `user.id` numérico (incl. invitado por enlace personal `/share/:token`) puede abrir **Mi Perfil** (avatar arriba a la derecha).
+- **Contraseña:** no se muestra ni se edita en pantalla. Si no hay `clave_acceso` → **Generar y enviar por mail** (crea clave, la guarda y manda template `acceso_clave` mode `generada`). Si ya hay → **Recuperar por mail** (envía la clave actual, mode `recuperada`). Destino: `integrantes.mail` / email de acceso del formulario.
+- Login directo: `https://ofrn-web-app.vercel.app/login` (email + contraseña) para ver todas las giras en las que está convocado/a.
+- Mail de alta no estable (`convocatoria_gira` / `ALTA_ACCESO_PERSONAL`): explica Mi Perfil + link app general + CTA «Abrir app» al token personal.
+
+---
+
+Especificación Técnica: Contexto de Autenticación (AuthContext)
 1. Propósito
 Gestionar la identidad del usuario, los permisos por rol y el estado de la sesión dentro de la OFRN-WebApp. Es la fuente única de verdad para la identidad del integrante.
 

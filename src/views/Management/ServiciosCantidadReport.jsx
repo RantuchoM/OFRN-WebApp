@@ -35,6 +35,8 @@ import {
   downloadServiciosCantidadPdf,
   fetchEnsambleServiciosBundle,
   fetchEnsayosConflictoPeriod,
+  fetchIntegranteGrupoIdsByGiraId,
+  fetchPrestacionesGirasMeta,
   fetchServiciosCantidadPeriod,
   formatServicioEventSubtitle,
   giraOptionLabel,
@@ -52,9 +54,12 @@ import {
   groupRegionalEnsamblesByRegion,
   isCamerataEnsambleRow,
 } from "../../utils/convocatoriaEnsambleViews";
-import { formatDdMmYyyy } from "../../utils/dates";
+import {
+  formatDdMmYyyy,
+  formatWeekdayLongLocal,
+} from "../../utils/dates";
 import { programOverlapsDateRange, toLocalDateString } from "../../utils/giraDateRange";
-import { compareInstrumentIds, getProgramStyle } from "../../utils/giraUtils";
+import { compareInstrumentIds } from "../../utils/giraUtils";
 import {
   currentYearBounds,
   isIntegranteConvocadoToEnsayo,
@@ -88,12 +93,12 @@ import {
   customMapForIntegrante,
   getFixedGiraServiciosAverage,
   groupHitsByDetailSection,
-  groupHitsByProgramTipo,
   listEstimableGiras,
   listServicioHitsForIntegrante,
   splitServicioListingColumns,
   sumBuckets,
 } from "../../utils/serviciosCantidad";
+import { buildPrestacionesMetaByIntegranteId } from "../../utils/serviciosPcv";
 
 function createEmptySelectionByMode() {
   return {
@@ -375,98 +380,192 @@ function ServiciosExportMenu({ disabled, onPdf, onPdfDetalle, onExcel }) {
   );
 }
 
-function programTipoChipClass(tipo) {
-  const style = getProgramStyle(tipo);
-  const colorTokens = (style?.color || "").split(" ");
+function PrestChip({ label, value, className }) {
   return (
-    colorTokens
-      .filter(
-        (t) =>
-          t.startsWith("bg-") ||
-          t.startsWith("text-") ||
-          t.startsWith("border-"),
-      )
-      .join(" ") || "bg-slate-50 text-slate-700 border-slate-200"
+    <div
+      className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-semibold ${className}`}
+    >
+      <span>{label}</span>
+      <span className="inline-flex items-center rounded-md bg-white/70 px-1.5 py-0.5 text-base font-bold tabular-nums leading-none">
+        {value}
+      </span>
+    </div>
   );
 }
 
-function ServiciosTipoResumenRecuadro({
-  hits,
+/** Resumen alineado a las columnas del listado (Fuera / En casa / Ensayos / PCV / Total). */
+function PrestacionesDetalleResumen({
   buckets,
+  meta,
   integrante,
   fechaDesde,
   fechaHasta,
-  programaById,
-  ensambleById,
+  ensayoColumnView,
 }) {
-  const entries = useMemo(
-    () => groupHitsByProgramTipo(hits, programaById, ensambleById),
-    [hits, programaById, ensambleById],
-  );
   const total = formatServicioNumber(bucketTotal(buckets?.total));
-  const porMes = formatServiciosPorMesPlain(bucketTotal(buckets?.total), integrante, {
-    fechaDesde,
-    fechaHasta,
-  });
+  const porMes = formatServiciosPorMesPlain(
+    bucketTotal(buckets?.total),
+    integrante,
+    { fechaDesde, fechaHasta },
+  );
+  const fueraParts = formatServicioParts(buckets?.giras_fuera);
+  const enCasaParts = formatServicioParts(buckets?.giras_casa);
+  const fuera = fueraParts.map((p) => p.text).join("") || "—";
+  const enCasa = enCasaParts.map((p) => p.text).join("") || "—";
+  const concEns = formatServicioNumber(
+    bucketTotal(buckets?.conciertos_ensamble),
+  );
+  const prestConc = formatServicioNumber(
+    bucketTotal(buckets?.conciertos_prest),
+  );
+  const pcv = formatServicioNumber(bucketTotal(buckets?.pcv));
+  const ensam =
+    ensayoColumnView === ENSAYO_COLUMN_VIEWS.origen
+      ? formatServicioNumber(bucketTotal(buckets?.ensamble))
+      : formatServicioNumber(bucketTotal(buckets?.ensayo_ge2h));
+  const giraOrLt =
+    ensayoColumnView === ENSAYO_COLUMN_VIEWS.origen
+      ? formatServicioNumber(bucketTotal(buckets?.gira))
+      : formatServicioNumber(bucketTotal(buckets?.ensayo_lt2h));
+  const ensamLabel =
+    ensayoColumnView === ENSAYO_COLUMN_VIEWS.origen ? "Ensam." : "≥2h";
+  const giraLabel =
+    ensayoColumnView === ENSAYO_COLUMN_VIEWS.origen ? "Gira" : "<2h";
 
   return (
     <section
       className="rounded-xl border border-slate-200 bg-white px-3 py-3 shadow-sm"
-      aria-label="Resumen por tipo de programa"
+      aria-label="Resumen alineado al listado"
     >
       <h3 className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">
-        Resumen
+        Mismos números que el listado
       </h3>
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <div className="inline-flex items-center gap-2 rounded-lg border border-indigo-100 bg-indigo-50 px-3 py-1.5 text-sm font-semibold text-indigo-900">
-          <span>Total</span>
-          <span className="inline-flex items-center rounded-md bg-white/70 px-1.5 py-0.5 text-base font-bold tabular-nums leading-none">
-            {total}
-          </span>
-        </div>
-        <div className="inline-flex items-center gap-2 rounded-lg border border-orange-200 bg-orange-50 px-3 py-1.5 text-sm font-semibold text-orange-900">
-          <span>Prest/mes</span>
-          <span className="inline-flex items-center rounded-md bg-white/70 px-1.5 py-0.5 text-base font-bold tabular-nums leading-none">
-            {porMes}
-          </span>
-        </div>
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <PrestChip
+          label="Fuera"
+          value={fuera}
+          className="border-orange-200 bg-orange-50 text-orange-900"
+        />
+        <PrestChip
+          label="En casa"
+          value={enCasa}
+          className="border-sky-200 bg-sky-50 text-sky-900"
+        />
+        <PrestChip
+          label="Conc.ens."
+          value={concEns}
+          className="border-violet-200 bg-violet-50 text-violet-900"
+        />
+        <PrestChip
+          label="Prest.conc."
+          value={prestConc}
+          className="border-rose-200 bg-rose-50 text-rose-950"
+        />
+        <PrestChip
+          label={ensamLabel}
+          value={ensam}
+          className="border-emerald-200 bg-emerald-50 text-emerald-900"
+        />
+        <PrestChip
+          label={giraLabel}
+          value={giraOrLt}
+          className="border-emerald-200 bg-emerald-50 text-emerald-900"
+        />
+        <PrestChip
+          label="PCV"
+          value={pcv}
+          className="border-teal-200 bg-teal-50 text-teal-900"
+        />
+        <PrestChip
+          label="Total"
+          value={total}
+          className="border-indigo-100 bg-indigo-50 text-indigo-900"
+        />
+        <PrestChip
+          label="Prest/mes"
+          value={porMes}
+          className="border-orange-200 bg-orange-50 text-orange-900"
+        />
       </div>
-      {entries.length === 0 ? (
-        <p className="text-sm text-slate-400">Sin programas en el rango.</p>
-      ) : (
-        <div className="flex items-start gap-2 overflow-x-auto pb-1">
-          {entries.map((entry) => (
-            <div
-              key={entry.tipo}
-              className="min-w-[8.5rem] flex-1"
-            >
-              <div
-                className={`inline-flex w-full items-center justify-between gap-2 rounded-lg border px-2.5 py-1.5 text-sm font-semibold ${programTipoChipClass(entry.tipo)}`}
-              >
-                <span className="truncate">{entry.tipo}</span>
-                <span className="inline-flex shrink-0 items-center rounded-md bg-white/70 px-1.5 py-0.5 text-base font-bold tabular-nums leading-none">
-                  {formatServicioNumber(entry.value)}
-                </span>
-              </div>
-              <ul className="mt-1.5 space-y-0.5">
-                {entry.programs.map((p) => (
-                  <li
-                    key={p.key}
-                    className="text-[11px] leading-snug text-slate-600"
-                  >
-                    {p.label}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
-        </div>
-      )}
-      <p className="mt-2 text-[10px] text-slate-400 md:hidden">
-        En el teléfono se muestra este resumen. El detalle por evento está en
-        escritorio o en el PDF.
+      <p className="text-[10px] leading-snug text-slate-500">
+        Fuera / En casa = giras (pesos por tramo) y entre paréntesis cantidad de
+        conciertos (incl. didácticos). Conc.ens. = conciertos de programas
+        Ensamble. Prest.conc. = suma de prestaciones de conciertos. Total =
+        conciertos + ensayos + PCV.
+        {meta?.homeLabel
+          ? ` Localidad viáticos: ${meta.homeLabel}.`
+          : ""}
       </p>
     </section>
+  );
+}
+
+function DetalleCollapse({
+  id,
+  openKeys,
+  toggle,
+  title,
+  summary,
+  headerClass = "bg-slate-50 hover:bg-slate-100",
+  children,
+}) {
+  const open = openKeys.has(id);
+  return (
+    <div className="overflow-hidden rounded-lg border border-slate-200">
+      <button
+        type="button"
+        onClick={() => toggle(id)}
+        className={`flex w-full items-center gap-2 px-3 py-2 text-left ${headerClass}`}
+        aria-expanded={open}
+      >
+        <IconChevronDown
+          size={16}
+          className={`shrink-0 text-slate-400 transition-transform ${
+            open ? "rotate-0" : "-rotate-90"
+          }`}
+        />
+        <span className="flex-1 text-sm font-bold text-slate-800">{title}</span>
+        <span className="shrink-0 text-right text-xs font-semibold tabular-nums text-slate-600">
+          {summary}
+        </span>
+      </button>
+      {open ? children : null}
+    </div>
+  );
+}
+
+/** "miércoles, 01/04/2026 03:10" */
+function formatPcvInstant(fecha, hora) {
+  const datePart = formatDdMmYyyy(fecha) || String(fecha || "").slice(0, 10);
+  const weekday = formatWeekdayLongLocal(
+    typeof fecha === "string" ? fecha.slice(0, 10) : "",
+  );
+  const time = hora ? String(hora).slice(0, 5) : "";
+  const head = [weekday, datePart].filter(Boolean).join(", ");
+  if (!head) return time || "—";
+  return time ? `${head} ${time}` : head;
+}
+
+function formatPcvWindowLine(w) {
+  const locs = String(w?.localidades || "").trim() || "Sin localidad";
+  const from = formatPcvInstant(w?.fecha_salida, w?.hora_salida);
+  const to = formatPcvInstant(w?.fecha_llegada, w?.hora_llegada);
+  return `${locs} · ${from} → ${to}`;
+}
+
+function EnsayosSectionSummary({ ensayosCount, prestaciones }) {
+  const n = Number(ensayosCount) || 0;
+  const prestNum = Number(prestaciones) || 0;
+  const m = formatServicioNumber(prestNum);
+  return (
+    <span className="block leading-tight">
+      <span className="block">
+        {n} ensayo{n === 1 ? "" : "s"}
+      </span>
+      <span className="block text-emerald-800">
+        {m} prestación{prestNum === 1 ? "" : "es"}
+      </span>
+    </span>
   );
 }
 
@@ -474,15 +573,19 @@ function ServicioDetalleModal({
   integrante,
   hits,
   buckets,
+  meta,
   fechaDesde,
   fechaHasta,
   ensambleById,
   programaById,
+  ensayoColumnView,
   estimateNote,
   onExportPdf,
   onClose,
 }) {
-  const [openKeys, setOpenKeys] = useState(() => new Set());
+  const [openKeys, setOpenKeys] = useState(
+    () => new Set(["giras", "pcv", "ensamble", "gira"]),
+  );
   const sections = useMemo(() => groupHitsByDetailSection(hits), [hits]);
   const name = `${integrante?.apellido || ""}, ${integrante?.nombre || ""}`.trim();
   const inst =
@@ -490,6 +593,8 @@ function ServicioDetalleModal({
     integrante?.instrumentos?.abreviatura ||
     "—";
   const familia = integrante?.instrumentos?.familia || "";
+  const girasDetalle = meta?.girasDetalle || [];
+  const pcvDetalle = meta?.pcvDetalle || [];
 
   const toggle = (key) => {
     setOpenKeys((prev) => {
@@ -510,6 +615,10 @@ function ServicioDetalleModal({
 
   const eventSubtitle = (evt) =>
     formatServicioEventSubtitle(evt, ensambleById, programaById);
+
+  const ensayoSections = sections.filter(
+    (s) => s.key === "ensamble" || s.key === "gira",
+  );
 
   return createPortal(
     <div
@@ -566,160 +675,248 @@ function ServicioDetalleModal({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="border-b border-slate-100 bg-white px-3 py-2">
-          <ServiciosTipoResumenRecuadro
-            hits={hits}
-            buckets={buckets}
-            integrante={integrante}
-            fechaDesde={fechaDesde}
-            fechaHasta={fechaHasta}
-            programaById={programaById}
-            ensambleById={ensambleById}
-          />
-        </div>
+          <div className="border-b border-slate-100 bg-white px-3 py-2">
+            <PrestacionesDetalleResumen
+              buckets={buckets}
+              meta={meta}
+              integrante={integrante}
+              fechaDesde={fechaDesde}
+              fechaHasta={fechaHasta}
+              ensayoColumnView={ensayoColumnView}
+            />
+          </div>
 
-        <div className="hidden p-3 md:block">
-          {sections.every((s) => s.hits.length === 0) ? (
-            <p className="px-2 py-8 text-center text-sm text-slate-400">
-              No hay eventos contabilizados para esta persona en el rango.
-            </p>
-          ) : (
-            <div className="space-y-2">
-              {sections.map((section) => {
-                const open = openKeys.has(section.key);
-                return (
-                  <div
-                    key={section.key}
-                    className="overflow-hidden rounded-lg border border-slate-200"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => toggle(section.key)}
-                      className="flex w-full items-center gap-2 bg-slate-50 px-3 py-2 text-left hover:bg-slate-100"
-                      aria-expanded={open}
+          <div className="space-y-2 p-3">
+            <DetalleCollapse
+              id="giras"
+              openKeys={openKeys}
+              toggle={toggle}
+              title="Giras (Sinfónico / CF / Jazz Band)"
+              summary={`${girasDetalle.length} · fuera ${formatServicioNumber(meta?.girasFuera)} · en casa ${formatServicioNumber(meta?.girasEnCasa)}`}
+              headerClass="bg-orange-50/80 hover:bg-orange-50"
+            >
+              {girasDetalle.length === 0 ? (
+                <p className="px-3 py-2 text-xs text-slate-400">
+                  Ninguna gira Sinfónico/CF/Jazz Band en nómina en el rango. Los
+                  programas tipo Ensamble no cuentan en Fuera / En casa.
+                </p>
+              ) : (
+                <ul className="divide-y divide-slate-100">
+                  {girasDetalle.map((g) => (
+                    <li
+                      key={g.programId}
+                      className="flex items-start gap-2 px-3 py-2"
                     >
-                      <IconChevronDown
-                        size={16}
-                        className={`shrink-0 text-slate-400 transition-transform ${
-                          open ? "rotate-0" : "-rotate-90"
-                        }`}
-                      />
-                      <span className="flex-1 text-sm font-bold text-slate-800">
-                        {section.label}
-                      </span>
-                      <span className="text-xs font-semibold tabular-nums text-slate-600">
-                        {section.hits.length} ·{" "}
-                        {formatServicioNumber(section.value)}
-                      </span>
-                    </button>
-                    {open && (
-                      <ul className="divide-y divide-slate-100">
-                        {section.hits.length === 0 ? (
-                          <li className="px-3 py-2 text-xs text-slate-400">
-                            Ningún evento en esta categoría.
-                          </li>
-                        ) : (
-                          section.hits.map((hit) => {
-                            const evt = hit.event;
-                            const estimado = hit.origin === "estimado";
-                            const conflicto = hit.conflicto;
-                            const tone = conflicto?.tone;
-                            return (
-                              <li
-                                key={evt.id}
-                                className={`flex items-start gap-2 px-3 py-2 ${
-                                  tone
-                                    ? conflictoRowClass(tone)
-                                    : estimado
-                                      ? "bg-orange-50/70"
-                                      : ""
-                                }`}
-                              >
-                                <div className="min-w-0 flex-1">
-                                  <div className="flex flex-wrap items-center gap-1.5 text-sm font-medium text-slate-800">
-                                    <span>
-                                      {formatDdMmYyyy(evt.fecha) || evt.fecha}
-                                    </span>
-                                    {evt.hora_inicio ? (
-                                      <span className="text-xs font-normal text-slate-500">
-                                        {String(evt.hora_inicio).slice(0, 5)}
-                                        {evt.hora_fin
-                                          ? `–${String(evt.hora_fin).slice(0, 5)}`
-                                          : ""}
-                                      </span>
-                                    ) : null}
-                                    {tone ? (
-                                      <span
-                                        className={`inline-flex items-center gap-1 rounded px-1 py-px text-[10px] font-bold uppercase ${conflictoBadgeClass(tone)}`}
-                                      >
-                                        {tone === "pending" ? (
-                                          <IconAlertTriangle size={10} />
-                                        ) : null}
-                                        {conflicto.label}
-                                      </span>
-                                    ) : null}
-                                    {estimado ? (
-                                      <span className="rounded bg-orange-100 px-1 py-px text-[10px] font-bold uppercase text-orange-800">
-                                        Est.
-                                      </span>
-                                    ) : (
-                                      markBadge(hit.mark)
-                                    )}
-                                  </div>
-                                  <p
-                                    className={`mt-0.5 text-xs leading-snug ${
-                                      estimado
-                                        ? "italic text-orange-800"
-                                        : tone === "pending"
-                                          ? "text-amber-900"
-                                          : "text-slate-500"
-                                    }`}
-                                  >
-                                    {eventSubtitle(evt)}
-                                    {conflicto?.giras
-                                      ? ` · ${conflicto.giras}`
-                                      : ""}
-                                  </p>
-                                </div>
-                                <div className="shrink-0 text-right">
-                                  <div
-                                    className={`text-xs font-bold tabular-nums ${
-                                      hit.displayOnly
-                                        ? "text-amber-800"
-                                        : "text-slate-800"
-                                    }`}
-                                  >
-                                    {formatServicioNumber(hit.value)}
-                                  </div>
-                                  {hit.displayOnly ? (
-                                    <div className="text-[10px] font-semibold text-amber-700">
-                                      no suma
-                                    </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium text-slate-800">
+                          {g.zona ? `${g.zona} · ` : ""}
+                          {g.label}
+                        </div>
+                        <p className="mt-0.5 text-[11px] text-slate-500">
+                          {g.tipo}
+                          {g.fechaDesde
+                            ? ` · ${formatDdMmYyyy(g.fechaDesde) || g.fechaDesde}`
+                            : ""}
+                          {g.fechaHasta && g.fechaHasta !== g.fechaDesde
+                            ? ` – ${formatDdMmYyyy(g.fechaHasta) || g.fechaHasta}`
+                            : ""}
+                          {g.tramoCount > 1
+                            ? ` · ${g.tramosFuera}/${g.tramoCount} tramos fuera`
+                            : ""}
+                        </p>
+                      </div>
+                      <div className="shrink-0 text-right text-[11px] tabular-nums">
+                        {g.pesoFuera > 0 ? (
+                          <div className="font-semibold text-orange-800">
+                            Fuera {formatServicioNumber(g.pesoFuera)}
+                          </div>
+                        ) : null}
+                        {g.pesoEnCasa > 0 ? (
+                          <div className="font-semibold text-sky-800">
+                            En casa {formatServicioNumber(g.pesoEnCasa)}
+                          </div>
+                        ) : null}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </DetalleCollapse>
+
+            <DetalleCollapse
+              id="pcv"
+              openKeys={openKeys}
+              toggle={toggle}
+              title="PCV — Prestaciones Complementarias por Viáticos"
+              summary={formatServicioNumber(meta?.pcv)}
+              headerClass="bg-teal-50/80 hover:bg-teal-50"
+            >
+              <p className="border-b border-teal-100 px-3 py-2 text-[11px] leading-snug text-teal-900/80">
+                Días computables (misma tabla de horarios que Viáticos: salida ≤15:00
+                → 1; 15:01–21:00 → 0,75; llegada ≥15:00 → 1; etc.). Solo tramos /
+                giras Sinfónico, CF o Jazz Band fuera de la localidad de viáticos.
+                Suma al Total.
+              </p>
+              {pcvDetalle.length === 0 ? (
+                <p className="px-3 py-2 text-xs text-slate-400">
+                  Sin días PCV en el rango (en casa, sin nómina o sin fechas).
+                </p>
+              ) : (
+                <ul className="divide-y divide-slate-100">
+                  {pcvDetalle.map((w, idx) => (
+                    <li
+                      key={`${w.programId}-${w.tramoLabel}-${idx}`}
+                      className="flex items-start gap-2 px-3 py-2"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium text-slate-800">
+                          {w.programLabel}
+                          {w.tramoLabel ? (
+                            <span className="font-normal text-slate-500">
+                              {" "}
+                              · {w.tramoLabel}
+                            </span>
+                          ) : null}
+                        </div>
+                        <p className="mt-0.5 text-[11px] leading-snug text-slate-600">
+                          {formatPcvWindowLine(w)}
+                        </p>
+                        <p className="mt-0.5 text-[10px] text-slate-400">
+                          {w.fromTransport
+                            ? "Horarios de transporte de la gira"
+                            : "Mediodía (sin transporte en el tramo)"}
+                          {" · "}
+                          {formatServicioNumber(w.dias)} día
+                          {Number(w.dias) === 1 ? "" : "s"} PCV
+                        </p>
+                      </div>
+                      <div className="shrink-0 text-right text-xs font-bold tabular-nums text-teal-900">
+                        {formatServicioNumber(w.dias)}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </DetalleCollapse>
+
+            {ensayoSections.map((section) => (
+              <DetalleCollapse
+                key={section.key}
+                id={section.key}
+                openKeys={openKeys}
+                toggle={toggle}
+                title={section.label}
+                summary={
+                  <EnsayosSectionSummary
+                    ensayosCount={section.hits.length}
+                    prestaciones={section.value}
+                  />
+                }
+                headerClass="bg-emerald-50/80 hover:bg-emerald-50"
+              >
+                {section.hits.length === 0 ? (
+                  <p className="px-3 py-2 text-xs text-slate-400">
+                    Ningún evento en esta categoría.
+                  </p>
+                ) : (
+                  <ul className="divide-y divide-slate-100">
+                    {section.hits.map((hit) => {
+                      const evt = hit.event;
+                      const estimado = hit.origin === "estimado";
+                      const conflicto = hit.conflicto;
+                      const tone = conflicto?.tone;
+                      return (
+                        <li
+                          key={evt.id}
+                          className={`flex items-start gap-2 px-3 py-2 ${
+                            tone
+                              ? conflictoRowClass(tone)
+                              : estimado
+                                ? "bg-orange-50/70"
+                                : ""
+                          }`}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-1.5 text-sm font-medium text-slate-800">
+                              <span>
+                                {formatDdMmYyyy(evt.fecha) || evt.fecha}
+                              </span>
+                              {evt.hora_inicio ? (
+                                <span className="text-xs font-normal text-slate-500">
+                                  {String(evt.hora_inicio).slice(0, 5)}
+                                  {evt.hora_fin
+                                    ? `–${String(evt.hora_fin).slice(0, 5)}`
+                                    : ""}
+                                </span>
+                              ) : null}
+                              {tone ? (
+                                <span
+                                  className={`inline-flex items-center gap-1 rounded px-1 py-px text-[10px] font-bold uppercase ${conflictoBadgeClass(tone)}`}
+                                >
+                                  {tone === "pending" ? (
+                                    <IconAlertTriangle size={10} />
                                   ) : null}
-                                  <div className="inline-flex items-center gap-0.5 text-[10px] text-slate-400">
-                                    <IconClock size={10} />
-                                    {hit.durationSeconds != null
-                                      ? formatEventDurationLabel(evt)
-                                      : durationBandLabel(hit)}
-                                  </div>
-                                  {hit.durationBand ? (
-                                    <div className="text-[10px] font-semibold text-slate-500">
-                                      {durationBandLabel(hit)}
-                                    </div>
-                                  ) : null}
-                                </div>
-                              </li>
-                            );
-                          })
-                        )}
-                      </ul>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
+                                  {conflicto.label}
+                                </span>
+                              ) : null}
+                              {estimado ? (
+                                <span className="rounded bg-orange-100 px-1 py-px text-[10px] font-bold uppercase text-orange-800">
+                                  Est.
+                                </span>
+                              ) : (
+                                markBadge(hit.mark)
+                              )}
+                            </div>
+                            <p
+                              className={`mt-0.5 text-xs leading-snug ${
+                                estimado
+                                  ? "italic text-orange-800"
+                                  : tone === "pending"
+                                    ? "text-amber-900"
+                                    : "text-slate-500"
+                              }`}
+                            >
+                              {eventSubtitle(evt)}
+                              {conflicto?.giras
+                                ? ` · ${conflicto.giras}`
+                                : ""}
+                            </p>
+                          </div>
+                          <div className="shrink-0 text-right">
+                            <div
+                              className={`text-xs font-bold tabular-nums ${
+                                hit.displayOnly
+                                  ? "text-amber-800"
+                                  : "text-slate-800"
+                              }`}
+                            >
+                              {formatServicioNumber(hit.value)}
+                            </div>
+                            {hit.displayOnly ? (
+                              <div className="text-[10px] font-semibold text-amber-700">
+                                no suma
+                              </div>
+                            ) : null}
+                            <div className="inline-flex items-center gap-0.5 text-[10px] text-slate-400">
+                              <IconClock size={10} />
+                              {hit.durationSeconds != null
+                                ? formatEventDurationLabel(evt)
+                                : durationBandLabel(hit)}
+                            </div>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </DetalleCollapse>
+            ))}
+
+            <p className="px-1 text-[10px] text-slate-400">
+              Conciertos y didácticos ya no entran al Total del listado; siguen
+              en el PDF de detalle si los necesitás por evento.
+            </p>
+          </div>
         </div>
       </div>
     </div>,
@@ -760,6 +957,10 @@ export default function ServiciosCantidadReport({ supabase }) {
   const [programasPeriod, setProgramasPeriod] = useState([]);
   const [rosterByGiraId, setRosterByGiraId] = useState({});
   const [rosterLoading, setRosterLoading] = useState(false);
+  const [integranteGrupoIdsByGiraId, setIntegranteGrupoIdsByGiraId] = useState(
+    () => new Map(),
+  );
+  const [gruposMembershipLoading, setGruposMembershipLoading] = useState(false);
   const [detalleIntegrante, setDetalleIntegrante] = useState(null);
   const [conflictoOpen, setConflictoOpen] = useState(false);
   const [conflictoLoading, setConflictoLoading] = useState(false);
@@ -1000,11 +1201,14 @@ export default function ServiciosCantidadReport({ supabase }) {
       setCustomRows([]);
       setMembershipsCount([]);
       setProgramasPeriod([]);
+      setIntegranteGrupoIdsByGiraId(new Map());
       setPeriodLoading(false);
+      setGruposMembershipLoading(false);
       return undefined;
     }
     (async () => {
       setPeriodLoading(true);
+      setGruposMembershipLoading(true);
       setLoadError(null);
       const period = await fetchServiciosCantidadPeriod(supabase, {
         fechaDesde,
@@ -1014,14 +1218,25 @@ export default function ServiciosCantidadReport({ supabase }) {
       if (cancelled) return;
       if (period.error) {
         setLoadError(period.error.message || "Error al cargar eventos");
+        setEvents([]);
+        setIntegranteGrupoIdsByGiraId(new Map());
         setPeriodLoading(false);
+        setGruposMembershipLoading(false);
         return;
       }
-      setEvents(period.events || []);
+      const nextEvents = period.events || [];
+      setEvents(nextEvents);
       setCustomRows(period.customRows || []);
       setMembershipsCount(period.memberships || []);
       setProgramasPeriod(period.programas || []);
       setPeriodLoading(false);
+      const gruposMap = await fetchIntegranteGrupoIdsByGiraId(
+        supabase,
+        nextEvents,
+      );
+      if (cancelled) return;
+      setIntegranteGrupoIdsByGiraId(gruposMap);
+      setGruposMembershipLoading(false);
     })();
     return () => {
       cancelled = true;
@@ -1073,21 +1288,9 @@ export default function ServiciosCantidadReport({ supabase }) {
 
   const giraIdsNeedingRoster = useMemo(() => {
     if (!hasSelection) return [];
-    const allowed = new Set(filteredProgramas.map((p) => p.id));
-    const ids = new Set();
-    for (const evt of events) {
-      const tipo = Number(evt.id_tipo_evento);
-      if (tipo !== 1 && tipo !== 2 && tipo !== 3) continue;
-      if (evt.id_gira != null && allowed.has(evt.id_gira)) ids.add(evt.id_gira);
-    }
-    if (estimarFuturos) {
-      const today = toLocalDateString();
-      for (const p of listEstimableGiras(filteredProgramas, { today })) {
-        ids.add(p.id);
-      }
-    }
-    return [...ids];
-  }, [events, filteredProgramas, hasSelection, estimarFuturos]);
+    // Todas las giras del filtro: columnas Giras/PCV necesitan nómina aunque no haya eventos.
+    return filteredProgramas.map((p) => p.id).filter((id) => id != null);
+  }, [filteredProgramas, hasSelection]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1137,6 +1340,73 @@ export default function ServiciosCantidadReport({ supabase }) {
     [conflictoGroups],
   );
 
+  const [girasMetaPrograms, setGirasMetaPrograms] = useState([]);
+  const [transportEventsByGiraId, setTransportEventsByGiraId] = useState(
+    () => new Map(),
+  );
+  const [girasMetaLoading, setGirasMetaLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!supabase || !hasSelection || filteredProgramas.length === 0) {
+      setGirasMetaPrograms([]);
+      setTransportEventsByGiraId(new Map());
+      setGirasMetaLoading(false);
+      return undefined;
+    }
+    (async () => {
+      setGirasMetaLoading(true);
+      const clones = filteredProgramas.map((p) => ({ ...p }));
+      const meta = await fetchPrestacionesGirasMeta(supabase, clones);
+      if (cancelled) return;
+      setGirasMetaPrograms(meta.programs || clones);
+      setTransportEventsByGiraId(meta.transportEventsByGiraId || new Map());
+      setGirasMetaLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase, hasSelection, filteredProgramas]);
+
+  const prestacionesMetaByIntegranteId = useMemo(() => {
+    if (
+      !hasSelection ||
+      rosterLoading ||
+      girasMetaLoading ||
+      gruposMembershipLoading
+    ) {
+      return new Map();
+    }
+    const selected = integrantes.filter((it) =>
+      selectedIntegranteIds.has(integranteKey(it.id)),
+    );
+    return buildPrestacionesMetaByIntegranteId(selected, {
+      programs: girasMetaPrograms,
+      rosterByGiraId,
+      transportEventsByGiraId,
+      events,
+      fechaDesde,
+      fechaHasta,
+      giraIdFilter: giraId || null,
+      integranteGrupoIdsByGiraId,
+    });
+  }, [
+    hasSelection,
+    rosterLoading,
+    girasMetaLoading,
+    gruposMembershipLoading,
+    integrantes,
+    selectedIntegranteIds,
+    girasMetaPrograms,
+    rosterByGiraId,
+    transportEventsByGiraId,
+    events,
+    fechaDesde,
+    fechaHasta,
+    giraId,
+    integranteGrupoIdsByGiraId,
+  ]);
+
   const computeCtx = useMemo(
     () =>
       buildServiciosComputeContext({
@@ -1155,6 +1425,8 @@ export default function ServiciosCantidadReport({ supabase }) {
         giraAverage,
         programasById,
         pendingConflictoEventIds,
+        prestacionesMetaByIntegranteId,
+        integranteGrupoIdsByGiraId,
       }),
     [
       rosterByGiraId,
@@ -1171,6 +1443,8 @@ export default function ServiciosCantidadReport({ supabase }) {
       giraAverage,
       programasById,
       pendingConflictoEventIds,
+      prestacionesMetaByIntegranteId,
+      integranteGrupoIdsByGiraId,
     ],
   );
 
@@ -1196,7 +1470,14 @@ export default function ServiciosCantidadReport({ supabase }) {
 
   const bucketsByIntegranteId = useMemo(() => {
     const out = {};
-    if (!hasSelection || periodLoading || rosterLoading || conflictoLoading) {
+    if (
+      !hasSelection ||
+      periodLoading ||
+      rosterLoading ||
+      conflictoLoading ||
+      girasMetaLoading ||
+      gruposMembershipLoading
+    ) {
       return out;
     }
     for (const row of visibleRows) {
@@ -1212,6 +1493,8 @@ export default function ServiciosCantidadReport({ supabase }) {
     periodLoading,
     rosterLoading,
     conflictoLoading,
+    girasMetaLoading,
+    gruposMembershipLoading,
   ]);
 
   const rowGroups = useMemo(() => {
@@ -1404,7 +1687,11 @@ export default function ServiciosCantidadReport({ supabase }) {
 
   const loading =
     catalogLoading ||
-    (hasSelection && (periodLoading || rosterLoading));
+    (hasSelection &&
+      (periodLoading ||
+        rosterLoading ||
+        girasMetaLoading ||
+        gruposMembershipLoading));
   const exportDisabled = loading || visibleRows.length === 0 || exporting;
 
   const applyDownloadResult = useCallback((built) => {
@@ -1756,23 +2043,35 @@ export default function ServiciosCantidadReport({ supabase }) {
               : ""}
           </div>
         </td>
-        {listingColumns.map((col) => (
-          <td
-            key={col.key}
-            className={`px-2 py-1.5 text-right text-xs ${
-              ensayoColumnKeys.has(col.key)
-                ? "bg-emerald-50/70 group-hover:bg-emerald-100"
-                : ""
-            }`}
-            title={col.title}
-          >
-            <ServicioCellValue
-              bucket={buckets[col.key]}
-              chipClass={col.chipClass}
-              emphasize={col.key === "total"}
-            />
-          </td>
-        ))}
+        {listingColumns.map((col) => {
+          const tint =
+            col.key === "giras_fuera"
+              ? "bg-orange-50/70 group-hover:bg-orange-100"
+              : col.key === "giras_casa"
+                ? "bg-sky-50/70 group-hover:bg-sky-100"
+                : col.key === "conciertos_ensamble"
+                  ? "bg-violet-50/70 group-hover:bg-violet-100"
+                  : col.key === "conciertos_prest"
+                    ? "bg-rose-50/70 group-hover:bg-rose-100"
+                    : col.key === "pcv"
+                      ? "bg-teal-50/70 group-hover:bg-teal-100"
+                      : ensayoColumnKeys.has(col.key)
+                        ? "bg-emerald-50/70 group-hover:bg-emerald-100"
+                        : "";
+          return (
+            <td
+              key={col.key}
+              className={`px-2 py-1.5 text-right text-xs ${tint}`}
+              title={col.title}
+            >
+              <ServicioCellValue
+                bucket={buckets[col.key]}
+                chipClass={col.chipClass}
+                emphasize={col.key === "total"}
+              />
+            </td>
+          );
+        })}
         <td
           className="px-2 py-1.5 text-right text-xs"
           title={SERVICIO_POR_MES_COLUMN.title}
@@ -2178,7 +2477,7 @@ export default function ServiciosCantidadReport({ supabase }) {
             ) : null}
           </span>
           <span className="hidden text-[10px] text-slate-400 sm:inline">
-            ½ = 0,5 (más de 30 min y menos de 2 h) · 15/30 min = 0 · R celeste · L ámbar · Prest/mes = total ÷ meses feb–dic · Estimar futuros: gira en curso/futura = {FIXED_FUTURE_GIRA_SERVICIOS} · clic en la fila para el detalle
+            Fuera / En casa = giras (pesos por tramo) · (n) = cantidad de conciertos (incl. didácticos) · Conc.ens. = conciertos de ensamble · Prest.conc. = prestaciones de conciertos · Eventos con tags de grupo (p. ej. FIMBA) solo cuentan si el integrante está en el grupo · PCV = días de viático fuera de localidad (fracciones) · Total = conciertos + ensayos + PCV · ½ = 0,5 · R celeste · L ámbar · Prest/mes = total ÷ meses feb–dic · Estimar futuros: gira = {FIXED_FUTURE_GIRA_SERVICIOS} · clic en la fila para el detalle
           </span>
           <span className="text-[10px] text-slate-400 sm:hidden">
             Tocá una persona para el resumen. Deslizá para ver el resto.
@@ -2270,7 +2569,7 @@ export default function ServiciosCantidadReport({ supabase }) {
                   return nodes;
                 })}
               </div>
-              <table className="hidden w-full min-w-[46rem] border-collapse text-left md:table">
+              <table className="hidden w-full min-w-[56rem] border-collapse text-left md:table">
               <thead className="sticky top-0 z-[2]">
                 <tr className="border-b border-slate-200 bg-slate-50 text-[10px] font-bold uppercase tracking-wide text-slate-500">
                   <th
@@ -2283,7 +2582,17 @@ export default function ServiciosCantidadReport({ supabase }) {
                     <th
                       key={col.key}
                       rowSpan={2}
-                      className="whitespace-nowrap px-2 py-2 text-right align-bottom"
+                      className={`whitespace-nowrap px-2 py-2 text-right align-bottom ${
+                        col.key === "giras_fuera"
+                          ? "bg-orange-50 text-orange-900"
+                          : col.key === "giras_casa"
+                            ? "bg-sky-50 text-sky-900"
+                            : col.key === "conciertos_ensamble"
+                              ? "bg-violet-50 text-violet-900"
+                              : col.key === "conciertos_prest"
+                                ? "bg-rose-50 text-rose-950"
+                                : ""
+                      }`}
                       title={col.title}
                     >
                       {col.shortLabel}
@@ -2308,7 +2617,11 @@ export default function ServiciosCantidadReport({ supabase }) {
                     <th
                       key={col.key}
                       rowSpan={2}
-                      className="whitespace-nowrap bg-slate-100 px-2 py-2 text-right align-bottom"
+                      className={`whitespace-nowrap px-2 py-2 text-right align-bottom ${
+                        col.key === "pcv"
+                          ? "bg-teal-50 text-teal-900"
+                          : "bg-slate-100"
+                      }`}
                       title={col.title}
                     >
                       {col.shortLabel}
@@ -2374,7 +2687,19 @@ export default function ServiciosCantidadReport({ supabase }) {
                       <td
                         key={col.key}
                         className={`px-2 py-1.5 text-right ${
-                          ensayoColumnKeys.has(col.key) ? "bg-emerald-50" : ""
+                          col.key === "giras_fuera"
+                            ? "bg-orange-50"
+                            : col.key === "giras_casa"
+                              ? "bg-sky-50"
+                              : col.key === "conciertos_ensamble"
+                                ? "bg-violet-50"
+                                : col.key === "conciertos_prest"
+                                  ? "bg-rose-50"
+                                  : col.key === "pcv"
+                                    ? "bg-teal-50"
+                                    : ensayoColumnKeys.has(col.key)
+                                      ? "bg-emerald-50"
+                                      : ""
                         }`}
                       >
                         <ServicioCellValue
@@ -2406,10 +2731,16 @@ export default function ServiciosCantidadReport({ supabase }) {
           buckets={
             bucketsByIntegranteId[integranteKey(detalleIntegrante.id)] || {}
           }
+          meta={
+            prestacionesMetaByIntegranteId.get(
+              integranteKey(detalleIntegrante.id),
+            ) || null
+          }
           fechaDesde={fechaDesde}
           fechaHasta={fechaHasta}
           ensambleById={ensambleById}
           programaById={programasById}
+          ensayoColumnView={ensayoColumnView}
           estimateNote={estimateNote}
           onExportPdf={() =>
             handleExportDetalleOne(detalleIntegrante, detalleHits)

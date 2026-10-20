@@ -26,21 +26,26 @@ Menú: **Gestión** (staff: `isAdmin || isEditor` en `App.jsx`), mismo módulo q
 
 - **Gira (conciertos + ensayos 2/3):** `resolveGiraRosterForMatrix` (`giraService.js` = `resolveGiraRosterDetail`) + `getAsistenciaMatrixCellMark` (`asistenciaMatrixExport.js`). Incluye `ausente` + `abona_reemplazo` / `abona_licencia` (R/L). `ausente` sin abono **no** cuenta. **Fila personal presente** (`giras_integrantes.estado` distinto de `ausente`) **sí cuenta** (X), aunque su ensamble esté en `EXCL_ENSAMBLE` y aunque `fecha_alta` / `fecha_baja` no cubran el programa. Misma regla que Convocatorias (`rosterMatrixIds.js`). Pre-alta sin esa fila no cuenta.
 - **Ensayo ensamble:** `isIntegranteConvocadoToEnsayo` (`girasYearSummary.js`). El mapa custom multi-persona se adapta con `customMapForIntegrante` (mismo shape evento → fila).
-- **No** se usa un matcher propio de `eventos_grupos` (la matriz de convocatorias tampoco recorta por grupo de evento).
+- **Grupos de gira (`eventos_grupos`):** en conciertos y ensayos, si el evento tiene tags de grupo (p. ej. FIMBA id 12), solo cuenta para integrantes miembros de alguno de esos `giras_grupos`. Sin tags = Tutti (cuenta para todo el roster / convocatoria). Helpers: `personPassesEventoGrupos` + `fetchIntegranteGrupoIdsByGiraId`.
 
 ## Listado y detalle
 
-- Filas = integrante (IDs numéricos). Columnas: Conciertos | Didácticos | **Ensayos** (dos columnas) | Total | **Prestaciones/mes**. El grupo **Ensayos** es un encabezado de dos filas (`colSpan` 2, fondo esmeralda) y ahí mismo está el toggle **Duración / Ensamble / gira** (default Duración): o bien ≥2h y &lt;2h, o bien Ensamble y Gira. Las dos celdas del cuerpo y del pie van tintadas para que se lean como ensayos. Nunca las cuatro juntas (se solapan; el total suma átomos, sin doble conteo). En pantallas angostas la tabla está oculta: el mismo toggle queda en una barra **Ensayos** arriba del listado compacto (el Excel/PDF siguen el corte elegido). 0,5 en es-AR. R celeste / L ámbar.
-- **Prestaciones/mes** = `Total ÷ meses feb–dic de presencia` que solapan el rango filtrado. Enero **no** cuenta (divisor máximo 11 en un año). Campo real: `integrantes.fecha_alta` (y `fecha_baja`). Sin `fecha_alta` = presente desde el inicio del rango. Alta en marzo → 10 meses; abril → 9; etc. Pie de tabla: **—** (no se promedia entre músicos). Celda: `1,23 (10)` (tasa y meses).
-- Clic en fila → modal Portal `z-[100]`, colapsable por categoría (conciertos, didácticos, ensamble, gira).
+- Filas = integrante (IDs numéricos). Columnas: **Giras fuera de casa** (naranja) | **Giras en casa** (celeste) | **Conciertos de ensamble** (violeta) | **Prestaciones conciertos** (índigo) | **Ensayos** (dos columnas, esmeralda) | **PCV** (teal) | Total | **Prestaciones/mes**. Orden: fuera → en casa → conc. ensamble → prest. conc. → ensayos → PCV → Total.
+- **Fuera / En casa:** conteo de giras Sinfónico, Camerata Filarmónica y Jazz Band con pesos por tramo (`giraTramoPesos`) según localidad efectiva de viáticos; **no** suman al Total. Entre paréntesis: **cantidad de conciertos** de esas giras (incluye didácticos; 1 evento = 1). Atribución fuera/casa por fecha del concierto vs tramos (`concertIsFueraDeCasa` en `serviciosPcv.js`). Programas tipo Ensamble / Comisión **no** entran en Fuera/En casa ni en PCV.
+- **Conciertos de ensamble:** cantidad de conciertos/didácticos de programas `tipo = Ensamble`. No suma al Total.
+- **Prestaciones conciertos:** suma de valores de prestación (1 o ½) de conciertos y didácticos (gira + ensamble). **Sí** suma al Total.
+- **PCV** = días computables (`calculateDaysDiff`) por tramo fuera; con 2+ tramos, uno a la vez. Horarios: transporte de la gira en el tramo o mediodía.
+- **Total** = prestaciones de conciertos + ensayos + PCV (sin conteos de giras ni Conc.ens.).
+- **Prestaciones/mes** = `Total ÷ meses feb–dic de presencia` que solapan el rango filtrado. Enero **no** cuenta. Pie: **—**. Celda: `1,23 (10)`.
+- Clic en fila → modal Portal `z-[100]` con los **mismos chips** que el listado (Fuera / En casa / Conc.ens. / Prest.conc. / Ensayos / PCV / Total / Prest/mes), más desglose de giras, desglose PCV y ensayos.
 - **Ensayos en conflicto en el detalle:** la fila del ensayo lleva color y etiqueta. Pleno pendiente = ámbar «En conflicto» (valor 0, «no suma»; si el conteo lo había omitido, igual aparece en el listado). «Se ensayó igual» = verde. Tutti-N = celeste, solo si esa persona está en el roster de la gira. El PDF de detalle (persona y lote) pinta la fila del mismo color y agrega la etiqueta al texto del evento. El total del resumen no cambia.
 - **Orden / separadores:** `compareInstrumentIds` (mismo sort que Convocatorias). Con «Agrupar por ensambles»: `buildAsistenciaMatrixRowGroups` (encabezados de ensamble tildado completo + «Otros»). Vista Ensambles/Cameratas/Regiones: `filterEnsamblesForConvocatoriaView` / `groupRegionalEnsamblesByRegion`.
 - **Barra superior (escritorio):** el listado arriba y el informe de ensamble abajo. Primera línea: período (Desde, Hasta, Año actual) en un recuadro, Gira, Buscar y Exportar a la derecha. Segunda línea: Agrupar por ensambles y Estimar futuros. Franja índigo: combo (Elegí ensamble / Todos) y Ensayos en conflicto. En el teléfono el conflicto y Exportar siguen en el encabezado del árbol.
 
 ## Exportes
 
-- **Excel** (`downloadServiciosCantidadExcel`): dos filas de encabezado. Integrante, Instrumento, Familia, Conciertos, Didácticos, Total y Prestaciones/mes ocupan las dos filas. Hoja **Prestaciones**. El par visible va unido en la fila 1 bajo **Ensayos** (fondo esmeralda) y la fila 2 lleva las etiquetas del corte. Grupos si está tildado Agrupar. Los datos empiezan en la fila 3.
-- **PDF listado** (`downloadServiciosCantidadPdf`): mismo stack que Convocatorias (`jsPDF` + `jspdf-autotable`). **A4 vertical (portrait)**. Título ASCII **Gestion Prestaciones** (sin flecha/`→`: Helvetica no la dibuja y queda un recuadro). Subtítulo con espacios: `Estimar futuros - promedio 8 prest./gira`. Texto PDF pasa por `toServiciosPdfText` (sin `→` `▸` `·` `–` `≥` `÷`). Encabezado de dos filas: `rowSpan` 2 en integrante, instrumento, conciertos, didácticos, total y Prest/mes; `colSpan` del par bajo **Ensayos**. Subencabezados `shortLabel` (`>=2h` en PDF). Celdas de ese par en verde claro. Separadores de ensamble: `>` + `fillColor` slate. Fila Totales; Prestaciones/mes del pie = `-`. Botón `IconFileText`.
+- **Excel** (`downloadServiciosCantidadExcel`): dos filas de encabezado. Integrante, Instrumento, Familia, columnas leading (Fuera, En casa, Conc.ens., Prest.conc.), Total, PCV y Prestaciones/mes ocupan las dos filas según corresponda. Hoja **Prestaciones**. El par visible va unido en la fila 1 bajo **Ensayos** (fondo esmeralda) y la fila 2 lleva las etiquetas del corte. Grupos si está tildado Agrupar. Los datos empiezan en la fila 3.
+- **PDF listado** (`downloadServiciosCantidadPdf`): mismo stack que Convocatorias (`jsPDF` + `jspdf-autotable`). **A4 vertical (portrait)**. Título ASCII **Gestion Prestaciones**. Encabezado de dos filas: `rowSpan` 2 en integrante, instrumento, leading (Fuera…Prest.conc.), PCV, Total y Prest/mes; `colSpan` del par bajo **Ensayos**. Subencabezados `shortLabel`. Separadores de ensamble: `>` + `fillColor` slate. Fila Totales; Prestaciones/mes del pie = `-`. Botón `IconFileText`.
 - **PDF detalle persona** (`downloadServiciosCantidadDetallePdf`): A4 vertical. Encabezado (nombre, rango, instrumento) + **recuadro tipo resumen del año** (`GirasYearSummaryBar` al pie de `GirasView`): chips de `programas.tipo` en columnas (colores `PROGRAM_TYPES`) con el total de prestaciones; **debajo de cada columna**, lista `nomenclador` + `nombre_gira`. Arriba, chips Total y Prest/mes. Luego la tabla de eventos. Botón `IconFileText` en el modal.
 - **PDF detalle lote**: un archivo, `addPage` por integrante; cada uno arranca con el mismo recuadro + detalle.
 - **PDF informe de ensamble** (`downloadEnsambleServiciosPdf` / `buildEnsambleServiciosPdfDoc` en `src/utils/serviciosEnsamblePdf.js`): A4 vertical, mismo stack Helvetica + `jspdf-autotable` + `toServiciosPdfText` (sin `→` ni otros glifos faltantes; helpers en `src/utils/serviciosPdf.js`). Botón **Descargar PDF** (`IconFileText`) en `EnsambleServiciosModal`. Filas: `buildEnsambleServiciosPdfTables` (misma jerarquía que el HTML, con las filas de conflicto ya particionadas). Títulos de evento y locación pasan por `stripHtml`. Nombre `informe_ensamble_<ensamble>_<stamp>.pdf`.
@@ -55,7 +60,7 @@ Menú: **Gestión** (staff: `isAdmin || isEditor` en `App.jsx`), mismo módulo q
 | | HTML | PDF listado | PDF detalle |
 |--|------|-------------|-------------|
 | Orientación | — | A4 vertical | A4 vertical |
-| Tipos + Total + Prest/mes | Sí. Par de ensayos bajo encabezado «Ensayos» + toggle | Sí, el par visible bajo «Ensayos» | Resumen en encabezado |
+| Giras fuera/casa + Ensayos + PCV + Total + Prest/mes | Sí. Par de ensayos bajo encabezado «Ensayos» + toggle | Sí, el par visible bajo «Ensayos» | Resumen en encabezado |
 | Sort / separadores convocatoria | Sí | Sí (`rowGroups`) | Orden de `visibleRows` |
 | Integrante | 1 col (nombre + instrumento) | Integrante + Instrumento | Encabezado de página |
 | Categorías de detalle | Recuadro por tipo de programa + colapsables | No | Recuadro por tipo + eventos `>` |
@@ -173,7 +178,7 @@ Confirmaciones Portal `z-[110]` sobre el modal `z-[100]`. No hay tabla extra: un
 | Pieza | Ruta |
 |-------|------|
 | UI | `ServiciosCantidadReport.jsx`, `EnsayosConflictoModal.jsx`, `EnsambleServiciosModal.jsx`, `ConflictoEnsayoActions.jsx`; agenda: `EnsayoImpactTags.jsx` / `EnsayoConflictoTag.jsx` / `EnsayoTuttiMinusTag.jsx`; Coordinación: `EnsembleCoordinatorView.jsx`, `EnsembleCalendar.jsx`, `EventQuickView.jsx` |
-| Cálculo | `serviciosCantidad.js`, `serviciosEnsayosConflicto.js`, `serviciosEnsambleReport.js`, `serviciosConflictoActions.js` |
+| Cálculo | `serviciosCantidad.js`, `serviciosPcv.js` (giras fuera/casa + PCV), `serviciosEnsayosConflicto.js`, `serviciosEnsambleReport.js`, `serviciosConflictoActions.js`, `viaticosDiasComputables.js` |
 | Hook agenda/coordinación | `src/hooks/useEnsayosConflictoImpact.js` (`fetchConflictoAgendaContext`, Tutti-N serial) |
 | Fetch período / Excel / PDF listado-detalle | `src/services/serviciosCantidadService.js` |
 | PDF informe ensamble | `src/utils/serviciosEnsamblePdf.js` + `src/utils/serviciosPdf.js` (`toServiciosPdfText`) |
@@ -200,6 +205,10 @@ Confirmaciones Portal `z-[110]` sobre el modal `z-[100]`. No hay tabla extra: un
 | Prestaciones/mes (feb–dic, `fecha_alta`) | Completado |
 | Renombre visible Servicios → Prestaciones | Completado (2026-10-17) |
 | Cuadro Todos: giras casa/fuera/total + programas/conciertos; sin prestaciones/netos | Completado (2026-10-17) |
+| Listado integrante: Fuera/En casa + PCV (días viático); Total = ensayos + PCV | Completado (2026-10-19) |
+| Fuera/En casa con (conciertos); Conc.ens. + Prest.conc.; Total += conciertos | Completado (2026-10-19) |
+| Prestaciones: recorte por `eventos_grupos` (FIMBA y giras con grupos) | Completado (2026-10-19) |
+| Prest.conc. contraste rose (legible vs indigo) | Completado (2026-10-19) |
 | PDF A4 vertical + detalle persona + lote | Completado |
 | Recuadro PDF/HTML = resumen del año Giras (`GirasYearSummaryBar`) | Completado |
 | Tipos de programa: todos tildados por defecto | Completado |
@@ -230,7 +239,7 @@ Confirmaciones Portal `z-[110]` sobre el modal `z-[100]`. No hay tabla extra: un
 ## Deuda / abierto
 
 - Ensayo sin horas: no cuenta (¿tratar como &lt;2 h?). Bloques ≤30 min tampoco.
-- `eventos_grupos`: la matriz no recorta; si se quiere paridad agenda, habría que reutilizar el helper de visibilidad de agenda, no uno nuevo.
+- ~~`eventos_grupos`: la matriz no recorta~~ → Prestaciones sí recorta por tags de grupo (2026-10-19).
 - Catálogo del árbol sí pega a la DB al entrar (igual Convocatorias); lo pesado (eventos/nómina) espera la selección.
 - `useGiraRoster` no se usa: el informe es multi-gira, igual que Convocatorias (`resolveGiraRosterForMatrix` por programa).
 - Tipos de ensayo de gira cubiertos: 2 y 3. Otros tipos de categoría Ensayos no entran.
@@ -240,6 +249,8 @@ Confirmaciones Portal `z-[110]` sobre el modal `z-[100]`. No hay tabla extra: un
 - El recuadro de tipos no se repite en páginas de continuación si el detalle de una persona desborda.
 - Totales de Prestaciones/mes no se agregan (cada fila tiene divisor propio).
 - Prestaciones netas y columnas de prestaciones por casa/fuera del cuadro Todos quedan fuera por ahora (pueden volver).
+- PCV del listado usa eventos de transporte a nivel gira (no boarding personal de `useLogistics`); si no hay paradas en el tramo, mediodía. Ideal futuro: misma ventana personal que Viáticos / desdoble guardado en `giras_viaticos_detalle`.
+- Conc./Didác. salieron del listado y del Total; el modal de detalle aún los muestra. «Estimar futuros» sigue metiendo 1 concierto sintético que ya no suma al Total (sí los 7 ensayos de gira).
 - `stripHtml` ahora usa DOMParser en todo el producto (agenda, FIMBA, comidas): más agresivo que el regex viejo; títulos con `<` literales poco frecuentes.
 - El 8 fijo no refleja giras cortas (p. ej. Navidad Coral); solo pisa sinfónicas futuras.
 - El estimado reparte 8 en Conc./≥2h (1+7); no mete bloques de 15/30 min.
