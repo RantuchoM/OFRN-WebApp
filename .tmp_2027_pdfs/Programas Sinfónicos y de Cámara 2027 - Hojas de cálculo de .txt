@@ -1,0 +1,129 @@
+--- page 1 ---
+Column 1
+Column 9
+ECAS
+Cuerdas Val
+Cuerdas Mon
+Maderas
+Bronces
+Percusión
+1 / Full orquesta
+2 / Full orquesta
+4 / Cuerdas (CFMon + cuerdas CFVal)
+6 / Cuerdas (CFMon)
+7 / Full orquesta
+8 / CFMar + CFVal + solistas internos (Mannheim)
+9 / CFMar + CFVal + solistas internos (Mannheim)
+10 / Full orquesta
+11 / Full orquesta
+12 / CFMar + CFVal + solistas internos (Mannheim)
+13 / Full orquesta
+15 / Full Orquesta
+Bariloche - Frutillar (Chile)
+x
+x
+x
+x
+x
+x
+x
+Cipolletti - General Roca 12:00
+x
+x
+x
+x
+x
+x
+x
+Cipolletti, Villa Regina
+x
+x
+x
+x
+x
+x
+x
+x
+x
+x
+x
+x
+x
+x
+x
+x
+x
+x
+x
+x
+x
+x
+x
+x
+x
+x
+x
+x
+x
+x
+x
+x
+x
+x
+x
+x
+x
+x
+3 / Full orquesta
+x
+x
+x
+x
+5 / Vientos y Percusión
+x
+x
+x
+x
+x
+x
+x
+x
+x
+x
+x
+x
+x
+14 / CFMontaña
+x
+x
+x
+16 / CFMontaña
+TOTAL
+11
+12
+12
+12
+12
+14
+Afuera de casa
+9
+8
+8
+9 - 8
+9 - 8
+13
+Villa Regina (Circulo Italiano), Viedma
+(escenario en jardines de economía)
+Bariloche x 2. Sábado 12:00
+Viedma x 2. Sábado 12:00
+El Bolsón x 2. Sábado 12:00
+Choele Choel y SAO
+Viedma x 2. Sábado 12:00
+Cipolletti x 2 sábado 11:00
+Festival Internacional de Música
+Bariloche
+Viedma x 2. Sábado 12:00
+Cipolletti y Regina
+El Bolsón y Ñorquinco
+Bariloche
+Bariloche (Centro Cívico)

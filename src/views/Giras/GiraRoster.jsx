@@ -2426,59 +2426,152 @@ export default function GiraRoster({
     setSearchResults(withFlag);
   };
 
-  const copyGuestLink = async (integrante) => {
-    // 1. Primero verificamos si ya tiene token en la tabla de accesos
-    try {
-      let token = null;
+  const isPlausiblyEmail = (value) =>
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
 
-      // Consultar si existe
-      const { data: existingAccess, error: fetchError } = await supabase
+  /** Obtiene o crea token en giras_accesos y devuelve URL /share/:token. */
+  const ensureGuestAccessUrl = async (integrante, { announceCreate = true } = {}) => {
+    const idLink = integranteIdForDb(integrante.id);
+    if (idLink == null) throw new Error("ID de integrante inválido.");
+
+    const { data: existingAccess, error: fetchError } = await supabase
+      .from("giras_accesos")
+      .select("token")
+      .eq("id_gira", gira.id)
+      .eq("id_integrante", idLink)
+      .maybeSingle();
+    if (fetchError) throw fetchError;
+
+    let token = existingAccess?.token || null;
+    if (!token) {
+      const { data: newAccess, error: insertError } = await supabase
         .from("giras_accesos")
+        .insert({
+          id_gira: gira.id,
+          id_integrante: idLink,
+        })
         .select("token")
-        .eq("id_gira", gira.id)
-        .eq("id_integrante", integrante.id)
-        .maybeSingle();
+        .single();
+      if (insertError) throw insertError;
+      token = newAccess.token;
+      if (announceCreate) toast.success("Enlace generado correctamente");
+    }
+    return {
+      token,
+      url: `${window.location.origin}/share/${token}`,
+    };
+  };
 
-      if (fetchError) throw fetchError;
+  /**
+   * Asegura mail en integrantes. Si falta, pide cargarlo y lo guarda.
+   * @returns {Promise<string|null>} mail usable o null si canceló / inválido
+   */
+  const ensureIntegranteMailForAccess = async (integrante) => {
+    const displayName =
+      seatingApellidoNombre(integrante) || integrante.nombre || "esta persona";
+    let mail = String(integrante.mail || "").trim();
+    if (mail && isPlausiblyEmail(mail)) return mail;
 
-      if (existingAccess) {
-        token = existingAccess.token;
-      } else {
-        // Si no existe, confirmar creación
-        if (
-          !(await confirm({
-            title: "Generar enlace",
-            message: `¿Generar enlace privado para ${integrante.nombre}?`,
-            confirmText: "Generar",
-          }))
-        )
-          return;
+    const entered = window.prompt(
+      mail
+        ? `El email de ${displayName} no parece válido («${mail}»). Ingresá uno correcto para enviar la bienvenida:`
+        : `${displayName} no tiene email cargado. Ingresá uno para enviar el mail de bienvenida:`,
+      mail || "",
+    );
+    if (entered == null) {
+      toast.info("Envío cancelado.");
+      return null;
+    }
+    mail = String(entered).trim();
+    if (!isPlausiblyEmail(mail)) {
+      toast.error("Email inválido.");
+      return null;
+    }
 
-        // Crear nuevo registro en giras_accesos (NO TOCAMOS giras_integrantes)
-        const { data: newAccess, error: insertError } = await supabase
-          .from("giras_accesos")
-          .insert({
-            id_gira: gira.id,
-            id_integrante: integrante.id,
-            // El token se genera automático por default en DB, o lo pasamos aquí si preferimos
-          })
-          .select("token")
-          .single();
+    const idLink = integranteIdForDb(integrante.id);
+    const { error } = await supabase
+      .from("integrantes")
+      .update({ mail })
+      .eq("id", idLink);
+    if (error) throw error;
 
-        if (insertError) throw insertError;
-        token = newAccess.token;
-        toast.success("Enlace generado correctamente");
+    integrante.mail = mail;
+    toast.success(`Email guardado: ${mail}`);
+    refreshRoster();
+    return mail;
+  };
+
+  const sendGuestWelcomeMail = async (integrante, accessUrl) => {
+    const mail = await ensureIntegranteMailForAccess(integrante);
+    if (!mail) return false;
+
+    const nombreCompleto =
+      integrante.nombre_completo || seatingApellidoNombre(integrante);
+    const linkAppGeneral = `${window.location.origin}/login`;
+    const { sent, failed } = await sendConvocatoriaNotificationTasks(
+      supabase,
+      [
+        {
+          variant: "ALTA_ACCESO_PERSONAL",
+          emails: [mail],
+          nombres: [nombreCompleto || integrante.nombre || "Participante"],
+          nombrePrimero: integrante.nombre || "",
+          apellidoPrimero: integrante.apellido || "",
+          linkAccesoPersonal: accessUrl,
+          linkAppGeneral,
+        },
+      ],
+      { gira },
+    );
+    if (failed || !sent) {
+      toast.error("No se pudo enviar el mail de bienvenida.");
+      return false;
+    }
+    toast.success(`Bienvenida enviada a ${mail}`);
+    return true;
+  };
+
+  const copyGuestLink = async (integrante) => {
+    const displayName =
+      seatingApellidoNombre(integrante) || integrante.nombre || "esta persona";
+    const choice = await confirm({
+      title: "Enlace de acceso",
+      message: `Enlace personal a esta gira para ${displayName}. Podés copiarlo y/o enviar el mail de bienvenida (útil si al convocarlos aún no tenían email).`,
+      confirmText: "Copiar enlace",
+      secondaryAction: {
+        label: "Enviar bienvenida",
+        value: "send",
+      },
+      tertiaryAction: {
+        label: "Copiar y enviar",
+        value: "both",
+      },
+    });
+    if (choice === "cancel" || choice === false) return;
+
+    const wantCopy = choice === "confirm" || choice === "both";
+    const wantSend = choice === "send" || choice === "both";
+
+    try {
+      const { url } = await ensureGuestAccessUrl(integrante, {
+        announceCreate: wantCopy || wantSend,
+      });
+
+      if (wantCopy) {
+        try {
+          await navigator.clipboard.writeText(url);
+          toast.success("Enlace copiado");
+        } catch {
+          window.prompt("Copiá este enlace:", url);
+        }
       }
 
-      // 2. Copiar al portapapeles
-      const url = `${window.location.origin}/share/${token}`;
-      navigator.clipboard
-        .writeText(url)
-        .then(() => toast.success(`Enlace copiado`))
-        .catch(() => prompt("Copia este enlace:", url));
+      if (wantSend) {
+        await sendGuestWelcomeMail(integrante, url);
+      }
     } catch (err) {
       console.error(err);
-      toast.error("Error gestionando enlace: " + err.message);
+      toast.error("Error gestionando enlace: " + (err?.message || err));
     }
   };
 

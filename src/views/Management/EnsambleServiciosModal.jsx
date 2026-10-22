@@ -22,6 +22,7 @@ import { downloadEnsambleServiciosPdf } from "../../utils/serviciosEnsamblePdf";
 import { formatTramoShareLabel } from "../../utils/serviciosEnsambleReport";
 import ConflictoEnsayoActions, {
   ConflictoEnsayoLayout,
+  ConflictoEnsayoUndo,
 } from "./ConflictoEnsayoActions";
 import { EnsayoConflictoOverlapTitle } from "../../components/ensayos/EnsayoImpactTags";
 import {
@@ -56,28 +57,30 @@ function ViaBadge({ via, familias, cfNames }) {
   if (via === "ENSAMBLE") {
     return (
       <span className="rounded border border-emerald-200 bg-emerald-50 px-1.5 py-px text-[10px] font-bold text-emerald-800">
-        Ensamble
+        Conv.: Ensamble
       </span>
     );
   }
   if (via === "FAMILIA") {
+    const detail = (familias || []).filter(Boolean).join(", ");
     return (
       <span className="rounded border border-indigo-200 bg-indigo-50 px-1.5 py-px text-[10px] font-bold text-indigo-800">
-        Familia{familias?.length ? ` · ${familias.join(", ")}` : ""}
+        Conv.: {detail || "Familia"}
       </span>
     );
   }
   if (via === "CF") {
+    const detail = (cfNames || []).filter(Boolean).join(", ");
     return (
       <span className="rounded border border-fuchsia-200 bg-fuchsia-50 px-1.5 py-px text-[10px] font-bold text-fuchsia-800">
-        CF{cfNames?.length ? ` · ${cfNames.join(", ")}` : ""}
+        Conv.: {detail || "CF"}
       </span>
     );
   }
   if (via === "EXCL_ENSAMBLE") {
     return (
       <span className="rounded border border-red-200 bg-red-50 px-1.5 py-px text-[10px] font-bold text-red-700 line-through">
-        Excluido
+        Conv.: Excluido
       </span>
     );
   }
@@ -113,11 +116,11 @@ function ProgramRow({
   const serviciosListos = showServicios && row.servicios != null;
   return (
     <div
-      className={`flex items-start justify-between gap-3 px-3 py-2 ${
+      className={`flex flex-col gap-1.5 px-3 py-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3 ${
         bordered ? "border-t border-slate-100 first:border-t-0" : ""
       }`}
     >
-      <div className="min-w-0">
+      <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-baseline gap-x-1.5 text-sm font-medium text-slate-800">
           {showZona && row.zona ? (
             <span className="rounded bg-slate-200/80 px-1.5 py-px text-[10px] font-bold text-slate-700">
@@ -147,12 +150,12 @@ function ProgramRow({
         </div>
       </div>
       {showChips ? (
-        <div className="flex shrink-0 flex-col items-end gap-1">
+        <div className="flex min-w-0 flex-wrap items-center gap-1 sm:shrink-0 sm:flex-col sm:items-end">
           {row.tipo ? (
             <span
               className={`rounded border px-1.5 py-px text-[10px] font-bold ${style.color || "border-slate-200 text-slate-600"}`}
             >
-              {row.tipo}
+              Tipo: {row.tipo}
             </span>
           ) : null}
           <ViaBadge via={row.via} familias={row.familias} cfNames={row.cfNames} />
@@ -199,7 +202,7 @@ function ConflictoEventMeta({ evt, conflicto }) {
   const dur = formatEventDurationLabel(evt);
   const durText = dur && dur !== "—" ? dur : "";
   return (
-    <div className="min-w-[12.5rem]">
+    <div className="min-w-0">
       <div className="text-sm font-medium text-slate-800">
         <span className="whitespace-nowrap">
           {formatDdMmYyyyWeekday(evt.fecha) || evt.fecha}
@@ -226,6 +229,7 @@ function EnsambleConflictoItem({
   ensambles,
   onOpenPeople,
   onChanged,
+  onUndone,
 }) {
   return (
     <li
@@ -255,6 +259,14 @@ function EnsambleConflictoItem({
             supabase={supabase}
             ensambles={ensambles}
             onChanged={onChanged}
+          />
+        }
+        undoAction={
+          <ConflictoEnsayoUndo
+            eventId={event.id}
+            supabase={supabase}
+            resolvedKind={conflicto.resolvedKind}
+            onUndone={onUndone}
           />
         }
       >
@@ -327,6 +339,7 @@ export default function EnsambleServiciosModal({
   ensambles,
   sessionByEventId,
   onSessionResolved,
+  onSessionForgotten,
   onChanged,
   onClose,
 }) {
@@ -397,6 +410,11 @@ export default function EnsambleServiciosModal({
       },
     });
     onChanged?.(kind);
+  };
+
+  const handleRowUndone = (event) => {
+    onSessionForgotten?.(event.id);
+    onChanged?.("undo");
   };
 
   useEffect(() => {
@@ -502,15 +520,18 @@ export default function EnsambleServiciosModal({
                 }
                 empty="Ninguna gira Sinfónico/CF lo convoca en este rango."
               >
-                {report.giras.map((row) => (
-                  <ProgramRow
-                    key={`g-${row.id}`}
-                    row={row}
-                    showServicios
-                    showZona
-                    homeLocalidad={report.ensambleLocalidad}
-                  />
-                ))}
+                <div className="[&>*+*]:mt-1.5 [&>*+*]:border-t [&>*+*]:border-slate-200 [&>*+*]:pt-1.5">
+                  {report.giras.map((row) => (
+                    <ProgramRow
+                      key={`g-${row.id}`}
+                      row={row}
+                      bordered={false}
+                      showServicios
+                      showZona
+                      homeLocalidad={report.ensambleLocalidad}
+                    />
+                  ))}
+                </div>
               </Section>
 
               <Section
@@ -521,28 +542,27 @@ export default function EnsambleServiciosModal({
                 }
                 empty="No hay programas propios ni conciertos vinculados."
               >
-                {report.programasPropios.map((row) => (
-                  <div
-                    key={`p-${row.id}`}
-                    className="border-t border-slate-100 first:border-t-0"
-                  >
-                    <ProgramRow row={row} showChips={false} bordered={false} />
-                    {row.conciertos?.length ? (
-                      <ul className="border-t border-slate-100 bg-slate-50/80 pl-5">
-                        {row.conciertos.map((evt) => (
-                          <ConcertItem key={`c-${evt.id}`} evt={evt} />
-                        ))}
-                      </ul>
-                    ) : null}
-                  </div>
-                ))}
-                {(report.conciertosSueltos || []).length ? (
-                  <ul className="border-t border-slate-100 bg-slate-50/80">
-                    {(report.conciertosSueltos || []).map((evt) => (
-                      <ConcertItem key={`c-${evt.id}`} evt={evt} />
-                    ))}
-                  </ul>
-                ) : null}
+                <div className="[&>*+*]:mt-1.5 [&>*+*]:border-t [&>*+*]:border-slate-200 [&>*+*]:pt-1.5">
+                  {report.programasPropios.map((row) => (
+                    <div key={`p-${row.id}`}>
+                      <ProgramRow row={row} showChips={false} bordered={false} />
+                      {row.conciertos?.length ? (
+                        <ul className="border-t border-slate-100 bg-slate-50/80 pl-5">
+                          {row.conciertos.map((evt) => (
+                            <ConcertItem key={`c-${evt.id}`} evt={evt} />
+                          ))}
+                        </ul>
+                      ) : null}
+                    </div>
+                  ))}
+                  {(report.conciertosSueltos || []).length ? (
+                    <ul className="bg-slate-50/80">
+                      {(report.conciertosSueltos || []).map((evt) => (
+                        <ConcertItem key={`c-${evt.id}`} evt={evt} />
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
               </Section>
 
               <section className="overflow-hidden rounded-lg border border-slate-200">
@@ -578,6 +598,7 @@ export default function EnsambleServiciosModal({
                             onChanged={(kind, extra) =>
                               handleRowChanged(event, conflicto, kind, extra)
                             }
+                            onUndone={() => handleRowUndone(event)}
                           />
                         ))}
                       </ul>
@@ -598,6 +619,7 @@ export default function EnsambleServiciosModal({
                               supabase={supabase}
                               ensambles={ensambles}
                               onOpenPeople={() => setPeopleEnsayo(conflicto)}
+                              onUndone={() => handleRowUndone(event)}
                             />
                           ))}
                         </ul>

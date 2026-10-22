@@ -571,12 +571,13 @@ export default function RosterTableRow({
               <IconPencil size={12} />
             </button>
 
-            {/* Link de acceso */}
+            {/* Link de acceso / mail de bienvenida */}
             <button
               type="button"
               onClick={() => onCopyLink(m)}
               className="w-6 h-6 md:w-7 md:h-7 flex items-center justify-center rounded text-slate-400 hover:text-fixed-indigo-600 hover:bg-white transition-colors"
-              title="Copiar link de acceso"
+              title="Enlace de acceso o mail de bienvenida"
+              aria-label="Enlace de acceso o mail de bienvenida"
             >
               <IconLink size={12} />
             </button>

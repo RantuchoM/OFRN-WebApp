@@ -1,0 +1,46 @@
+[
+  {
+    "conciertos": [
+      {
+        "desc": "Concierto Principal",
+        "fecha": "2027-06-04",
+        "hora": "20:00:00"
+      },
+      {
+        "desc": "Concierto Principal",
+        "fecha": "2027-06-05",
+        "hora": "20:00:00"
+      }
+    ],
+    "fecha_desde": "2027-06-02",
+    "fecha_hasta": "2027-06-05",
+    "id": 207,
+    "localias": "Cipolletti(16) · Villa Regina(60)",
+    "n_tramos": 0,
+    "nombre_gira": "Gala lírica italiana / Strauss",
+    "tramos": null,
+    "zona": "Valle"
+  },
+  {
+    "conciertos": [
+      {
+        "desc": "Concierto Principal",
+        "fecha": "2027-11-05",
+        "hora": "20:00:00"
+      },
+      {
+        "desc": "Concierto Principal",
+        "fecha": "2027-11-06",
+        "hora": "20:00:00"
+      }
+    ],
+    "fecha_desde": "2027-11-03",
+    "fecha_hasta": "2027-11-06",
+    "id": 213,
+    "localias": "Cipolletti(16) · Villa Regina(60)",
+    "n_tramos": 0,
+    "nombre_gira": "Director invitado — Cipolletti y Regina",
+    "tramos": null,
+    "zona": "Valle"
+  }
+]

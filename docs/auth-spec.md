@@ -34,6 +34,7 @@ impersonate(targetUser): Permite a un administrador ver la App como si fuera otr
 - **Contraseña:** no se muestra ni se edita en pantalla. Si no hay `clave_acceso` → **Generar y enviar por mail** (crea clave, la guarda y manda template `acceso_clave` mode `generada`). Si ya hay → **Recuperar por mail** (envía la clave actual, mode `recuperada`). Destino: `integrantes.mail` / email de acceso del formulario.
 - Login directo: `https://ofrn-web-app.vercel.app/login` (email + contraseña) para ver todas las giras en las que está convocado/a.
 - Mail de alta no estable (`convocatoria_gira` / `ALTA_ACCESO_PERSONAL`): explica Mi Perfil + link app general + CTA «Abrir app» al token personal.
+- **Roster → ícono de enlace** (`GiraRoster.copyGuestLink`): diálogo Copiar / Enviar bienvenida / Copiar y enviar. Crea `giras_accesos` si hace falta. Al enviar, exige `integrantes.mail` válido; si falta o es inválido, pide cargarlo (`prompt`), lo guarda y recién manda `ALTA_ACCESO_PERSONAL`.
 
 ---
 

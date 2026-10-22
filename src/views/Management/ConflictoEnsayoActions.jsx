@@ -7,11 +7,14 @@ import {
   IconCheck,
   IconLoader,
   IconTrash,
+  IconUndo,
 } from "../../components/ui/Icons";
 import IndependentRehearsalForm from "../Ensembles/IndependentRehearsalForm";
 import {
+  clearEnsayoPeseConflicto,
   fetchEnsayoForAgendaEdit,
   markEnsayoPeseConflicto,
+  restoreEnsayoEvento,
   softDeleteEnsayoEvento,
 } from "../../utils/serviciosConflictoActions";
 import {
@@ -19,6 +22,11 @@ import {
   CONFLICTO_RESOLVED_LABEL,
   overlappingGirasFromPeople,
 } from "../../utils/serviciosEnsayosConflicto";
+
+const UNDOABLE_KINDS = new Set([
+  CONFLICTO_RESOLVED_KIND.kept,
+  CONFLICTO_RESOLVED_KIND.deleted,
+]);
 
 const RESOLVED_CHIP = {
   [CONFLICTO_RESOLVED_KIND.kept]: {
@@ -36,13 +44,13 @@ const RESOLVED_CHIP = {
   },
 };
 
-/** Nombres de gira/programa: compactos, secundarios, arriba a la derecha. */
+/** Nombres de gira/programa: compactos, secundarios (derecha en desktop). */
 export function ConflictoOverlapNames({ giras, people }) {
   const list = giras?.length ? giras : overlappingGirasFromPeople(people);
   if (!list.length) return null;
   const all = list.map((g) => g.label).filter(Boolean).join(" · ");
   return (
-    <div className="max-w-[14rem] text-right" title={all}>
+    <div className="max-w-full sm:max-w-[14rem] sm:text-right" title={all}>
       {list.map((g, i) => (
         <div
           key={g.id != null ? `g-${g.id}` : `g-${g.label}`}
@@ -76,7 +84,52 @@ export function ConflictoResolvedChip({ kind, justificacion }) {
   );
 }
 
-/** Izquierda = fecha/tipo; derecha = nombres + botones/badge. */
+/** Deshace «Se ensayó igual» o «No se ensayó» si fue un click accidental. */
+export function ConflictoEnsayoUndo({
+  eventId,
+  supabase,
+  resolvedKind,
+  onUndone,
+}) {
+  const [busy, setBusy] = useState(false);
+  if (!UNDOABLE_KINDS.has(resolvedKind)) return null;
+
+  const run = async () => {
+    setBusy(true);
+    try {
+      if (resolvedKind === CONFLICTO_RESOLVED_KIND.kept) {
+        await clearEnsayoPeseConflicto(supabase, eventId);
+      } else {
+        await restoreEnsayoEvento(supabase, eventId);
+      }
+      toast.success("Selección deshecha");
+      onUndone?.();
+    } catch (err) {
+      toast.error(err.message || "No se pudo deshacer");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      disabled={busy}
+      onClick={() => void run()}
+      className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-1.5 py-1 text-[10px] font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+      title="Quitar esta resolución y volver a pendiente"
+    >
+      {busy ? (
+        <IconLoader size={12} className="animate-spin" />
+      ) : (
+        <IconUndo size={12} />
+      )}
+      Deshacer
+    </button>
+  );
+}
+
+/** Meta arriba; nombres + botones abajo en móvil, a la derecha en sm+. */
 export function ConflictoEnsayoLayout({
   children,
   giras,
@@ -85,23 +138,27 @@ export function ConflictoEnsayoLayout({
   justificacion,
   countButton,
   actions,
+  undoAction,
 }) {
   const just = String(justificacion || "").trim();
   return (
-    <div className="flex items-start justify-between gap-3">
+    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
       <div className="min-w-0 flex-1">{children}</div>
-      <div className="flex shrink-0 flex-col items-end gap-1">
+      <div className="flex min-w-0 flex-col gap-1 sm:shrink-0 sm:items-end">
         <ConflictoOverlapNames giras={giras} people={people} />
-        <div className="flex flex-wrap items-center justify-end gap-1">
+        <div className="flex flex-wrap items-center gap-1 sm:justify-end">
           {resolvedKind ? (
-            <ConflictoResolvedChip kind={resolvedKind} justificacion={just} />
+            <>
+              <ConflictoResolvedChip kind={resolvedKind} justificacion={just} />
+              {undoAction}
+            </>
           ) : (
             actions
           )}
           {countButton}
         </div>
         {resolvedKind && just ? (
-          <p className="max-w-[14rem] text-right text-[11px] leading-snug text-slate-600 whitespace-pre-wrap">
+          <p className="max-w-full text-[11px] leading-snug text-slate-600 whitespace-pre-wrap sm:max-w-[14rem] sm:text-right">
             {just}
           </p>
         ) : null}

@@ -96,13 +96,13 @@ function formatPdfDuration(evt) {
 export function ensambleViaPdfLabel(row) {
   if (row?.via === "FAMILIA") {
     const extra = (row.familias || []).filter(Boolean).join(", ");
-    return extra ? `Familia: ${extra}` : "Familia";
+    return `Conv.: ${extra || "Familia"}`;
   }
   if (row?.via === "CF") {
     const extra = (row.cfNames || []).filter(Boolean).join(", ");
-    return extra ? `CF: ${extra}` : "CF";
+    return `Conv.: ${extra || "CF"}`;
   }
-  if (row?.via === "EXCL_ENSAMBLE") return "Excluido";
+  if (row?.via === "EXCL_ENSAMBLE") return "Conv.: Excluido";
   return "";
 }
 
@@ -364,7 +364,7 @@ function drawEnsambleGirasTable(doc, startY, section) {
     body: section.rows.map((row) => [
       toServiciosPdfText(row.label),
       toServiciosPdfText(row.fechas),
-      toServiciosPdfText(row.tipo),
+      toServiciosPdfText(row.tipo ? `Tipo: ${row.tipo}` : ""),
       toServiciosPdfText(row.via),
     ]),
     columnStyles: {

@@ -38,6 +38,8 @@ export async function sendConvocatoriaNotificationTasks(
           detalle: {
             variant: task.variant,
             link_repertorio: taskLink,
+            link_acceso_personal: task.linkAccesoPersonal || undefined,
+            link_app_general: task.linkAppGeneral || undefined,
             nomenclador: taskNomenclador,
             fecha_desde: taskFechaDesde,
             fecha_hasta: taskFechaHasta,

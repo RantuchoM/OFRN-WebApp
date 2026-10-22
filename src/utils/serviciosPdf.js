@@ -20,11 +20,13 @@ export function createServiciosPdfDoc(orientation = "portrait") {
  */
 export function toServiciosPdfText(value, { padHyphen = true } = {}) {
   let text = String(value ?? "")
-    .replace(/→/g, "")
+    .replace(/→|↔|⟶|➡/g, ">")
     .replace(/▸/g, ">")
     .replace(/[►▶•●]/g, "")
+    .replace(/×/g, "x")
     .replace(/[–—]/g, "-")
     .replace(/\u00b7/g, "-")
+    .replace(/…/g, "...")
     .replace(/≥/g, ">=")
     .replace(/≤/g, "<=")
     .replace(/÷/g, "/");

@@ -17,6 +17,18 @@ export async function softDeleteEnsayoEvento(supabase, eventId) {
   notifyEnsayoEventoSoftDeleted(eventId);
 }
 
+/** Revierte «No se ensayó» (papelera Agenda). */
+export async function restoreEnsayoEvento(supabase, eventId) {
+  const { error } = await supabase
+    .from("eventos")
+    .update({
+      is_deleted: false,
+      deleted_at: null,
+    })
+    .eq("id", eventId);
+  if (error) throw error;
+}
+
 export function normalizeEnsayoPeseJustificacion(value) {
   const text = String(value ?? "").trim();
   if (!text) {
@@ -38,6 +50,18 @@ export async function markEnsayoPeseConflicto(
     .update({
       ensayo_pese_conflicto: true,
       ensayo_pese_conflicto_justificacion: text,
+    })
+    .eq("id", eventId);
+  if (error) throw error;
+}
+
+/** Revierte «Se ensayó igual» (flag + justificación). */
+export async function clearEnsayoPeseConflicto(supabase, eventId) {
+  const { error } = await supabase
+    .from("eventos")
+    .update({
+      ensayo_pese_conflicto: false,
+      ensayo_pese_conflicto_justificacion: null,
     })
     .eq("id", eventId);
   if (error) throw error;

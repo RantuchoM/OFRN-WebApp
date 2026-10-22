@@ -95,6 +95,8 @@ function templateEntradasReservaConfirmada(d: {
   fechaTexto: string;
   cantidad: number;
   linkConcierto: string;
+  /** Mis entradas: cancelar o cambiar cantidad. */
+  linkMisEntradas: string;
   qrReservaToken: string;
   qrEntradaTokens: string[];
   programaNombre?: string;
@@ -162,6 +164,11 @@ function templateEntradasReservaConfirmada(d: {
 
   <div style="margin:16px 0;padding:14px 16px;background:#fffbeb;border-left:4px solid #ca8a04;border-radius:8px;font-size:14px;line-height:1.55;color:#422006;">
     ${NOTA_ASISTENCIA_HTML}
+  </div>
+
+  <div style="margin:16px 0;padding:14px 16px;background:#f8fafc;border-left:4px solid #4f46e5;border-radius:8px;font-size:14px;line-height:1.55;color:#1e293b;">
+    <p style="margin:0 0 14px 0;">Podés <strong>cancelar tus entradas en cualquier momento</strong> o <strong>cambiar la cantidad</strong> desde la aplicación.</p>
+    <a href="${esc(d.linkMisEntradas)}" style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:8px;font-weight:700;font-size:14px;">Gestionar mis entradas</a>
   </div>
 
   <p>Adjuntamos un <strong>PDF</strong> con el mismo resumen, el detalle del programa (si aplica), los códigos QR y la misma nota sobre la puntualidad. Podés mostrar en puerta <strong>este correo</strong>, el PDF o los códigos QR de abajo. Cada QR individual sirve para un ingreso; el QR de reserva completa agrupa a todas las entradas pendientes.</p>
@@ -236,6 +243,7 @@ function templateEntradasReservaConfirmadaAdminTercero(d: {
   fechaTexto: string;
   cantidad: number;
   linkConcierto: string;
+  linkMisEntradas: string;
   qrReservaToken: string;
   qrEntradaTokens: string[];
   programaNombre?: string;
@@ -249,6 +257,7 @@ function templateEntradasReservaConfirmadaAdminTercero(d: {
     fechaTexto: d.fechaTexto,
     cantidad: d.cantidad,
     linkConcierto: d.linkConcierto,
+    linkMisEntradas: d.linkMisEntradas,
     qrReservaToken: d.qrReservaToken,
     qrEntradaTokens: d.qrEntradaTokens,
     programaNombre: d.programaNombre,
@@ -480,6 +489,7 @@ serve(async (req) => {
     const fechaHora = fechaHoraDesdeEventoOfrn(concierto?.evento);
     const fechaTexto = formatConciertoFechaHoraMail(fechaHora);
     const linkConcierto = `${appUrl}/entradas?view=catalogo&concierto=${encodeURIComponent(slug)}`;
+    const linkMisEntradas = `${appUrl}/entradas?view=mis-reservas`;
 
     const ep = concierto?.entrada_programa;
     const programaNombre = ep?.nombre ? String(ep.nombre) : "";
@@ -572,6 +582,7 @@ serve(async (req) => {
           fechaTexto,
           cantidad: cantidadNueva,
           linkConcierto,
+          linkMisEntradas,
           qrReservaToken,
           qrEntradaTokens,
           programaNombre,
@@ -597,6 +608,7 @@ serve(async (req) => {
           fechaTexto,
           cantidad: cantidadNueva,
           linkConcierto,
+          linkMisEntradas,
           qrReservaToken,
           qrEntradaTokens,
           programaNombre,

@@ -66,6 +66,7 @@ Migraciones:
 ## Edge
 
 - `entradas-send-reserva-email`: envío múltiple (admin + beneficiario) para reservas con `reservada_por`.
+- [x] Tras la nota de puntualidad, el mail de confirmación/cambio incluye aviso de cancelar o cambiar cantidad + botón «Gestionar mis entradas» (`view=mis-reservas`).
 
 ## Admin — resúmenes de programa (programas actuales)
 

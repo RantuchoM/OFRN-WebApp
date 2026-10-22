@@ -1,0 +1,22 @@
+﻿node.exe : Initialising login role...
+En línea: 1 Carácter: 1
++ & "C:\Program Files\nodejs/node.exe" "C:\Program Files\nodejs/node_mo ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Initialising login role...:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+github.com/supabase/cli/internal/utils/flags/db_url.go:172 (0x7ff6d411a81c)
+github.com/supabase/cli/internal/utils/flags/db_url.go:183 (0x7ff6d411a9b0)
+github.com/supabase/cli/internal/utils/flags/db_url.go:144 (0x7ff6d411a378)
+github.com/supabase/cli/internal/utils/flags/db_url.go:88 (0x7ff6d4119f7c)
+github.com/supabase/cli/cmd/root.go:118 (0x7ff6d57e06cc)
+github.com/spf13/cobra@v1.10.2/command.go:986 (0x7ff6d3646748)
+github.com/spf13/cobra@v1.10.2/command.go:1148 (0x7ff6d3646fd0)
+github.com/supabase/cli/cmd/root.go:173 (0x7ff6d57eac58)
+github.com/supabase/cli/main.go:11 (0x7ff6d57ef64c)
+internal/runtime/atomic/types.go:194 (0x7ff6d3485370)
+runtime/asm_arm64.s:1268 (0x7ff6d34bde44)
+
+failed to initialise login role: Post "https://api.supabase.com/v1/projects/muxrbuivopnawnxlcjxq/cli/login-role": 
+failed to dial native: dial tcp: lookup api.supabase.com: no such host
+Connect to your database by setting the env var correctly: SUPABASE_DB_PASSWORD

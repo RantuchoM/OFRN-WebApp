@@ -1,0 +1,655 @@
+[
+  {
+    "estado": "Borrador",
+    "fecha_desde": "2027-02-17",
+    "fecha_hasta": "2027-02-20",
+    "fuentes": [
+      {
+        "tipo": "FAMILIA",
+        "valor_id": null,
+        "valor_texto": "Cuerdas"
+      },
+      {
+        "tipo": "FAMILIA",
+        "valor_id": null,
+        "valor_texto": "Maderas"
+      },
+      {
+        "tipo": "FAMILIA",
+        "valor_id": null,
+        "valor_texto": "Bronces"
+      },
+      {
+        "tipo": "FAMILIA",
+        "valor_id": null,
+        "valor_texto": "Percusión"
+      },
+      {
+        "tipo": "FAMILIA",
+        "valor_id": null,
+        "valor_texto": "Prod."
+      }
+    ],
+    "id": 201,
+    "localias": [
+      {
+        "id": 5,
+        "localidad": "San Carlos de Bariloche"
+      }
+    ],
+    "nombre_gira": "Apertura de temporada: Mahler y Wagner",
+    "tipo": "Sinfónico",
+    "tramos": [],
+    "zona": "Andina"
+  },
+  {
+    "estado": "Borrador",
+    "fecha_desde": "2027-03-04",
+    "fecha_hasta": "2027-03-07",
+    "fuentes": [
+      {
+        "tipo": "FAMILIA",
+        "valor_id": null,
+        "valor_texto": "Cuerdas"
+      },
+      {
+        "tipo": "FAMILIA",
+        "valor_id": null,
+        "valor_texto": "Maderas"
+      },
+      {
+        "tipo": "FAMILIA",
+        "valor_id": null,
+        "valor_texto": "Bronces"
+      },
+      {
+        "tipo": "FAMILIA",
+        "valor_id": null,
+        "valor_texto": "Percusión"
+      },
+      {
+        "tipo": "FAMILIA",
+        "valor_id": null,
+        "valor_texto": "Prod."
+      }
+    ],
+    "id": 202,
+    "localias": [
+      {
+        "id": 57,
+        "localidad": "Viedma"
+      },
+      {
+        "id": 60,
+        "localidad": "Villa Regina"
+      }
+    ],
+    "nombre_gira": "Beethoven 200 años",
+    "tipo": "Sinfónico",
+    "tramos": [],
+    "zona": "Valle / Atlántica"
+  },
+  {
+    "estado": "Borrador",
+    "fecha_desde": "2027-03-30",
+    "fecha_hasta": "2027-04-02",
+    "fuentes": [
+      {
+        "tipo": "FAMILIA",
+        "valor_id": null,
+        "valor_texto": "Cuerdas"
+      },
+      {
+        "tipo": "FAMILIA",
+        "valor_id": null,
+        "valor_texto": "Maderas"
+      },
+      {
+        "tipo": "FAMILIA",
+        "valor_id": null,
+        "valor_texto": "Bronces"
+      },
+      {
+        "tipo": "FAMILIA",
+        "valor_id": null,
+        "valor_texto": "Percusión"
+      },
+      {
+        "tipo": "FAMILIA",
+        "valor_id": null,
+        "valor_texto": "Prod."
+      }
+    ],
+    "id": 203,
+    "localias": [
+      {
+        "id": 16,
+        "localidad": "Cipolletti"
+      },
+      {
+        "id": 30,
+        "localidad": "General Roca"
+      }
+    ],
+    "nombre_gira": "Directora mujer: Andrea Vela / Cinthia Aliretti",
+    "tipo": "Sinfónico",
+    "tramos": [],
+    "zona": "Valle"
+  },
+  {
+    "estado": "Borrador",
+    "fecha_desde": "2027-04-21",
+    "fecha_hasta": "2027-04-24",
+    "fuentes": [
+      {
+        "tipo": "ENSAMBLE",
+        "valor_id": 583032,
+        "valor_texto": null
+      },
+      {
+        "tipo": "ENSAMBLE",
+        "valor_id": 4,
+        "valor_texto": null
+      },
+      {
+        "tipo": "ENSAMBLE",
+        "valor_id": 34640,
+        "valor_texto": null
+      },
+      {
+        "tipo": "ENSAMBLE",
+        "valor_id": 7,
+        "valor_texto": null
+      }
+    ],
+    "id": 204,
+    "localias": [
+      {
+        "id": 5,
+        "localidad": "San Carlos de Bariloche"
+      }
+    ],
+    "nombre_gira": "Rusia",
+    "tipo": "Camerata Filarmónica",
+    "tramos": [],
+    "zona": "Andina"
+  },
+  {
+    "estado": "Borrador",
+    "fecha_desde": "2027-05-05",
+    "fecha_hasta": "2027-05-08",
+    "fuentes": [
+      {
+        "tipo": "FAMILIA",
+        "valor_id": null,
+        "valor_texto": "Maderas"
+      },
+      {
+        "tipo": "FAMILIA",
+        "valor_id": null,
+        "valor_texto": "Bronces"
+      },
+      {
+        "tipo": "FAMILIA",
+        "valor_id": null,
+        "valor_texto": "Percusión"
+      },
+      {
+        "tipo": "FAMILIA",
+        "valor_id": null,
+        "valor_texto": "Prod."
+      }
+    ],
+    "id": 205,
+    "localias": [
+      {
+        "id": 57,
+        "localidad": "Viedma"
+      }
+    ],
+    "nombre_gira": "B y W.",
+    "tipo": "Camerata Filarmónica",
+    "tramos": [],
+    "zona": "Atlántica"
+  },
+  {
+    "estado": "Borrador",
+    "fecha_desde": "2027-05-19",
+    "fecha_hasta": "2027-05-22",
+    "fuentes": [
+      {
+        "tipo": "ENSAMBLE",
+        "valor_id": 583032,
+        "valor_texto": null
+      }
+    ],
+    "id": 206,
+    "localias": [
+      {
+        "id": 23,
+        "localidad": "El Bolsón"
+      }
+    ],
+    "nombre_gira": "Cuerdas CFMon",
+    "tipo": "Camerata Filarmónica",
+    "tramos": [],
+    "zona": "Andina"
+  },
+  {
+    "estado": "Borrador",
+    "fecha_desde": "2027-06-02",
+    "fecha_hasta": "2027-06-05",
+    "fuentes": [
+      {
+        "tipo": "FAMILIA",
+        "valor_id": null,
+        "valor_texto": "Cuerdas"
+      },
+      {
+        "tipo": "FAMILIA",
+        "valor_id": null,
+        "valor_texto": "Maderas"
+      },
+      {
+        "tipo": "FAMILIA",
+        "valor_id": null,
+        "valor_texto": "Bronces"
+      },
+      {
+        "tipo": "FAMILIA",
+        "valor_id": null,
+        "valor_texto": "Percusión"
+      },
+      {
+        "tipo": "FAMILIA",
+        "valor_id": null,
+        "valor_texto": "Prod."
+      }
+    ],
+    "id": 207,
+    "localias": [
+      {
+        "id": 16,
+        "localidad": "Cipolletti"
+      },
+      {
+        "id": 60,
+        "localidad": "Villa Regina"
+      }
+    ],
+    "nombre_gira": "Gala lírica italiana / Strauss",
+    "tipo": "Sinfónico",
+    "tramos": [
+      {
+        "fecha_desde": "2027-06-02",
+        "fecha_hasta": "2027-06-05",
+        "indice": 0,
+        "localidad_ids": [
+          16
+        ]
+      },
+      {
+        "fecha_desde": "2027-06-05",
+        "fecha_hasta": "2027-06-05",
+        "indice": 1,
+        "localidad_ids": [
+          60
+        ]
+      }
+    ],
+    "zona": "Valle"
+  },
+  {
+    "estado": "Borrador",
+    "fecha_desde": "2027-07-07",
+    "fecha_hasta": "2027-07-10",
+    "fuentes": [
+      {
+        "tipo": "ENSAMBLE",
+        "valor_id": 226257,
+        "valor_texto": null
+      },
+      {
+        "tipo": "ENSAMBLE",
+        "valor_id": 195467,
+        "valor_texto": null
+      }
+    ],
+    "id": 208,
+    "localias": [
+      {
+        "id": 14,
+        "localidad": "Choele Choel"
+      },
+      {
+        "id": 51,
+        "localidad": "San Antonio Oeste"
+      }
+    ],
+    "nombre_gira": "Mannheim — Choele Choel y SAO",
+    "tipo": "Camerata Filarmónica",
+    "tramos": [],
+    "zona": "Valle"
+  },
+  {
+    "estado": "Borrador",
+    "fecha_desde": "2027-08-04",
+    "fecha_hasta": "2027-08-07",
+    "fuentes": [
+      {
+        "tipo": "ENSAMBLE",
+        "valor_id": 226257,
+        "valor_texto": null
+      },
+      {
+        "tipo": "ENSAMBLE",
+        "valor_id": 195467,
+        "valor_texto": null
+      }
+    ],
+    "id": 209,
+    "localias": [
+      {
+        "id": 57,
+        "localidad": "Viedma"
+      }
+    ],
+    "nombre_gira": "Mannheim — Viedma (agosto)",
+    "tipo": "Camerata Filarmónica",
+    "tramos": [],
+    "zona": "Atlántica"
+  },
+  {
+    "estado": "Borrador",
+    "fecha_desde": "2027-08-18",
+    "fecha_hasta": "2027-08-21",
+    "fuentes": [
+      {
+        "tipo": "FAMILIA",
+        "valor_id": null,
+        "valor_texto": "Cuerdas"
+      },
+      {
+        "tipo": "FAMILIA",
+        "valor_id": null,
+        "valor_texto": "Maderas"
+      },
+      {
+        "tipo": "FAMILIA",
+        "valor_id": null,
+        "valor_texto": "Bronces"
+      },
+      {
+        "tipo": "FAMILIA",
+        "valor_id": null,
+        "valor_texto": "Percusión"
+      },
+      {
+        "tipo": "FAMILIA",
+        "valor_id": null,
+        "valor_texto": "Prod."
+      }
+    ],
+    "id": 210,
+    "localias": [
+      {
+        "id": 16,
+        "localidad": "Cipolletti"
+      }
+    ],
+    "nombre_gira": "Beethoven 200 años x 3",
+    "tipo": "Sinfónico",
+    "tramos": [],
+    "zona": "Valle"
+  },
+  {
+    "estado": "Borrador",
+    "fecha_desde": "2027-09-15",
+    "fecha_hasta": "2027-09-19",
+    "fuentes": [
+      {
+        "tipo": "FAMILIA",
+        "valor_id": null,
+        "valor_texto": "Cuerdas"
+      },
+      {
+        "tipo": "FAMILIA",
+        "valor_id": null,
+        "valor_texto": "Maderas"
+      },
+      {
+        "tipo": "FAMILIA",
+        "valor_id": null,
+        "valor_texto": "Bronces"
+      },
+      {
+        "tipo": "FAMILIA",
+        "valor_id": null,
+        "valor_texto": "Percusión"
+      },
+      {
+        "tipo": "FAMILIA",
+        "valor_id": null,
+        "valor_texto": "Prod."
+      }
+    ],
+    "id": 211,
+    "localias": [
+      {
+        "id": 5,
+        "localidad": "San Carlos de Bariloche"
+      }
+    ],
+    "nombre_gira": "FIMBA 2027",
+    "tipo": "Sinfónico",
+    "tramos": [],
+    "zona": "Andina"
+  },
+  {
+    "estado": "Borrador",
+    "fecha_desde": "2027-10-21",
+    "fecha_hasta": "2027-10-23",
+    "fuentes": [
+      {
+        "tipo": "ENSAMBLE",
+        "valor_id": 226257,
+        "valor_texto": null
+      },
+      {
+        "tipo": "ENSAMBLE",
+        "valor_id": 195467,
+        "valor_texto": null
+      }
+    ],
+    "id": 212,
+    "localias": [
+      {
+        "id": 57,
+        "localidad": "Viedma"
+      }
+    ],
+    "nombre_gira": "Mannheim — Viedma (octubre)",
+    "tipo": "Camerata Filarmónica",
+    "tramos": [],
+    "zona": "Atlántica"
+  },
+  {
+    "estado": "Borrador",
+    "fecha_desde": "2027-11-03",
+    "fecha_hasta": "2027-11-06",
+    "fuentes": [
+      {
+        "tipo": "FAMILIA",
+        "valor_id": null,
+        "valor_texto": "Cuerdas"
+      },
+      {
+        "tipo": "FAMILIA",
+        "valor_id": null,
+        "valor_texto": "Maderas"
+      },
+      {
+        "tipo": "FAMILIA",
+        "valor_id": null,
+        "valor_texto": "Bronces"
+      },
+      {
+        "tipo": "FAMILIA",
+        "valor_id": null,
+        "valor_texto": "Percusión"
+      },
+      {
+        "tipo": "FAMILIA",
+        "valor_id": null,
+        "valor_texto": "Prod."
+      }
+    ],
+    "id": 213,
+    "localias": [
+      {
+        "id": 16,
+        "localidad": "Cipolletti"
+      },
+      {
+        "id": 60,
+        "localidad": "Villa Regina"
+      }
+    ],
+    "nombre_gira": "Director invitado — Cipolletti y Regina",
+    "tipo": "Sinfónico",
+    "tramos": [
+      {
+        "fecha_desde": "2027-11-03",
+        "fecha_hasta": "2027-11-06",
+        "indice": 0,
+        "localidad_ids": [
+          16
+        ]
+      },
+      {
+        "fecha_desde": "2027-11-06",
+        "fecha_hasta": "2027-11-06",
+        "indice": 1,
+        "localidad_ids": [
+          60
+        ]
+      }
+    ],
+    "zona": "Valle"
+  },
+  {
+    "estado": "Borrador",
+    "fecha_desde": "2027-11-12",
+    "fecha_hasta": "2027-11-15",
+    "fuentes": [
+      {
+        "tipo": "ENSAMBLE",
+        "valor_id": 583032,
+        "valor_texto": null
+      },
+      {
+        "tipo": "FAMILIA",
+        "valor_id": null,
+        "valor_texto": "Percusión"
+      }
+    ],
+    "id": 214,
+    "localias": [
+      {
+        "id": 23,
+        "localidad": "El Bolsón"
+      },
+      {
+        "id": 46,
+        "localidad": "Ñorquinco"
+      }
+    ],
+    "nombre_gira": "Obras Juan Falú",
+    "tipo": "Camerata Filarmónica",
+    "tramos": [
+      {
+        "fecha_desde": "2027-11-12",
+        "fecha_hasta": "2027-11-15",
+        "indice": 0,
+        "localidad_ids": [
+          23
+        ]
+      },
+      {
+        "fecha_desde": "2027-11-15",
+        "fecha_hasta": "2027-11-15",
+        "indice": 1,
+        "localidad_ids": [
+          46
+        ]
+      }
+    ],
+    "zona": "Andina"
+  },
+  {
+    "estado": "Borrador",
+    "fecha_desde": "2027-12-01",
+    "fecha_hasta": "2027-12-04",
+    "fuentes": [
+      {
+        "tipo": "FAMILIA",
+        "valor_id": null,
+        "valor_texto": "Cuerdas"
+      },
+      {
+        "tipo": "FAMILIA",
+        "valor_id": null,
+        "valor_texto": "Maderas"
+      },
+      {
+        "tipo": "FAMILIA",
+        "valor_id": null,
+        "valor_texto": "Bronces"
+      },
+      {
+        "tipo": "FAMILIA",
+        "valor_id": null,
+        "valor_texto": "Percusión"
+      },
+      {
+        "tipo": "FAMILIA",
+        "valor_id": null,
+        "valor_texto": "Prod."
+      }
+    ],
+    "id": 215,
+    "localias": [
+      {
+        "id": 5,
+        "localidad": "San Carlos de Bariloche"
+      }
+    ],
+    "nombre_gira": "Linues Lerner",
+    "tipo": "Sinfónico",
+    "tramos": [],
+    "zona": "Andina"
+  },
+  {
+    "estado": "Borrador",
+    "fecha_desde": "2027-12-06",
+    "fecha_hasta": "2027-12-08",
+    "fuentes": [
+      {
+        "tipo": "ENSAMBLE",
+        "valor_id": 583032,
+        "valor_texto": null
+      }
+    ],
+    "id": 216,
+    "localias": [
+      {
+        "id": 5,
+        "localidad": "San Carlos de Bariloche"
+      }
+    ],
+    "nombre_gira": "Sinfónico-Coral",
+    "tipo": "Camerata Filarmónica",
+    "tramos": [],
+    "zona": "Andina"
+  }
+]

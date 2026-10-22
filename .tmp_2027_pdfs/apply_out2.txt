@@ -1,0 +1,26 @@
+﻿Wrote C:\Proyectos\OFRN-WebApp\supabase\seed_giras_2027_sinf_cf.sql
+node : Initialising login role...
+En C:\Users\marti\AppData\Local\Temp\ps-script-3233d812-cb72-416b-900a-af9aed69190f.ps1: 90 Carácter: 1
++ node scripts/apply-giras-2027.mjs 2>&1 | Out-File -Encoding utf8 .tmp ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Initialising login role...:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+github.com/supabase/cli/internal/db/query/query.go:91 (0x7ff6eac3eb5c)
+github.com/supabase/cli/cmd/db.go:312 (0x7ff6ebfead74)
+github.com/spf13/cobra@v1.10.2/command.go:1015 (0x7ff6e9e56854)
+github.com/spf13/cobra@v1.10.2/command.go:1148 (0x7ff6e9e56fd0)
+github.com/supabase/cli/cmd/root.go:173 (0x7ff6ebffac58)
+github.com/supabase/cli/main.go:11 (0x7ff6ebfff64c)
+internal/runtime/atomic/types.go:194 (0x7ff6e9c95370)
+runtime/asm_arm64.s:1268 (0x7ff6e9ccde44)
+
+unexpected status 400: {"message":"Failed to run sql query: ERROR:  23505: duplicate key value violates unique 
+constraint \"giras_nombre_gira_key\"\nDETAIL:  Key (nombre_gira)=(FIMBA) already exists.\nCONTEXT:  SQL statement 
+\"INSERT INTO public.programas (\n    nombre_gira, fecha_desde, fecha_hasta, tipo, zona, estado, subtitulo\n  ) VALUES 
+(\n    'FIMBA',\n    '2027-09-15'::date,\n    '2027-09-19'::date,\n    'Sinfónico'::tipo_programa,\n    'Andina',\n    
+'Borrador'::estado_gira,\n    '[seed:giras2027-sinf-cf]'\n  ) RETURNING id\"\nPL/pgSQL function inline_code_block line 
+529 at SQL statement\n"}
+Try rerunning the command with --debug to troubleshoot the error.
+
+apply failed 1

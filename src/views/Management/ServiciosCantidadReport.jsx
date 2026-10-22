@@ -997,6 +997,17 @@ export default function ServiciosCantidadReport({ supabase }) {
     }));
   }, []);
 
+  const forgetConflictoResolved = useCallback((eventId) => {
+    if (eventId == null) return;
+    const key = String(eventId);
+    setConflictoSessionByEventId((prev) => {
+      if (!prev[key]) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  }, []);
+
   useEffect(() => {
     setConflictoSessionByEventId({});
   }, [fechaDesde, fechaHasta]);
@@ -2760,6 +2771,7 @@ export default function ServiciosCantidadReport({ supabase }) {
           ensambles={ensambles}
           sessionByEventId={conflictoSessionByEventId}
           onSessionResolved={rememberConflictoResolved}
+          onSessionForgotten={forgetConflictoResolved}
           onChanged={() => setConflictoTick((n) => n + 1)}
           onClose={() => setConflictoOpen(false)}
         />
@@ -2776,6 +2788,7 @@ export default function ServiciosCantidadReport({ supabase }) {
           ensambles={ensambles}
           sessionByEventId={conflictoSessionByEventId}
           onSessionResolved={rememberConflictoResolved}
+          onSessionForgotten={forgetConflictoResolved}
           onChanged={() => setReportTick((n) => n + 1)}
           onClose={() => {
             setReportEnsambleId(null);

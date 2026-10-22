@@ -29,6 +29,7 @@
 - [x] UI: icono papelera abre modal unificado `EntradasAdminBajaModal` (programa y concierto): suspender, cancelar reservas (+ mail), reactivar o eliminar definitivamente
 - [x] Edge Function `entradas-send-cancelacion` (plantilla en `entradasCronMailTemplates.ts`)
 - [x] Enlace «Mis entradas» en mails (cancelación / recordatorio / prueba): `https://ofrn-web-app.vercel.app/entradas?view=mis-reservas` (`ENTRADAS_PUBLIC_URL` o ese fallback; helper `linkEntradasMisReservas`)
+- [x] Mail de confirmación / cambio de cantidad (`entradas-send-reserva-email`): tras la nota de puntualidad (10 min), bloque con aviso de que se puede **cancelar en cualquier momento** o **cambiar la cantidad** desde la app, y botón CTA «Gestionar mis entradas» → `…/entradas?view=mis-reservas`
 
 ## Reactivar programa
 

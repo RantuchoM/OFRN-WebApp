@@ -1,0 +1,19 @@
+﻿node.exe : Initialising login role...
+En línea: 1 Carácter: 1
++ & "C:\Program Files\nodejs/node.exe" "C:\Program Files\nodejs/node_mo ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Initialising login role...:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+github.com/supabase/cli/internal/db/query/query.go:91 (0x7ff74fe7eb5c)
+github.com/supabase/cli/cmd/db.go:312 (0x7ff75122ad74)
+github.com/spf13/cobra@v1.10.2/command.go:1015 (0x7ff74f096854)
+github.com/spf13/cobra@v1.10.2/command.go:1148 (0x7ff74f096fd0)
+github.com/supabase/cli/cmd/root.go:173 (0x7ff75123ac58)
+github.com/supabase/cli/main.go:11 (0x7ff75123f64c)
+internal/runtime/atomic/types.go:194 (0x7ff74eed5370)
+runtime/asm_arm64.s:1268 (0x7ff74ef0de44)
+
+unexpected status 400: {"message":"Failed to run sql query: ERROR:  42703: column e.id_programa does not exist\nLINE 
+10:    where e.id_programa = p.id) as evs,\n                  ^\n"}
+Try rerunning the command with --debug to troubleshoot the error.

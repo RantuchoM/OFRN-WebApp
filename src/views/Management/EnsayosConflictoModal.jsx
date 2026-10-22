@@ -15,6 +15,7 @@ import {
 } from "../../utils/serviciosEnsayosConflicto";
 import ConflictoEnsayoActions, {
   ConflictoEnsayoLayout,
+  ConflictoEnsayoUndo,
 } from "./ConflictoEnsayoActions";
 import { EnsayoConflictoOverlapTitle } from "../../components/ensayos/EnsayoImpactTags";
 
@@ -124,7 +125,7 @@ function ConflictoPeopleModal({ ensayo, ensambleName, onClose }) {
 function EnsayoLeft({ ensayo }) {
   const dur = durationLabel(ensayo);
   return (
-    <div className="min-w-[12.5rem]">
+    <div className="min-w-0">
       <div className="text-sm font-medium text-slate-800">
         <span className="whitespace-nowrap">
           {formatDdMmYyyyWeekday(ensayo.fecha) || ensayo.fecha}
@@ -148,6 +149,7 @@ function ConflictoEnsayoListItem({
   ensambles,
   onOpenPeople,
   onChanged,
+  onUndone,
 }) {
   return (
     <li
@@ -179,6 +181,14 @@ function ConflictoEnsayoListItem({
             onChanged={onChanged}
           />
         }
+        undoAction={
+          <ConflictoEnsayoUndo
+            eventId={ensayo.eventId}
+            supabase={supabase}
+            resolvedKind={ensayo.resolvedKind}
+            onUndone={onUndone}
+          />
+        }
       >
         <EnsayoLeft ensayo={ensayo} />
       </ConflictoEnsayoLayout>
@@ -196,6 +206,7 @@ export default function EnsayosConflictoModal({
   ensambles,
   sessionByEventId,
   onSessionResolved,
+  onSessionForgotten,
   onChanged,
   onClose,
 }) {
@@ -227,6 +238,11 @@ export default function EnsayosConflictoModal({
       ensayo: { ...ensayo, resolvedKind: kind, justificacion },
     });
     onChanged?.(kind);
+  };
+
+  const handleRowUndone = (ensayo) => {
+    onSessionForgotten?.(ensayo.eventId);
+    onChanged?.("undo");
   };
 
   useEffect(() => {
@@ -335,6 +351,7 @@ export default function EnsayosConflictoModal({
                           onChanged={(kind, extra) =>
                             handleRowChanged(group, ensayo, kind, extra)
                           }
+                          onUndone={() => handleRowUndone(ensayo)}
                         />
                       ))}
                     </ul>
@@ -356,6 +373,7 @@ export default function EnsayosConflictoModal({
                                   ensambleName: group.ensambleName,
                                 })
                               }
+                              onUndone={() => handleRowUndone(ensayo)}
                             />
                           ))}
                         </ul>
