@@ -18,8 +18,8 @@ export function buildEntradasAyudaMailtoHref({
   subject = ENTRADAS_AYUDA_SUBJECT,
   body = ENTRADAS_AYUDA_BODY,
 } = {}) {
-  // %2B evita que algunos clientes interpreten el + del alias como espacio.
+  // %2B en el alias; encodeURIComponent (no URLSearchParams) para que los espacios
+  // del cuerpo/asunto sean %20 y no "+" (algunos clientes muestran "Nombre+completo").
   const mailbox = String(email || "").replace(/\+/g, "%2B");
-  const qs = new URLSearchParams({ subject, body });
-  return `mailto:${mailbox}?${qs.toString()}`;
+  return `mailto:${mailbox}?subject=${encodeURIComponent(String(subject || ""))}&body=${encodeURIComponent(String(body || ""))}`;
 }
