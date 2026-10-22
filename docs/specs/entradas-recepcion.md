@@ -3,7 +3,7 @@
 ## Acceso público (contraseña o enlace)
 
 - Spec de login: `docs/specs/entradas-acceso.md`.
-- Edge Function `entradas-auth-email`: en **Entradas** se envía un enlace directo (sin código de 8 dígitos). OTP numérico queda para SCRN / viáticos.
+- Edge Function `entradas-auth-email`: **Sacar entradas** entra con mail (código de 8 dígitos solo si el mail es nuevo). **Gestionar** sigue con código + enlace o contraseña. SCRN / viáticos siguen con OTP.
 - Contraseña opcional; restauración por el mismo enlace (`purpose=reset`).
 - [x] Errores de red / timeout al invocar la función se muestran en español claro («revisá tu conexión e intentá de nuevo»), no el mensaje técnico de Supabase.
 - Mensajes del servidor (cooldown 60s, límite por hora, enlace inválido, etc.) se conservan tal cual.

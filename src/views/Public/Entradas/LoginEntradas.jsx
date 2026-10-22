@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { ENTRADAS_LOGO_URL, entradasUi, useEntradasDarkMode } from "../../../hooks/useEntradasDarkMode";
-import { IconEye, IconEyeOff } from "../../../components/ui/Icons";
+import { IconArrowLeft, IconEye, IconEyeOff } from "../../../components/ui/Icons";
 import EntradasSetPasswordForm from "../../../components/entradas/EntradasSetPasswordForm";
 import EntradasLoginCatalogPreview from "../../../components/entradas/EntradasLoginCatalogPreview";
 import {
@@ -42,6 +42,7 @@ export default function LoginEntradas({
   onSkipPassword,
   passwordPrompt = null,
   bootError = "",
+  onBack = null,
 }) {
   const { isDark } = useEntradasDarkMode();
   const ui = entradasUi(isDark);
@@ -239,8 +240,20 @@ export default function LoginEntradas({
   return (
     <div className={`${ui.page} flex flex-col items-center justify-start px-4 py-8 gap-8`}>
       <div className={`w-full max-w-md ${ui.section} p-6 sm:p-8 space-y-5 entradas-card-lift`}>
+        {onBack && !user && (
+          <button
+            type="button"
+            onClick={onBack}
+            className={`inline-flex items-center gap-1 text-sm font-semibold ${ui.textSoft}`}
+          >
+            <IconArrowLeft size={16} />
+            Volver
+          </button>
+        )}
         <div className="text-center space-y-3">
-          <h1 className={`${ui.title} text-2xl sm:text-3xl uppercase`}>Entradas</h1>
+          <h1 className={`${ui.title} text-2xl sm:text-3xl uppercase`}>
+            {!user && onBack ? "Gestionar mis entradas" : "Entradas"}
+          </h1>
           <div className={`${ui.logoWrap} mx-auto w-fit`}>
             <img
               src={ENTRADAS_LOGO_URL}
