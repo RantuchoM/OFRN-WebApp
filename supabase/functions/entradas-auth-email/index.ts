@@ -407,10 +407,109 @@ async function issueSessionPayload(
   return completeEmailAuth(admin, email);
 }
 
+function namesFromTicketEmail(email: string): { nombre: string; apellido: string } {
+  const local = email.split("@")[0] || "";
+  const parts = local
+    .split(/[._+-]+/)
+    .map((part) => part.replace(/\d+/g, ""))
+    .filter((part) => part.length > 1);
+  const cap = (value: string) => value.charAt(0).toUpperCase() + value.slice(1).toLowerCase();
+  if (parts.length >= 2) {
+    return { nombre: cap(parts[0]), apellido: parts.slice(1).map(cap).join(" ") };
+  }
+  if (parts.length === 1) return { nombre: cap(parts[0]), apellido: "—" };
+  return { nombre: "Invitado", apellido: "—" };
+}
+
+/** Mail ya usado en Entradas, o de un integrante OFRN. */
+async function isKnownTicketEmail(admin: AdminClient, email: string): Promise<boolean> {
+  const { data: usuarios, error: usuarioErr } = await admin
+    .from("entrada_usuario")
+    .select("id")
+    .ilike("email", email)
+    .limit(1);
+  throwDbError(usuarioErr, "buscar mail en entrada_usuario");
+  if ((usuarios || []).length > 0) return true;
+
+  const { data: mapped, error: mappedErr } = await admin
+    .from("entrada_auth_email_user")
+    .select("user_id")
+    .eq("email", email)
+    .limit(1);
+  throwDbError(mappedErr, "buscar mail en entrada_auth_email_user");
+  if ((mapped || []).length > 0) return true;
+
+  const integrante = await lookupOfrnIntegranteForEntradas(admin, email);
+  return Boolean(integrante);
+}
+
+/** Perfil mínimo para reservar sin pedir nombre, si todavía no hay fila. */
+async function ensureTicketProfile(admin: AdminClient, email: string): Promise<void> {
+  const { data: mapped, error: mappedErr } = await admin
+    .from("entrada_auth_email_user")
+    .select("user_id")
+    .eq("email", email)
+    .maybeSingle();
+  throwDbError(mappedErr, "entrada_auth_email_user");
+  const userId = mapped?.user_id ? String(mapped.user_id) : "";
+  if (!userId) return;
+
+  const { data: existing, error: existingErr } = await admin
+    .from("entrada_usuario")
+    .select("id")
+    .eq("id", userId)
+    .maybeSingle();
+  throwDbError(existingErr, "leer perfil para sacar entradas");
+  if (existing?.id) return;
+
+  const integrante = await lookupOfrnIntegranteForEntradas(admin, email);
+  const fromMail = namesFromTicketEmail(email);
+  const nombre = String(integrante?.nombre || "").trim() || fromMail.nombre;
+  const apellido = String(integrante?.apellido || "").trim() || fromMail.apellido;
+  const { error: insertErr } = await admin.from("entrada_usuario").insert({
+    id: userId,
+    email,
+    nombre,
+    apellido,
+    rol: email === "ofrn.archivo@gmail.com" ? "admin" : "personal",
+    activo: true,
+  });
+  throwDbError(insertErr, "crear perfil para sacar entradas");
+}
+
+function buildTicketCodeHtml({ code }: { code: string }) {
+  const safeCode = escHtml(code);
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>
+    body { font-family: Helvetica, Arial, sans-serif; color: #334155; line-height: 1.5; }
+    .box { border-left: 4px solid #2563eb; background: #eff6ff; padding: 16px; border-radius: 6px; }
+    .code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 30px; font-weight: 700; letter-spacing: 0.2em; color: #0f172a;
+      user-select: all; -webkit-user-select: all;
+    }
+  </style>
+</head>
+<body>
+  <p>Hola,</p>
+  <p>Este código es para confirmar tu mail y <strong>sacar entradas</strong>. Solo hace falta esta vez:</p>
+  <div class="box">
+    <div class="code">${safeCode}</div>
+    <p style="margin: 8px 0 0 0; font-size: 12px; color: #64748b;">Vence en ${OTP_TTL_MINUTES} minutos.</p>
+  </div>
+  <p style="font-size: 12px; color: #64748b;">Si no pediste este código, podés ignorar este mensaje.</p>
+</body>
+</html>`;
+}
+
 async function assertLinkRateLimit(
   admin: AdminClient,
   email: string,
   ip: string,
+  what: "enlace" | "código" = "enlace",
 ): Promise<Response | null> {
   const oneMinuteAgo = new Date(Date.now() - OTP_COOLDOWN_SECONDS * 1000).toISOString();
   const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
@@ -424,7 +523,7 @@ async function assertLinkRateLimit(
   throwDbError(cooldownErr, "cooldown otp");
   if ((cooldownRows || []).length > 0) {
     return new Response(
-      JSON.stringify({ error: `Esperá ${OTP_COOLDOWN_SECONDS}s antes de pedir otro enlace.` }),
+      JSON.stringify({ error: `Esperá ${OTP_COOLDOWN_SECONDS}s antes de pedir otro ${what}.` }),
       { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }
@@ -515,6 +614,60 @@ serve(async (req) => {
       }
       const hasPassword = await resolveHasPassword(admin, email);
       return new Response(JSON.stringify({ success: true, has_password: hasPassword }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "start_ticket_by_email") {
+      if (!isValidEmail(email)) {
+        return new Response(JSON.stringify({ error: "Email inválido." }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const known = await isKnownTicketEmail(admin, email);
+      if (known) {
+        const authPayload = await issueSessionPayload(admin, email);
+        try {
+          await ensureTicketProfile(admin, email);
+        } catch (profileErr) {
+          console.error("[entradas-auth-email] perfil ticket:", formatError(profileErr));
+        }
+        return new Response(JSON.stringify({ success: true, status: "known", purpose: "access", ...authPayload }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      if (!GMAIL_USER || !GMAIL_PASS) {
+        throw new Error("Falta ENTRADAS_GMAIL_USER/ENTRADAS_GMAIL_PASS o GMAIL_USER/GMAIL_PASS.");
+      }
+      const limited = await assertLinkRateLimit(admin, email, ip, "código");
+      if (limited) return limited;
+
+      const otp = randomCode8Digits();
+      const otpHash = await sha256Hex(`${otp}:${OTP_PEPPER}`);
+      const expiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000).toISOString();
+      const { error: insertErr } = await admin.from("entrada_auth_email_otp").insert({
+        email,
+        code_hash: otpHash,
+        purpose: "access",
+        expires_at: expiresAt,
+        requested_ip: ip,
+        user_agent: userAgent,
+      });
+      throwDbError(insertErr, "guardar código para sacar entradas");
+
+      await sendAuthMail({
+        fromLabel: "Entradas OFRN",
+        subject: "Tu código para sacar entradas - Entradas OFRN",
+        email,
+        html: buildTicketCodeHtml({ code: otp }),
+      });
+
+      return new Response(JSON.stringify({ success: true, status: "code_sent", cooldownSeconds: OTP_COOLDOWN_SECONDS }), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -774,6 +927,13 @@ serve(async (req) => {
       await admin.from("entrada_auth_email_otp").update({ consumed_at: new Date().toISOString() }).eq("id", otpRow.id);
 
       const authPayload = await issueSessionPayload(admin, email);
+      if (body?.ticket === true && app === "entradas") {
+        try {
+          await ensureTicketProfile(admin, email);
+        } catch (profileErr) {
+          console.error("[entradas-auth-email] perfil ticket:", formatError(profileErr));
+        }
+      }
       return new Response(JSON.stringify({ success: true, ...authPayload }), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },

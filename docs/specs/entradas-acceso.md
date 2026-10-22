@@ -1,26 +1,28 @@
-# Entradas — acceso (contraseña o código al mail)
+# Entradas — acceso (sacar con mail, gestionar con login)
 
 ## Objetivo
 
-Login de `/entradas` pensado para **personas mayores**: pocos campos a la vez, texto grande, y el dispositivo **queda logueado** el mayor tiempo posible (sesión en `localStorage` + auto-refresh).
+En `/entradas`, **sacar una entrada no exige login**: alcanza un mail válido. Gestionar las que ya tenés sigue pidiendo el acceso (código o contraseña). Si el dispositivo **ya tiene sesión**, entra directo al catálogo.
 
-- Primero solo el **mail**; después aparecen las opciones.
-- **Código de 8 dígitos** al mail (también incluye botón/enlace en el mismo correo).
-- **Contraseña opcional**: crear / ingresar / recuperar según el mail.
-- Quien tiene usuario OFRN usa la misma `clave_acceso`.
+- Pantalla inicial: **Sacar entradas** y **Gestionar mis entradas**.
+- Sacar: pide el mail. Si ya está en la base (`entrada_usuario`, `entrada_auth_email_user` o `integrantes`), abre sesión y sigue. Si no está, manda un código de 8 dígitos y lo valida **una sola vez**.
+- Gestionar: el login por pasos (mail → código o contraseña).
+- Quien tiene usuario OFRN usa la misma `clave_acceso` en gestionar.
 
 SCRN y Viáticos Manual siguen con código de 8 dígitos + enlace (misma edge function, `app !== entradas`).
 
-## Flujo público (accesibilidad)
+## Flujo público
 
-1. Pantalla inicial: **solo input de mail** → Continuar.
-2. Tras validar el mail (`check_login_options`):
-   - **Enviar código único** (siempre; mismo estilo que crear/ingresar contraseña).
+1. Sin sesión: **Sacar entradas** / **Gestionar mis entradas**. Debajo, el catálogo de conciertos con reservas abiertas.
+2. **Sacar entradas** → mail.
+   - Mail conocido: sesión y catálogo, sin código ni contraseña.
+   - Mail nuevo: código al mail (sin enlace). Al validarlo se crea el usuario y un perfil mínimo; la próxima vez ese mail ya es conocido.
+3. **Gestionar mis entradas** (accesible, texto grande):
+   - Solo el mail → Continuar (`check_login_options`).
+   - **Enviar código único** (OTP + enlace en el mismo correo).
    - **Ingresar contraseña** si ya tiene (`password_set_at` o clave OFRN usable).
-   - **Crear contraseña** si aún no tiene → mail de reset; al abrir, pide la nueva clave.
-   - Abajo: **Recuperar contraseña** (si ya tiene) o texto aclaratorio.
-3. Tras enviar el código: pantalla grande para tipear los 8 dígitos (o abrir el enlace del mismo mail).
-4. Con sesión: el nombre en el header abre menú con **Ver mi perfil** y **Cerrar sesión**; el ícono de tema queda aparte.
+   - **Crear / recuperar contraseña** según el caso.
+4. Con sesión: el nombre en el header abre menú con **Ver mi perfil** y **Cerrar sesión**; el ícono de tema queda aparte. Cerrar sesión vuelve a la pantalla de los dos botones.
 
 ## Sesión larga en el dispositivo
 
@@ -39,8 +41,10 @@ Edge Function `entradas-auth-email`:
 
 | Acción | Uso |
 |--------|-----|
-| `check_login_options` | `{ has_password }` para armar el paso de opciones (sin filtrar por existencia de cuenta). |
-| `request_code` | OTP 8 dígitos + enlace en el mismo mail (también `app=entradas`). |
+| `start_ticket_by_email` | Sacar entradas: si el mail existe, sesión (`status: known`); si no, código de un solo uso (`status: code_sent`). |
+| `verify_code` + `ticket: true` | Valida ese código y, si falta, crea perfil mínimo para reservar. |
+| `check_login_options` | `{ has_password }` para el login de **Gestionar** (sin filtrar por existencia de cuenta). |
+| `request_code` | OTP 8 dígitos + enlace en el mismo mail (gestionar, SCRN, viáticos). |
 | `request_magic_link` | Enlace de acceso sin código (flujos legacy / otros). |
 | `request_password_reset` | Enlace de restauración (`purpose=reset`). |
 | `verify_magic_link` | Consume el token; sesión vía `generateLink` + `token_hash`. |
@@ -62,8 +66,9 @@ RPC `entrada_mark_password_set()` marca `entrada_usuario.password_set_at`.
 
 ## UI
 
-- `LoginEntradas.jsx` — mail primero; luego opciones; tipografía/botones más grandes.
-- `EntradasLoginCatalogPreview.jsx` — debajo del login (sin sesión): tarjetas de conciertos con reservas abiertas + barra de disponibilidad.
+- `EntradasAccesoInicio.jsx` — **Sacar entradas** / **Gestionar mis entradas**; mail y código de primera vez.
+- `LoginEntradas.jsx` — gestionar: mail primero; luego opciones; tipografía/botones más grandes.
+- `EntradasLoginCatalogPreview.jsx` — debajo del acceso (sin sesión): tarjetas de conciertos con reservas abiertas + barra de disponibilidad.
 - `EntradasSetPasswordForm.jsx` / `EntradasPasswordModal.jsx` (portal `z-[100]`; flujo post-login opcional).
 - `EntradasPerfilModal.jsx` — cambiar nombre/apellido y contraseña.
 - Header de `EntradasMain.jsx`: el **nombre** abre menú con **Ver mi perfil** y **Cerrar sesión**.
@@ -84,9 +89,11 @@ Quienes ya tienen mail + `clave_acceso` en `integrantes` entran a `/entradas` co
 
 ## Completado
 
-- [x] Acceso por código al mail (OTP 8 dígitos + enlace en el mismo correo).
+- [x] Puerta inicial: Sacar entradas (mail; código solo si el mail no está) / Gestionar mis entradas (login).
+- [x] Sesión directa si el dispositivo ya está logueado.
+- [x] Acceso por código al mail en gestionar (OTP 8 dígitos + enlace en el mismo correo).
 - [x] Contraseña opcional + restaurar / crear.
-- [x] Flujo accesible: primero mail, después opciones según `has_password`.
+- [x] Flujo accesible de gestionar: primero mail, después opciones según `has_password`.
 - [x] Sesión persistente en el dispositivo (`persistSession` + auto-refresh + mail recordado).
 - [x] Contraseña por defecto = `integrantes.clave_acceso` para UX OFRN.
 - [x] SSO: desde el sidebar de la app OFRN, Entradas abre con sesión.

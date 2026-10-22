@@ -10,6 +10,7 @@ import {
   readPasswordResetFlagFromSearch,
 } from "../../../utils/entradasMagicLink";
 import LoginEntradas from "./LoginEntradas";
+import EntradasAccesoInicio from "./EntradasAccesoInicio";
 import EntradasMain from "./EntradasMain";
 
 export default function EntradasPage() {
@@ -24,6 +25,7 @@ export default function EntradasPage() {
   const [magicLinkPending, setMagicLinkPending] = useState(false);
   const [passwordPrompt, setPasswordPrompt] = useState(null);
   const [ofrnSsoPending, setOfrnSsoPending] = useState(false);
+  const [accessMode, setAccessMode] = useState("choice");
   const activeUserIdRef = useRef(null);
 
   const loadProfile = useCallback(async () => {
@@ -133,6 +135,7 @@ export default function EntradasPage() {
     setSession(null);
     setProfile(null);
     setPasswordPrompt(null);
+    setAccessMode("choice");
   };
 
   const onPasswordSaved = async (nextProfile) => {
@@ -161,6 +164,15 @@ export default function EntradasPage() {
   }
 
   if (showLoginGate) {
+    if (!session?.user && accessMode !== "gestionar") {
+      return (
+        <EntradasAccesoInicio
+          bootError={bootError}
+          onManage={() => setAccessMode("gestionar")}
+          onEntered={loadProfile}
+        />
+      );
+    }
     return (
       <LoginEntradas
         user={session?.user || null}
@@ -170,6 +182,7 @@ export default function EntradasPage() {
         onSkipPassword={() => setPasswordPrompt(null)}
         passwordPrompt={passwordPrompt}
         bootError={bootError}
+        onBack={!session?.user && accessMode === "gestionar" ? () => setAccessMode("choice") : null}
       />
     );
   }

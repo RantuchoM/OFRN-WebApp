@@ -109,6 +109,30 @@ export async function checkEntradasLoginOptions(email) {
   };
 }
 
+/**
+ * Sacar entradas: si el mail ya está en la base, abre sesión.
+ * Si no, manda un código de un solo uso (`status: "code_sent"`).
+ */
+export async function startEntradasTicketByEmail(email) {
+  const normalizedEmail = String(email || "").trim().toLowerCase();
+  const { data, error } = await supabase.functions.invoke("entradas-auth-email", {
+    body: {
+      action: "start_ticket_by_email",
+      email: normalizedEmail,
+      app: "entradas",
+    },
+  });
+  const payload = await assertEntradasAuthInvokeResult({ data, error }, "request");
+  if (payload?.status === "known") {
+    await signInAfterEntradasAuthPayload(payload, "entradas");
+  }
+  return {
+    email: normalizedEmail,
+    status: payload?.status === "known" ? "known" : "code_sent",
+    cooldownSeconds: Number(payload?.cooldownSeconds || 0),
+  };
+}
+
 export async function requestEntradasMagicLink(email, app = "entradas") {
   const normalizedEmail = String(email || "").trim().toLowerCase();
   const { data, error } = await supabase.functions.invoke("entradas-auth-email", {
@@ -329,6 +353,23 @@ export async function verifyEntradasEmailCode({ email, code, app = "entradas" })
   });
   const payload = await assertEntradasAuthInvokeResult({ data, error }, "verify");
   await signInAfterEntradasAuthPayload(payload, app);
+}
+
+/** Código de la primera vez en «Sacar entradas». Crea perfil mínimo en el servidor. */
+export async function verifyEntradasTicketCode({ email, code }) {
+  const normalizedEmail = String(email || "").trim().toLowerCase();
+  const normalizedCode = String(code || "").trim();
+  const { data, error } = await supabase.functions.invoke("entradas-auth-email", {
+    body: {
+      action: "verify_code",
+      email: normalizedEmail,
+      code: normalizedCode,
+      app: "entradas",
+      ticket: true,
+    },
+  });
+  const payload = await assertEntradasAuthInvokeResult({ data, error }, "verify");
+  await signInAfterEntradasAuthPayload(payload, "entradas");
 }
 
 export async function verifyEntradasMagicLink({ token, app = "entradas" }) {
