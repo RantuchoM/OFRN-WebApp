@@ -63,6 +63,7 @@ RPC `entrada_mark_password_set()` marca `entrada_usuario.password_set_at`.
 ## UI
 
 - `LoginEntradas.jsx` — mail primero; luego opciones; tipografía/botones más grandes.
+- `EntradasLoginCatalogPreview.jsx` — debajo del login (sin sesión): tarjetas de conciertos con reservas abiertas + barra de disponibilidad.
 - `EntradasSetPasswordForm.jsx` / `EntradasPasswordModal.jsx` (portal `z-[100]`; flujo post-login opcional).
 - `EntradasPerfilModal.jsx` — cambiar nombre/apellido y contraseña.
 - Header de `EntradasMain.jsx`: el **nombre** abre menú con **Ver mi perfil** y **Cerrar sesión**.
