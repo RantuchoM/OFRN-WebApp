@@ -42,7 +42,11 @@ export const supabase = getOrCreateClient("__ofrn_supabase", () =>
   createClient(SB_URL, SB_KEY),
 );
 
-/** Sesión aislada del resto de la app: no se borra al cerrar sesión en la intranet. */
+/**
+ * Sesión aislada del resto de la app: no se borra al cerrar sesión en la intranet.
+ * Persistida en localStorage + auto-refresh: el dispositivo permanece logueado
+ * mientras el refresh token sea válido (no se limpia al cerrar el navegador).
+ */
 export const supabaseEntradasPublic = getOrCreateClient(
   "__ofrn_supabase_entradas",
   () =>

@@ -137,11 +137,38 @@ function getAppEmailMeta(
       subject: "Restaurá tu contraseña - Entradas OFRN",
     };
   }
+  if (purpose === "otp") {
+    return {
+      fromLabel: "Entradas OFRN",
+      appLabel: "Entradas OFRN",
+      subject: "Tu código de acceso - Entradas OFRN",
+    };
+  }
   return {
     fromLabel: "Entradas OFRN",
     appLabel: "Entradas OFRN",
     subject: "Tu enlace de acceso - Entradas OFRN",
   };
+}
+
+/** Indica si ese mail ya puede entrar con contraseña (propia o clave OFRN usable). */
+async function resolveHasPassword(admin: AdminClient, email: string): Promise<boolean> {
+  const { data: mapped } = await admin
+    .from("entrada_auth_email_user")
+    .select("user_id")
+    .eq("email", email)
+    .maybeSingle();
+  if (mapped?.user_id) {
+    const { data: profile } = await admin
+      .from("entrada_usuario")
+      .select("password_set_at")
+      .eq("id", mapped.user_id)
+      .maybeSingle();
+    if (profile?.password_set_at) return true;
+  }
+  const integrante = await lookupOfrnIntegranteForEntradas(admin, email);
+  const clave = String(integrante?.clave_acceso || "").trim();
+  return clave.length >= MIN_GOTRUE_PASSWORD_LENGTH;
 }
 
 function buildOtpHtml({
@@ -479,6 +506,20 @@ serve(async (req) => {
 
     const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
+    if (action === "check_login_options") {
+      if (!isValidEmail(email)) {
+        return new Response(JSON.stringify({ error: "Email inválido." }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const hasPassword = await resolveHasPassword(admin, email);
+      return new Response(JSON.stringify({ success: true, has_password: hasPassword }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     if (action === "bootstrap_ofrn_password") {
       if (!isValidEmail(email)) {
         return new Response(JSON.stringify({ error: "Email inválido." }), {
@@ -583,9 +624,10 @@ serve(async (req) => {
       });
     }
 
+    // Entradas: request_code vuelve a enviar OTP (accesibilidad). El enlace mágico
+    // sigue en request_magic_link / request_password_reset.
     const requestMagicLink = action === "request_magic_link"
-      || action === "request_password_reset"
-      || (action === "request_code" && app === "entradas");
+      || action === "request_password_reset";
 
     if (requestMagicLink || action === "request_code") {
       if (!GMAIL_USER || !GMAIL_PASS) {
@@ -643,7 +685,7 @@ serve(async (req) => {
     }
 
     if (action === "request_code") {
-      const { fromLabel, appLabel, subject } = getAppEmailMeta(app);
+      const { fromLabel, appLabel, subject } = getAppEmailMeta(app, app === "entradas" ? "otp" : "access");
       const limited = await assertLinkRateLimit(admin, email, ip);
       if (limited) return limited;
 

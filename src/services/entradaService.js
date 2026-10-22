@@ -92,6 +92,23 @@ export async function requestEntradasEmailCode(email, app = "entradas") {
   return assertEntradasAuthInvokeResult({ data, error }, "request");
 }
 
+/** Consulta anónima: si ese mail ya tiene contraseña usable (propia o OFRN). */
+export async function checkEntradasLoginOptions(email) {
+  const normalizedEmail = String(email || "").trim().toLowerCase();
+  const { data, error } = await supabase.functions.invoke("entradas-auth-email", {
+    body: {
+      action: "check_login_options",
+      email: normalizedEmail,
+      app: "entradas",
+    },
+  });
+  const payload = await assertEntradasAuthInvokeResult({ data, error }, "request");
+  return {
+    email: normalizedEmail,
+    hasPassword: Boolean(payload?.has_password),
+  };
+}
+
 export async function requestEntradasMagicLink(email, app = "entradas") {
   const normalizedEmail = String(email || "").trim().toLowerCase();
   const { data, error } = await supabase.functions.invoke("entradas-auth-email", {
