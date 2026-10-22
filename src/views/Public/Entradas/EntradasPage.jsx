@@ -9,6 +9,7 @@ import {
   readMagicTokenFromSearch,
   readPasswordResetFlagFromSearch,
 } from "../../../utils/entradasMagicLink";
+import EntradasAyudaFlotante from "../../../components/entradas/EntradasAyudaFlotante";
 import LoginEntradas from "./LoginEntradas";
 import EntradasAccesoInicio from "./EntradasAccesoInicio";
 import EntradasMain from "./EntradasMain";
@@ -151,49 +152,61 @@ export default function EntradasPage() {
 
   if (loading || magicLinkPending || ofrnSsoPending || (session?.user && !profileChecked)) {
     return (
-      <div className={`${ui.page} flex items-center justify-center`}>
-        <span className={`text-sm font-semibold uppercase tracking-wide ${ui.textMuted}`}>
-          {magicLinkPending
-            ? "Accediendo con enlace seguro…"
-            : ofrnSsoPending
-              ? "Entrando con tu usuario OFRN…"
-              : "Cargando entradas…"}
-        </span>
-      </div>
+      <>
+        <EntradasAyudaFlotante />
+        <div className={`${ui.page} flex items-center justify-center`}>
+          <span className={`text-sm font-semibold uppercase tracking-wide ${ui.textMuted}`}>
+            {magicLinkPending
+              ? "Accediendo con enlace seguro…"
+              : ofrnSsoPending
+                ? "Entrando con tu usuario OFRN…"
+                : "Cargando entradas…"}
+          </span>
+        </div>
+      </>
     );
   }
 
   if (showLoginGate) {
     if (!session?.user && accessMode !== "gestionar") {
       return (
-        <EntradasAccesoInicio
-          bootError={bootError}
-          onManage={() => setAccessMode("gestionar")}
-          onEntered={loadProfile}
-        />
+        <>
+          <EntradasAyudaFlotante />
+          <EntradasAccesoInicio
+            bootError={bootError}
+            onManage={() => setAccessMode("gestionar")}
+            onEntered={loadProfile}
+          />
+        </>
       );
     }
     return (
-      <LoginEntradas
-        user={session?.user || null}
-        profile={profile}
-        onProfileSaved={loadProfile}
-        onPasswordSaved={onPasswordSaved}
-        onSkipPassword={() => setPasswordPrompt(null)}
-        passwordPrompt={passwordPrompt}
-        bootError={bootError}
-        onBack={!session?.user && accessMode === "gestionar" ? () => setAccessMode("choice") : null}
-      />
+      <>
+        <EntradasAyudaFlotante />
+        <LoginEntradas
+          user={session?.user || null}
+          profile={profile}
+          onProfileSaved={loadProfile}
+          onPasswordSaved={onPasswordSaved}
+          onSkipPassword={() => setPasswordPrompt(null)}
+          passwordPrompt={passwordPrompt}
+          bootError={bootError}
+          onBack={!session?.user && accessMode === "gestionar" ? () => setAccessMode("choice") : null}
+        />
+      </>
     );
   }
 
   return (
-    <EntradasMain
-      user={session.user}
-      profile={profile}
-      onLogout={onLogout}
-      onProfileRefresh={loadProfile}
-      onProfileUpdated={setProfile}
-    />
+    <>
+      <EntradasAyudaFlotante />
+      <EntradasMain
+        user={session.user}
+        profile={profile}
+        onLogout={onLogout}
+        onProfileRefresh={loadProfile}
+        onProfileUpdated={setProfile}
+      />
+    </>
   );
 }

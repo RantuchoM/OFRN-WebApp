@@ -2287,10 +2287,18 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
           qrEntradaTokens: result.qr_entrada_tokens || [],
           pdfBase64,
         });
+        const mailHint =
+          " Revisá tu correo si querés volver a descargar las entradas; puede haber llegado a Spam o Correo no deseado.";
         if (pdfBase64) {
-          toast.success("Reserva confirmada: se descargó el PDF y el mail se envió con el mismo adjunto.");
+          toast.success(
+            `Reserva confirmada: se descargó el PDF y el mail se envió con el mismo adjunto.${mailHint}`,
+            { duration: 10000 },
+          );
         } else {
-          toast.success("Reserva confirmada y mail enviado. El PDF no se generó; probá descargar desde «Mis entradas».");
+          toast.success(
+            `Reserva confirmada y mail enviado. El PDF no se generó; probá descargar desde «Mis entradas».${mailHint}`,
+            { duration: 10000 },
+          );
         }
       } catch {
         toast.message(
@@ -4723,6 +4731,17 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
                       <p className={`text-sm font-bold ${isDark ? "text-emerald-300" : "text-emerald-700"}`}>
                         Reserva #{reservaResult.codigo_reserva}
                       </p>
+                      <div
+                        className={
+                          isDark
+                            ? "rounded-lg border border-amber-800/80 bg-amber-950/45 px-3 py-2.5 text-sm leading-relaxed text-amber-100"
+                            : "rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm leading-relaxed text-amber-900"
+                        }
+                        role="status"
+                      >
+                        Revisá tu correo si querés volver a descargar las entradas. Puede haber llegado a{" "}
+                        <strong>Spam</strong> o <strong>Correo no deseado</strong>.
+                      </div>
                       <button
                         type="button"
                         onClick={async () => {

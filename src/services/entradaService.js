@@ -92,6 +92,43 @@ export async function requestEntradasEmailCode(email, app = "entradas") {
   return assertEntradasAuthInvokeResult({ data, error }, "request");
 }
 
+/** Formulario de ayuda público: Edge Function con Reply-To = mail del consultante. */
+export async function sendEntradasAyudaConsulta({
+  nombre,
+  email,
+  telefono,
+  cantidad,
+  funcion,
+  comentarios,
+}) {
+  const { data, error } = await supabaseEntradasPublic.functions.invoke("entradas-send-ayuda", {
+    body: {
+      nombre: String(nombre || "").trim(),
+      email: String(email || "").trim().toLowerCase(),
+      telefono: String(telefono || "").trim(),
+      cantidad: String(cantidad || "").trim(),
+      funcion: String(funcion || "").trim(),
+      comentarios: String(comentarios || "").trim(),
+      website: "",
+    },
+  });
+  if (data?.error) throw new Error(String(data.error));
+  if (error) {
+    let serverMessage = "";
+    try {
+      const ctx = error?.context;
+      if (ctx instanceof Response) {
+        const body = await ctx.clone().json();
+        serverMessage = String(body?.error || body?.message || "").trim();
+      }
+    } catch {
+      /* ignore */
+    }
+    throw new Error(serverMessage || error.message || "No se pudo enviar la consulta.");
+  }
+  return data;
+}
+
 /** Consulta anónima: si ese mail ya tiene contraseña usable (propia o OFRN). */
 export async function checkEntradasLoginOptions(email) {
   const normalizedEmail = String(email || "").trim().toLowerCase();

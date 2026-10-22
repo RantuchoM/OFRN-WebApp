@@ -67,6 +67,13 @@ import_map = "./functions/entradas-auth-email/deno.json"
 entrypoint = "./functions/entradas-auth-email/index.ts"
 # Login público (enlace, SSO OFRN, bootstrap de clave). No exigir JWT de GoTrue.
 
+[functions.entradas-send-ayuda]
+enabled = true
+verify_jwt = false
+import_map = "./functions/entradas-send-ayuda/deno.json"
+entrypoint = "./functions/entradas-send-ayuda/index.ts"
+# Formulario público de ayuda (Reply-To = mail del consultante). Secrets GMAIL_* / ENTRADAS_GMAIL_*.
+
 [functions.db-backup-cron]
 enabled = true
 verify_jwt = false

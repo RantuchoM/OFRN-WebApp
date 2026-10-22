@@ -72,6 +72,7 @@ RPC `entrada_mark_password_set()` marca `entrada_usuario.password_set_at`.
 - `EntradasSetPasswordForm.jsx` / `EntradasPasswordModal.jsx` (portal `z-[100]`; flujo post-login opcional).
 - `EntradasPerfilModal.jsx` — cambiar nombre/apellido y contraseña.
 - Header de `EntradasMain.jsx`: el **nombre** abre menú con **Ver mi perfil** y **Cerrar sesión**.
+- `EntradasAyudaFlotante.jsx` — botón flotante abajo izquierda «¿Necesitás ayuda?» en toda `/entradas`; modal con **Enviar correo directo** (`mailto:` + plantilla) arriba y **formulario web** abajo (Edge `entradas-send-ayuda` → `filarmonica.scrn+entradas@gmail.com`, `Reply-To` = mail del consultante; campos: nombre, mail, teléfono opcional, cantidad, función, comentarios).
 
 ## Usuarios OFRN (`integrantes`)
 
