@@ -588,7 +588,9 @@ export async function enviarMailReserva({
   pdfBase64,
   action = "confirmacion",
   cantidadAnterior,
+  mensajePersonalizado,
 }) {
+  const nota = String(mensajePersonalizado || "").trim();
   const { error } = await supabaseEntradasPublic.functions.invoke("entradas-send-reserva-email", {
     body: {
       action,
@@ -600,6 +602,7 @@ export async function enviarMailReserva({
       ...(action === "cambio_cantidad" && cantidadAnterior != null
         ? { cantidadAnterior }
         : {}),
+      ...(nota ? { mensajePersonalizado: nota } : {}),
     },
   });
   if (error) throw error;

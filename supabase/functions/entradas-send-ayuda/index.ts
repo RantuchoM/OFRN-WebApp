@@ -203,6 +203,66 @@ serve(async (req) => {
       html,
     });
 
+    // Acuse al consultante: confirma recepción y pide revisar Spam / No deseado.
+    const ackSubject = "Recibimos tu consulta de Entradas OFRN";
+    const ackText = [
+      `Hola ${nombre},`,
+      "",
+      "Recibimos tu consulta sobre entradas. El equipo te va a responder a este mismo correo.",
+      "",
+      "Importante: revisá también las carpetas Spam o Correo no deseado. A veces nuestros mails (códigos, confirmaciones o las entradas en PDF) llegan ahí.",
+      "",
+      "Si encontrás un mensaje nuestro en Spam, marcalo como «No es spam» / «Confiar» para que los siguientes te lleguen a la bandeja de entrada.",
+      "",
+      cantidad != null || funcion
+        ? [
+          "Resumen de lo que nos enviaste:",
+          cantidad != null ? `- Cantidad: ${cantidad}` : null,
+          funcion ? `- Función: ${funcion}` : null,
+        ].filter(Boolean).join("\n")
+        : "",
+      "",
+      "Orquesta Filarmónica de Río Negro — Entradas",
+    ].filter((line, i, arr) => !(line === "" && arr[i - 1] === "")).join("\n");
+
+    const ackHtml = `<!DOCTYPE html>
+<html><head><meta charset="utf-8" /></head>
+<body style="font-family: Helvetica, Arial, sans-serif; color: #334155; line-height: 1.55; font-size: 15px;">
+  <p>Hola <strong>${escHtml(nombre)}</strong>,</p>
+  <p>Recibimos tu consulta sobre entradas. El equipo te va a responder a <strong>este mismo correo</strong>.</p>
+  <div style="margin:18px 0;padding:14px 16px;background:#fffbeb;border-left:4px solid #ca8a04;border-radius:8px;color:#422006;">
+    <p style="margin:0 0 8px 0;font-weight:700;">Revisá Spam / Correo no deseado</p>
+    <p style="margin:0;">A veces nuestros mails (códigos de acceso, confirmaciones o las entradas en PDF) llegan a <strong>Spam</strong> o <strong>Correo no deseado</strong>. Si ves uno nuestro ahí, marcalo como «No es spam» / «Confiar» para que los próximos te lleguen bien.</p>
+  </div>
+  ${
+    cantidad != null || funcion
+      ? `<p style="font-size:13px;color:#64748b;"><strong>Resumen:</strong>${
+        cantidad != null ? ` ${escHtml(String(cantidad))} entrada${cantidad === 1 ? "" : "s"}` : ""
+      }${funcion ? ` · ${escHtml(funcion)}` : ""}</p>`
+      : ""
+  }
+  <p style="color:#64748b;font-size:13px;border-top:1px solid #e2e8f0;padding-top:14px;margin-top:24px;">
+    <strong>Orquesta Filarmónica de Río Negro</strong><br />Sistema de Entradas
+  </p>
+</body></html>`;
+
+    try {
+      await transporter.sendMail({
+        from: `"Entradas OFRN" <${GMAIL_USER}>`,
+        to: email,
+        replyTo: AYUDA_TO,
+        subject: ackSubject,
+        text: ackText,
+        html: ackHtml,
+      });
+    } catch (ackErr) {
+      // La consulta ya quedó guardada y avisada al staff; no fallar todo el pedido.
+      console.error(
+        "[entradas-send-ayuda] acuse al consultante falló:",
+        ackErr instanceof Error ? ackErr.message : String(ackErr),
+      );
+    }
+
     recentByKey.set(rateKey, now);
 
     return new Response(JSON.stringify({ success: true, id: consultaId }), {

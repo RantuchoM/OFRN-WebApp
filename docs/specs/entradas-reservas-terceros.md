@@ -66,15 +66,17 @@ Migraciones:
 ## Consultas de ayuda (formulario público)
 
 - Tabla `entrada_ayuda_consulta` + RPCs `entrada_ayuda_listar` / `get` / `marcar_resuelta` / `descartar` (`entrada_can_terceros`).
-- Edge `entradas-send-ayuda` persiste la fila y manda mail a staff con botón **Reservar en Entradas** → `/entradas?view=entradas-terceros&ayuda=<uuid>`.
-- En Terceros: cola de pendientes (`EntradasAyudaConsultasPanel`); al abrir (mail o cola) se precarga mail/cantidad/concierto/referencia.
+- Edge `entradas-send-ayuda` persiste la fila, manda mail a staff con botón **Reservar en Entradas** → `/entradas?view=entradas-terceros&ayuda=<uuid>`, y **acuse al consultante** (aviso Spam / Correo no deseado).
+- En Terceros: cola de pendientes (`EntradasAyudaConsultasPanel`); al Abrir (mail o cola) se precarga mail/cantidad/concierto/referencia, se hace scroll al formulario y se auto-confirma el beneficiario si ya tiene cuenta.
+- Mensaje personalizado opcional en el formulario de terceros → va en el mail de confirmación (`mensajePersonalizado` → Edge `entradas-send-reserva-email`).
 - Si `estado=resuelta` (o descartada), el deep link muestra aviso y no pide re-reservar.
 - Al crear la reserva de tercero con una consulta pendiente abierta, se marca resuelta y se guarda `reserva_id`.
 - [x] Cola + deep link + detección de ya resuelta.
+- [x] Acuse al consultante + Abrir (scroll / auto-confirm) + mensaje personalizado en mail.
 
 ## Edge
 
-- `entradas-send-reserva-email`: envío múltiple (admin + beneficiario) para reservas con `reservada_por`.
+- `entradas-send-reserva-email`: envío múltiple (admin + beneficiario) para reservas con `reservada_por`; acepta `mensajePersonalizado` en confirmación/cambio.
 - [x] Tras la nota de puntualidad, el mail de confirmación/cambio incluye aviso de cancelar o cambiar cantidad + botón «Gestionar mis entradas» (`view=mis-reservas`).
 
 ## Admin — resúmenes de programa (programas actuales)

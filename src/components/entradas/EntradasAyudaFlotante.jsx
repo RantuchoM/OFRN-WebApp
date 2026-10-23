@@ -213,8 +213,17 @@ export default function EntradasAyudaFlotante() {
                         isDark ? "text-emerald-200" : "text-emerald-800"
                       }`}
                     >
-                      Te vamos a responder al mail que indicaste. No hace falta hacer nada más:
-                      quedate tranquila/o, ya está en camino.
+                      Te enviamos un mail de confirmación a la dirección que indicaste. El equipo
+                      te va a responder por ese mismo correo.
+                    </p>
+                    <p
+                      className={`text-sm sm:text-base leading-relaxed ${
+                        isDark ? "text-amber-200" : "text-amber-900"
+                      }`}
+                    >
+                      Si no lo ves en la bandeja de entrada, revisá{" "}
+                      <strong>Spam</strong> o <strong>Correo no deseado</strong> y marcalo como
+                      «No es spam» para que los próximos (códigos o entradas en PDF) te lleguen bien.
                     </p>
                   </div>
                   <button

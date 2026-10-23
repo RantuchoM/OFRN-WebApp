@@ -430,6 +430,7 @@ serve(async (req) => {
       pdfBase64?: string;
       appUrl?: string;
       cantidadAnterior?: number;
+      mensajePersonalizado?: string;
     };
 
     const action = body?.action ?? "confirmacion";
@@ -441,6 +442,13 @@ serve(async (req) => {
       body?.appUrl || Deno.env.get("ENTRADAS_PUBLIC_URL") || "https://ofrn-web-app.vercel.app",
     ).replace(/\/$/, "");
     const cantidadAnterior = Number(body?.cantidadAnterior);
+    const mensajePersonalizado = String(body?.mensajePersonalizado || "").trim();
+
+    const leadFromPersonalizado = (() => {
+      if (!mensajePersonalizado || action === "cancelacion") return undefined;
+      const escaped = esc(mensajePersonalizado).replace(/\n/g, "<br />");
+      return `<div style="margin:0 0 16px 0;padding:14px 16px;background:#ecfeff;border-left:4px solid #0891b2;border-radius:8px;font-size:14px;line-height:1.55;color:#164e63;"><p style="margin:0 0 8px 0;font-weight:700;">Mensaje del equipo de Entradas</p><p style="margin:0;white-space:pre-wrap;">${escaped}</p></div><p>Tu reserva de entradas gratuitas quedó <strong>confirmada</strong>.</p>`;
+    })();
 
     if (!reservaId) {
       throw new Error("Payload inválido: falta reservaId.");
@@ -595,7 +603,7 @@ serve(async (req) => {
               esTercero: true,
               beneficiarioLabel,
             })
-            : undefined,
+            : leadFromPersonalizado,
         });
       } else {
         nombreSaludo = recipient.rol === "beneficiario_pendiente"
@@ -619,7 +627,7 @@ serve(async (req) => {
               cantidadAnterior,
               cantidadNueva,
             })
-            : undefined,
+            : leadFromPersonalizado,
         });
       }
 

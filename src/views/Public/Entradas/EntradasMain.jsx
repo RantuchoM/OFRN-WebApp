@@ -643,9 +643,14 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
   const [terceroBeneficiarioLookup, setTerceroBeneficiarioLookup] = useState(null);
   const [terceroBeneficiarioConfirmado, setTerceroBeneficiarioConfirmado] = useState(false);
   const [terceroEmailLookupBusy, setTerceroEmailLookupBusy] = useState(false);
+  /** Texto opcional del equipo que se inserta en el mail de confirmación al beneficiario. */
+  const [terceroMensajePersonalizado, setTerceroMensajePersonalizado] = useState("");
   /** Consulta del formulario público abierta vía ?ayuda= o cola en Terceros. */
   const [ayudaConsulta, setAyudaConsulta] = useState(null);
   const [ayudaColaRefresh, setAyudaColaRefresh] = useState(0);
+  const terceroFormRef = useRef(null);
+  /** Al abrir una consulta de ayuda, confirmar automáticamente el beneficiario hallado. */
+  const ayudaAutoConfirmRef = useRef(false);
   const [recepcionConciertoId, setRecepcionConciertoId] = useState("");
   const [scannerToken, setScannerToken] = useState("");
   const [manualReservaCode, setManualReservaCode] = useState("");
@@ -883,7 +888,12 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
       try {
         const data = await buscarBeneficiarioPorEmail(email);
         setTerceroBeneficiarioLookup(data?.encontrado ? data : { encontrado: false, email });
-        setTerceroBeneficiarioConfirmado(false);
+        if (ayudaAutoConfirmRef.current && data?.encontrado) {
+          setTerceroBeneficiarioConfirmado(true);
+          ayudaAutoConfirmRef.current = false;
+        } else {
+          setTerceroBeneficiarioConfirmado(false);
+        }
       } catch {
         setTerceroBeneficiarioLookup(null);
       } finally {
@@ -1099,6 +1109,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
 
   const applyAyudaConsultaToForm = useCallback((row) => {
     if (!row) return;
+    ayudaAutoConfirmRef.current = true;
     setTerceroEmail(String(row.email || "").trim());
     const refParts = [
       row.nombre ? String(row.nombre).trim() : "",
@@ -1109,6 +1120,10 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
     if (row.cantidad) setAdminTerceroCantidad(Number(row.cantidad));
     if (row.concierto_id) setAdminTerceroConciertoId(String(row.concierto_id));
     setTerceroBeneficiarioConfirmado(false);
+    setTerceroMensajePersonalizado("");
+    window.requestAnimationFrame(() => {
+      terceroFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
   }, []);
 
   useEffect(() => {
@@ -2386,7 +2401,9 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
     setTerceroReferencia("");
     setTerceroBeneficiarioLookup(null);
     setTerceroBeneficiarioConfirmado(false);
+    setTerceroMensajePersonalizado("");
     setAdminTerceroCantidad(1);
+    ayudaAutoConfirmRef.current = false;
   };
 
   const handleCreateReservaTercero = async () => {
@@ -2430,6 +2447,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
           qrReservaToken: result.qr_reserva_token,
           qrEntradaTokens: result.qr_entrada_tokens || [],
           pdfBase64,
+          mensajePersonalizado: terceroMensajePersonalizado,
         });
         const extra =
           result.vinculado_inmediato && result.beneficiario_apellido
@@ -4183,7 +4201,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
         </div>
       )}
 
-      <div className={`${ui.inset} p-4 space-y-4`}>
+      <div ref={terceroFormRef} className={`${ui.inset} p-4 space-y-4`}>
         <h3 className={ui.sectionTitle}>Nueva reserva para otra persona</h3>
         {conciertosTercerosSelect.length === 0 ? (
           <p className={`text-sm ${ui.textMuted}`}>
@@ -4278,6 +4296,22 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
                       </option>
                     ))}
                   </select>
+                </div>
+                <div className="space-y-1.5">
+                  <label htmlFor="admin-tercero-mensaje" className={ui.label}>
+                    Mensaje personalizado en el mail (opcional)
+                  </label>
+                  <textarea
+                    id="admin-tercero-mensaje"
+                    className={`w-full max-w-xl min-h-[88px] ${ui.input}`}
+                    value={terceroMensajePersonalizado}
+                    onChange={(e) => setTerceroMensajePersonalizado(e.target.value)}
+                    placeholder="Ej. Hola María, te reservamos las entradas que pediste por el formulario de ayuda…"
+                    maxLength={1200}
+                  />
+                  <p className={`text-xs ${ui.textMuted}`}>
+                    Si lo completás, aparece arriba del mail de confirmación con las entradas.
+                  </p>
                 </div>
                 <button
                   type="button"
