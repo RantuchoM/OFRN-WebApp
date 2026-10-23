@@ -145,6 +145,29 @@ export default function EntradasPage() {
     await loadProfile();
   };
 
+  const sessionEmail = String(profile?.email || session?.user?.email || "")
+    .trim()
+    .toLowerCase();
+
+  const goGestionarFromAyuda = useCallback((email) => {
+    const value = String(email || "").trim().toLowerCase();
+    if (value) {
+      try {
+        localStorage.setItem("entradas_login_email", value);
+      } catch {
+        /* ignore */
+      }
+    }
+    setAccessMode("gestionar");
+  }, []);
+
+  const ayudaFlotante = (
+    <EntradasAyudaFlotante
+      sessionEmail={sessionEmail}
+      onGoGestionar={goGestionarFromAyuda}
+    />
+  );
+
   const showLoginGate = !session?.user
     || !profile
     || passwordPrompt === "required"
@@ -153,7 +176,7 @@ export default function EntradasPage() {
   if (loading || magicLinkPending || ofrnSsoPending || (session?.user && !profileChecked)) {
     return (
       <>
-        <EntradasAyudaFlotante />
+        {ayudaFlotante}
         <div className={`${ui.page} flex items-center justify-center`}>
           <span className={`text-sm font-semibold uppercase tracking-wide ${ui.textMuted}`}>
             {magicLinkPending
@@ -171,7 +194,7 @@ export default function EntradasPage() {
     if (!session?.user && accessMode !== "gestionar") {
       return (
         <>
-          <EntradasAyudaFlotante />
+          {ayudaFlotante}
           <EntradasAccesoInicio
             bootError={bootError}
             onManage={() => setAccessMode("gestionar")}
@@ -182,7 +205,7 @@ export default function EntradasPage() {
     }
     return (
       <>
-        <EntradasAyudaFlotante />
+        {ayudaFlotante}
         <LoginEntradas
           user={session?.user || null}
           profile={profile}
@@ -199,7 +222,7 @@ export default function EntradasPage() {
 
   return (
     <>
-      <EntradasAyudaFlotante />
+      {ayudaFlotante}
       <EntradasMain
         user={session.user}
         profile={profile}

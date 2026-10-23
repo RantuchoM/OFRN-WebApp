@@ -1,9 +1,11 @@
 /**
  * Formulario público de ayuda en /entradas.
- * Persiste en entrada_ayuda_consulta y avisa a staff con enlace a Terceros.
+ * - send: persiste consulta + mail staff + acuse
+ * - check_reservas: avisa si el mail ya tiene reservas activas
+ * - reenviar_entradas: reenvía confirmación con QR a ese mail
  */
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
+import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
 import nodemailer from "npm:nodemailer@6.9.7";
 
 const GMAIL_USER = Deno.env.get("ENTRADAS_GMAIL_USER") || Deno.env.get("GMAIL_USER") || "";
@@ -23,7 +25,9 @@ const corsHeaders = {
 };
 
 const COOLDOWN_MS = 60_000;
+const RESEND_COOLDOWN_MS = 90_000;
 const recentByKey = new Map<string, number>();
+const resendByKey = new Map<string, number>();
 
 function normalizeEmail(value: unknown): string {
   return String(value || "").trim().toLowerCase();
@@ -45,6 +49,273 @@ function pruneCooldown(now: number) {
   for (const [key, at] of recentByKey) {
     if (now - at > COOLDOWN_MS * 2) recentByKey.delete(key);
   }
+  for (const [key, at] of resendByKey) {
+    if (now - at > RESEND_COOLDOWN_MS * 2) resendByKey.delete(key);
+  }
+}
+
+function jsonResponse(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
+function clientIp(req: Request): string {
+  return (
+    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
+    || req.headers.get("x-real-ip")
+    || "unknown"
+  );
+}
+
+function qrImageUrl(token: string, size = 180): string {
+  const q = encodeURIComponent(String(token || "").trim());
+  return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${q}`;
+}
+
+function formatFechaAr(fecha: string | null | undefined, hora: string | null | undefined): string {
+  if (!fecha) return "";
+  try {
+    const time = String(hora || "00:00:00").slice(0, 5);
+    const d = new Date(`${String(fecha).slice(0, 10)}T${time}:00-03:00`);
+    if (Number.isNaN(d.getTime())) return String(fecha);
+    return new Intl.DateTimeFormat("es-AR", {
+      dateStyle: "full",
+      timeStyle: "short",
+      timeZone: "America/Argentina/Buenos_Aires",
+    }).format(d);
+  } catch {
+    return String(fecha);
+  }
+}
+
+type ReservaRow = {
+  id: number;
+  codigo_reserva: string;
+  cantidad_solicitada: number;
+  concierto_id: number;
+  qr_reserva_token: string | null;
+  email_beneficiario: string | null;
+  usuario_id: string | null;
+  estado: string;
+  concierto?: {
+    id: number;
+    nombre: string | null;
+    activo: boolean | null;
+    ofrn_evento_id: number | null;
+    evento?: {
+      fecha?: string | null;
+      hora_inicio?: string | null;
+    } | null;
+  } | null;
+  usuario?: { email?: string | null } | null;
+  entradas?: Array<{ id: number; orden: number; qr_entrada_token: string | null }>;
+};
+
+async function fetchReservasActivasPorEmail(
+  admin: SupabaseClient,
+  email: string,
+): Promise<ReservaRow[]> {
+  const select = `
+    id, codigo_reserva, cantidad_solicitada, concierto_id, qr_reserva_token,
+    email_beneficiario, usuario_id, estado,
+    concierto:entrada_concierto(
+      id, nombre, activo, ofrn_evento_id,
+      evento:eventos!entrada_concierto_ofrn_evento_id_fkey(fecha, hora_inicio)
+    ),
+    entradas:entrada_reserva_entrada(id, orden, qr_entrada_token)
+  `;
+
+  const { data: userRow } = await admin
+    .from("entrada_usuario")
+    .select("id")
+    .eq("email", email)
+    .maybeSingle();
+  const userId = userRow?.id ? String(userRow.id) : null;
+
+  const byId = new Map<number, ReservaRow>();
+
+  if (userId) {
+    const { data, error } = await admin
+      .from("entrada_reserva")
+      .select(select)
+      .eq("estado", "activa")
+      .eq("usuario_id", userId)
+      .order("id", { ascending: false });
+    if (error) throw new Error(error.message);
+    for (const r of (data || []) as ReservaRow[]) {
+      if (r?.id) byId.set(Number(r.id), r);
+    }
+  }
+
+  const { data: byBene, error: errBene } = await admin
+    .from("entrada_reserva")
+    .select(select)
+    .eq("estado", "activa")
+    .ilike("email_beneficiario", email)
+    .order("id", { ascending: false });
+  if (errBene) throw new Error(errBene.message);
+  for (const r of (byBene || []) as ReservaRow[]) {
+    if (r?.id) byId.set(Number(r.id), r);
+  }
+
+  return [...byId.values()];
+}
+
+function reservaAunVigente(row: ReservaRow, inicioDiaMs: number): boolean {
+  const fecha = row.concierto?.evento?.fecha;
+  if (!fecha) return Boolean(row.concierto?.activo !== false);
+  const t = new Date(`${String(fecha).slice(0, 10)}T12:00:00-03:00`).getTime();
+  if (Number.isNaN(t)) return true;
+  return t >= inicioDiaMs;
+}
+
+function mapReservaPublica(row: ReservaRow) {
+  const fechaLabel = formatFechaAr(row.concierto?.evento?.fecha, row.concierto?.evento?.hora_inicio);
+  const nombre = String(row.concierto?.nombre || "Concierto").trim();
+  const cantidad = Number(row.cantidad_solicitada) || 0;
+  return {
+    id: Number(row.id),
+    codigo: String(row.codigo_reserva || ""),
+    cantidad,
+    conciertoId: Number(row.concierto_id),
+    label: fechaLabel ? `${nombre} — ${fechaLabel}` : nombre,
+    cantidadLabel: `${cantidad} entrada${cantidad === 1 ? "" : "s"}`,
+  };
+}
+
+async function handleCheckReservas(admin: SupabaseClient, email: string) {
+  if (!isValidEmail(email)) {
+    return jsonResponse({ error: "Ingresá un mail válido." }, 400);
+  }
+  const inicioDia = new Date();
+  inicioDia.setHours(0, 0, 0, 0);
+  // Argentina-ish: use UTC-3 noon boundary via local day is fine for filtering past shows
+  const inicioDiaMs = Date.now() - 12 * 60 * 60 * 1000; // generous: keep today+
+  void inicioDia;
+
+  const rows = await fetchReservasActivasPorEmail(admin, email);
+  const vigentes = rows.filter((r) => reservaAunVigente(r, inicioDiaMs - 24 * 60 * 60 * 1000));
+  return jsonResponse({
+    success: true,
+    reservas: vigentes.map(mapReservaPublica),
+  });
+}
+
+async function handleReenviarEntradas(
+  admin: SupabaseClient,
+  email: string,
+  reservaId: number,
+  ip: string,
+) {
+  if (!isValidEmail(email)) {
+    return jsonResponse({ error: "Ingresá un mail válido." }, 400);
+  }
+  if (!Number.isFinite(reservaId) || reservaId <= 0) {
+    return jsonResponse({ error: "Reserva inválida." }, 400);
+  }
+  if (!GMAIL_USER || !GMAIL_PASS) {
+    throw new Error("Falta ENTRADAS_GMAIL_USER/ENTRADAS_GMAIL_PASS o GMAIL_USER/GMAIL_PASS.");
+  }
+
+  const now = Date.now();
+  pruneCooldown(now);
+  const rateKey = `resend|${email}|${reservaId}|${ip}`;
+  const last = resendByKey.get(rateKey) || 0;
+  if (now - last < RESEND_COOLDOWN_MS) {
+    return jsonResponse({ error: "Esperá un momento antes de reenviar de nuevo." }, 429);
+  }
+
+  const rows = await fetchReservasActivasPorEmail(admin, email);
+  const row = rows.find((r) => Number(r.id) === reservaId);
+  if (!row) {
+    return jsonResponse({ error: "No encontramos una reserva activa con ese mail." }, 404);
+  }
+
+  let qrReserva = String(row.qr_reserva_token || row.codigo_reserva || "").trim();
+  let entradaTokens = [...(row.entradas || [])]
+    .sort((a, b) => (a.orden || 0) - (b.orden || 0))
+    .map((e) => String(e.qr_entrada_token || "").trim())
+    .filter(Boolean);
+
+  if (!qrReserva || entradaTokens.length !== Number(row.cantidad_solicitada)) {
+    const { data: ensured, error: ensErr } = await admin.rpc("entrada_asegurar_qr_tokens", {
+      p_reserva_id: reservaId,
+    });
+    if (ensErr) throw new Error(ensErr.message);
+    if (ensured?.ok) {
+      qrReserva = String(ensured.qr_reserva_token || qrReserva).trim();
+      const byId = new Map(
+        (ensured.entradas || []).map((e: { id: number; qr_entrada_token?: string }) => [
+          Number(e.id),
+          e,
+        ]),
+      );
+      entradaTokens = [...(row.entradas || [])]
+        .sort((a, b) => (a.orden || 0) - (b.orden || 0))
+        .map((e) => {
+          const patch = byId.get(Number(e.id)) as { qr_entrada_token?: string } | undefined;
+          return String(patch?.qr_entrada_token || e.qr_entrada_token || "").trim();
+        })
+        .filter(Boolean);
+    }
+  }
+
+  const pub = mapReservaPublica(row);
+  const linkMis = `${PUBLIC_BASE}/entradas?view=mis-reservas`;
+  const qrBlocks = [
+    `<p style="font-weight:700;margin:16px 0 8px;">QR de la reserva</p>
+     <img src="${escHtml(qrImageUrl(qrReserva, 200))}" width="200" height="200" alt="QR reserva" style="display:block;border:1px solid #e5e7eb;border-radius:8px;" />`,
+    ...entradaTokens.map(
+      (tok, i) =>
+        `<p style="font-weight:700;margin:16px 0 8px;">Entrada ${i + 1}</p>
+         <img src="${escHtml(qrImageUrl(tok, 160))}" width="160" height="160" alt="QR entrada ${i + 1}" style="display:block;border:1px solid #e5e7eb;border-radius:8px;" />`,
+    ),
+  ].join("");
+
+  const html = `<!DOCTYPE html>
+<html><head><meta charset="utf-8" /></head>
+<body style="font-family: Helvetica, Arial, sans-serif; color: #334155; line-height: 1.55; font-size: 15px;">
+  <p>Hola,</p>
+  <p>Pediste reenviar tus entradas desde la ayuda de <strong>Entradas OFRN</strong>.</p>
+  <p><strong>${escHtml(pub.label)}</strong><br />
+  Código <strong>${escHtml(pub.codigo)}</strong> · ${escHtml(pub.cantidadLabel)}</p>
+  ${qrBlocks}
+  <p style="margin-top:20px;">
+    <a href="${escHtml(linkMis)}" style="display:inline-block;background:#1ebbf0;color:#fff;text-decoration:none;padding:12px 20px;border-radius:8px;font-weight:700;">
+      Gestionar mis entradas
+    </a>
+  </p>
+  <div style="margin:18px 0;padding:14px 16px;background:#fffbeb;border-left:4px solid #ca8a04;border-radius:8px;color:#422006;">
+    <p style="margin:0;font-weight:700;">Revisá Spam / Correo no deseado</p>
+    <p style="margin:8px 0 0;">Si este mail llegó ahí, marcalo como «No es spam» para que los próximos te lleguen bien.</p>
+  </div>
+  <p style="color:#64748b;font-size:13px;">Orquesta Filarmónica de Río Negro — Entradas</p>
+</body></html>`;
+
+  const transporter = nodemailer.createTransport({
+    service: "gmail",
+    auth: { user: GMAIL_USER, pass: GMAIL_PASS },
+  });
+  await transporter.sendMail({
+    from: `"Entradas OFRN" <${GMAIL_USER}>`,
+    to: email,
+    subject: `Tus entradas OFRN — ${pub.codigo || "reserva"}`,
+    text: [
+      "Reenvío de tus entradas OFRN.",
+      pub.label,
+      `Código: ${pub.codigo}`,
+      pub.cantidadLabel,
+      `Gestionar: ${linkMis}`,
+      "",
+      "Revisá también Spam / Correo no deseado.",
+    ].join("\n"),
+    html,
+  });
+
+  resendByKey.set(rateKey, now);
+  return jsonResponse({ success: true });
 }
 
 serve(async (req) => {
@@ -52,30 +323,37 @@ serve(async (req) => {
     return new Response("ok", { headers: corsHeaders });
   }
   if (req.method !== "POST") {
-    return new Response(JSON.stringify({ error: "Método no permitido" }), {
-      status: 405,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return jsonResponse({ error: "Método no permitido" }, 405);
   }
 
   try {
-    if (!GMAIL_USER || !GMAIL_PASS) {
-      throw new Error("Falta ENTRADAS_GMAIL_USER/ENTRADAS_GMAIL_PASS o GMAIL_USER/GMAIL_PASS.");
-    }
     if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
       throw new Error("Falta SUPABASE_URL o SUPABASE_SERVICE_ROLE_KEY.");
     }
 
     const body = await req.json();
     if (String(body?.website || "").trim()) {
-      return new Response(JSON.stringify({ success: true }), {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return jsonResponse({ success: true });
+    }
+
+    const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+    const action = String(body?.action || "send").trim();
+    const email = normalizeEmail(body?.email);
+    const ip = clientIp(req);
+
+    if (action === "check_reservas") {
+      return await handleCheckReservas(admin, email);
+    }
+    if (action === "reenviar_entradas") {
+      const reservaId = Number(body?.reservaId ?? body?.reserva_id);
+      return await handleReenviarEntradas(admin, email, reservaId, ip);
+    }
+
+    if (!GMAIL_USER || !GMAIL_PASS) {
+      throw new Error("Falta ENTRADAS_GMAIL_USER/ENTRADAS_GMAIL_PASS o GMAIL_USER/GMAIL_PASS.");
     }
 
     const nombre = String(body?.nombre || "").trim();
-    const email = normalizeEmail(body?.email);
     const telefono = String(body?.telefono || "").trim();
     const cantidadRaw = String(body?.cantidad || "").trim();
     const funcion = String(body?.funcion || "").trim();
@@ -86,46 +364,29 @@ serve(async (req) => {
       Number.isFinite(conciertoIdNum) && conciertoIdNum > 0 ? conciertoIdNum : null;
 
     if (!nombre || nombre.length < 2) {
-      return new Response(JSON.stringify({ error: "Completá tu nombre completo." }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return jsonResponse({ error: "Completá tu nombre completo." }, 400);
     }
     if (!isValidEmail(email)) {
-      return new Response(JSON.stringify({ error: "Ingresá un mail válido." }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return jsonResponse({ error: "Ingresá un mail válido." }, 400);
     }
 
     let cantidad: number | null = null;
     if (cantidadRaw) {
       const n = Number(cantidadRaw);
       if (!Number.isFinite(n) || n < 1 || n > 4 || Math.round(n) !== n) {
-        return new Response(JSON.stringify({ error: "La cantidad de entradas debe ser entre 1 y 4." }), {
-          status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+        return jsonResponse({ error: "La cantidad de entradas debe ser entre 1 y 4." }, 400);
       }
       cantidad = n;
     }
 
-    const ip =
-      req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
-      || req.headers.get("x-real-ip")
-      || "unknown";
     const now = Date.now();
     pruneCooldown(now);
     const rateKey = `${email}|${ip}`;
     const last = recentByKey.get(rateKey) || 0;
     if (now - last < COOLDOWN_MS) {
-      return new Response(
-        JSON.stringify({ error: "Esperá un minuto antes de enviar otra consulta." }),
-        { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
+      return jsonResponse({ error: "Esperá un minuto antes de enviar otra consulta." }, 429);
     }
 
-    const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
     const { data: inserted, error: insertErr } = await admin
       .from("entrada_ayuda_consulta")
       .insert({
@@ -203,7 +464,6 @@ serve(async (req) => {
       html,
     });
 
-    // Acuse al consultante: confirma recepción y pide revisar Spam / No deseado.
     const ackSubject = "Recibimos tu consulta de Entradas OFRN";
     const ackText = [
       `Hola ${nombre},`,
@@ -256,7 +516,6 @@ serve(async (req) => {
         html: ackHtml,
       });
     } catch (ackErr) {
-      // La consulta ya quedó guardada y avisada al staff; no fallar todo el pedido.
       console.error(
         "[entradas-send-ayuda] acuse al consultante falló:",
         ackErr instanceof Error ? ackErr.message : String(ackErr),
@@ -265,16 +524,10 @@ serve(async (req) => {
 
     recentByKey.set(rateKey, now);
 
-    return new Response(JSON.stringify({ success: true, id: consultaId }), {
-      status: 200,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return jsonResponse({ success: true, id: consultaId });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     console.error("[entradas-send-ayuda] ERROR:", message);
-    return new Response(JSON.stringify({ error: message }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return jsonResponse({ error: message }, 500);
   }
 });

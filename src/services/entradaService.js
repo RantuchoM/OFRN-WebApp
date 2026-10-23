@@ -92,6 +92,27 @@ export async function requestEntradasEmailCode(email, app = "entradas") {
   return assertEntradasAuthInvokeResult({ data, error }, "request");
 }
 
+async function invokeEntradasAyuda(body) {
+  const { data, error } = await supabaseEntradasPublic.functions.invoke("entradas-send-ayuda", {
+    body: { website: "", ...body },
+  });
+  if (data?.error) throw new Error(String(data.error));
+  if (error) {
+    let serverMessage = "";
+    try {
+      const ctx = error?.context;
+      if (ctx instanceof Response) {
+        const parsed = await ctx.clone().json();
+        serverMessage = String(parsed?.error || parsed?.message || "").trim();
+      }
+    } catch {
+      /* ignore */
+    }
+    throw new Error(serverMessage || error.message || "No se pudo completar la solicitud de ayuda.");
+  }
+  return data;
+}
+
 /** Formulario de ayuda público: Edge Function con Reply-To = mail del consultante. */
 export async function sendEntradasAyudaConsulta({
   nombre,
@@ -102,33 +123,34 @@ export async function sendEntradasAyudaConsulta({
   conciertoId,
   comentarios,
 }) {
-  const { data, error } = await supabaseEntradasPublic.functions.invoke("entradas-send-ayuda", {
-    body: {
-      nombre: String(nombre || "").trim(),
-      email: String(email || "").trim().toLowerCase(),
-      telefono: String(telefono || "").trim(),
-      cantidad: String(cantidad || "").trim(),
-      funcion: String(funcion || "").trim(),
-      concierto_id: conciertoId ? Number(conciertoId) : null,
-      comentarios: String(comentarios || "").trim(),
-      website: "",
-    },
+  return invokeEntradasAyuda({
+    action: "send",
+    nombre: String(nombre || "").trim(),
+    email: String(email || "").trim().toLowerCase(),
+    telefono: String(telefono || "").trim(),
+    cantidad: String(cantidad || "").trim(),
+    funcion: String(funcion || "").trim(),
+    concierto_id: conciertoId ? Number(conciertoId) : null,
+    comentarios: String(comentarios || "").trim(),
   });
-  if (data?.error) throw new Error(String(data.error));
-  if (error) {
-    let serverMessage = "";
-    try {
-      const ctx = error?.context;
-      if (ctx instanceof Response) {
-        const body = await ctx.clone().json();
-        serverMessage = String(body?.error || body?.message || "").trim();
-      }
-    } catch {
-      /* ignore */
-    }
-    throw new Error(serverMessage || error.message || "No se pudo enviar la consulta.");
-  }
-  return data;
+}
+
+/** Reservas activas asociadas a un mail (titular o beneficiario de tercero). */
+export async function checkEntradasAyudaReservas(email) {
+  const data = await invokeEntradasAyuda({
+    action: "check_reservas",
+    email: String(email || "").trim().toLowerCase(),
+  });
+  return Array.isArray(data?.reservas) ? data.reservas : [];
+}
+
+/** Reenvía por mail los QR de una reserva (desde el formulario de ayuda). */
+export async function reenviarEntradasAyudaReserva({ email, reservaId }) {
+  return invokeEntradasAyuda({
+    action: "reenviar_entradas",
+    email: String(email || "").trim().toLowerCase(),
+    reservaId: Number(reservaId),
+  });
 }
 
 export async function listEntradasAyudaConsultas(estado = "pendiente") {
@@ -894,6 +916,30 @@ export async function listarMisReservas() {
     )
     .eq("usuario_id", session.user.id)
     .is("reservada_por", null)
+    .order("id", { ascending: false });
+  if (error) throw error;
+  return (data || []).map(mapReservaConConcierto);
+}
+
+/**
+ * Reservas activas del usuario en sesión (incluye asignadas por terceros).
+ * Para descargar PDF desde el modal de ayuda.
+ */
+export async function listarMisReservasActivasParaAyuda() {
+  const {
+    data: { session },
+  } = await supabaseEntradasPublic.auth.getSession();
+  if (!session?.user) return [];
+
+  const { data, error } = await supabaseEntradasPublic
+    .from("entrada_reserva")
+    .select(
+      `id, codigo_reserva, cantidad_solicitada, estado, created_at, qr_reserva_token, reservada_por,
+       concierto:entrada_concierto(${RESERVA_CONCIERTO_EMBED}),
+       entradas:entrada_reserva_entrada(id, orden, estado_ingreso, ingresada_at, qr_entrada_token)`,
+    )
+    .eq("usuario_id", session.user.id)
+    .eq("estado", "activa")
     .order("id", { ascending: false });
   if (error) throw error;
   return (data || []).map(mapReservaConConcierto);

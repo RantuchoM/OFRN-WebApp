@@ -2,7 +2,13 @@ import React, { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { IconHelpCircle, IconMail, IconX } from "../ui/Icons";
 import { entradasUi, useEntradasDarkMode } from "../../hooks/useEntradasDarkMode";
-import { sendEntradasAyudaConsulta } from "../../services/entradaService";
+import {
+  checkEntradasAyudaReservas,
+  descargarPdfDesdeReservaRow,
+  listarMisReservasActivasParaAyuda,
+  reenviarEntradasAyudaReserva,
+  sendEntradasAyudaConsulta,
+} from "../../services/entradaService";
 import { buildEntradasAyudaMailtoHref } from "../../utils/entradasAyudaMailto";
 import {
   isValidEntradasAyudaEmail,
@@ -22,10 +28,14 @@ const emptyForm = {
 const CANTIDAD_OPTIONS = ["1", "2", "3", "4"];
 
 /**
- * Botón flotante (arriba izquierda) + modal de ayuda.
- * Mailto arriba; formulario web (Edge Function + Reply-To) abajo.
+ * Botón flotante (abajo izquierda) + modal de ayuda.
+ * Si el mail ya tiene reservas en conciertos abiertos: aviso + descarga/reenvío;
+ * la consulta sigue disponible sin elegir cantidad ni función.
  */
-export default function EntradasAyudaFlotante() {
+export default function EntradasAyudaFlotante({
+  sessionEmail = "",
+  onGoGestionar = null,
+}) {
   const { isDark } = useEntradasDarkMode();
   const ui = entradasUi(isDark);
   const [open, setOpen] = useState(false);
@@ -36,7 +46,13 @@ export default function EntradasAyudaFlotante() {
   const [sent, setSent] = useState(false);
   const [funciones, setFunciones] = useState([]);
   const [funcionesLoading, setFuncionesLoading] = useState(false);
+  const [reservasAyuda, setReservasAyuda] = useState([]);
+  const [reservasChecking, setReservasChecking] = useState(false);
+  const [misReservasFull, setMisReservasFull] = useState([]);
+  const [busyReservaId, setBusyReservaId] = useState(null);
   const mailtoHref = buildEntradasAyudaMailtoHref();
+
+  const sessionEmailNorm = String(sessionEmail || "").trim().toLowerCase();
 
   useEffect(() => {
     if (!open) return undefined;
@@ -66,6 +82,33 @@ export default function EntradasAyudaFlotante() {
     };
   }, [open]);
 
+  useEffect(() => {
+    if (!open || !sessionEmailNorm) return undefined;
+    let cancelled = false;
+    listarMisReservasActivasParaAyuda()
+      .then((rows) => {
+        if (!cancelled) setMisReservasFull(Array.isArray(rows) ? rows : []);
+      })
+      .catch(() => {
+        if (!cancelled) setMisReservasFull([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, sessionEmailNorm]);
+
+  const openConcertIds = useMemo(
+    () => new Set(funciones.map((f) => Number(f.id)).filter((n) => Number.isFinite(n) && n > 0)),
+    [funciones],
+  );
+
+  const reservasEnAbiertos = useMemo(() => {
+    if (!openConcertIds.size) return reservasAyuda;
+    return reservasAyuda.filter((r) => openConcertIds.has(Number(r.conciertoId)));
+  }, [reservasAyuda, openConcertIds]);
+
+  const hasReservasAbiertas = reservasEnAbiertos.length > 0;
+
   const selectedFuncion = useMemo(
     () => funciones.find((f) => String(f.id) === String(form.funcionId)) || null,
     [funciones, form.funcionId],
@@ -78,6 +121,8 @@ export default function EntradasAyudaFlotante() {
     "w-full inline-flex items-center justify-center gap-2 rounded-md bg-[#1ebbf0] px-4 py-3.5 text-base sm:text-lg font-bold text-white no-underline shadow-md hover:bg-[#0ea5d0]";
   const submitBtnClass =
     "w-full inline-flex items-center justify-center gap-2 rounded-md border-2 border-[#1ebbf0] bg-transparent px-4 py-3.5 text-base sm:text-lg font-bold text-[#1ebbf0] hover:bg-[#1ebbf0]/10 disabled:opacity-60";
+  const secondaryBtnClass =
+    "inline-flex items-center justify-center rounded-md border px-3 py-1.5 text-xs font-bold disabled:opacity-60";
   const inputClass = `${ui.input} text-base py-3`;
   const selectClass = `${ui.select} w-full text-base py-3`;
   const shellClass = isDark ? "entradas-app entradas-app--dark" : "entradas-app";
@@ -86,20 +131,58 @@ export default function EntradasAyudaFlotante() {
     setError("");
     setEmailError("");
     setSent(false);
+    setReservasAyuda([]);
+    setBusyReservaId(null);
+    const prefill = sessionEmailNorm;
+    setForm({
+      ...emptyForm,
+      email: prefill,
+    });
     setOpen(true);
+    if (prefill && isValidEntradasAyudaEmail(prefill)) {
+      void runCheckReservas(prefill);
+    }
   };
 
   const onChange = (field) => (event) => {
     setForm((prev) => ({ ...prev, [field]: event.target.value }));
   };
 
+  const runCheckReservas = async (emailValue) => {
+    const email = String(emailValue || "").trim().toLowerCase();
+    if (!isValidEntradasAyudaEmail(email)) {
+      setReservasAyuda([]);
+      return;
+    }
+    setReservasChecking(true);
+    try {
+      const rows = await checkEntradasAyudaReservas(email);
+      setReservasAyuda(Array.isArray(rows) ? rows : []);
+      if (sessionEmailNorm && sessionEmailNorm === email) {
+        try {
+          const full = await listarMisReservasActivasParaAyuda();
+          setMisReservasFull(Array.isArray(full) ? full : []);
+        } catch {
+          /* keep previous */
+        }
+      }
+    } catch {
+      setReservasAyuda([]);
+    } finally {
+      setReservasChecking(false);
+    }
+  };
+
   const onEmailBlur = () => {
     const value = form.email.trim();
     if (!value) {
       setEmailError("");
+      setReservasAyuda([]);
       return;
     }
-    setEmailError(isValidEntradasAyudaEmail(value) ? "" : "Ingresá un mail con formato válido.");
+    const ok = isValidEntradasAyudaEmail(value);
+    setEmailError(ok ? "" : "Ingresá un mail con formato válido.");
+    if (ok) void runCheckReservas(value);
   };
 
   const onTelefonoChange = (event) => {
@@ -117,6 +200,52 @@ export default function EntradasAyudaFlotante() {
     }));
   };
 
+  const canDownloadPdf = (reservaId) => {
+    if (!sessionEmailNorm || sessionEmailNorm !== String(form.email || "").trim().toLowerCase()) {
+      return false;
+    }
+    return misReservasFull.some((r) => Number(r.id) === Number(reservaId));
+  };
+
+  const handleDescargar = async (reservaMeta) => {
+    setBusyReservaId(reservaMeta.id);
+    setError("");
+    try {
+      const full = misReservasFull.find((r) => Number(r.id) === Number(reservaMeta.id));
+      if (full) {
+        await descargarPdfDesdeReservaRow(full);
+        return;
+      }
+      await reenviarEntradasAyudaReserva({
+        email: form.email,
+        reservaId: reservaMeta.id,
+      });
+      setError("");
+      // feedback soft
+      window.alert("Te reenviamos las entradas a tu mail. Revisá también Spam / Correo no deseado.");
+    } catch (downloadError) {
+      setError(downloadError?.message || "No se pudo descargar ni reenviar las entradas.");
+    } finally {
+      setBusyReservaId(null);
+    }
+  };
+
+  const handleReenviar = async (reservaMeta) => {
+    setBusyReservaId(reservaMeta.id);
+    setError("");
+    try {
+      await reenviarEntradasAyudaReserva({
+        email: form.email,
+        reservaId: reservaMeta.id,
+      });
+      window.alert("Te reenviamos las entradas a tu mail. Revisá también Spam / Correo no deseado.");
+    } catch (resendError) {
+      setError(resendError?.message || "No se pudo reenviar el mail.");
+    } finally {
+      setBusyReservaId(null);
+    }
+  };
+
   const handleSubmit = async (event) => {
     event.preventDefault();
     setError("");
@@ -124,20 +253,26 @@ export default function EntradasAyudaFlotante() {
       setEmailError("Ingresá un mail con formato válido.");
       return;
     }
+    if (hasReservasAbiertas && !String(form.comentarios || "").trim()) {
+      setError("Contanos en comentarios en qué podemos ayudarte.");
+      return;
+    }
     setEmailError("");
     setSending(true);
     try {
+      const skipEntradas = hasReservasAbiertas;
       await sendEntradasAyudaConsulta({
         nombre: form.nombre,
         email: form.email,
         telefono: form.telefono,
-        cantidad: form.cantidad,
-        funcion: form.funcion || selectedFuncion?.label || "",
-        conciertoId: form.funcionId || selectedFuncion?.id || null,
+        cantidad: skipEntradas ? "" : form.cantidad,
+        funcion: skipEntradas ? "" : form.funcion || selectedFuncion?.label || "",
+        conciertoId: skipEntradas ? null : form.funcionId || selectedFuncion?.id || null,
         comentarios: form.comentarios,
       });
       setSent(true);
       setForm(emptyForm);
+      setReservasAyuda([]);
     } catch (submitError) {
       setError(submitError?.message || "No se pudo enviar. Probá de nuevo o usá «Enviar correo directo» arriba.");
     } finally {
@@ -309,6 +444,102 @@ export default function EntradasAyudaFlotante() {
                           {emailError}
                         </p>
                       )}
+                      {reservasChecking && (
+                        <p className={`text-sm ${ui.textMuted}`}>Buscando reservas con este mail…</p>
+                      )}
+
+                      {hasReservasAbiertas && (
+                        <div
+                          className={
+                            isDark
+                              ? "rounded-lg border border-amber-800 bg-amber-950/50 px-3 py-3 space-y-2"
+                              : "rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 space-y-2"
+                          }
+                          role="status"
+                        >
+                          <p
+                            className={`text-sm font-bold ${
+                              isDark ? "text-amber-100" : "text-amber-950"
+                            }`}
+                          >
+                            Ya tenés entradas reservadas para{" "}
+                            {reservasEnAbiertos.length === 1
+                              ? "un concierto abierto"
+                              : `${reservasEnAbiertos.length} conciertos abiertos`}
+                            .
+                          </p>
+                          <ul className="space-y-2 list-none p-0 m-0">
+                            {reservasEnAbiertos.map((r) => {
+                              const busy = busyReservaId === r.id;
+                              const canPdf = canDownloadPdf(r.id);
+                              return (
+                                <li
+                                  key={r.id}
+                                  className={
+                                    isDark
+                                      ? "rounded-md border border-slate-600 bg-slate-900/50 px-3 py-2 space-y-2"
+                                      : "rounded-md border border-amber-100 bg-white px-3 py-2 space-y-2"
+                                  }
+                                >
+                                  <p className={`text-sm font-semibold leading-snug ${ui.textStrong}`}>
+                                    {r.label}
+                                  </p>
+                                  <p className={`text-xs ${ui.textMuted}`}>
+                                    {r.cantidadLabel}
+                                    {r.codigo ? ` · ${r.codigo}` : ""}
+                                  </p>
+                                  <div className="flex flex-wrap gap-2">
+                                    {canPdf ? (
+                                      <button
+                                        type="button"
+                                        disabled={busy}
+                                        className={`${secondaryBtnClass} ${
+                                          isDark
+                                            ? "border-sky-700 text-sky-200 hover:bg-sky-950"
+                                            : "border-sky-300 text-sky-800 hover:bg-sky-50"
+                                        }`}
+                                        onClick={() => void handleDescargar(r)}
+                                      >
+                                        {busy ? "…" : "Descargar PDF"}
+                                      </button>
+                                    ) : null}
+                                    <button
+                                      type="button"
+                                      disabled={busy}
+                                      className={`${secondaryBtnClass} ${
+                                        isDark
+                                          ? "border-slate-500 text-slate-200 hover:bg-slate-800"
+                                          : "border-slate-300 text-slate-700 hover:bg-slate-50"
+                                      }`}
+                                      onClick={() => void handleReenviar(r)}
+                                    >
+                                      {busy ? "…" : "Reenviar al mail"}
+                                    </button>
+                                  </div>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                          {typeof onGoGestionar === "function" ? (
+                            <button
+                              type="button"
+                              className={`text-sm font-semibold underline ${
+                                isDark ? "text-sky-300" : "text-sky-800"
+                              }`}
+                              onClick={() => {
+                                setOpen(false);
+                                onGoGestionar(String(form.email || "").trim());
+                              }}
+                            >
+                              Ir a Gestionar mis entradas
+                            </button>
+                          ) : null}
+                          <p className={`text-sm leading-relaxed ${isDark ? "text-amber-100" : "text-amber-900"}`}>
+                            Si igual necesitás escribirnos, podés enviar la consulta abajo{" "}
+                            <strong>sin pedir entradas nuevas</strong> (solo contanos qué te pasa).
+                          </p>
+                        </div>
+                      )}
 
                       <label className={`${ui.label} text-sm`} htmlFor="ayuda-telefono">
                         Teléfono{" "}
@@ -328,70 +559,79 @@ export default function EntradasAyudaFlotante() {
                         placeholder="Solo números"
                       />
 
-                      <label className={`${ui.label} text-sm`} htmlFor="ayuda-cantidad">
-                        Cantidad de entradas
-                      </label>
-                      <select
-                        id="ayuda-cantidad"
-                        value={form.cantidad}
-                        onChange={onChange("cantidad")}
-                        className={selectClass}
-                      >
-                        <option value="">Elegí cantidad</option>
-                        {CANTIDAD_OPTIONS.map((n) => (
-                          <option key={n} value={n}>
-                            {n}
-                          </option>
-                        ))}
-                      </select>
+                      {!hasReservasAbiertas && (
+                        <>
+                          <label className={`${ui.label} text-sm`} htmlFor="ayuda-cantidad">
+                            Cantidad de entradas
+                          </label>
+                          <select
+                            id="ayuda-cantidad"
+                            value={form.cantidad}
+                            onChange={onChange("cantidad")}
+                            className={selectClass}
+                          >
+                            <option value="">Elegí cantidad</option>
+                            {CANTIDAD_OPTIONS.map((n) => (
+                              <option key={n} value={n}>
+                                {n}
+                              </option>
+                            ))}
+                          </select>
 
-                      <label className={`${ui.label} text-sm`} htmlFor="ayuda-funcion">
-                        Función
-                      </label>
-                      <select
-                        id="ayuda-funcion"
-                        value={form.funcionId}
-                        onChange={onFuncionChange}
-                        className={selectClass}
-                        disabled={funcionesLoading}
-                      >
-                        <option value="">
-                          {funcionesLoading ? "Cargando funciones…" : "Elegí una función"}
-                        </option>
-                        {funciones.map((f) => (
-                          <option key={f.id} value={String(f.id)}>
-                            {f.label}
-                          </option>
-                        ))}
-                      </select>
-                      {funcionLlena && (
-                        <p
-                          className={
-                            isDark
-                              ? "rounded-md border border-amber-800 bg-amber-950/50 px-3 py-2 text-sm text-amber-200"
-                              : "rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800"
-                          }
-                          role="status"
-                        >
-                          Esta función ya está llena, pero igualmente responderemos tu consulta.
-                        </p>
-                      )}
-                      {!funcionesLoading && funciones.length === 0 && (
-                        <p className={`text-sm ${ui.textMuted}`}>
-                          No hay funciones abiertas en este momento. Igual podés enviar la consulta.
-                        </p>
+                          <label className={`${ui.label} text-sm`} htmlFor="ayuda-funcion">
+                            Función
+                          </label>
+                          <select
+                            id="ayuda-funcion"
+                            value={form.funcionId}
+                            onChange={onFuncionChange}
+                            className={selectClass}
+                            disabled={funcionesLoading}
+                          >
+                            <option value="">
+                              {funcionesLoading ? "Cargando funciones…" : "Elegí una función"}
+                            </option>
+                            {funciones.map((f) => (
+                              <option key={f.id} value={String(f.id)}>
+                                {f.label}
+                              </option>
+                            ))}
+                          </select>
+                          {funcionLlena && (
+                            <p
+                              className={
+                                isDark
+                                  ? "rounded-md border border-amber-800 bg-amber-950/50 px-3 py-2 text-sm text-amber-200"
+                                  : "rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800"
+                              }
+                              role="status"
+                            >
+                              Esta función ya está llena, pero igualmente responderemos tu consulta.
+                            </p>
+                          )}
+                          {!funcionesLoading && funciones.length === 0 && (
+                            <p className={`text-sm ${ui.textMuted}`}>
+                              No hay funciones abiertas en este momento. Igual podés enviar la consulta.
+                            </p>
+                          )}
+                        </>
                       )}
 
                       <label className={`${ui.label} text-sm`} htmlFor="ayuda-comentarios">
-                        Otros comentarios
+                        {hasReservasAbiertas ? "¿En qué te ayudamos?" : "Otros comentarios"}
                       </label>
                       <textarea
                         id="ayuda-comentarios"
                         rows={3}
+                        required={hasReservasAbiertas}
                         value={form.comentarios}
                         onChange={onChange("comentarios")}
                         className={`${inputClass} resize-y min-h-[5rem]`}
-                        placeholder="Contanos qué te está pasando"
+                        placeholder={
+                          hasReservasAbiertas
+                            ? "Ej. no me llega el mail, necesito cambiar cantidad…"
+                            : "Contanos qué te está pasando"
+                        }
                       />
 
                       <input

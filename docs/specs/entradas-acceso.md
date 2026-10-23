@@ -73,6 +73,7 @@ RPC `entrada_mark_password_set()` marca `entrada_usuario.password_set_at`.
 - `EntradasPerfilModal.jsx` — cambiar nombre/apellido y contraseña.
 - Header de `EntradasMain.jsx`: el **nombre** abre menú con **Ver mi perfil** y **Cerrar sesión**.
 - `EntradasAyudaFlotante.jsx` — botón flotante abajo izquierda «¿Necesitás ayuda?» en toda `/entradas`; modal con **Enviar correo directo** (`mailto:` + plantilla) arriba y **formulario web** abajo (Edge `entradas-send-ayuda` → guarda `entrada_ayuda_consulta` + mail a staff con botón **Reservar en Entradas**; `Reply-To` = mail del consultante; **acuse al consultante** con aviso de revisar Spam / Correo no deseado).
+- Si el mail del formulario ya tiene **reservas activas** en conciertos con reservas abiertas: aviso + **Descargar PDF** (si hay sesión) / **Reenviar al mail** (`action: check_reservas` / `reenviar_entradas`); la consulta sigue disponible **sin** elegir cantidad ni función (solo comentarios).
 - Staff: cola en **🎫 Terceros** (`EntradasAyudaConsultasPanel`); deep link `?view=entradas-terceros&ayuda=<uuid>` precarga el formulario o avisa si ya está resuelta/descartada.
 
 ## Usuarios OFRN (`integrantes`)
