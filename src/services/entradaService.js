@@ -853,6 +853,30 @@ export async function descargarPdfDesdeReservaRow(reserva) {
   downloadEntradasReservaPdfBlob(blob, filename);
 }
 
+/** Carga una reserva activa con concierto + QRs para PDF (admin / listados). */
+export async function fetchReservaParaPdf(reservaId) {
+  const id = Number(reservaId);
+  if (!Number.isFinite(id) || id <= 0) throw new Error("Reserva inválida.");
+  const { data, error } = await supabaseEntradasPublic
+    .from("entrada_reserva")
+    .select(
+      `id, codigo_reserva, cantidad_solicitada, estado, created_at, qr_reserva_token,
+       concierto:entrada_concierto(${RESERVA_CONCIERTO_EMBED}),
+       entradas:entrada_reserva_entrada(id, orden, estado_ingreso, ingresada_at, qr_entrada_token)`,
+    )
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) throw new Error("No se encontró la reserva.");
+  return mapReservaConConcierto(data);
+}
+
+/** Descarga el PDF de una reserva por id (útil desde listados admin sin tokens precargados). */
+export async function descargarPdfDesdeReservaId(reservaId) {
+  const row = await fetchReservaParaPdf(reservaId);
+  await descargarPdfDesdeReservaRow(row);
+}
+
 export async function blobToPdfBase64ForMail(blob) {
   return blobToBase64NoPrefix(blob);
 }

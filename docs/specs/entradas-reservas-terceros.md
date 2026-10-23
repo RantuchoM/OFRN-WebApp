@@ -95,7 +95,7 @@ Migraciones:
 ## Admin — resúmenes de programa (programas actuales)
 
 - [x] En cada tarjeta de concierto (vista Admin → Programas), junto al botón de copiar mails de cada resumen, ícono **lista** abre modal con buscador.
-- [x] Modal (`EntradasAdminReservasListModal`): usuario, cantidad de entradas, fecha de reserva/inscripción; columna concierto si el listado agrupa varios.
+- [x] Modal (`EntradasAdminReservasListModal`): usuario, cantidad de entradas, fecha de reserva/inscripción; columna concierto si el listado agrupa varios; botón **PDF** por fila (reservaron / ingresaron / sin ingreso) vía `descargarPdfDesdeReservaId`.
 - [x] Misma categorización que mails: reservaron, ingresaron, sin ingreso, recordatorio de apertura.
 - [x] A nivel programa: botón lista al lado de cada «Mails: …».
 - [x] Barra de disponibilidad (`EntradasDisponibilidadBar`, igual que catálogo) en conciertos con reservas abiertas, vía RPC `entrada_conciertos_disponibilidad`.

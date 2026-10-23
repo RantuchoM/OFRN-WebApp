@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { IconLoader, IconX } from "../ui/Icons";
-import { getAdminReservasList } from "../../services/entradaService";
+import { toast } from "sonner";
+import { IconDownload, IconLoader, IconX } from "../ui/Icons";
+import { descargarPdfDesdeReservaId, getAdminReservasList } from "../../services/entradaService";
 import { matchesMultiTokenSearch } from "../../utils/sanitize";
 
 const BUCKET_META = {
@@ -31,9 +32,27 @@ export default function EntradasAdminReservasListModal({
   const [error, setError] = useState("");
   const [rows, setRows] = useState([]);
   const [query, setQuery] = useState("");
+  const [downloadingPdfId, setDownloadingPdfId] = useState(null);
 
   const meta = BUCKET_META[bucket] || { title: "Listado", fechaLabel: "Fecha" };
   const multiConcierto = conciertoIds.length > 1;
+  const canDownloadPdf = bucket !== "recordatorio";
+
+  const handleDownloadPdf = async (row) => {
+    const reservaId = Number(row?.id);
+    if (!Number.isFinite(reservaId) || reservaId <= 0) {
+      toast.error("Reserva inválida.");
+      return;
+    }
+    setDownloadingPdfId(reservaId);
+    try {
+      await descargarPdfDesdeReservaId(reservaId);
+    } catch (e) {
+      toast.error(e?.message || "No se pudo generar el PDF.");
+    } finally {
+      setDownloadingPdfId(null);
+    }
+  };
 
   const idsKey = conciertoIds.join(",");
 
@@ -145,7 +164,10 @@ export default function EntradasAdminReservasListModal({
                     {multiConcierto ? <th className="py-2 pr-3 font-bold uppercase tracking-wide">Concierto</th> : null}
                     <th className="py-2 pr-3 font-bold uppercase tracking-wide">Usuario</th>
                     <th className="py-2 pr-3 font-bold uppercase tracking-wide w-16 text-center">Entradas</th>
-                    <th className="py-2 font-bold uppercase tracking-wide">{meta.fechaLabel}</th>
+                    <th className="py-2 pr-3 font-bold uppercase tracking-wide">{meta.fechaLabel}</th>
+                    {canDownloadPdf ? (
+                      <th className="py-2 font-bold uppercase tracking-wide w-24 text-right">PDF</th>
+                    ) : null}
                   </tr>
                 </thead>
                 <tbody>
@@ -168,9 +190,28 @@ export default function EntradasAdminReservasListModal({
                       <td className={`py-2 pr-3 align-top text-center tabular-nums font-semibold ${ui.textStrong}`}>
                         {row.cantidad == null ? "—" : row.cantidad}
                       </td>
-                      <td className={`py-2 align-top tabular-nums ${ui.textMuted}`}>
+                      <td className={`py-2 pr-3 align-top tabular-nums ${ui.textMuted}`}>
                         {formatFechaAdquisicion(row.createdAt)}
                       </td>
+                      {canDownloadPdf ? (
+                        <td className="py-2 align-top text-right">
+                          <button
+                            type="button"
+                            disabled={downloadingPdfId != null}
+                            onClick={() => void handleDownloadPdf(row)}
+                            className={`${ui.btnGhost} inline-flex items-center gap-1 px-2 py-1 text-[11px]`}
+                            title="Descargar PDF de la reserva"
+                            aria-label={`Descargar PDF de ${row.codigoReserva || row.usuarioLabel}`}
+                          >
+                            {downloadingPdfId === Number(row.id) ? (
+                              <IconLoader size={14} className="animate-spin shrink-0" />
+                            ) : (
+                              <IconDownload size={14} className="shrink-0" />
+                            )}
+                            {downloadingPdfId === Number(row.id) ? "…" : "PDF"}
+                          </button>
+                        </td>
+                      ) : null}
                     </tr>
                   ))}
                 </tbody>
