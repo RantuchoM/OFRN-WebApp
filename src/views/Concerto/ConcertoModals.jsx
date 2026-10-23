@@ -287,3 +287,56 @@ export function ParticipanteModal({
     </>
   );
 }
+
+export function VotanteExtraModal({ personas, loadError, onClose, onSubmit, saving }) {
+  const [idIntegrante, setIdIntegrante] = useState(null);
+  const [error, setError] = useState("");
+  const [pending, setPending] = useState(false);
+  const busy = pending || saving;
+
+  const submit = async (event) => {
+    event.preventDefault();
+    if (busy) return;
+    setError("");
+    if (idIntegrante == null || idIntegrante === "") {
+      setError("Elegí un músico.");
+      return;
+    }
+    setPending(true);
+    try {
+      const message = await onSubmit(idIntegrante);
+      if (message) setError(message);
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <ConcertoModal title="Agregar votante" onClose={onClose}>
+      <form onSubmit={submit} className="space-y-3">
+        <p className="text-sm text-slate-600">
+          Del listado general. Tiene que no ser músico estable. Va a ver Concerto Competition y
+          votar solamente en esta instancia.
+        </p>
+        <div>
+          <p className="mb-1 text-xs font-bold uppercase text-slate-500">Músico</p>
+          <SearchableSelect
+            options={personas}
+            value={idIntegrante}
+            onChange={setIdIntegrante}
+            placeholder="Buscar por nombre o apellido…"
+          />
+        </div>
+        {loadError ? (
+          <p className="text-sm text-rose-600">{loadError}</p>
+        ) : personas.length === 0 ? (
+          <p className="text-sm text-slate-400">No hay músicos no estables para agregar.</p>
+        ) : null}
+        <ModalError message={error} />
+        <PrimaryButton disabled={busy || personas.length === 0 || !!loadError}>
+          {busy ? "Agregando…" : "Agregar"}
+        </PrimaryButton>
+      </form>
+    </ConcertoModal>
+  );
+}

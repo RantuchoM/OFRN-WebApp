@@ -63,7 +63,7 @@ Los comandos globales replican la visibilidad del sidebar (`App.jsx` → `allMen
 | Comunicación | `/?tab=news_manager` | management |
 | Editor Manual | `/?tab=manual_admin` | management |
 | Usuarios | `/?tab=usuarios` | admin |
-| Concerto Competition | `/?tab=competition` | admin o editor, o músico del electorado en una edición visible (`musicianCanSeeConcerto`) |
+| Concerto Competition | `/?tab=competition` | admin o editor, o músico del electorado (estable convocado o votante invitado de una fase) en una edición visible (`musicianCanSeeConcerto`) |
 | Traducción musical | `/?tab=music_translation` | lista blanca (`musicTranslationAccess`) |
 | Manual de Usuario | `/?tab=manual` | No invitado + personal/editor/management |
 | Feedback | `/?tab=feedback` | No invitado |

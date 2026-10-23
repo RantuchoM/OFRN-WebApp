@@ -23,13 +23,17 @@ import {
   deleteParticipante,
   queueConcertoMutation,
   queueParticipanteReorder,
+  addVotanteExtra,
   fetchEditionBundle,
   fetchEditionChoices,
   fetchIntegrantesOptions,
   fetchProgramasOptions,
   fetchPromedios,
+  fetchVotantesExtraOptions,
   girasElectorado,
+  instanciasDeVotanteExtra,
   formatCantidadBoletas,
+  formatPersonaLista,
   formatDateTimeAR,
   formatGiraLabel,
   formatGiraRango,
@@ -44,6 +48,7 @@ import {
   systemRolesOf,
   nextOrden,
   pickDefaultEdition,
+  removeVotanteExtra,
   saveFragmentos,
   saveParticipante,
   toDatetimeLocalAR,
@@ -53,7 +58,12 @@ import {
 import { RichTextPreview } from "../../components/repertoire/RepertoireWorkPickerModal";
 import ConcertoBallot from "./ConcertoBallot";
 import ConcertoParticipantesTable from "./ConcertoParticipantesTable";
-import { EdicionModal, InstanciaModal, ParticipanteModal } from "./ConcertoModals";
+import {
+  EdicionModal,
+  InstanciaModal,
+  ParticipanteModal,
+  VotanteExtraModal,
+} from "./ConcertoModals";
 import { isProtectedIntegrante } from "../../utils/protectedIntegrantes";
 
 const fieldClass =
@@ -328,6 +338,8 @@ function InstanciaStaffCard({
   instancia,
   otras,
   personas,
+  votantesOptions,
+  votantesOptionsError,
   now,
   onChanged,
   onReorder,
@@ -346,6 +358,7 @@ function InstanciaStaffCard({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [modal, setModal] = useState(null);
+  const [votanteModal, setVotanteModal] = useState(false);
   const seenDiscard = useRef(discardNonce);
 
   useEffect(() => {
@@ -506,6 +519,35 @@ function InstanciaStaffCard({
     setModal(null);
     onChanged();
     return "";
+  };
+
+  const yaVotan = new Set((instancia.votantesExtra || []).map((persona) => String(persona.id)));
+  const opcionesVotante = (votantesOptions || []).filter(
+    (persona) => !yaVotan.has(String(persona.id)),
+  );
+
+  const agregarVotante = async (idIntegrante) => {
+    const { error: saveError } = await addVotanteExtra(supabase, instancia.id, idIntegrante);
+    if (saveError) return errorText(saveError);
+    setVotanteModal(false);
+    onChanged();
+    return "";
+  };
+
+  const quitarVotante = async (persona) => {
+    const ok = await confirm({
+      title: "Quitar votante",
+      message: `¿Quitar a ${formatPersonaLista(persona)} de esta instancia? Los puntajes que ya guardó siguen en el promedio.`,
+      confirmText: "Quitar",
+      destructive: true,
+    });
+    if (!ok) return;
+    const { error: deleteError } = await removeVotanteExtra(supabase, instancia.id, persona.id);
+    if (deleteError) {
+      setError(errorText(deleteError));
+      return;
+    }
+    onChanged();
   };
 
   const eliminar = async () => {
@@ -669,6 +711,47 @@ function InstanciaStaffCard({
         )}
       </div>
 
+      <div className="space-y-2 border-t border-slate-200 pt-4">
+        <div className="flex items-center justify-between gap-2">
+          <h4 className="text-xs font-bold uppercase tracking-wide text-slate-500">
+            Votantes invitados
+          </h4>
+          <button
+            type="button"
+            onClick={() => setVotanteModal(true)}
+            className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-sm font-semibold text-indigo-700 hover:bg-indigo-50"
+          >
+            <IconPlus size={16} />
+            Agregar
+          </button>
+        </div>
+        <p className="text-xs text-slate-500">
+          Músicos que no son estables, del listado general. Ven el menú y votan solamente en esta
+          instancia.
+        </p>
+        {(instancia.votantesExtra || []).length === 0 ? (
+          <p className="text-sm text-slate-400">Todavía no hay votantes invitados.</p>
+        ) : (
+          <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200">
+            {(instancia.votantesExtra || []).map((persona) => (
+              <li key={persona.id} className="flex items-center justify-between gap-2 px-3 py-2">
+                <span className="min-w-0 truncate text-sm text-slate-800">
+                  {formatPersonaLista(persona)}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => quitarVotante(persona)}
+                  className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-sm font-semibold text-rose-600 hover:bg-rose-50"
+                >
+                  <IconTrash size={16} />
+                  Quitar
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
       {mostrarBoleta ? (
         <section className="space-y-3 border-t border-slate-200 pt-4">
           <h4 className="text-sm font-bold text-slate-800">Tu votación</h4>
@@ -701,6 +784,15 @@ function InstanciaStaffCard({
           saving={false}
         />
       ) : null}
+      {votanteModal ? (
+        <VotanteExtraModal
+          personas={opcionesVotante}
+          loadError={votantesOptionsError}
+          saving={false}
+          onClose={() => setVotanteModal(false)}
+          onSubmit={agregarVotante}
+        />
+      ) : null}
     </article>
   );
 }
@@ -713,7 +805,7 @@ export default function ConcertoCompetitionView({ supabase }) {
   const userId = actor?.id;
   const verBoletaAjena = isImpersonating && isProtectedIntegrante(realUser);
   const ocultarBoletaAjena = isImpersonating && !verBoletaAjena;
-  const [boletaAjenaGiras, setBoletaAjenaGiras] = useState(null);
+  const [boletaAjenaInstancias, setBoletaAjenaInstancias] = useState(null);
   const [staffTab, setStaffTab] = useState("instancias");
   const [now, setNow] = useState(() => new Date());
   const [loading, setLoading] = useState(true);
@@ -722,6 +814,8 @@ export default function ConcertoCompetitionView({ supabase }) {
   const [selectedId, setSelectedId] = useState(null);
   const [instancias, setInstancias] = useState([]);
   const [personas, setPersonas] = useState([]);
+  const [votantesOptions, setVotantesOptions] = useState([]);
+  const [votantesOptionsError, setVotantesOptionsError] = useState("");
   const [programas, setProgramas] = useState([]);
   const [promedios, setPromedios] = useState({});
   const [promediosTick, setPromediosTick] = useState(0);
@@ -869,13 +963,22 @@ export default function ConcertoCompetitionView({ supabase }) {
   useEffect(() => {
     if (!isStaff) return;
     let cancelled = false;
-    Promise.all([fetchProgramasOptions(supabase), fetchIntegrantesOptions(supabase)]).then(
-      ([giras, people]) => {
-        if (cancelled) return;
-        if (!giras.error) setProgramas(giras.options);
-        if (!people.error) setPersonas(people.options);
-      },
-    );
+    Promise.all([
+      fetchProgramasOptions(supabase),
+      fetchIntegrantesOptions(supabase),
+      fetchVotantesExtraOptions(supabase),
+    ]).then(([giras, people, invitados]) => {
+      if (cancelled) return;
+      if (!giras.error) setProgramas(giras.options);
+      if (!people.error) setPersonas(people.options);
+      if (invitados.error) {
+        setVotantesOptions([]);
+        setVotantesOptionsError(errorText(invitados.error));
+      } else {
+        setVotantesOptions(invitados.options);
+        setVotantesOptionsError("");
+      }
+    });
     return () => {
       cancelled = true;
     };
@@ -885,25 +988,35 @@ export default function ConcertoCompetitionView({ supabase }) {
 
   useEffect(() => {
     if (!verBoletaAjena || user?.id == null) {
-      setBoletaAjenaGiras(null);
+      setBoletaAjenaInstancias(null);
       return;
     }
     const giraIds = instancias.map((instancia) => instancia.id_gira).filter((id) => id != null);
+    const instanciaIds = instancias.map((instancia) => instancia.id);
     let cancelled = false;
     (async () => {
+      const ids = new Set();
+      const extra = await instanciasDeVotanteExtra(supabase, user.id, instanciaIds);
+      if (!extra.error) {
+        for (const id of extra.ids) ids.add(String(id));
+      }
       const { data: me, error: meError } = await supabase
         .from("integrantes")
         .select("id, condicion, es_simulacion")
         .eq("id", user.id)
         .maybeSingle();
       if (cancelled) return;
-      if (meError || !isEstableReal(me)) {
-        setBoletaAjenaGiras(new Set());
-        return;
+      if (!meError && isEstableReal(me)) {
+        const { giras, error } = await girasElectorado(supabase, user.id, giraIds);
+        if (!error) {
+          for (const instancia of instancias) {
+            if (instancia.id_gira != null && giras.has(String(instancia.id_gira))) {
+              ids.add(String(instancia.id));
+            }
+          }
+        }
       }
-      const { giras, error } = await girasElectorado(supabase, user.id, giraIds);
-      if (cancelled) return;
-      setBoletaAjenaGiras(error ? new Set() : giras);
+      if (!cancelled) setBoletaAjenaInstancias(ids);
     })();
     return () => {
       cancelled = true;
@@ -1277,12 +1390,14 @@ export default function ConcertoCompetitionView({ supabase }) {
                       userId={verBoletaAjena ? user?.id : userId}
                       mostrarBoleta={
                         verBoletaAjena
-                          ? boletaAjenaGiras?.has(String(instancia.id_gira)) === true
+                          ? boletaAjenaInstancias?.has(String(instancia.id)) === true
                           : !ocultarBoletaAjena && !!instancia.esElectorado
                       }
                       instancia={instancia}
                       otras={instancias.filter((item) => String(item.id) !== String(instancia.id))}
                       personas={personas}
+                      votantesOptions={votantesOptions}
+                      votantesOptionsError={votantesOptionsError}
                       now={now}
                       onChanged={reload}
                       onReorder={(participantes) => aplicarOrdenLocal(instancia.id, participantes)}

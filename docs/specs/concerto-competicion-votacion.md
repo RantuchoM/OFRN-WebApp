@@ -9,6 +9,7 @@
 - [x] Resultados en vivo (promedio y cantidad de boletas, sin votos individuales)
 - [x] Participantes en columnas, con obra de catálogo vinculada al bloque «Concerto Competition» de la gira
 - [x] Audición con orquesta y audición sin orquesta en el participante. La nota de repertorio ya no se proyecta desde la competencia.
+- [x] Votantes invitados por instancia: no estables, agregados a mano por admin o editor, votan solo esa fase.
 
 ## Contrato de datos
 
@@ -20,13 +21,14 @@ Tablas:
 - `concerto_instancias` (`id`, `id_edicion`, `id_gira`, `titulo`, `abre_en`, `cierra_en`, `orden`). `id_gira` → `programas.id`
 - `concerto_participantes` (`id`, `id_instancia`, `observaciones` legacy, `fragmento_solista`, `fragmento_orquesta`, `orden`, `id_repertorio_obra`)
 - `concerto_participante_integrantes` (`id_participante`, `id_integrante`)
+- `concerto_instancia_votantes` (`id_instancia`, `id_integrante`, `created_at`). Una fila por persona y fase. No admite estable ni vacante (`es_simulacion`). Si la persona pasa a estable o a vacante, la fila se borra.
 
 RPCs:
 
-- `concerto_guardar_boleta({ p_id_votante, p_id_instancia, p_puntajes })`. `p_puntajes` es JSON `[{ id_participante, puntaje }, ...]`, uno o varios. Hace upsert de esos puntajes y no borra el resto de la boleta de ese votante. Respuesta `{ ok, error }`.
+- `concerto_guardar_boleta({ p_id_votante, p_id_instancia, p_puntajes })`. `p_puntajes` es JSON `[{ id_participante, puntaje }, ...]`, uno o varios. Hace upsert de esos puntajes y no borra el resto de la boleta de ese votante. Respuesta `{ ok, error }`. Habilita a un estable no vacante, o a quien tenga fila en `concerto_instancia_votantes` de esa instancia.
 - `concerto_mi_boleta({ p_id_votante, p_id_instancia })` → `{ id_participante, puntaje }`.
 - `concerto_promedios({ p_id_viewer, p_id_instancia })` → `{ id_participante, promedio, cantidad }`. Promedio y cantidad de todos los puntajes de `concerto_votos` de ese participante, aunque la boleta esté incompleta. No devuelve al votante. Solo si el viewer es editor o admin.
-- `concerto_borrar_puntaje({ p_id_votante, p_id_instancia, p_id_participante })` → `{ ok, error }`. Borra solo ese puntaje de ese votante, y solo si `abre_en <= now <= cierra_en`.
+- `concerto_borrar_puntaje({ p_id_votante, p_id_instancia, p_id_participante })` → `{ ok, error }`. Borra solo ese puntaje de ese votante, y solo si `abre_en <= now <= cierra_en` y el votante sigue habilitado (estable no vacante, o invitado de esa instancia).
 
 `user.id` del `AuthContext` es `integrantes.id` (numérico).
 
@@ -41,14 +43,18 @@ De ese resultado, es electorado de la instancia quien:
 - `id_gira` de la instancia no es null,
 - en el roster, `estado_gira` no es `ausente` (el util deja a los ausentes en la lista).
 
-`concerto_guardar_boleta` no tiene un segundo motor de convocatoria. Exige estable y no vacante, y rechaza si ya hay una fila personal en `giras_integrantes` de esa gira con estado `ausente`. Si está convocado solo por ensamble, esa decisión la toma el cliente con el util. Una llamada directa a la RPC, siendo estable y sin marca de ausente, no vuelve a filtrar por ensamble.
+`concerto_guardar_boleta` no tiene un segundo motor de convocatoria para los estables. Exige estable y no vacante, y rechaza si ya hay una fila personal en `giras_integrantes` de esa gira con estado `ausente`. Si está convocado solo por ensamble, esa decisión la toma el cliente con el util. Una llamada directa a la RPC, siendo estable y sin marca de ausente, no vuelve a filtrar por ensamble.
+
+También es electorado de esa instancia, y solo de esa, quien tiene fila en `concerto_instancia_votantes`. No hace falta que sea estable ni que esté en el roster. La marca `ausente` de la gira no lo saca: no entra por convocatoria. No puede puntuar su propia fila si además es participante. Quitar la fila no borra los puntajes ya guardados; deja de poder votar o borrar en esa fase. La misma persona puede estar invitada en varias instancias, cada una por su fila.
+
+Solo un admin o editor agrega o quita esas filas, desde «Votantes invitados» en la instancia, eligiendo en el listado general de músicos (sin vacantes y sin estables). El alta rechaza estable y vacante también en la base.
 
 ## Menú
 
 Ítem label **Concerto Competition**, ícono `IconTrophy` (copa de competencia en `src/components/ui/Icons.jsx`), tab `?tab=competition` (`CONCERTO`). Queda en la lista desplazable de `allMenuItems`, inmediatamente encima de Feedback, y en Ctrl+K como **Ir a Concerto Competition** (misma visibilidad). El encabezado de la vista (`ConcertoCompetitionView`) usa el mismo `IconTrophy` junto al título.
 
 - **Admin o editor** (`roles` efectivos de `rol_sistema`; `curador` solo no alcanza, y no se usa `isEditor` porque incluye curador): el ítem se muestra siempre, también fuera de la vigencia, para reabrir fechas y sumar giras.
-- **Músico:** el ítem se muestra solo si ahora está entre `visible_desde` y `visible_hasta` de alguna edición y `fetchRosterForGira` lo deja como electorado de al menos una instancia de esa edición.
+- **Músico:** el ítem se muestra solo si ahora está entre `visible_desde` y `visible_hasta` de alguna edición y, en esa edición, `fetchRosterForGira` lo deja como electorado de al menos una instancia o tiene una fila en `concerto_instancia_votantes` de al menos una instancia.
 
 Al entrar, si hay ediciones, se muestra la vigente o, si ninguna lo está, la de `visible_hasta` más reciente.
 
@@ -92,7 +98,7 @@ La boleta previa se carga con `concerto_mi_boleta`. El error de `concerto_guarda
 
 ## Músico
 
-No ve pestañas ni resultados. Una tarjeta por instancia en la que es electorado.
+No ve pestañas ni resultados. Una tarjeta por instancia en la que es electorado: la convocatoria estable de la gira, o la invitación manual de esa fase. Un invitado no ve las otras instancias de la edición.
 
 Fuera de la ventana abierta: la línea 1 es el nombre y, si hay obra vinculada, « - » más `obras.titulo`; debajo, «Audición con orquesta» y «Audición sin orquesta». Sin controles de puntaje y sin promedios. Texto de si todavía no abre, está cerrada, o falta definir la ventana.
 
@@ -106,7 +112,7 @@ El rol (`admin` o `editor`, no curador) decide pestañas, edición y resultados.
 
 Dos pestañas, estilo interruptor (fondo `slate-100`, pestaña activa blanca): «Instancias» y «Resultados».
 
-- Instancias: la gestión (edición, instancias, participantes, ventanas) y, en cada instancia donde es electorado, la sección «Tu votación» con la misma boleta. Un editor que no está en esa gira no vota esa instancia.
+- Instancias: la gestión (edición, instancias, participantes, ventanas, votantes invitados) y, en cada instancia donde es electorado, la sección «Tu votación» con la misma boleta. Un editor que no está en esa gira ni fue invitado a esa instancia no vota ahí.
 - Resultados: el ranking único de la edición elegida, sin la grilla de gestión.
 
 Aunque también sea músico, ve el panel de gestión.
@@ -120,7 +126,8 @@ Aunque también sea músico, ve el panel de gestión.
 - Mover a otra instancia de la misma edición (`id_instancia` y `orden` al final de la destino) es un menú, no un select a lo ancho. Quitar y mover sacan la fila del bloque de la gira de origen y, si el destino tiene gira y obra vinculada, la agregan al bloque de destino.
 - Participante sin integrante vinculado: aviso para asignarlo.
 - Resultados (pestaña aparte): un ranking de la edición anual elegida, no de todas las ediciones y no agrupado por instancia. Una tabla con Nombre, instrumento, obra y puntaje, de mayor promedio a menor; sin puntaje al final y empate por nombre. El instrumento sale de cada integrante; la obra usa el mismo render que la columna de participantes. El puntaje es `concerto_promedios` con el formato ya visible. Sin votos, «—» y el texto «Todavía no hay puntajes.». No se listan votos individuales. El músico que solo vota no ve esta pestaña. Las instancias siguen para participantes, ventanas y boleta.
-- Si el editor o admin está en el electorado de la instancia, «Tu votación» queda en la pestaña Instancias, en esa instancia. La boleta aplica la ventana, el guardado por click y el tachito; no se puntúa a sí mismo ni a su dúo. Si no está convocado, esa instancia no muestra boleta.
+- Si el editor o admin está en el electorado de la instancia, «Tu votación» queda en la pestaña Instancias, en esa instancia. La boleta aplica la ventana, el guardado por click y el tachito; no se puntúa a sí mismo ni a su dúo. Si no está convocado ni invitado, esa instancia no muestra boleta.
+- Votantes invitados, en cada instancia: lista con nombre y «Quitar», y «Agregar» abre un buscador del listado general limitado a quien no es estable ni vacante y todavía no está en esa instancia. El texto de la sección dice que ven el menú y votan solamente ahí. Quitar pide confirmación y aclara que los puntajes ya guardados siguen en el promedio.
 - En viewport menor a `md`, la grilla de participantes, la boleta y el ranking pasan a tarjetas colapsables, sin scroll horizontal para lo esencial. Escritorio mantiene las tablas. Participantes, cerrada: nombre, instrumento del integrante (`id_instr`; dúo con instrumentos distintos muestra los dos), compositor «Apellido, Nombre» (varios con « / », sin hueco si no hay) y solo la primera línea del título en texto plano (`tituloCortoObra`); abierta: Audición con orquesta, Audición sin orquesta, compositor y el título completo con `RichTextPreview`, Drive, orgánico y acciones. La boleta no usa tarjeta colapsable: el mismo orden con el título completo, las audiciones y, si la ventana está abierta, puntaje y tachito quedan a la vista. Resultados, cerrada: nombre y puntaje; abierta: instrumento y obra.
 
 Modales con portal a `document.body` y `z-[100]`. Iconos solo de `src/components/ui/Icons.jsx`. Textos en español. El buscador de obras es el modal que ya usa Programación/Repertorio, sin el filtro inicial de orgánico de la gira: las obras del concurso no tienen por qué caber en el seating convocado. Abrirlo no cambia el ancho de la página: el modal no crece con el contenido y el sidebar no se encoge.
@@ -150,7 +157,8 @@ Migración: `supabase/migrations/20260924220000_concerto_participantes_observaci
 
 - `src/App.jsx`: ítem de menú, tab y vista.
 - `src/utils/appNavigation.js`: tab `competition`. `src/utils/documentTitle.js` titula por el modo `CONCERTO`, no por la query.
-- `src/utils/concertoCompeticion.js`: electorado, horarios, RPCs, participantes, reconciliación del bloque y proyección de `notas_especificas`.
+- `src/utils/concertoCompeticion.js`: electorado (roster estable y votantes invitados por instancia), horarios, RPCs, participantes, reconciliación del bloque y proyección de `notas_especificas`.
+- `supabase/migrations/20261023130955_concerto_votantes_extra.sql`: tabla `concerto_instancia_votantes`, alta solo de no estables, y `concerto_guardar_boleta` / `concerto_borrar_puntaje` aceptan al invitado de esa instancia. Al fusionar integrantes, la fila sigue a la ficha que queda.
 - `src/views/Concerto/ConcertoCompetitionView.jsx`
 - `src/views/Concerto/ConcertoParticipantesTable.jsx`
 - `src/views/Concerto/ConcertoBallot.jsx`

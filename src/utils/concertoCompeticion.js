@@ -134,6 +134,12 @@ export function isEstableReal(integrante) {
   return condicion === "estable";
 }
 
+/** Invitado a votar una fase: persona real que no es músico estable. */
+export function esCandidatoVotanteExtra(integrante) {
+  if (!integrante || integrante.es_simulacion === true) return false;
+  return !isEstableReal(integrante);
+}
+
 export function estadoCuentaComoElector(estado) {
   return String(estado || "").trim().toLowerCase() !== "ausente";
 }
@@ -428,6 +434,70 @@ async function integrantesPorParticipante(supabase, participanteIds) {
   return { map, error: null };
 }
 
+/** Instancias en las que esta persona fue agregada a mano como votante. */
+export async function instanciasDeVotanteExtra(supabase, userId, instanciaIds) {
+  const id = Number(userId);
+  const ids = [
+    ...new Set(
+      (instanciaIds || [])
+        .filter((item) => item != null)
+        .map((item) => Number(item))
+        .filter((item) => Number.isFinite(item)),
+    ),
+  ];
+  if (!Number.isFinite(id) || !ids.length) return { ids: new Set(), error: null };
+  const { data, error } = await supabase
+    .from("concerto_instancia_votantes")
+    .select("id_instancia")
+    .eq("id_integrante", id)
+    .in("id_instancia", ids);
+  if (error) return { ids: new Set(), error };
+  return {
+    ids: new Set((data || []).map((row) => String(row.id_instancia))),
+    error: null,
+  };
+}
+
+async function votantesExtraPorInstancia(supabase, instanciaIds) {
+  const { data: links, error } = await selectIn(
+    supabase,
+    "concerto_instancia_votantes",
+    "id_instancia, id_integrante",
+    "id_instancia",
+    instanciaIds,
+  );
+  if (error) return { map: new Map(), error };
+  const integranteIds = [
+    ...new Set((links || []).map((link) => link.id_integrante).filter((item) => item != null)),
+  ];
+  const { data: personas, error: personasError } = await selectIn(
+    supabase,
+    "integrantes",
+    "id, nombre, apellido, nombre_preferencia, apellido_preferencia",
+    "id",
+    integranteIds,
+  );
+  if (personasError) return { map: new Map(), error: personasError };
+  const personasById = new Map((personas || []).map((persona) => [String(persona.id), persona]));
+  const map = new Map();
+  for (const link of links || []) {
+    const key = String(link.id_instancia);
+    if (!map.has(key)) map.set(key, []);
+    const persona = personasById.get(String(link.id_integrante));
+    map.get(key).push(
+      persona || {
+        id: link.id_integrante,
+        nombre: "",
+        apellido: "",
+      },
+    );
+  }
+  for (const list of map.values()) {
+    list.sort((a, b) => formatPersonaLista(a).localeCompare(formatPersonaLista(b), "es"));
+  }
+  return { map, error: null };
+}
+
 /**
  * Girás en las que esta persona está convocada según fetchRosterForGira
  * y no figura ausente. No recalcula ensambles ni exclusiones.
@@ -469,13 +539,6 @@ export async function musicianCanSeeConcerto(supabase, userId) {
   const id = Number(userId);
   if (!Number.isFinite(id)) return false;
 
-  const { data: me, error: meError } = await supabase
-    .from("integrantes")
-    .select("id, condicion, es_simulacion")
-    .eq("id", id)
-    .maybeSingle();
-  if (meError || !isEstableReal(me)) return false;
-
   const { data: ediciones, error: edError } = await supabase
     .from("concerto_ediciones")
     .select("id, visible_desde, visible_hasta");
@@ -489,11 +552,29 @@ export async function musicianCanSeeConcerto(supabase, userId) {
   const { data: instancias, error: instError } = await supabase
     .from("concerto_instancias")
     .select("id, id_edicion, id_gira")
-    .in("id_edicion", visibleIds)
-    .not("id_gira", "is", null);
+    .in("id_edicion", visibleIds);
   if (instError || !instancias?.length) return false;
 
-  const giraIds = [...new Set(instancias.map((instancia) => instancia.id_gira))];
+  const extra = await instanciasDeVotanteExtra(
+    supabase,
+    id,
+    instancias.map((instancia) => instancia.id),
+  );
+  if (extra.error) return false;
+  if (instancias.some((instancia) => extra.ids.has(String(instancia.id)))) return true;
+
+  const { data: me, error: meError } = await supabase
+    .from("integrantes")
+    .select("id, condicion, es_simulacion")
+    .eq("id", id)
+    .maybeSingle();
+  if (meError || !isEstableReal(me)) return false;
+
+  const giraIds = [
+    ...new Set(
+      instancias.map((instancia) => instancia.id_gira).filter((giraId) => giraId != null),
+    ),
+  ];
   const { giras, error: rosterError } = await girasElectorado(supabase, id, giraIds);
   if (rosterError) return false;
   return instancias.some(
@@ -523,31 +604,46 @@ export async function fetchEditionChoices(supabase, userId, isStaff) {
     .in(
       "id_edicion",
       visible.map((edicion) => edicion.id),
-    )
-    .not("id_gira", "is", null);
+    );
   if (instError) return { ediciones: [], error: instError };
   if (!instancias?.length) return { ediciones: [], error: null };
 
   const id = Number(userId);
+  const extra = await instanciasDeVotanteExtra(
+    supabase,
+    id,
+    instancias.map((instancia) => instancia.id),
+  );
+  if (extra.error) return { ediciones: [], error: extra.error };
+
+  const allowed = new Set(
+    instancias
+      .filter((instancia) => extra.ids.has(String(instancia.id)))
+      .map((instancia) => String(instancia.id_edicion)),
+  );
+
   const { data: me, error: meError } = await supabase
     .from("integrantes")
     .select("id, condicion, es_simulacion")
     .eq("id", id)
     .maybeSingle();
   if (meError) return { ediciones: [], error: meError };
-  if (!isEstableReal(me)) return { ediciones: [], error: null };
 
-  const giraIds = [...new Set(instancias.map((instancia) => instancia.id_gira))];
-  const { giras: girasOk, error: rosterError } = await girasElectorado(supabase, id, giraIds);
-  if (rosterError) return { ediciones: [], error: rosterError };
-  const allowed = new Set(
-    instancias
-      .filter(
-        (instancia) =>
-          instancia.id_gira != null && girasOk.has(String(instancia.id_gira)),
-      )
-      .map((instancia) => String(instancia.id_edicion)),
-  );
+  if (isEstableReal(me)) {
+    const giraIds = [
+      ...new Set(
+        instancias.map((instancia) => instancia.id_gira).filter((giraId) => giraId != null),
+      ),
+    ];
+    const { giras: girasOk, error: rosterError } = await girasElectorado(supabase, id, giraIds);
+    if (rosterError) return { ediciones: [], error: rosterError };
+    for (const instancia of instancias) {
+      if (instancia.id_gira != null && girasOk.has(String(instancia.id_gira))) {
+        allowed.add(String(instancia.id_edicion));
+      }
+    }
+  }
+
   return {
     ediciones: visible.filter((edicion) => allowed.has(String(edicion.id))),
     error: null,
@@ -611,6 +707,9 @@ export async function fetchEditionBundle(supabase, edicionId, userId) {
   const id = Number(userId);
   let me = null;
   let girasOk = new Set();
+  let extraIds = new Set();
+  const extraLista = await votantesExtraPorInstancia(supabase, instanciaIds);
+  if (extraLista.error) return { instancias: [], error: extraLista.error };
   if (Number.isFinite(id)) {
     const { data: meRow, error: meError } = await supabase
       .from("integrantes")
@@ -619,6 +718,11 @@ export async function fetchEditionBundle(supabase, edicionId, userId) {
       .maybeSingle();
     if (meError) return { instancias: [], error: meError };
     me = meRow;
+    extraIds = new Set(
+      [...extraLista.map.entries()]
+        .filter(([, list]) => list.some((persona) => String(persona.id) === String(id)))
+        .map(([key]) => key),
+    );
     if (isEstableReal(me) && giraIds.length) {
       const electorado = await girasElectorado(supabase, id, giraIds);
       if (electorado.error) return { instancias: [], error: electorado.error };
@@ -645,10 +749,12 @@ export async function fetchEditionBundle(supabase, edicionId, userId) {
       ...instancia,
       gira: instancia.id_gira != null ? girasById.get(String(instancia.id_gira)) || null : null,
       participantes: participantesByInstancia.get(String(instancia.id)) || [],
+      votantesExtra: extraLista.map.get(String(instancia.id)) || [],
       esElectorado:
-        isEstableReal(me) &&
-        instancia.id_gira != null &&
-        girasOk.has(String(instancia.id_gira)),
+        extraIds.has(String(instancia.id)) ||
+        (isEstableReal(me) &&
+          instancia.id_gira != null &&
+          girasOk.has(String(instancia.id_gira))),
     })),
     error: null,
   };
@@ -669,6 +775,53 @@ export async function fetchProgramasOptions(supabase) {
     })),
     error: null,
   };
+}
+
+export async function fetchVotantesExtraOptions(supabase) {
+  const { data, error } = await supabase
+    .from("integrantes")
+    .select(
+      "id, nombre, apellido, nombre_preferencia, apellido_preferencia, condicion, es_simulacion",
+    )
+    .or("es_simulacion.is.null,es_simulacion.eq.false");
+  if (error) return { options: [], error };
+  return {
+    options: (data || [])
+      .filter((persona) => esCandidatoVotanteExtra(persona))
+      .map((persona) => {
+        const label = formatPersonaLista(persona);
+        const legal = legalApellidoNombre(persona);
+        return {
+          id: persona.id,
+          label,
+          ...(legal && legal !== label ? { subLabel: legal } : {}),
+        };
+      })
+      .sort((a, b) => a.label.localeCompare(b.label, "es")),
+    error: null,
+  };
+}
+
+export async function addVotanteExtra(supabase, idInstancia, idIntegrante) {
+  const id = Number(idIntegrante);
+  if (!Number.isFinite(id)) return { error: { message: "Elegí un músico." } };
+  const { error } = await supabase.from("concerto_instancia_votantes").insert({
+    id_instancia: idInstancia,
+    id_integrante: id,
+  });
+  if (error?.code === "23505") {
+    return { error: { message: "Esa persona ya vota en esta instancia." } };
+  }
+  return { error };
+}
+
+export async function removeVotanteExtra(supabase, idInstancia, idIntegrante) {
+  const { error } = await supabase
+    .from("concerto_instancia_votantes")
+    .delete()
+    .eq("id_instancia", idInstancia)
+    .eq("id_integrante", idIntegrante);
+  return { error };
 }
 
 export async function fetchIntegrantesOptions(supabase) {
