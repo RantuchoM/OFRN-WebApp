@@ -11,6 +11,10 @@ export { normalizePhoneForWhatsApp } from "../../utils/entradasWhatsApp";
 export default function WhatsAppLink({
   phone,
   nombre,
+  dia,
+  hora,
+  lugar,
+  cantidad,
   message,
   pdfUrl = null,
   prefillEntradasMessage = false,
@@ -23,6 +27,10 @@ export default function WhatsAppLink({
   const withText = Boolean(prefillEntradasMessage) || message != null;
   const url = buildEntradasWhatsAppUrl(phone, {
     nombre,
+    dia,
+    hora,
+    lugar,
+    cantidad,
     message: withText ? message : undefined,
     withText,
     pdfUrl: pdfUrl || undefined,

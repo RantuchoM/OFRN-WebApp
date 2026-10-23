@@ -77,7 +77,7 @@ Migraciones:
 - [x] Cola + deep link + detección de ya resuelta.
 - [x] Acuse al consultante + Abrir (scroll / auto-confirm) + mensaje personalizado en mail.
 - [x] Aceptar varias a la vez + aviso de reservas existentes.
-- [x] Botón WhatsApp (wa.me, AR por defecto) en cola/banner/mail de consulta, con mensaje prearmado de envío de entradas.
+- [x] Botón WhatsApp (wa.me, AR por defecto) en cola, banner, listado y mail de consulta. Mensaje: saludo, día, hora, lugar, cantidad y, si ya hay reserva, link al PDF.
 - [x] Link público PDF en WhatsApp: `/entradas/pdf?t=` identifica la reserva (`pdf_share_token`). `entrada_pdf_share_payload` lee concierto, evento (`eventos.id_locacion`), programa y plazas con la misma forma que Mis entradas. La página llama a `descargarPdfDesdeReservaRow` (el mismo generador). Sin sesión.
 
 ## Edge

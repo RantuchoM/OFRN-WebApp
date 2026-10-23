@@ -62,12 +62,103 @@ function normalizePhoneForWhatsApp(phone: unknown): string {
   return clean.length >= 12 ? clean : "";
 }
 
-function buildWhatsAppUrl(phone: unknown, nombre: string): string | null {
+function formatDiaHoraWhatsApp(fecha: string | null | undefined, hora: string | null | undefined): { dia: string; hora: string } {
+  if (!fecha) return { dia: "", hora: "" };
+  try {
+    const time = String(hora || "00:00:00").slice(0, 8);
+    const d = new Date(`${String(fecha).slice(0, 10)}T${time.length === 5 ? `${time}:00` : time}-03:00`);
+    if (Number.isNaN(d.getTime())) return { dia: "", hora: "" };
+    const tz = "America/Argentina/Buenos_Aires";
+    return {
+      dia: new Intl.DateTimeFormat("es-AR", {
+        timeZone: tz,
+        weekday: "long",
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+      }).format(d),
+      hora: new Intl.DateTimeFormat("es-AR", {
+        timeZone: tz,
+        hour: "2-digit",
+        minute: "2-digit",
+        hourCycle: "h23",
+      }).format(d),
+    };
+  } catch {
+    return { dia: "", hora: "" };
+  }
+}
+
+function buildEntradasWhatsAppText(opts: {
+  nombre?: string;
+  dia?: string;
+  hora?: string;
+  lugar?: string;
+  cantidad?: string | number | null;
+  pdfUrl?: string | null;
+}): string {
+  const name = String(opts.nombre || "").trim();
+  const saludo = name ? `Hola ${name},` : "Hola,";
+  const lines = [
+    `${saludo} te enviamos las entradas para la Filarmónica que solicitaste. ¡Que disfrutes!`,
+  ];
+  const detalles: string[] = [];
+  if (opts.dia) detalles.push(`Día: ${opts.dia}`);
+  if (opts.hora) detalles.push(`Hora: ${opts.hora}`);
+  if (opts.lugar) detalles.push(`Lugar: ${opts.lugar}`);
+  if (opts.cantidad != null && String(opts.cantidad).trim() !== "") {
+    detalles.push(`Cantidad de entradas: ${opts.cantidad}`);
+  }
+  if (detalles.length) lines.push("", ...detalles);
+  if (opts.pdfUrl) {
+    lines.push("", "Descargá el PDF acá (no hace falta iniciar sesión):", opts.pdfUrl);
+  }
+  return lines.join("\n");
+}
+
+function buildWhatsAppUrl(
+  phone: unknown,
+  nombre: string,
+  detalle: { dia?: string; hora?: string; lugar?: string; cantidad?: string | number | null } = {},
+): string | null {
   const digits = normalizePhoneForWhatsApp(phone);
   if (!digits) return null;
-  const name = String(nombre || "").trim() || "hola";
-  const text = `Hola ${name}, te enviamos las entradas que solicitaste. ¡Que disfrutes!`;
+  const text = buildEntradasWhatsAppText({ nombre, ...detalle });
   return `https://wa.me/${digits}?text=${encodeURIComponent(text)}`;
+}
+
+async function detalleWhatsAppDeConcierto(
+  admin: SupabaseClient,
+  conciertoId: number | null,
+): Promise<{ dia: string; hora: string; lugar: string }> {
+  if (!conciertoId) return { dia: "", hora: "", lugar: "" };
+  const { data, error } = await admin
+    .from("entrada_concierto")
+    .select(`
+      id,
+      evento:eventos!entrada_concierto_ofrn_evento_id_fkey(
+        fecha,
+        hora_inicio,
+        locaciones(nombre)
+      )
+    `)
+    .eq("id", conciertoId)
+    .maybeSingle();
+  if (error || !data) return { dia: "", hora: "", lugar: "" };
+  const eventoRaw = (data as { evento?: unknown }).evento;
+  const evento = (Array.isArray(eventoRaw) ? eventoRaw[0] : eventoRaw) as {
+    fecha?: string | null;
+    hora_inicio?: string | null;
+    locaciones?: { nombre?: string | null } | Array<{ nombre?: string | null }> | null;
+  } | null;
+  const locRaw = evento?.locaciones;
+  const loc = Array.isArray(locRaw) ? locRaw[0] : locRaw;
+  const cuando = formatDiaHoraWhatsApp(evento?.fecha, evento?.hora_inicio);
+  return {
+    dia: cuando.dia,
+    hora: cuando.hora,
+    lugar: String(loc?.nombre || "").trim(),
+  };
 }
 
 function pruneCooldown(now: number) {
@@ -438,7 +529,16 @@ serve(async (req) => {
 
     const staffUrl =
       `${PUBLIC_BASE}/entradas?view=entradas-terceros&ayuda=${encodeURIComponent(consultaId)}`;
-    const waUrl = buildWhatsAppUrl(telefono, nombre);
+    let detalleWa = { dia: "", hora: "", lugar: "" };
+    try {
+      detalleWa = await detalleWhatsAppDeConcierto(admin, conciertoId);
+    } catch {
+      detalleWa = { dia: "", hora: "", lugar: "" };
+    }
+    const waUrl = buildWhatsAppUrl(telefono, nombre, {
+      ...detalleWa,
+      cantidad,
+    });
 
     const subject = `Consulta sobre entradas — ${nombre}`;
     const cantidadTxt = cantidad != null ? String(cantidad) : "—";

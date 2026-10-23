@@ -262,6 +262,8 @@ function TerceroReservaCard({
             telefono={telefonoWhatsApp}
             nombre={nombreWhatsApp}
             reservaId={reserva.id}
+            concierto={reserva.concierto}
+            cantidad={reserva.cantidad_solicitada}
             isDark={isDark}
             iconSize={14}
             className="w-full sm:w-auto inline-flex items-center justify-center gap-1 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-700"

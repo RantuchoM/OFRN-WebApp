@@ -1,8 +1,13 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import WhatsAppLink from "../ui/WhatsAppLink";
 import { ensureEntradaPdfShareToken } from "../../services/entradaService";
 import {
+  fechaHoraDesdeConciertoEntrada,
+  lugarNombreDesdeConciertoEntrada,
+} from "../../utils/entradasConciertoEvento";
+import {
   buildEntradasPdfShareUrl,
+  formatDiaHoraWhatsAppEntradas,
   normalizePhoneForWhatsApp,
 } from "../../utils/entradasWhatsApp";
 
@@ -13,6 +18,8 @@ export default function EntradasAyudaWhatsAppBtn({
   telefono,
   nombre,
   reservaId = null,
+  concierto = null,
+  cantidad = null,
   className,
   label = "WhatsApp",
   iconSize = 16,
@@ -39,6 +46,13 @@ export default function EntradasAyudaWhatsAppBtn({
     };
   }, [reservaId, telefono]);
 
+  const cuando = useMemo(() => {
+    const iso = concierto?.fecha_hora || fechaHoraDesdeConciertoEntrada(concierto);
+    return formatDiaHoraWhatsAppEntradas(iso);
+  }, [concierto]);
+  const lugar = String(concierto?.lugar_nombre || lugarNombreDesdeConciertoEntrada(concierto) || "").trim();
+  const cantidadTxt = cantidad == null || cantidad === "" ? "" : String(cantidad).trim();
+
   if (!normalizePhoneForWhatsApp(telefono)) return null;
 
   const cls = className || (
@@ -51,6 +65,10 @@ export default function EntradasAyudaWhatsAppBtn({
     <WhatsAppLink
       phone={telefono}
       nombre={nombre}
+      dia={cuando.dia}
+      hora={cuando.hora}
+      lugar={lugar}
+      cantidad={cantidadTxt}
       pdfUrl={pdfUrl}
       prefillEntradasMessage
       label={label}

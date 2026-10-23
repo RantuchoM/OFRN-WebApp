@@ -4348,6 +4348,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
         refreshKey={ayudaColaRefresh}
         loteBusy={ayudaLoteBusy}
         onAceptarLote={openAyudaLote}
+        conciertoDeConsulta={(id) => concertosFlat.find((c) => Number(c.id) === Number(id)) || null}
         onOpenConsulta={(row) => {
           const params = new URLSearchParams(searchParams);
           params.set("view", "entradas-terceros");
@@ -4390,6 +4391,14 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
                     telefono={ayudaConsulta.telefono}
                     nombre={ayudaConsulta.nombre}
                     reservaId={ayudaConsulta.reserva_id}
+                    concierto={
+                      entradasTerceros.find((r) => Number(r.id) === Number(ayudaConsulta.reserva_id))?.concierto
+                      || concertosFlat.find((c) => Number(c.id) === Number(ayudaConsulta.concierto_id))
+                    }
+                    cantidad={
+                      entradasTerceros.find((r) => Number(r.id) === Number(ayudaConsulta.reserva_id))?.cantidad_solicitada
+                      ?? ayudaConsulta.cantidad
+                    }
                     isDark={isDark}
                   />
                 ) : null}
@@ -4415,6 +4424,8 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
                     telefono={ayudaConsulta.telefono}
                     nombre={ayudaConsulta.nombre}
                     reservaId={ayudaConsulta.reserva_id}
+                    concierto={concertosFlat.find((c) => Number(c.id) === Number(ayudaConsulta.concierto_id))}
+                    cantidad={ayudaConsulta.cantidad}
                     isDark={isDark}
                   />
                 ) : null}

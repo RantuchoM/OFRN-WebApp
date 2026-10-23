@@ -4,10 +4,64 @@
  */
 
 export const ENTRADAS_WHATSAPP_MENSAJE_ENTRADAS =
-  "Hola {nombre}, te enviamos las entradas que solicitaste. ¡Que disfrutes!";
+  "Hola {nombre}, te enviamos las entradas para la Filarmónica que solicitaste. ¡Que disfrutes!\n\nDía: {dia}\nHora: {hora}\nLugar: {lugar}\nCantidad de entradas: {cantidad}";
 
 export const ENTRADAS_WHATSAPP_MENSAJE_ENTRADAS_CON_PDF =
-  "Hola {nombre}, te enviamos las entradas que solicitaste. ¡Que disfrutes!\n\nDescargá el PDF acá (no hace falta iniciar sesión):\n{pdfUrl}";
+  `${ENTRADAS_WHATSAPP_MENSAJE_ENTRADAS}\n\nDescargá el PDF acá (no hace falta iniciar sesión):\n{pdfUrl}`;
+
+const ENTRADAS_WHATSAPP_TZ = "America/Argentina/Buenos_Aires";
+
+/**
+ * Día y hora de cartel (Argentina) para el mensaje de WhatsApp.
+ * @param {string|Date|number|null|undefined} value
+ * @returns {{ dia: string, hora: string }}
+ */
+export function formatDiaHoraWhatsAppEntradas(value) {
+  if (value == null || value === "") return { dia: "", hora: "" };
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return { dia: "", hora: "" };
+  const dia = new Intl.DateTimeFormat("es-AR", {
+    timeZone: ENTRADAS_WHATSAPP_TZ,
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).format(date);
+  const hora = new Intl.DateTimeFormat("es-AR", {
+    timeZone: ENTRADAS_WHATSAPP_TZ,
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(date);
+  return { dia, hora };
+}
+
+/**
+ * Texto del chat. Sin PDF no incluye el bloque de descarga.
+ * @param {{ nombre?: string, dia?: string, hora?: string, lugar?: string, cantidad?: string|number|null, pdfUrl?: string|null }} vars
+ */
+export function buildMensajeWhatsAppEntradas({ nombre, dia, hora, lugar, cantidad, pdfUrl } = {}) {
+  const name = String(nombre || "").trim();
+  const saludo = name ? `Hola ${name},` : "Hola,";
+  const lines = [
+    `${saludo} te enviamos las entradas para la Filarmónica que solicitaste. ¡Que disfrutes!`,
+  ];
+  const detalles = [];
+  const diaTxt = String(dia || "").trim();
+  const horaTxt = String(hora || "").trim();
+  const lugarTxt = String(lugar || "").trim();
+  const cantTxt = cantidad == null || cantidad === "" ? "" : String(cantidad).trim();
+  if (diaTxt) detalles.push(`Día: ${diaTxt}`);
+  if (horaTxt) detalles.push(`Hora: ${horaTxt}`);
+  if (lugarTxt) detalles.push(`Lugar: ${lugarTxt}`);
+  if (cantTxt) detalles.push(`Cantidad de entradas: ${cantTxt}`);
+  if (detalles.length) lines.push("", ...detalles);
+  const url = String(pdfUrl || "").trim();
+  if (url) {
+    lines.push("", "Descargá el PDF acá (no hace falta iniciar sesión):", url);
+  }
+  return lines.join("\n");
+}
 
 const ENTRADAS_PUBLIC_APP_BASE = "https://ofrn-web-app.vercel.app";
 
@@ -53,35 +107,53 @@ export function buildEntradasPdfShareUrl(pdfShareToken) {
 
 /**
  * @param {string} template
- * @param {{ nombre?: string, pdfUrl?: string }} vars
+ * @param {{ nombre?: string, dia?: string, hora?: string, lugar?: string, cantidad?: string|number|null, pdfUrl?: string }} vars
  */
-export function fillEntradasWhatsAppMensaje(template, { nombre, pdfUrl } = {}) {
-  const name = String(nombre || "").trim() || "hola";
-  let out = String(template || ENTRADAS_WHATSAPP_MENSAJE_ENTRADAS).replace(/\{nombre\}/g, name);
-  if (pdfUrl) {
-    out = out.replace(/\{pdfUrl\}/g, String(pdfUrl));
-  } else {
-    out = out.replace(/\n*Descargá el PDF[\s\S]*$/i, "").replace(/\{pdfUrl\}/g, "").trim();
+export function fillEntradasWhatsAppMensaje(template, vars = {}) {
+  const built = buildMensajeWhatsAppEntradas(vars);
+  if (!template) return built;
+  const name = String(vars.nombre || "").trim();
+  let out = String(template)
+    .replace(/\{nombre\}/g, name || "hola")
+    .replace(/\{dia\}/g, String(vars.dia || "").trim())
+    .replace(/\{hora\}/g, String(vars.hora || "").trim())
+    .replace(/\{lugar\}/g, String(vars.lugar || "").trim())
+    .replace(/\{cantidad\}/g, vars.cantidad == null ? "" : String(vars.cantidad).trim())
+    .replace(/\{pdfUrl\}/g, vars.pdfUrl ? String(vars.pdfUrl) : "");
+  if (!vars.pdfUrl) {
+    out = out.replace(/\n*Descargá el PDF[\s\S]*$/i, "").replace(/\{pdfUrl\}/g, "");
   }
-  return out;
+  out = out
+    .split("\n")
+    .filter((line) => !/^(Día|Hora|Lugar|Cantidad de entradas):\s*$/.test(line))
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  return out || built;
 }
 
 /**
  * @param {string} phone
- * @param {{ nombre?: string, message?: string, withText?: boolean, pdfUrl?: string }} [opts]
+ * @param {{ nombre?: string, dia?: string, hora?: string, lugar?: string, cantidad?: string|number|null, message?: string, withText?: boolean, pdfUrl?: string }} [opts]
  * @returns {string|null}
  */
-export function buildEntradasWhatsAppUrl(phone, { nombre, message, withText = false, pdfUrl } = {}) {
+export function buildEntradasWhatsAppUrl(phone, {
+  nombre,
+  dia,
+  hora,
+  lugar,
+  cantidad,
+  message,
+  withText = false,
+  pdfUrl,
+} = {}) {
   const digits = normalizePhoneForWhatsApp(phone);
   if (!digits) return null;
   if (!withText && message == null) {
     return `https://wa.me/${digits}`;
   }
-  const template = message != null && message !== ""
-    ? message
-    : pdfUrl
-      ? ENTRADAS_WHATSAPP_MENSAJE_ENTRADAS_CON_PDF
-      : ENTRADAS_WHATSAPP_MENSAJE_ENTRADAS;
-  const text = fillEntradasWhatsAppMensaje(template, { nombre, pdfUrl });
+  const text = message != null && message !== ""
+    ? fillEntradasWhatsAppMensaje(message, { nombre, dia, hora, lugar, cantidad, pdfUrl })
+    : buildMensajeWhatsAppEntradas({ nombre, dia, hora, lugar, cantidad, pdfUrl });
   return `https://wa.me/${digits}?text=${encodeURIComponent(text)}`;
 }

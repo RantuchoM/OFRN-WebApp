@@ -27,6 +27,7 @@ export default function EntradasAyudaConsultasPanel({
   activeAyudaId,
   onOpenConsulta,
   onAceptarLote,
+  conciertoDeConsulta,
   refreshKey = 0,
   loteBusy = false,
 }) {
@@ -233,6 +234,8 @@ export default function EntradasAyudaConsultasPanel({
                               telefono={row.telefono}
                               nombre={row.nombre}
                               reservaId={row.reserva_id}
+                              concierto={conciertoDeConsulta?.(row.concierto_id)}
+                              cantidad={row.cantidad}
                               iconSize={14}
                               isDark={isDark}
                               className={
