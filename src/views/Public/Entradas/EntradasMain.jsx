@@ -76,6 +76,7 @@ import {
   listConciertoIdsConReservaActiva,
   listarMisReservas,
   listarEntradasTercerosAdmin,
+  checkEntradasAyudaReservas,
   getEntradaAyudaConsulta,
   marcarEntradaAyudaResuelta,
   listProgramasConConciertos,
@@ -648,6 +649,14 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
   /** Consulta del formulario público abierta vía ?ayuda= o cola en Terceros. */
   const [ayudaConsulta, setAyudaConsulta] = useState(null);
   const [ayudaColaRefresh, setAyudaColaRefresh] = useState(0);
+  /** Lote: aceptar varias consultas con un concierto y un mensaje compartido. */
+  const [ayudaLoteRows, setAyudaLoteRows] = useState(null);
+  const [ayudaLoteConciertoId, setAyudaLoteConciertoId] = useState("");
+  const [ayudaLoteMensaje, setAyudaLoteMensaje] = useState("");
+  const [ayudaLoteBusy, setAyudaLoteBusy] = useState(false);
+  const [ayudaLoteProgress, setAyudaLoteProgress] = useState("");
+  const [ayudaLoteYaTienen, setAyudaLoteYaTienen] = useState([]);
+  const [ayudaLoteCheckBusy, setAyudaLoteCheckBusy] = useState(false);
   const terceroFormRef = useRef(null);
   /** Al abrir una consulta de ayuda, confirmar automáticamente el beneficiario hallado. */
   const ayudaAutoConfirmRef = useRef(false);
@@ -2478,6 +2487,188 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
     }
   };
 
+  const openAyudaLote = useCallback((rows) => {
+    const list = Array.isArray(rows) ? rows.filter(Boolean) : [];
+    if (!list.length) {
+      toast.error("Seleccioná al menos una consulta.");
+      return;
+    }
+    if (!conciertosTercerosSelect.length) {
+      toast.error("No hay conciertos abiertos para reservar.");
+      return;
+    }
+    const ids = [...new Set(list.map((r) => r.concierto_id).filter(Boolean).map(String))];
+    const preferred =
+      ids.length === 1 && conciertosTercerosSelect.some((c) => String(c.id) === ids[0])
+        ? ids[0]
+        : String(conciertosTercerosSelect[0].id);
+    setAyudaLoteRows(list);
+    setAyudaLoteConciertoId(preferred);
+    setAyudaLoteMensaje("");
+    setAyudaLoteProgress("");
+    setAyudaLoteYaTienen([]);
+  }, [conciertosTercerosSelect]);
+
+  const closeAyudaLote = () => {
+    if (ayudaLoteBusy) return;
+    setAyudaLoteRows(null);
+    setAyudaLoteMensaje("");
+    setAyudaLoteProgress("");
+    setAyudaLoteYaTienen([]);
+  };
+
+  const ayudaLoteConcierto = useMemo(() => {
+    const id = Number(ayudaLoteConciertoId);
+    if (!Number.isFinite(id) || id <= 0) return null;
+    return (
+      conciertosTercerosSelect.find((c) => Number(c.id) === id)
+      || concertosFlat.find((c) => Number(c.id) === id)
+      || null
+    );
+  }, [ayudaLoteConciertoId, conciertosTercerosSelect, concertosFlat]);
+
+  const ayudaLoteTotalEntradas = useMemo(() => {
+    if (!ayudaLoteRows?.length) return 0;
+    return ayudaLoteRows.reduce((sum, row) => {
+      const n = Number(row.cantidad);
+      return sum + (Number.isFinite(n) && n >= 1 ? Math.min(4, Math.round(n)) : 1);
+    }, 0);
+  }, [ayudaLoteRows]);
+
+  useEffect(() => {
+    if (!ayudaLoteRows?.length || !ayudaLoteConciertoId) {
+      setAyudaLoteYaTienen([]);
+      return undefined;
+    }
+    let cancelled = false;
+    const conciertoId = Number(ayudaLoteConciertoId);
+    setAyudaLoteCheckBusy(true);
+    (async () => {
+      const warnings = [];
+      const seenEmails = new Set();
+      for (const row of ayudaLoteRows) {
+        const email = String(row.email || "").trim().toLowerCase();
+        if (!email || !email.includes("@") || seenEmails.has(email)) continue;
+        seenEmails.add(email);
+        try {
+          const reservas = await checkEntradasAyudaReservas(email);
+          const enEste = (reservas || []).filter((r) => Number(r.conciertoId) === conciertoId);
+          if (enEste.length) {
+            warnings.push({
+              email,
+              nombre: row.nombre || email,
+              detalle: enEste.map((r) => r.label || r.codigo || "reserva").join("; "),
+            });
+          }
+        } catch {
+          /* no bloquear el lote por un check fallido */
+        }
+      }
+      if (!cancelled) {
+        setAyudaLoteYaTienen(warnings);
+        setAyudaLoteCheckBusy(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [ayudaLoteRows, ayudaLoteConciertoId]);
+
+  const handleAceptarAyudaLote = async () => {
+    const rows = ayudaLoteRows || [];
+    const concierto = ayudaLoteConcierto;
+    if (!rows.length) throw new Error("No hay consultas seleccionadas.");
+    if (!concierto?.id) throw new Error("Elegí un concierto.");
+
+    const disponibles = computeDisponibles(concierto);
+    if (disponibles < ayudaLoteTotalEntradas) {
+      throw new Error(
+        `No hay cupo suficiente: el lote pide ${ayudaLoteTotalEntradas} entradas y quedan ${disponibles}.`,
+      );
+    }
+
+    setAyudaLoteBusy(true);
+    let ok = 0;
+    const fallos = [];
+    try {
+      for (let i = 0; i < rows.length; i += 1) {
+        const row = rows[i];
+        setAyudaLoteProgress(`${i + 1}/${rows.length}: ${row.nombre || row.email || "…"}`);
+        const email = String(row.email || "").trim();
+        const cantidadRaw = Number(row.cantidad);
+        const cantidad = Number.isFinite(cantidadRaw) && cantidadRaw >= 1
+          ? Math.min(4, Math.round(cantidadRaw))
+          : 1;
+        const refParts = [
+          row.nombre ? String(row.nombre).trim() : "",
+          row.telefono ? `Tel ${String(row.telefono).trim()}` : "",
+          row.comentarios ? String(row.comentarios).trim() : "",
+        ].filter(Boolean);
+        try {
+          const result = await crearReservaTercero({
+            conciertoId: concierto.id,
+            cantidad,
+            emailBeneficiario: email || null,
+            beneficiarioReferencia: refParts.join(" — ") || null,
+          });
+          const reservaQr = await tokenToQrDataUrl(result.qr_reserva_token);
+          const entriesQr = await Promise.all(
+            (result.qr_entrada_tokens || []).map((token) => tokenToQrDataUrl(token)),
+          );
+          let pdfBase64;
+          try {
+            const { blob } = await buildEntradasReservaPdfConDataUrls({
+              concierto,
+              reserva: { codigo_reserva: result.codigo_reserva, cantidad_solicitada: cantidad },
+              reservaQrDataUrl: reservaQr,
+              entriesQrDataUrls: entriesQr,
+            });
+            pdfBase64 = await blobToPdfBase64ForMail(blob);
+          } catch (pdfErr) {
+            console.error(pdfErr);
+          }
+          try {
+            await enviarMailReserva({
+              reservaId: result.reserva_id,
+              qrReservaToken: result.qr_reserva_token,
+              qrEntradaTokens: result.qr_entrada_tokens || [],
+              pdfBase64,
+              mensajePersonalizado: ayudaLoteMensaje,
+            });
+          } catch {
+            /* reserva ok; mail falló */
+          }
+          try {
+            await marcarEntradaAyudaResuelta(row.id, result.reserva_id);
+          } catch {
+            /* reserva ok */
+          }
+          ok += 1;
+        } catch (err) {
+          fallos.push(`${row.nombre || row.email || row.id}: ${err?.message || "error"}`);
+        }
+      }
+      setAyudaColaRefresh((n) => n + 1);
+      if (ayudaConsulta && rows.some((r) => String(r.id) === String(ayudaConsulta.id))) {
+        setAyudaConsulta(null);
+      }
+      await loadBase({ quiet: true });
+      if (ok) toast.success(`${ok} reserva${ok === 1 ? "" : "s"} creada${ok === 1 ? "" : "s"}.`);
+      if (fallos.length) {
+        toast.error(`${fallos.length} fallaron. ${fallos.slice(0, 3).join(" · ")}`);
+      }
+      if (!ok && fallos.length) {
+        throw new Error(fallos[0] || "No se pudo aceptar el lote.");
+      }
+      setAyudaLoteRows(null);
+      setAyudaLoteMensaje("");
+      setAyudaLoteYaTienen([]);
+    } finally {
+      setAyudaLoteBusy(false);
+      setAyudaLoteProgress("");
+    }
+  };
+
   const clearRecepcionParaNuevoIngreso = () => {
     setScannerToken("");
     setManualReservaCode("");
@@ -4142,6 +4333,8 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
         isDark={isDark}
         activeAyudaId={ayudaIdParam || ayudaConsulta?.id}
         refreshKey={ayudaColaRefresh}
+        loteBusy={ayudaLoteBusy}
+        onAceptarLote={openAyudaLote}
         onOpenConsulta={(row) => {
           const params = new URLSearchParams(searchParams);
           params.set("view", "entradas-terceros");
@@ -6565,6 +6758,100 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
         confirmClassName="px-4 py-2.5 sm:py-2 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-md"
         onConfirm={handleConfirmRecepcionAnularEntrada}
       />
+
+      <ConfirmModal
+        isOpen={Boolean(ayudaLoteRows?.length)}
+        onClose={closeAyudaLote}
+        title={`Aceptar ${ayudaLoteRows?.length || 0} consulta${(ayudaLoteRows?.length || 0) === 1 ? "" : "s"}`}
+        message={
+          ayudaLoteRows?.length
+            ? `Se creará una reserva por persona (${ayudaLoteTotalEntradas} entradas en total) con el mismo mensaje en todos los mails.`
+            : ""
+        }
+        confirmText={ayudaLoteBusy ? "Procesando…" : "Aceptar y reservar"}
+        confirmLoading={ayudaLoteBusy}
+        confirmDisabled={
+          !ayudaLoteConcierto
+          || !conciertosTercerosSelect.length
+          || (ayudaLoteConcierto && computeDisponibles(ayudaLoteConcierto) < ayudaLoteTotalEntradas)
+        }
+        loadingText={ayudaLoteProgress || "Reservando…"}
+        confirmClassName="px-4 py-2.5 sm:py-2 text-sm font-bold text-white bg-sky-600 hover:bg-sky-700 rounded-lg shadow-md"
+        onConfirm={handleAceptarAyudaLote}
+      >
+        {ayudaLoteRows?.length ? (
+          <div className="mt-4 space-y-3">
+            <div className="space-y-1.5">
+              <label htmlFor="ayuda-lote-concierto" className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                Concierto para todas
+              </label>
+              <select
+                id="ayuda-lote-concierto"
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-medium text-slate-800"
+                value={ayudaLoteConciertoId}
+                disabled={ayudaLoteBusy}
+                onChange={(e) => setAyudaLoteConciertoId(e.target.value)}
+              >
+                {conciertosTercerosSelect.map((c) => (
+                  <option key={c.id} value={String(c.id)}>
+                    {formatConciertoFechaHoraEs(c.fecha_hora)} — {c.nombre}
+                  </option>
+                ))}
+              </select>
+              {ayudaLoteConcierto ? (
+                <p className="text-xs text-slate-500">
+                  Disponibles: {computeDisponibles(ayudaLoteConcierto)} · Pedidas en el lote: {ayudaLoteTotalEntradas}
+                </p>
+              ) : null}
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="ayuda-lote-mensaje" className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                Mensaje personalizado (igual para todos)
+              </label>
+              <textarea
+                id="ayuda-lote-mensaje"
+                className="w-full min-h-[88px] rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-800"
+                value={ayudaLoteMensaje}
+                disabled={ayudaLoteBusy}
+                onChange={(e) => setAyudaLoteMensaje(e.target.value)}
+                placeholder="Ej. Hola, te reservamos las entradas que pediste por el formulario de ayuda…"
+                maxLength={1200}
+              />
+            </div>
+            {ayudaLoteCheckBusy ? (
+              <p className="text-xs text-slate-500">Revisando si alguna persona ya tiene entradas…</p>
+            ) : null}
+            {ayudaLoteYaTienen.length > 0 ? (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 space-y-1">
+                <p className="text-sm font-bold text-amber-950">
+                  {ayudaLoteYaTienen.length === 1
+                    ? "Una persona ya tiene entradas para este concierto"
+                    : `${ayudaLoteYaTienen.length} personas ya tienen entradas para este concierto`}
+                </p>
+                <ul className="list-disc pl-4 space-y-0.5 text-xs text-amber-900">
+                  {ayudaLoteYaTienen.map((w) => (
+                    <li key={w.email}>
+                      <strong>{w.nombre}</strong> ({w.email})
+                      {w.detalle ? ` — ${w.detalle}` : ""}
+                    </li>
+                  ))}
+                </ul>
+                <p className="text-xs text-amber-800">
+                  Si igual confirmás, se intentará crear otra reserva (puede fallar si el sistema no permite duplicados).
+                </p>
+              </div>
+            ) : null}
+            <ul className="max-h-36 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 space-y-1">
+              {ayudaLoteRows.map((row) => (
+                <li key={row.id}>
+                  {row.nombre || "—"} · {row.email}
+                  {row.cantidad ? ` · ${row.cantidad} entrada${Number(row.cantidad) === 1 ? "" : "s"}` : " · 1 entrada"}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+      </ConfirmModal>
 
       <ConfirmModal
         isOpen={Boolean(cancelReservaTarget)}

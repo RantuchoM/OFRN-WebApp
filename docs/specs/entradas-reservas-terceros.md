@@ -68,11 +68,13 @@ Migraciones:
 - Tabla `entrada_ayuda_consulta` + RPCs `entrada_ayuda_listar` / `get` / `marcar_resuelta` / `descartar` (`entrada_can_terceros`).
 - Edge `entradas-send-ayuda` persiste la fila, manda mail a staff con botón **Reservar en Entradas** → `/entradas?view=entradas-terceros&ayuda=<uuid>`, y **acuse al consultante** (aviso Spam / Correo no deseado).
 - En Terceros: cola de pendientes (`EntradasAyudaConsultasPanel`); al Abrir (mail o cola) se precarga mail/cantidad/concierto/referencia, se hace scroll al formulario y se auto-confirma el beneficiario si ya tiene cuenta.
+- **Lote:** tildar varias → **Aceptar N** (un concierto + mensaje personalizado compartido); avisa si alguna persona **ya tiene entradas** para ese concierto (`checkEntradasAyudaReservas`); procesa secuencial (reserva + mail + marcar resuelta; sin auto-descarga PDF).
 - Mensaje personalizado opcional en el formulario de terceros → va en el mail de confirmación (`mensajePersonalizado` → Edge `entradas-send-reserva-email`).
 - Si `estado=resuelta` (o descartada), el deep link muestra aviso y no pide re-reservar.
 - Al crear la reserva de tercero con una consulta pendiente abierta, se marca resuelta y se guarda `reserva_id`.
 - [x] Cola + deep link + detección de ya resuelta.
 - [x] Acuse al consultante + Abrir (scroll / auto-confirm) + mensaje personalizado en mail.
+- [x] Aceptar varias a la vez + aviso de reservas existentes.
 
 ## Edge
 
