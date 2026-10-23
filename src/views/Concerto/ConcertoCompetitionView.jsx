@@ -47,6 +47,7 @@ import {
   isEstableReal,
   systemRolesOf,
   nextOrden,
+  ordenarInstanciasParaVotante,
   pickDefaultEdition,
   removeVotanteExtra,
   saveFragmentos,
@@ -1155,7 +1156,10 @@ export default function ConcertoCompetitionView({ supabase }) {
 
   const visibles = isStaff
     ? instancias
-    : instancias.filter((instancia) => instancia.esElectorado);
+    : ordenarInstanciasParaVotante(
+        instancias.filter((instancia) => instancia.esElectorado),
+        now,
+      );
 
   return (
     <div className="flex h-full min-w-0 flex-col overflow-x-hidden overflow-y-auto bg-slate-50 p-4 md:p-6">

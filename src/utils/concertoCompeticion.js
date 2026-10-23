@@ -285,6 +285,23 @@ export function windowState(instancia, now = new Date()) {
   return "open";
 }
 
+/**
+ * Si hay una instancia abierta, esa queda arriba y el resto abajo.
+ * Dentro de cada grupo se mantiene el orden de la edición.
+ * Sin ninguna abierta, el orden no cambia.
+ */
+export function ordenarInstanciasParaVotante(instancias, now = new Date()) {
+  const list = instancias || [];
+  const abiertas = [];
+  const resto = [];
+  for (const instancia of list) {
+    if (windowState(instancia, now) === "open") abiertas.push(instancia);
+    else resto.push(instancia);
+  }
+  if (!abiertas.length) return list;
+  return [...abiertas, ...resto];
+}
+
 export function toDatetimeLocalAR(value) {
   if (!value) return "";
   const date = new Date(value);

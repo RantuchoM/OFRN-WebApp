@@ -60,8 +60,12 @@ export function ParticipanteVotoIdentidad({ participante }) {
 function PuntajeControles({ participante, selected, onElegir, onQuitar }) {
   const label = lineaPrincipalParticipante(participante);
   return (
-    <div className="flex flex-wrap items-center gap-1">
-      <div className="flex flex-wrap gap-1" role="radiogroup" aria-label={`Puntaje de ${label}`}>
+    <div className="flex min-w-0 items-center gap-1">
+      <div
+        className="grid min-w-0 flex-1 grid-cols-7 gap-0.5 md:flex md:flex-none md:flex-wrap md:gap-1"
+        role="radiogroup"
+        aria-label={`Puntaje de ${label}`}
+      >
         {SCORE_SCALE.map((item) => {
           const active = mismoPuntaje(selected, item.value);
           return (
@@ -71,7 +75,7 @@ function PuntajeControles({ participante, selected, onElegir, onQuitar }) {
               title={item.descripcion}
               aria-pressed={active}
               onClick={() => onElegir(participante.id, item.value)}
-              className={`min-w-[2.75rem] rounded-lg border px-2 py-1.5 text-sm font-semibold ${
+              className={`min-w-0 whitespace-nowrap rounded-lg border px-0.5 py-1.5 text-center text-xs font-semibold leading-none md:min-w-[2.75rem] md:px-2 md:text-sm ${
                 active
                   ? "border-indigo-600 bg-indigo-600 text-white"
                   : "border-slate-200 bg-white text-slate-700 hover:border-indigo-300"
