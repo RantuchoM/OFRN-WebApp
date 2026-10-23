@@ -188,8 +188,9 @@ export async function ensureEntradaPdfShareToken(reservaId) {
 }
 
 /**
- * Payload de reserva por pdf_share_token (anon OK) para /entradas/pdf.
- * Misma forma que una fila de mis reservas (para descargarPdfDesdeReservaRow).
+ * El token solo identifica la reserva. La RPC lee concierto, evento (`id_locacion`),
+ * programa y plazas con la misma forma que `listarMisReservas`.
+ * El PDF lo arma `descargarPdfDesdeReservaRow`, igual que en la app.
  */
 export async function fetchEntradaPdfSharePayload(token) {
   const t = String(token || "").trim().toLowerCase();

@@ -8,7 +8,8 @@ import {
 
 /**
  * /entradas/pdf?t=<pdf_share_token>
- * Sin login: carga la reserva por token y descarga el mismo PDF que en la app.
+ * El token apunta a la reserva. Los datos salen de la base como en Mis entradas
+ * y el PDF lo genera descargarPdfDesdeReservaRow.
  */
 export default function EntradasPdfSharePage() {
   const { isDark } = useEntradasDarkMode();
