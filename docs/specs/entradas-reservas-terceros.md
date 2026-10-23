@@ -75,6 +75,8 @@ Migraciones:
 - **Lote:** tildar varias → **Aceptar N** (un concierto + mensaje personalizado compartido); avisa si alguna persona **ya tiene entradas** para ese concierto (`checkEntradasAyudaReservas`); procesa secuencial (reserva + mail + marcar resuelta; sin auto-descarga PDF).
 - **Badge en menú «🎫 Terceros»:** ícono/contador arriba del botón con pendientes (`listEntradasAyudaConsultas`); se refresca al entrar, al resolver y cada 60s.
 - **Al abrir Terceros** (sin deep link `?ayuda=`): si hay pendientes que entran en cupo, ConfirmModal ofrece **Resolver las que entren** (elige el concierto que más absorbe; FIFO). Misma acción en la cola: botón «Resolver las que entren en cupo». Helper: `src/utils/entradasAyudaCupo.js`.
+- **Duplicados (mismo email):** se detectan en la cola (badge), al abrir lote / resolver-por-cupo y al Abrir una sola. Se unifican en **una reserva** (cantidad = máx del grupo); la consulta más antigua queda resuelta y las copias se **descartan**. Botón «Unificar duplicados» en la cola.
+- **Ya tiene entrada activa:** al Abrir (o en la cola vía `checkEntradasAyudaReservas`) se listan reservas vigentes del mail. Se puede **Vincular y marcar resuelta** (sin emitir otra), **Reenviar mail** (`reenviar_entradas`) y **WhatsApp** con el PDF de esa reserva. Preferencia: mismo `concierto_id` de la consulta si coincide.
 - Mensaje personalizado opcional en el formulario de terceros → va en el mail de confirmación (`mensajePersonalizado` → Edge `entradas-send-reserva-email`).
 - Si `estado=resuelta` (o descartada), el deep link muestra aviso y no pide re-reservar.
 - Al crear la reserva de tercero con una consulta pendiente abierta, se marca resuelta y se guarda `reserva_id`.

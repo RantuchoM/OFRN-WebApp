@@ -5,6 +5,11 @@ import {
   descartarEntradaAyudaConsulta,
   listEntradasAyudaConsultas,
 } from "../../services/entradaService";
+import {
+  findAyudaDuplicateGroups,
+  indexAyudaDuplicateGroupSize,
+  normalizeAyudaEmail,
+} from "../../utils/entradasAyudaCupo";
 import { normalizePhoneForWhatsApp } from "../../utils/entradasWhatsApp";
 
 function formatWhen(iso) {
@@ -28,7 +33,11 @@ export default function EntradasAyudaConsultasPanel({
   onOpenConsulta,
   onAceptarLote,
   onResolverQueEntren,
+  onUnificarDuplicados,
+  onVincularVigente,
   onPendientesChange,
+  onRowsLoaded,
+  reservasVigentesPorEmail = null,
   conciertoDeConsulta,
   refreshKey = 0,
   loteBusy = false,
@@ -45,6 +54,7 @@ export default function EntradasAyudaConsultasPanel({
       const list = Array.isArray(data) ? data : [];
       setRows(list);
       onPendientesChange?.(list.length);
+      onRowsLoaded?.(list);
       setSelectedIds((prev) => {
         const next = new Set();
         const ids = new Set(list.map((r) => String(r.id)));
@@ -57,10 +67,11 @@ export default function EntradasAyudaConsultasPanel({
       toast.error(e?.message || "No se pudieron cargar las consultas de ayuda.");
       setRows([]);
       onPendientesChange?.(0);
+      onRowsLoaded?.([]);
     } finally {
       setLoading(false);
     }
-  }, [onPendientesChange]);
+  }, [onPendientesChange, onRowsLoaded]);
 
   useEffect(() => {
     void load();
@@ -72,6 +83,10 @@ export default function EntradasAyudaConsultasPanel({
   );
   const allSelected = rows.length > 0 && selectedRows.length === rows.length;
   const someSelected = selectedRows.length > 0;
+  const duplicateGroupSizeById = useMemo(() => indexAyudaDuplicateGroupSize(rows), [rows]);
+  const duplicateGroups = useMemo(() => findAyudaDuplicateGroups(rows), [rows]);
+  const duplicatePeople = duplicateGroups.length;
+  const duplicateExtraCount = duplicateGroups.reduce((n, g) => n + Math.max(0, g.length - 1), 0);
 
   const toggleOne = (id) => {
     const key = String(id);
@@ -149,15 +164,42 @@ export default function EntradasAyudaConsultasPanel({
         Llegan del botón «¿Necesitás ayuda?». Tildá varias para aceptarlas juntas, o abrí una sola.
       </p>
 
-      {!loading && rows.length > 0 && onResolverQueEntren ? (
-        <button
-          type="button"
-          disabled={loteBusy || busyId != null}
-          className={`${ui.btnPrimary} w-full sm:w-auto px-3 py-2 text-xs`}
-          onClick={() => onResolverQueEntren(rows)}
+      {!loading && rows.length > 0 ? (
+        <div className="flex flex-wrap gap-2">
+          {onResolverQueEntren ? (
+            <button
+              type="button"
+              disabled={loteBusy || busyId != null}
+              className={`${ui.btnPrimary} w-full sm:w-auto px-3 py-2 text-xs`}
+              onClick={() => onResolverQueEntren(rows)}
+            >
+              Resolver las que entren en cupo ({rows.length} pendiente{rows.length === 1 ? "" : "s"})
+            </button>
+          ) : null}
+          {duplicatePeople > 0 && onUnificarDuplicados ? (
+            <button
+              type="button"
+              disabled={loteBusy || busyId != null}
+              className={`${ui.btnSecondary || ui.btnGhost} w-full sm:w-auto px-3 py-2 text-xs border border-violet-300 text-violet-900 bg-violet-50`}
+              onClick={() => onUnificarDuplicados(rows)}
+            >
+              Unificar duplicados ({duplicatePeople} persona{duplicatePeople === 1 ? "" : "s"}, {duplicateExtraCount} copia{duplicateExtraCount === 1 ? "" : "s"})
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {!loading && duplicatePeople > 0 ? (
+        <div
+          className={`rounded-lg border px-3 py-2 text-xs ${
+            isDark
+              ? "border-violet-800 bg-violet-950/40 text-violet-100"
+              : "border-violet-200 bg-violet-50 text-violet-950"
+          }`}
         >
-          Resolver las que entren en cupo ({rows.length} pendiente{rows.length === 1 ? "" : "s"})
-        </button>
+          Mismo mail = misma persona. Al unificar se emite <strong>una sola reserva</strong> (cantidad = la mayor pedida) y se
+          {" "}descartan las consultas duplicadas.
+        </div>
       ) : null}
 
       {someSelected && (
@@ -217,6 +259,21 @@ export default function EntradasAyudaConsultasPanel({
             {rows.map((row) => {
               const active = String(activeAyudaId || "") === String(row.id);
               const checked = selectedIds.has(String(row.id));
+              const dupSize = duplicateGroupSizeById.get(String(row.id)) || 0;
+              const emailKey = normalizeAyudaEmail(row.email);
+              const vigentes = Array.isArray(reservasVigentesPorEmail?.[emailKey])
+                ? reservasVigentesPorEmail[emailKey]
+                : [];
+              const vigentePreferida = (() => {
+                if (!vigentes.length) return null;
+                if (row.concierto_id != null) {
+                  const match = vigentes.find(
+                    (r) => Number(r.conciertoId) === Number(row.concierto_id),
+                  );
+                  if (match) return match;
+                }
+                return vigentes[0];
+              })();
               return (
                 <li
                   key={row.id}
@@ -225,9 +282,13 @@ export default function EntradasAyudaConsultasPanel({
                       ? isDark
                         ? "border-[#1ebbf0] bg-slate-900/80"
                         : "border-[#1ebbf0] bg-sky-50"
-                      : isDark
-                        ? "border-slate-600 bg-slate-900/40"
-                        : "border-slate-200 bg-white"
+                      : dupSize > 1
+                        ? isDark
+                          ? "border-violet-700 bg-violet-950/30"
+                          : "border-violet-200 bg-violet-50/80"
+                        : isDark
+                          ? "border-slate-600 bg-slate-900/40"
+                          : "border-slate-200 bg-white"
                   }`}
                 >
                   <div className="flex flex-wrap items-start justify-between gap-2">
@@ -240,7 +301,31 @@ export default function EntradasAyudaConsultasPanel({
                         onChange={() => toggleOne(row.id)}
                       />
                       <div className="min-w-0 space-y-0.5">
-                        <p className={`font-bold text-sm ${ui.textStrong}`}>{row.nombre}</p>
+                        <p className={`font-bold text-sm ${ui.textStrong} flex flex-wrap items-center gap-2`}>
+                          <span>{row.nombre}</span>
+                          {dupSize > 1 ? (
+                            <span
+                              className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                                isDark
+                                  ? "bg-violet-800 text-violet-100"
+                                  : "bg-violet-200 text-violet-900"
+                              }`}
+                            >
+                              Duplicada · {dupSize}
+                            </span>
+                          ) : null}
+                          {vigentePreferida ? (
+                            <span
+                              className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                                isDark
+                                  ? "bg-amber-800 text-amber-100"
+                                  : "bg-amber-200 text-amber-950"
+                              }`}
+                            >
+                              Ya tiene entrada
+                            </span>
+                          ) : null}
+                        </p>
                         <p className={`text-xs break-all ${ui.textMuted}`}>{row.email}</p>
                         {row.telefono && normalizePhoneForWhatsApp(row.telefono) ? (
                           <p className={`text-xs flex flex-wrap items-center gap-1 ${ui.textMuted}`}>
@@ -271,9 +356,20 @@ export default function EntradasAyudaConsultasPanel({
                       </div>
                     </label>
                     <div className="flex flex-wrap gap-2">
+                      {vigentePreferida && onVincularVigente ? (
+                        <button
+                          type="button"
+                          className={`${ui.btnPrimary} w-auto px-3 py-1.5 text-xs`}
+                          disabled={loteBusy || busyId != null}
+                          title={vigentePreferida.label || vigentePreferida.codigo || "Entrada vigente"}
+                          onClick={() => onVincularVigente(row, vigentePreferida)}
+                        >
+                          Usar entrada vigente
+                        </button>
+                      ) : null}
                       <button
                         type="button"
-                        className={`${ui.btnPrimary} w-auto px-3 py-1.5 text-xs`}
+                        className={`${vigentePreferida ? ui.btnGhost : ui.btnPrimary} w-auto px-3 py-1.5 text-xs`}
                         disabled={loteBusy}
                         onClick={() => onOpenConsulta?.(row)}
                       >

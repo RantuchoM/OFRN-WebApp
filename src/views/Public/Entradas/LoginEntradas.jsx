@@ -138,7 +138,7 @@ export default function LoginEntradas({
   const sendAccessCode = async () => {
     const secondsRemaining = Math.ceil((nextLinkAllowedAt - Date.now()) / 1000);
     if (secondsRemaining > 0) {
-      setError(`Esperá ${secondsRemaining}s antes de pedir otro código.`);
+      setError(`Esperá ${secondsRemaining}s antes de pedir otro acceso.`);
       return;
     }
     clearFeedback();
@@ -148,9 +148,11 @@ export default function LoginEntradas({
       setNextLinkAllowedAt(Date.now() + LINK_RESEND_COOLDOWN_SECONDS * 1000);
       setOtpCode("");
       setStep("otp");
-      setMessage("Te enviamos un código de 8 dígitos a tu mail. También podés usar el botón del mail si preferís.");
+      setMessage(
+        "Te enviamos un link de acceso rápido o código único al mail. Preferí el botón del mail; si no, usá el código de 8 dígitos acá.",
+      );
     } catch (codeError) {
-      setError(codeError?.message || "No se pudo enviar el código.");
+      setError(codeError?.message || "No se pudo enviar el acceso al mail.");
     } finally {
       setSendingCode(false);
     }
@@ -269,7 +271,7 @@ export default function LoginEntradas({
                   ? "Elegí cómo querés entrar."
                   : step === "password"
                     ? "Ingresá tu contraseña."
-                    : "Escribí el código que te llegó al mail."}
+                    : "Si abriste el link del mail ya entraste. Si no, escribí el código único de 8 dígitos."}
             </p>
           )}
         </div>
@@ -325,8 +327,11 @@ export default function LoginEntradas({
                 ? "Enviando…"
                 : cooldownLeft > 0
                   ? `Esperá ${cooldownLeft}s`
-                  : "Enviar código único"}
+                  : "Link rápido"}
             </button>
+            <p className={hintClass}>
+              Enviamos un link de acceso rápido o código único al mail. Preferí el botón del mail; si el navegador se cierra, volvé acá con el código.
+            </p>
 
             {hasPassword ? (
               <button
@@ -365,8 +370,8 @@ export default function LoginEntradas({
                 </>
               ) : (
                 <p className={hintClass}>
-                  Si preferís no crear contraseña, usá el código que te llega al mail. Este dispositivo
-                  queda recordado para la próxima vez.
+                  Si preferís no crear contraseña, pedí el link de acceso rápido o el código único al mail.
+                  Este dispositivo queda recordado para la próxima vez.
                 </p>
               )}
             </div>
@@ -473,7 +478,7 @@ export default function LoginEntradas({
                 ? "Enviando…"
                 : cooldownLeft > 0
                   ? `Reenviar en ${cooldownLeft}s`
-                  : "Reenviar código"}
+                  : "Reenviar link o código único"}
             </button>
           </div>
         )}

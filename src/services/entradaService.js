@@ -992,6 +992,7 @@ export async function listarEntradasTercerosAdmin() {
     .select(RESERVA_TERCEROS_SELECT)
     .eq("reservada_por", session.user.id)
     .eq("estado", "activa")
+    .order("created_at", { ascending: false })
     .order("id", { ascending: false });
   if (error) throw error;
   return attachAyudaContactoTerceros((data || []).map(mapReservaConConcierto));

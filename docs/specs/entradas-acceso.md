@@ -19,7 +19,7 @@ SCRN y Viáticos Manual siguen con código de 8 dígitos + enlace (misma edge fu
    - Mail nuevo: código al mail (sin enlace). Al validarlo se crea el usuario y un perfil mínimo; la próxima vez ese mail ya es conocido.
 3. **Gestionar mis entradas** (accesible, texto grande):
    - Solo el mail → Continuar (`check_login_options`).
-   - **Enviar código único** (OTP + enlace en el mismo correo).
+   - **Link rápido** (botón corto en login): envía enlace mágico primero + OTP 8 dígitos como alternativa. El mail aclara «link de acceso rápido o código único»; el CTA del mail dice «Link rápido».
    - **Ingresar contraseña** si ya tiene (`password_set_at` o clave OFRN usable).
    - **Crear / recuperar contraseña** según el caso.
 4. Con sesión: el nombre en el header abre menú con **Ver mi perfil** y **Cerrar sesión**; el ícono de tema queda aparte. Cerrar sesión vuelve a la pantalla de los dos botones.

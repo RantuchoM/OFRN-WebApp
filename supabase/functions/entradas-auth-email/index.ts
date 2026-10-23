@@ -141,7 +141,7 @@ function getAppEmailMeta(
     return {
       fromLabel: "Entradas OFRN",
       appLabel: "Entradas OFRN",
-      subject: "Tu código de acceso - Entradas OFRN",
+      subject: "Link de acceso rápido o código único - Entradas OFRN",
     };
   }
   return {
@@ -192,21 +192,27 @@ function buildOtpHtml({
     .box { border-left: 4px solid #2563eb; background: #eff6ff; padding: 16px; border-radius: 6px; }
     .code {
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-      font-size: 30px; font-weight: 700; letter-spacing: 0.2em; color: #0f172a;
+      font-size: 24px; font-weight: 700; letter-spacing: 0.18em; color: #0f172a;
       user-select: all; -webkit-user-select: all;
     }
   </style>
 </head>
 <body>
   <p>Hola,</p>
-  <p>Este es tu código de acceso para <strong>${safeLabel}</strong>:</p>
+  <p>Te enviamos un <strong>link de acceso rápido o código único</strong> para entrar a <strong>${safeLabel}</strong>.</p>
+  <p>Tocá el botón (recomendado). Así no hace falta copiar el código ni volver al navegador anterior:</p>
   <div class="box">
-    <div class="code">${safeCode}</div>
-    <p style="margin: 8px 0 0 0; font-size: 12px; color: #64748b;">Vence en ${OTP_TTL_MINUTES} minutos.</p>
-    <p style="margin: 18px 0 0 0;">
-      <a href="${safeMagicUrl}" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:8px;font-weight:700;font-size:14px;">Accedé sin contraseña</a>
+    <p style="margin: 0 0 14px 0;">
+      <a href="${safeMagicUrl}" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;padding:14px 24px;border-radius:8px;font-weight:700;font-size:15px;">Link rápido</a>
     </p>
-    <p style="margin: 10px 0 0 0; font-size: 12px; color: #475569;">O ingresá el código de 8 dígitos en el sitio.</p>
+    <p style="margin: 0; font-size: 12px; color: #64748b;">El enlace vence en ${OTP_TTL_MINUTES} minutos.</p>
+  </div>
+  <p style="margin: 22px 0 8px 0; font-size: 13px; color: #475569;">
+    <strong>Si preferís,</strong> volvé al sitio e ingresá este <strong>código único</strong> de 8 dígitos:
+  </p>
+  <div class="box" style="border-left-color: #94a3b8; background: #f8fafc;">
+    <div class="code">${safeCode}</div>
+    <p style="margin: 8px 0 0 0; font-size: 12px; color: #64748b;">Mismo vencimiento: ${OTP_TTL_MINUTES} minutos.</p>
   </div>
   <p style="font-size: 12px; color: #64748b;">Si no solicitaste este acceso, podés ignorar este mensaje.</p>
 </body>

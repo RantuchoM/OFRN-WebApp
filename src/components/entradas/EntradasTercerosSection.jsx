@@ -309,7 +309,13 @@ export default function EntradasTercerosSection({
 
   const proximas = useMemo(() => {
     const { proximas: p } = splitMisReservas(entradasTerceros, nowMs);
-    return p;
+    // Más reciente emitida primero (created_at / id), no por fecha de concierto.
+    return [...p].sort((a, b) => {
+      const ta = new Date(a?.created_at || 0).getTime();
+      const tb = new Date(b?.created_at || 0).getTime();
+      if (tb !== ta) return tb - ta;
+      return Number(b?.id || 0) - Number(a?.id || 0);
+    });
   }, [entradasTerceros, nowMs]);
 
   const handleDownloadPdf = async (reserva) => {
