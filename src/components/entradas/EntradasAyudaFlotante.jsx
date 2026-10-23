@@ -394,8 +394,7 @@ export default function EntradasAyudaFlotante({
                   </div>
 
                   <p className={`text-base leading-relaxed ${ui.textBody}`}>
-                    Si no estás pudiendo sacar las entradas, podés escribirnos con el botón de abajo o
-                    completar el formulario.
+                    Si tenés consultas generales, podés escribirnos presionando este botón.
                   </p>
 
                   <a
@@ -407,8 +406,8 @@ export default function EntradasAyudaFlotante({
                   </a>
 
                   <div className={`border-t pt-4 space-y-3 ${ui.divider}`}>
-                    <p className={`text-sm font-semibold ${ui.textSoft}`}>
-                      O completá el formulario (te respondemos al mail):
+                    <p className={`text-base leading-relaxed ${ui.textBody}`}>
+                      Si no estás pudiendo sacar entradas, usá el formulario a continuación y te responderemos a la brevedad.
                     </p>
 
                     <form className="space-y-3" onSubmit={handleSubmit}>
