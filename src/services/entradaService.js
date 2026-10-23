@@ -178,6 +178,34 @@ export async function marcarEntradaAyudaResuelta(id, reservaId = null) {
   return data;
 }
 
+/** Asegura pdf_share_token para link público de PDF (WhatsApp). */
+export async function ensureEntradaPdfShareToken(reservaId) {
+  const { data, error } = await supabaseEntradasPublic.rpc("entrada_ensure_pdf_share_token", {
+    p_reserva_id: Number(reservaId),
+  });
+  if (error) throw error;
+  return String(data || "").trim() || null;
+}
+
+/**
+ * Payload de reserva por pdf_share_token (anon OK) para /entradas/pdf.
+ * Misma forma que una fila de mis reservas (para descargarPdfDesdeReservaRow).
+ */
+export async function fetchEntradaPdfSharePayload(token) {
+  const t = String(token || "").trim().toLowerCase();
+  const { data, error } = await supabaseEntradasPublic.rpc("entrada_pdf_share_payload", {
+    p_token: t,
+  });
+  if (error) throw new Error(error.message || "No se pudo abrir el enlace del PDF.");
+  if (!data || typeof data !== "object") {
+    throw new Error("Reserva no encontrada o enlace vencido.");
+  }
+  return {
+    ...data,
+    concierto: data.concierto ? aplicarDatosEventoAConciertoEntrada(data.concierto) : data.concierto,
+  };
+}
+
 export async function descartarEntradaAyudaConsulta(id) {
   const { data, error } = await supabaseEntradasPublic.rpc("entrada_ayuda_descartar", {
     p_id: id,

@@ -1,9 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import EntradasAyudaWhatsAppBtn from "./EntradasAyudaWhatsAppBtn";
 import {
   descartarEntradaAyudaConsulta,
   listEntradasAyudaConsultas,
 } from "../../services/entradaService";
+import { normalizePhoneForWhatsApp } from "../../utils/entradasWhatsApp";
 
 function formatWhen(iso) {
   if (!iso) return "—";
@@ -224,6 +226,23 @@ export default function EntradasAyudaConsultasPanel({
                       <div className="min-w-0 space-y-0.5">
                         <p className={`font-bold text-sm ${ui.textStrong}`}>{row.nombre}</p>
                         <p className={`text-xs break-all ${ui.textMuted}`}>{row.email}</p>
+                        {row.telefono && normalizePhoneForWhatsApp(row.telefono) ? (
+                          <p className={`text-xs flex flex-wrap items-center gap-1 ${ui.textMuted}`}>
+                            <span>{row.telefono}</span>
+                            <EntradasAyudaWhatsAppBtn
+                              telefono={row.telefono}
+                              nombre={row.nombre}
+                              reservaId={row.reserva_id}
+                              iconSize={14}
+                              isDark={isDark}
+                              className={
+                                isDark
+                                  ? "inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-bold text-emerald-300 hover:bg-emerald-950/60"
+                                  : "inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-bold text-emerald-700 hover:bg-emerald-50"
+                              }
+                            />
+                          </p>
+                        ) : null}
                         <p className={`text-xs ${ui.textSoft}`}>
                           {row.cantidad
                             ? `${row.cantidad} entrada${Number(row.cantidad) === 1 ? "" : "s"}`

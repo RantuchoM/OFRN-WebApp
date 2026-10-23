@@ -38,7 +38,7 @@
 - [x] Con mail inexistente: pendiente hasta login; `entrada_vincular_reservas_pendientes()` en `entrada_ensure_profile`.
 - [x] «Mis entradas» excluye filas con `reservada_por IS NOT NULL` en cuenta admin.
 - [x] PDF descargable al crear y desde listado de terceros.
-- [x] Tras generar la entrada desde una consulta de ayuda, el listado de terceros muestra **WhatsApp** (teléfono de la consulta, o `Tel …` en la referencia). Abre el chat con el mensaje de la reserva y descarga el PDF para adjuntarlo.
+- [x] Tras generar la entrada desde una consulta de ayuda, el listado de terceros muestra **WhatsApp** (teléfono de la consulta, o `Tel …` en la referencia) con el mismo link público al PDF.
 - [x] Mail de confirmación al **creador** y al **beneficiario** (si hay mail); cancelación igual.
 
 ## RPCs
@@ -73,10 +73,12 @@ Migraciones:
 - Mensaje personalizado opcional en el formulario de terceros → va en el mail de confirmación (`mensajePersonalizado` → Edge `entradas-send-reserva-email`).
 - Si `estado=resuelta` (o descartada), el deep link muestra aviso y no pide re-reservar.
 - Al crear la reserva de tercero con una consulta pendiente abierta, se marca resuelta y se guarda `reserva_id`.
-- [x] En **Entradas de terceros activas**, cada reserva que vino de una consulta con teléfono (o tiene `Tel …` en la referencia) muestra el botón **WhatsApp** para enviar la entrada ya generada. El listado se desplaza hasta ahí al resolver una consulta o un lote.
+- [x] En **Entradas de terceros activas**, cada reserva que vino de una consulta con teléfono (o tiene `Tel …` en la referencia) muestra el botón **WhatsApp** con el link al PDF ya generado. El listado se desplaza hasta ahí al resolver una consulta o un lote.
 - [x] Cola + deep link + detección de ya resuelta.
 - [x] Acuse al consultante + Abrir (scroll / auto-confirm) + mensaje personalizado en mail.
 - [x] Aceptar varias a la vez + aviso de reservas existentes.
+- [x] Botón WhatsApp (wa.me, AR por defecto) en cola/banner/mail de consulta, con mensaje prearmado de envío de entradas.
+- [x] Link público PDF en WhatsApp: `/entradas/pdf?t=` + RPC `entrada_pdf_share_payload` → mismo PDF de la app (sin sesión).
 
 ## Edge
 
