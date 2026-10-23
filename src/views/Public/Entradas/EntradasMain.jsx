@@ -25,6 +25,7 @@ import {
   IconChevronLeft,
   IconCopy,
   IconEdit,
+  IconBell,
   IconHelpCircle,
   IconList,
   IconMail,
@@ -79,6 +80,7 @@ import {
   listarEntradasTercerosAdmin,
   checkEntradasAyudaReservas,
   getEntradaAyudaConsulta,
+  listEntradasAyudaConsultas,
   marcarEntradaAyudaResuelta,
   listProgramasConConciertos,
   compareConciertosPorFechaHora,
@@ -96,6 +98,7 @@ import {
   validarYConsumirQr,
 } from "../../../services/entradaService";
 import { isEntradasNetworkError, formatEntradasNetworkError } from "../../../utils/entradasAuthMessages";
+import { elegirConciertoYConsultasParaCupo } from "../../../utils/entradasAyudaCupo";
 import {
   countRecepcionIngresosPendientes,
   enqueueRecepcionIngreso,
@@ -661,10 +664,22 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
   const [ayudaLoteYaTienen, setAyudaLoteYaTienen] = useState([]);
   const [ayudaLoteCheckBusy, setAyudaLoteCheckBusy] = useState(false);
   const [ayudaLoteForzarCupo, setAyudaLoteForzarCupo] = useState(false);
+  /** ConfirmModal de excepción de cupo (single o lote). */
+  const [cupoExcepcionModal, setCupoExcepcionModal] = useState(null);
+  /** Badge: consultas de ayuda pendientes (menú Terceros). */
+  const [ayudaPendientesCount, setAyudaPendientesCount] = useState(0);
+  /** Oferta al entrar a Terceros: resolver las que entren en cupo. */
+  const [ayudaResolverCupoOffer, setAyudaResolverCupoOffer] = useState(null);
   const terceroFormRef = useRef(null);
   const tercerosListadoRef = useRef(null);
   /** Al abrir una consulta de ayuda, confirmar automáticamente el beneficiario hallado. */
   const ayudaAutoConfirmRef = useRef(false);
+  /** Id de consulta pendiente abierta con Abrir / ?ayuda= — no depende del race del URL. */
+  const ayudaPendienteIdRef = useRef(null);
+  /** Tras confirmar el ConfirmModal de sobrecupo en un lote. */
+  const cupoExcepcionAceptadaRef = useRef(false);
+  /** Evita re-ofrecer resolver-por-cupo en la misma visita a Terceros. */
+  const ayudaResolverOfferShownRef = useRef(false);
   const [recepcionConciertoId, setRecepcionConciertoId] = useState("");
   const [scannerToken, setScannerToken] = useState("");
   const [manualReservaCode, setManualReservaCode] = useState("");
@@ -1124,6 +1139,9 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
   const applyAyudaConsultaToForm = useCallback((row) => {
     if (!row) return;
     ayudaAutoConfirmRef.current = true;
+    if (row.estado === "pendiente" && row.id) {
+      ayudaPendienteIdRef.current = row.id;
+    }
     setTerceroEmail(String(row.email || "").trim());
     const refParts = [
       row.nombre ? String(row.nombre).trim() : "",
@@ -1135,6 +1153,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
     if (row.concierto_id) setAdminTerceroConciertoId(String(row.concierto_id));
     setTerceroBeneficiarioConfirmado(false);
     setTerceroMensajePersonalizado("");
+    setTerceroForzarCupo(false);
     window.requestAnimationFrame(() => {
       terceroFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
@@ -1142,7 +1161,8 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
 
   useEffect(() => {
     if (!canTerceros || !ayudaIdParam) {
-      if (!ayudaIdParam) setAyudaConsulta(null);
+      // No limpiar ayudaConsulta acá: Abrir setea la fila antes de que el URL sincronice
+      // y un clear prematuro hacía que al emitir no se marcará resuelta.
       return undefined;
     }
     let cancelled = false;
@@ -1152,9 +1172,9 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
         if (cancelled) return;
         setAyudaConsulta(row);
         if (row?.estado === "pendiente") applyAyudaConsultaToForm(row);
+        else ayudaPendienteIdRef.current = null;
       } catch (e) {
         if (!cancelled) {
-          setAyudaConsulta(null);
           toast.error(e?.message || "No se pudo abrir la consulta de ayuda.");
         }
       }
@@ -2421,7 +2441,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
     ayudaAutoConfirmRef.current = false;
   };
 
-  const handleCreateReservaTercero = async () => {
+  const executeCreateReservaTercero = async () => {
     const concierto = adminTerceroConciertoSelected;
     if (!concierto?.id) {
       toast.error("Elegí un concierto.");
@@ -2440,14 +2460,13 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
       );
       return;
     }
-    if (sinCupo && terceroForzarCupo) {
-      const ok = window.confirm(
-        `Cupo insuficiente (quedan ${disponibles}, pedís ${adminTerceroCantidad}).\n\n¿Emitir igual como excepción?`,
-      );
-      if (!ok) return;
-    }
+
+    const ayudaIdPendiente =
+      ayudaPendienteIdRef.current
+      || (ayudaConsulta?.estado === "pendiente" ? ayudaConsulta.id : null);
+    const desdeSolicitud = Boolean(ayudaIdPendiente);
+
     setCreatingTerceroReserva(true);
-    const desdeSolicitud = Boolean(ayudaConsulta?.id && ayudaConsulta.estado === "pendiente");
     try {
       const result = await crearReservaTercero({
         conciertoId: concierto.id,
@@ -2491,10 +2510,19 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
       } catch {
         toast.message("Reserva creada. El mail no pudo enviarse automáticamente.");
       }
-      if (ayudaConsulta?.id && ayudaConsulta.estado === "pendiente") {
+      if (ayudaIdPendiente) {
         try {
-          const updated = await marcarEntradaAyudaResuelta(ayudaConsulta.id, result.reserva_id);
-          setAyudaConsulta(updated || { ...ayudaConsulta, estado: "resuelta", reserva_id: result.reserva_id });
+          const updated = await marcarEntradaAyudaResuelta(ayudaIdPendiente, result.reserva_id);
+          ayudaPendienteIdRef.current = null;
+          setAyudaConsulta(
+            updated
+            || {
+              ...(ayudaConsulta || {}),
+              id: ayudaIdPendiente,
+              estado: "resuelta",
+              reserva_id: result.reserva_id,
+            },
+          );
           setAyudaColaRefresh((n) => n + 1);
           toast.message("Consulta de ayuda marcada como resuelta.");
         } catch (ayudaErr) {
@@ -2510,12 +2538,43 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
       }
     } catch (error) {
       toast.error(error?.message || "No se pudo crear la reserva.");
+      throw error;
     } finally {
       setCreatingTerceroReserva(false);
     }
   };
 
-  const openAyudaLote = useCallback((rows) => {
+  const handleCreateReservaTercero = async () => {
+    const concierto = adminTerceroConciertoSelected;
+    if (!concierto?.id) {
+      toast.error("Elegí un concierto.");
+      return;
+    }
+    const email = String(terceroEmail || "").trim();
+    if (email && terceroBeneficiarioLookup?.encontrado && !terceroBeneficiarioConfirmado) {
+      toast.error("Confirmá que es la persona correcta antes de reservar.");
+      return;
+    }
+    const disponibles = computeDisponibles(concierto);
+    const sinCupo = disponibles < adminTerceroCantidad;
+    if (sinCupo && !terceroForzarCupo) {
+      toast.error(
+        `No hay cupo (quedan ${disponibles}). Marcá la excepción de cupo para emitir igual.`,
+      );
+      return;
+    }
+    if (sinCupo && terceroForzarCupo) {
+      setCupoExcepcionModal({
+        scope: "single",
+        disponibles,
+        pedidas: adminTerceroCantidad,
+      });
+      return;
+    }
+    await executeCreateReservaTercero();
+  };
+
+  const openAyudaLote = useCallback((rows, conciertoIdPreferido = null) => {
     const list = Array.isArray(rows) ? rows.filter(Boolean) : [];
     if (!list.length) {
       toast.error("Seleccioná al menos una consulta.");
@@ -2525,11 +2584,17 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
       toast.error("No hay conciertos abiertos para reservar.");
       return;
     }
+    const preferredFromArg =
+      conciertoIdPreferido != null
+      && conciertosTercerosSelect.some((c) => String(c.id) === String(conciertoIdPreferido))
+        ? String(conciertoIdPreferido)
+        : null;
     const ids = [...new Set(list.map((r) => r.concierto_id).filter(Boolean).map(String))];
     const preferred =
-      ids.length === 1 && conciertosTercerosSelect.some((c) => String(c.id) === ids[0])
+      preferredFromArg
+      || (ids.length === 1 && conciertosTercerosSelect.some((c) => String(c.id) === ids[0])
         ? ids[0]
-        : String(conciertosTercerosSelect[0].id);
+        : String(conciertosTercerosSelect[0].id));
     setAyudaLoteRows(list);
     setAyudaLoteConciertoId(preferred);
     setAyudaLoteMensaje("");
@@ -2537,6 +2602,120 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
     setAyudaLoteYaTienen([]);
     setAyudaLoteForzarCupo(false);
   }, [conciertosTercerosSelect]);
+
+  const refreshAyudaPendientesCount = useCallback(async () => {
+    if (!canTerceros) {
+      setAyudaPendientesCount(0);
+      return [];
+    }
+    try {
+      const data = await listEntradasAyudaConsultas("pendiente");
+      const list = Array.isArray(data) ? data : [];
+      setAyudaPendientesCount(list.length);
+      return list;
+    } catch {
+      return null;
+    }
+  }, [canTerceros]);
+
+  useEffect(() => {
+    if (!canTerceros) {
+      setAyudaPendientesCount(0);
+      return undefined;
+    }
+    let cancelled = false;
+    const tick = async () => {
+      const list = await refreshAyudaPendientesCount();
+      if (cancelled || list == null) return;
+    };
+    void tick();
+    const id = window.setInterval(() => {
+      void tick();
+    }, 60000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [canTerceros, refreshAyudaPendientesCount, ayudaColaRefresh]);
+
+  useEffect(() => {
+    if (!tercerosViewActive) {
+      ayudaResolverOfferShownRef.current = false;
+      setAyudaResolverCupoOffer(null);
+      return undefined;
+    }
+    if (ayudaResolverOfferShownRef.current || ayudaIdParam) return undefined;
+    let cancelled = false;
+    (async () => {
+      const list = await refreshAyudaPendientesCount();
+      if (cancelled || !list?.length || !conciertosTercerosSelect.length) return;
+      const best = elegirConciertoYConsultasParaCupo(
+        list,
+        conciertosTercerosSelect,
+        (c) => computeDisponibles(c),
+      );
+      if (!best?.picked?.length) return;
+      ayudaResolverOfferShownRef.current = true;
+      setAyudaResolverCupoOffer({
+        total: list.length,
+        entra: best.picked.length,
+        tickets: best.ticketsPicked,
+        disponibles: best.disponibles,
+        conciertoNombre: best.concierto?.nombre || "el concierto",
+        picked: best.picked,
+        conciertoId: best.concierto.id,
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    tercerosViewActive,
+    ayudaIdParam,
+    refreshAyudaPendientesCount,
+    conciertosTercerosSelect,
+  ]);
+
+  const resolverAyudaQueEntranEnCupo = useCallback(async (rowsArg = null) => {
+    let rows = Array.isArray(rowsArg) ? rowsArg.filter(Boolean) : null;
+    if (!rows) {
+      try {
+        const data = await listEntradasAyudaConsultas("pendiente");
+        rows = Array.isArray(data) ? data : [];
+        setAyudaPendientesCount(rows.length);
+      } catch (e) {
+        toast.error(e?.message || "No se pudieron cargar las solicitudes.");
+        return;
+      }
+    }
+    if (!rows.length) {
+      toast.message("No hay solicitudes pendientes.");
+      setAyudaPendientesCount(0);
+      return;
+    }
+    if (!conciertosTercerosSelect.length) {
+      toast.error("No hay conciertos abiertos para reservar.");
+      return;
+    }
+    const best = elegirConciertoYConsultasParaCupo(
+      rows,
+      conciertosTercerosSelect,
+      (c) => computeDisponibles(c),
+    );
+    if (!best?.picked?.length) {
+      toast.error(
+        "Ninguna solicitud entra en el cupo actual. Podés abrir una y usar excepción de cupo, o esperar liberaciones.",
+      );
+      return;
+    }
+    const omitidas = rows.length - best.picked.length;
+    if (omitidas > 0) {
+      toast.message(
+        `Se seleccionarán ${best.picked.length} de ${rows.length} (entran en ${best.disponibles} lugares). ${omitidas} quedan fuera por cupo.`,
+      );
+    }
+    openAyudaLote(best.picked, best.concierto.id);
+  }, [conciertosTercerosSelect, openAyudaLote]);
 
   const closeAyudaLote = () => {
     if (ayudaLoteBusy) return;
@@ -2617,12 +2796,16 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
         `No hay cupo suficiente: el lote pide ${ayudaLoteTotalEntradas} y quedan ${disponibles}. Marcá la excepción de cupo para continuar.`,
       );
     }
-    if (sinCupoLote && ayudaLoteForzarCupo) {
-      const ok = window.confirm(
-        `Cupo insuficiente (quedan ${disponibles}, el lote pide ${ayudaLoteTotalEntradas}).\n\n¿Emitir todas igual como excepción?`,
-      );
-      if (!ok) throw new Error("Cancelado.");
+    if (sinCupoLote && ayudaLoteForzarCupo && !cupoExcepcionAceptadaRef.current) {
+      setCupoExcepcionModal({
+        scope: "lote",
+        disponibles,
+        pedidas: ayudaLoteTotalEntradas,
+      });
+      // Mantener abierto el modal de lote hasta confirmar la excepción.
+      throw new Error("__cupo_excepcion_pending__");
     }
+    cupoExcepcionAceptadaRef.current = false;
 
     setAyudaLoteBusy(true);
     let ok = 0;
@@ -2689,6 +2872,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
       setAyudaColaRefresh((n) => n + 1);
       if (ayudaConsulta && rows.some((r) => String(r.id) === String(ayudaConsulta.id))) {
         setAyudaConsulta(null);
+        ayudaPendienteIdRef.current = null;
       }
       await loadBase({ quiet: true });
       if (ok) {
@@ -4378,14 +4562,21 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
         refreshKey={ayudaColaRefresh}
         loteBusy={ayudaLoteBusy}
         onAceptarLote={openAyudaLote}
+        onResolverQueEntren={resolverAyudaQueEntranEnCupo}
+        onPendientesChange={setAyudaPendientesCount}
         conciertoDeConsulta={(id) => concertosFlat.find((c) => Number(c.id) === Number(id)) || null}
         onOpenConsulta={(row) => {
+          setAyudaConsulta(row);
+          if (row.estado === "pendiente") {
+            ayudaPendienteIdRef.current = row.id;
+            applyAyudaConsultaToForm(row);
+          } else {
+            ayudaPendienteIdRef.current = null;
+          }
           const params = new URLSearchParams(searchParams);
           params.set("view", "entradas-terceros");
           params.set("ayuda", String(row.id));
           setSearchParams(params);
-          setAyudaConsulta(row);
-          if (row.estado === "pendiente") applyAyudaConsultaToForm(row);
         }}
       />
 
@@ -4750,9 +4941,23 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
           {canTerceros && (
             <button
               type="button"
-              className={section === "entradas-terceros" ? ui.navActive : ui.navIdle}
+              className={`relative ${section === "entradas-terceros" ? ui.navActive : ui.navIdle}`}
               onClick={() => navigateEntradasView({ view: "entradas-terceros" })}
+              aria-label={
+                ayudaPendientesCount > 0
+                  ? `Terceros, ${ayudaPendientesCount} solicitud${ayudaPendientesCount === 1 ? "" : "es"} sin resolver`
+                  : "Terceros"
+              }
             >
+              {ayudaPendientesCount > 0 ? (
+                <span
+                  className="pointer-events-none absolute -top-2 left-1/2 z-10 flex -translate-x-1/2 items-center gap-0.5 rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white shadow-md ring-2 ring-white dark:ring-slate-900"
+                  title={`${ayudaPendientesCount} solicitud${ayudaPendientesCount === 1 ? "" : "es"} sin resolver`}
+                >
+                  <IconBell size={11} className="shrink-0" />
+                  {ayudaPendientesCount > 99 ? "99+" : ayudaPendientesCount}
+                </span>
+              ) : null}
               🎫 Terceros
             </button>
           )}
@@ -6859,6 +7064,59 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
       />
 
       <ConfirmModal
+        isOpen={Boolean(ayudaResolverCupoOffer)}
+        onClose={() => setAyudaResolverCupoOffer(null)}
+        title="Solicitudes sin resolver"
+        message={
+          ayudaResolverCupoOffer
+            ? `Hay ${ayudaResolverCupoOffer.total} solicitud${ayudaResolverCupoOffer.total === 1 ? "" : "es"} pendiente${ayudaResolverCupoOffer.total === 1 ? "" : "s"}.\n\nCon el cupo actual de «${ayudaResolverCupoOffer.conciertoNombre}» (${ayudaResolverCupoOffer.disponibles} disponibles) se pueden emitir ${ayudaResolverCupoOffer.entra} (${ayudaResolverCupoOffer.tickets} entrada${ayudaResolverCupoOffer.tickets === 1 ? "" : "s"}).\n\n¿Seleccionamos esas y abrimos el lote para resolverlas?`
+            : ""
+        }
+        confirmText="Resolver las que entren"
+        cancelText="Ahora no"
+        confirmClassName="px-4 py-2.5 sm:py-2 text-sm font-bold text-white bg-sky-600 hover:bg-sky-700 rounded-lg shadow-md"
+        onConfirm={() => {
+          const offer = ayudaResolverCupoOffer;
+          setAyudaResolverCupoOffer(null);
+          if (offer?.picked?.length) {
+            openAyudaLote(offer.picked, offer.conciertoId);
+          }
+        }}
+      />
+
+      <ConfirmModal
+        isOpen={Boolean(cupoExcepcionModal)}
+        onClose={() => !creatingTerceroReserva && !ayudaLoteBusy && setCupoExcepcionModal(null)}
+        title="Excepción de cupo"
+        message={
+          cupoExcepcionModal
+            ? `Cupo insuficiente (quedan ${cupoExcepcionModal.disponibles}, se piden ${cupoExcepcionModal.pedidas}).\n\n¿Emitir igual como excepción? La reserva quedará marcada como excepcional.`
+            : ""
+        }
+        confirmText={
+          creatingTerceroReserva || ayudaLoteBusy
+            ? "Emitiendo…"
+            : cupoExcepcionModal?.scope === "lote"
+              ? "Sí, emitir el lote"
+              : "Sí, emitir igual"
+        }
+        confirmLoading={creatingTerceroReserva || ayudaLoteBusy}
+        confirmClassName="px-4 py-2.5 sm:py-2 text-sm font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-lg shadow-md"
+        overlayClassName="z-[110]"
+        onConfirm={async () => {
+          const scope = cupoExcepcionModal?.scope;
+          if (scope === "lote") {
+            cupoExcepcionAceptadaRef.current = true;
+            setCupoExcepcionModal(null);
+            await handleAceptarAyudaLote();
+            return;
+          }
+          setCupoExcepcionModal(null);
+          await executeCreateReservaTercero();
+        }}
+      />
+
+      <ConfirmModal
         isOpen={Boolean(ayudaLoteRows?.length)}
         onClose={closeAyudaLote}
         title={`Aceptar ${ayudaLoteRows?.length || 0} consulta${(ayudaLoteRows?.length || 0) === 1 ? "" : "s"}`}
@@ -6877,6 +7135,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
             && computeDisponibles(ayudaLoteConcierto) < ayudaLoteTotalEntradas
             && !ayudaLoteForzarCupo
           )
+          || Boolean(cupoExcepcionModal)
         }
         loadingText={ayudaLoteProgress || "Reservando…"}
         confirmClassName="px-4 py-2.5 sm:py-2 text-sm font-bold text-white bg-sky-600 hover:bg-sky-700 rounded-lg shadow-md"

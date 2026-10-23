@@ -27,6 +27,8 @@ export default function EntradasAyudaConsultasPanel({
   activeAyudaId,
   onOpenConsulta,
   onAceptarLote,
+  onResolverQueEntren,
+  onPendientesChange,
   conciertoDeConsulta,
   refreshKey = 0,
   loteBusy = false,
@@ -42,6 +44,7 @@ export default function EntradasAyudaConsultasPanel({
       const data = await listEntradasAyudaConsultas("pendiente");
       const list = Array.isArray(data) ? data : [];
       setRows(list);
+      onPendientesChange?.(list.length);
       setSelectedIds((prev) => {
         const next = new Set();
         const ids = new Set(list.map((r) => String(r.id)));
@@ -53,10 +56,11 @@ export default function EntradasAyudaConsultasPanel({
     } catch (e) {
       toast.error(e?.message || "No se pudieron cargar las consultas de ayuda.");
       setRows([]);
+      onPendientesChange?.(0);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [onPendientesChange]);
 
   useEffect(() => {
     void load();
@@ -144,6 +148,17 @@ export default function EntradasAyudaConsultasPanel({
       <p className={`text-sm ${ui.textMuted}`}>
         Llegan del botón «¿Necesitás ayuda?». Tildá varias para aceptarlas juntas, o abrí una sola.
       </p>
+
+      {!loading && rows.length > 0 && onResolverQueEntren ? (
+        <button
+          type="button"
+          disabled={loteBusy || busyId != null}
+          className={`${ui.btnPrimary} w-full sm:w-auto px-3 py-2 text-xs`}
+          onClick={() => onResolverQueEntren(rows)}
+        >
+          Resolver las que entren en cupo ({rows.length} pendiente{rows.length === 1 ? "" : "s"})
+        </button>
+      ) : null}
 
       {someSelected && (
         <div
