@@ -13,6 +13,7 @@ import EntradasDriveCoverImage from "../../../components/entradas/EntradasDriveC
 import EntradasLiveQrScanner from "../../../components/entradas/EntradasLiveQrScanner";
 import EntradasMisReservasSection from "../../../components/entradas/EntradasMisReservasSection";
 import EntradasTercerosSection from "../../../components/entradas/EntradasTercerosSection";
+import EntradasAyudaConsultasPanel from "../../../components/entradas/EntradasAyudaConsultasPanel";
 import EntradasCambiarCantidadControls from "../../../components/entradas/EntradasCambiarCantidadControls";
 import EntradasPerfilModal from "../../../components/entradas/EntradasPerfilModal";
 import EntradasVerQrButton from "../../../components/entradas/EntradasVerQrButton";
@@ -75,6 +76,8 @@ import {
   listConciertoIdsConReservaActiva,
   listarMisReservas,
   listarEntradasTercerosAdmin,
+  getEntradaAyudaConsulta,
+  marcarEntradaAyudaResuelta,
   listProgramasConConciertos,
   compareConciertosPorFechaHora,
   fechaHoraDesdeConciertoEntrada,
@@ -640,6 +643,9 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
   const [terceroBeneficiarioLookup, setTerceroBeneficiarioLookup] = useState(null);
   const [terceroBeneficiarioConfirmado, setTerceroBeneficiarioConfirmado] = useState(false);
   const [terceroEmailLookupBusy, setTerceroEmailLookupBusy] = useState(false);
+  /** Consulta del formulario público abierta vía ?ayuda= o cola en Terceros. */
+  const [ayudaConsulta, setAyudaConsulta] = useState(null);
+  const [ayudaColaRefresh, setAyudaColaRefresh] = useState(0);
   const [recepcionConciertoId, setRecepcionConciertoId] = useState("");
   const [scannerToken, setScannerToken] = useState("");
   const [manualReservaCode, setManualReservaCode] = useState("");
@@ -755,6 +761,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
   const canTerceros = entradaRolCanTerceros(profile?.rol);
   const section = searchParams.get("view") || "catalogo";
   const conciertoSlug = searchParams.get("concierto") || "";
+  const ayudaIdParam = searchParams.get("ayuda") || "";
   const tercerosViewActive = canTerceros && section === "entradas-terceros";
 
   useEffect(() => {
@@ -1046,28 +1053,87 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
     [adminData.conciertos, concertosFlat],
   );
 
+  const conciertosTercerosSelect = useMemo(() => {
+    const list = [...conciertosReservaTercerosAdmin];
+    const ayudaCid = Number(ayudaConsulta?.concierto_id);
+    if (Number.isFinite(ayudaCid) && ayudaCid > 0 && !list.some((c) => Number(c.id) === ayudaCid)) {
+      const extra = concertosFlat.find((c) => Number(c.id) === ayudaCid);
+      if (extra) list.unshift(extra);
+    }
+    return list;
+  }, [conciertosReservaTercerosAdmin, concertosFlat, ayudaConsulta?.concierto_id]);
+
   const adminTerceroConciertoSelected = useMemo(() => {
     const id = Number(adminTerceroConciertoId);
     if (!Number.isFinite(id)) return null;
-    const base = conciertosReservaTercerosAdmin.find((c) => Number(c.id) === id);
+    const base = conciertosTercerosSelect.find((c) => Number(c.id) === id);
     if (!base) return null;
     const catalogo = concertosFlat.find((c) => Number(c.id) === id);
     return catalogo ? { ...base, ...catalogo, disponibilidad: catalogo.disponibilidad } : base;
-  }, [adminTerceroConciertoId, conciertosReservaTercerosAdmin, concertosFlat]);
+  }, [adminTerceroConciertoId, conciertosTercerosSelect, concertosFlat]);
 
   useEffect(() => {
     if (!tercerosViewActive) return;
-    if (!conciertosReservaTercerosAdmin.length) {
-      setAdminTerceroConciertoId("");
+    if (!conciertosTercerosSelect.length) {
+      if (!ayudaConsulta?.concierto_id) setAdminTerceroConciertoId("");
       return;
     }
-    const stillValid = conciertosReservaTercerosAdmin.some(
+    const stillValid = conciertosTercerosSelect.some(
       (c) => String(c.id) === String(adminTerceroConciertoId),
     );
     if (!stillValid) {
-      setAdminTerceroConciertoId(String(conciertosReservaTercerosAdmin[0].id));
+      const preferAyuda = ayudaConsulta?.concierto_id
+        && conciertosTercerosSelect.some((c) => String(c.id) === String(ayudaConsulta.concierto_id));
+      setAdminTerceroConciertoId(
+        preferAyuda
+          ? String(ayudaConsulta.concierto_id)
+          : String(conciertosTercerosSelect[0].id),
+      );
     }
-  }, [tercerosViewActive, conciertosReservaTercerosAdmin, adminTerceroConciertoId]);
+  }, [
+    tercerosViewActive,
+    conciertosTercerosSelect,
+    adminTerceroConciertoId,
+    ayudaConsulta?.concierto_id,
+  ]);
+
+  const applyAyudaConsultaToForm = useCallback((row) => {
+    if (!row) return;
+    setTerceroEmail(String(row.email || "").trim());
+    const refParts = [
+      row.nombre ? String(row.nombre).trim() : "",
+      row.telefono ? `Tel ${String(row.telefono).trim()}` : "",
+      row.comentarios ? String(row.comentarios).trim() : "",
+    ].filter(Boolean);
+    setTerceroReferencia(refParts.join(" — "));
+    if (row.cantidad) setAdminTerceroCantidad(Number(row.cantidad));
+    if (row.concierto_id) setAdminTerceroConciertoId(String(row.concierto_id));
+    setTerceroBeneficiarioConfirmado(false);
+  }, []);
+
+  useEffect(() => {
+    if (!canTerceros || !ayudaIdParam) {
+      if (!ayudaIdParam) setAyudaConsulta(null);
+      return undefined;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const row = await getEntradaAyudaConsulta(ayudaIdParam);
+        if (cancelled) return;
+        setAyudaConsulta(row);
+        if (row?.estado === "pendiente") applyAyudaConsultaToForm(row);
+      } catch (e) {
+        if (!cancelled) {
+          setAyudaConsulta(null);
+          toast.error(e?.message || "No se pudo abrir la consulta de ayuda.");
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [ayudaIdParam, canTerceros, applyAyudaConsultaToForm]);
 
   const adminConciertoVistaBtn = (active) => (active ? ui.adminTabActive : ui.adminTabIdle);
 
@@ -2374,6 +2440,16 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
         toast.success(`Entrada de tercero confirmada.${extra}`);
       } catch {
         toast.message("Reserva creada. El mail no pudo enviarse automáticamente.");
+      }
+      if (ayudaConsulta?.id && ayudaConsulta.estado === "pendiente") {
+        try {
+          const updated = await marcarEntradaAyudaResuelta(ayudaConsulta.id, result.reserva_id);
+          setAyudaConsulta(updated || { ...ayudaConsulta, estado: "resuelta", reserva_id: result.reserva_id });
+          setAyudaColaRefresh((n) => n + 1);
+          toast.message("Consulta de ayuda marcada como resuelta.");
+        } catch (ayudaErr) {
+          toast.message(ayudaErr?.message || "Reserva ok, pero no se pudo marcar la consulta como resuelta.");
+        }
       }
       resetAdminTerceroForm();
       await loadBase({ quiet: true });
@@ -4043,9 +4119,73 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
 
   const renderEntradasTercerosPanel = () => (
     <div className="space-y-6">
+      <EntradasAyudaConsultasPanel
+        ui={ui}
+        isDark={isDark}
+        activeAyudaId={ayudaIdParam || ayudaConsulta?.id}
+        refreshKey={ayudaColaRefresh}
+        onOpenConsulta={(row) => {
+          const params = new URLSearchParams(searchParams);
+          params.set("view", "entradas-terceros");
+          params.set("ayuda", String(row.id));
+          setSearchParams(params);
+          setAyudaConsulta(row);
+          if (row.estado === "pendiente") applyAyudaConsultaToForm(row);
+        }}
+      />
+
+      {ayudaConsulta && (
+        <div
+          className={
+            ayudaConsulta.estado === "resuelta" || ayudaConsulta.estado === "descartada"
+              ? isDark
+                ? "rounded-lg border border-emerald-800 bg-emerald-950/50 px-4 py-3 text-sm text-emerald-100 space-y-1"
+                : "rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 space-y-1"
+              : isDark
+                ? "rounded-lg border border-sky-800 bg-sky-950/40 px-4 py-3 text-sm text-sky-100 space-y-1"
+                : "rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950 space-y-1"
+          }
+          role="status"
+        >
+          {ayudaConsulta.estado === "resuelta" ? (
+            <>
+              <p className="font-bold text-base">Esta consulta ya fue resuelta</p>
+              <p>
+                {ayudaConsulta.nombre} · {ayudaConsulta.email}
+                {ayudaConsulta.reserva_id ? ` · reserva #${ayudaConsulta.reserva_id}` : ""}
+                {ayudaConsulta.resolved_at
+                  ? ` · ${new Date(ayudaConsulta.resolved_at).toLocaleString("es-AR")}`
+                  : ""}
+              </p>
+              <p className={ui.textMuted}>
+                No hace falta volver a reservar. Podés responder el mail si querés avisar a la persona.
+              </p>
+            </>
+          ) : ayudaConsulta.estado === "descartada" ? (
+            <>
+              <p className="font-bold text-base">Esta consulta fue descartada</p>
+              <p>
+                {ayudaConsulta.nombre} · {ayudaConsulta.email}
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="font-bold text-base">Consulta de ayuda abierta</p>
+              <p>
+                {ayudaConsulta.nombre} · {ayudaConsulta.email}
+                {ayudaConsulta.telefono ? ` · tel ${ayudaConsulta.telefono}` : ""}
+              </p>
+              <p className={ui.textMuted}>
+                Formulario precargado abajo. Al reservar se marca como resuelta automáticamente.
+              </p>
+            </>
+          )}
+        </div>
+      )}
+
       <div className={`${ui.inset} p-4 space-y-4`}>
         <h3 className={ui.sectionTitle}>Nueva reserva para otra persona</h3>
-        {conciertosReservaTercerosAdmin.length === 0 ? (
+        {conciertosTercerosSelect.length === 0 ? (
           <p className={`text-sm ${ui.textMuted}`}>
             No hay conciertos actuales con reservas abiertas. Cuando haya uno disponible, podrás reservar desde acá.
           </p>
@@ -4061,7 +4201,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
                 value={adminTerceroConciertoId}
                 onChange={(e) => setAdminTerceroConciertoId(e.target.value)}
               >
-                {conciertosReservaTercerosAdmin.map((c) => (
+                {conciertosTercerosSelect.map((c) => (
                   <option key={c.id} value={String(c.id)}>
                     {formatConciertoFechaHoraEs(c.fecha_hora)} — {c.nombre}
                   </option>

@@ -133,6 +133,7 @@ export default function EntradasAyudaFlotante() {
         telefono: form.telefono,
         cantidad: form.cantidad,
         funcion: form.funcion || selectedFuncion?.label || "",
+        conciertoId: form.funcionId || selectedFuncion?.id || null,
         comentarios: form.comentarios,
       });
       setSent(true);

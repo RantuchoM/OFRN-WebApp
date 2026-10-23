@@ -63,6 +63,15 @@ Migraciones:
 - Helpers de rol: `src/utils/entradaRoles.js`.
 - Roles asignables en Usuarios / pre-registro: personal, recepcionista, boletos, boletos+recepc, admin.
 
+## Consultas de ayuda (formulario público)
+
+- Tabla `entrada_ayuda_consulta` + RPCs `entrada_ayuda_listar` / `get` / `marcar_resuelta` / `descartar` (`entrada_can_terceros`).
+- Edge `entradas-send-ayuda` persiste la fila y manda mail a staff con botón **Reservar en Entradas** → `/entradas?view=entradas-terceros&ayuda=<uuid>`.
+- En Terceros: cola de pendientes (`EntradasAyudaConsultasPanel`); al abrir (mail o cola) se precarga mail/cantidad/concierto/referencia.
+- Si `estado=resuelta` (o descartada), el deep link muestra aviso y no pide re-reservar.
+- Al crear la reserva de tercero con una consulta pendiente abierta, se marca resuelta y se guarda `reserva_id`.
+- [x] Cola + deep link + detección de ya resuelta.
+
 ## Edge
 
 - `entradas-send-reserva-email`: envío múltiple (admin + beneficiario) para reservas con `reservada_por`.

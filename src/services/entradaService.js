@@ -99,6 +99,7 @@ export async function sendEntradasAyudaConsulta({
   telefono,
   cantidad,
   funcion,
+  conciertoId,
   comentarios,
 }) {
   const { data, error } = await supabaseEntradasPublic.functions.invoke("entradas-send-ayuda", {
@@ -108,6 +109,7 @@ export async function sendEntradasAyudaConsulta({
       telefono: String(telefono || "").trim(),
       cantidad: String(cantidad || "").trim(),
       funcion: String(funcion || "").trim(),
+      concierto_id: conciertoId ? Number(conciertoId) : null,
       comentarios: String(comentarios || "").trim(),
       website: "",
     },
@@ -126,6 +128,39 @@ export async function sendEntradasAyudaConsulta({
     }
     throw new Error(serverMessage || error.message || "No se pudo enviar la consulta.");
   }
+  return data;
+}
+
+export async function listEntradasAyudaConsultas(estado = "pendiente") {
+  const { data, error } = await supabaseEntradasPublic.rpc("entrada_ayuda_listar", {
+    p_estado: estado,
+  });
+  if (error) throw error;
+  return data || [];
+}
+
+export async function getEntradaAyudaConsulta(id) {
+  const { data, error } = await supabaseEntradasPublic.rpc("entrada_ayuda_get", {
+    p_id: id,
+  });
+  if (error) throw error;
+  return data || null;
+}
+
+export async function marcarEntradaAyudaResuelta(id, reservaId = null) {
+  const { data, error } = await supabaseEntradasPublic.rpc("entrada_ayuda_marcar_resuelta", {
+    p_id: id,
+    p_reserva_id: reservaId != null ? Number(reservaId) : null,
+  });
+  if (error) throw error;
+  return data;
+}
+
+export async function descartarEntradaAyudaConsulta(id) {
+  const { data, error } = await supabaseEntradasPublic.rpc("entrada_ayuda_descartar", {
+    p_id: id,
+  });
+  if (error) throw error;
   return data;
 }
 
