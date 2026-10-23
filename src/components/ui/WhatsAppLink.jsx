@@ -5,7 +5,7 @@ import { buildEntradasWhatsAppUrl } from "../../utils/entradasWhatsApp";
 export { normalizePhoneForWhatsApp } from "../../utils/entradasWhatsApp";
 
 /**
- * Enlace a WhatsApp (wa.me) con número normalizado (AR si falta país).
+ * Enlace a WhatsApp (whatsapp:// → app de escritorio/móvil; AR si falta país).
  * Con `prefillEntradasMessage` agrega el texto de envío de entradas.
  */
 export default function WhatsAppLink({
@@ -18,6 +18,7 @@ export default function WhatsAppLink({
   message,
   pdfUrl = null,
   prefillEntradasMessage = false,
+  preferWeb = false,
   children,
   label,
   className = "text-emerald-600 hover:text-emerald-800 p-1 hover:bg-emerald-100 rounded-full transition-colors ml-1 shrink-0 inline-flex items-center justify-center",
@@ -34,14 +35,19 @@ export default function WhatsAppLink({
     message: withText ? message : undefined,
     withText,
     pdfUrl: pdfUrl || undefined,
+    preferWeb,
   });
   if (!url) return null;
+
+  const isAppProtocol = String(url).startsWith("whatsapp:");
 
   return (
     <a
       href={url}
-      target="_blank"
-      rel="noopener noreferrer"
+      // whatsapp:// no debe ir a pestaña nueva: Windows abre la app de escritorio.
+      {...(isAppProtocol
+        ? {}
+        : { target: "_blank", rel: "noopener noreferrer" })}
       className={className}
       title={title}
       onClick={(e) => e.stopPropagation()}

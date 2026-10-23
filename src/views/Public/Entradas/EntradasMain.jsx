@@ -647,6 +647,8 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
   const [terceroEmailLookupBusy, setTerceroEmailLookupBusy] = useState(false);
   /** Texto opcional del equipo que se inserta en el mail de confirmación al beneficiario. */
   const [terceroMensajePersonalizado, setTerceroMensajePersonalizado] = useState("");
+  /** Emitir aunque no haya cupo (función agotada). */
+  const [terceroForzarCupo, setTerceroForzarCupo] = useState(false);
   /** Consulta del formulario público abierta vía ?ayuda= o cola en Terceros. */
   const [ayudaConsulta, setAyudaConsulta] = useState(null);
   const [ayudaColaRefresh, setAyudaColaRefresh] = useState(0);
@@ -658,6 +660,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
   const [ayudaLoteProgress, setAyudaLoteProgress] = useState("");
   const [ayudaLoteYaTienen, setAyudaLoteYaTienen] = useState([]);
   const [ayudaLoteCheckBusy, setAyudaLoteCheckBusy] = useState(false);
+  const [ayudaLoteForzarCupo, setAyudaLoteForzarCupo] = useState(false);
   const terceroFormRef = useRef(null);
   const tercerosListadoRef = useRef(null);
   /** Al abrir una consulta de ayuda, confirmar automáticamente el beneficiario hallado. */
@@ -2414,6 +2417,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
     setTerceroBeneficiarioConfirmado(false);
     setTerceroMensajePersonalizado("");
     setAdminTerceroCantidad(1);
+    setTerceroForzarCupo(false);
     ayudaAutoConfirmRef.current = false;
   };
 
@@ -2428,6 +2432,20 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
       toast.error("Confirmá que es la persona correcta antes de reservar.");
       return;
     }
+    const disponibles = computeDisponibles(concierto);
+    const sinCupo = disponibles < adminTerceroCantidad;
+    if (sinCupo && !terceroForzarCupo) {
+      toast.error(
+        `No hay cupo (quedan ${disponibles}). Marcá la excepción de cupo para emitir igual.`,
+      );
+      return;
+    }
+    if (sinCupo && terceroForzarCupo) {
+      const ok = window.confirm(
+        `Cupo insuficiente (quedan ${disponibles}, pedís ${adminTerceroCantidad}).\n\n¿Emitir igual como excepción?`,
+      );
+      if (!ok) return;
+    }
     setCreatingTerceroReserva(true);
     const desdeSolicitud = Boolean(ayudaConsulta?.id && ayudaConsulta.estado === "pendiente");
     try {
@@ -2436,6 +2454,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
         cantidad: adminTerceroCantidad,
         emailBeneficiario: terceroEmail || null,
         beneficiarioReferencia: terceroReferencia || null,
+        forzarCupo: sinCupo && terceroForzarCupo,
       });
       const reservaQr = await tokenToQrDataUrl(result.qr_reserva_token);
       const entriesQr = await Promise.all((result.qr_entrada_tokens || []).map((token) => tokenToQrDataUrl(token)));
@@ -2467,7 +2486,8 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
             : terceroEmail
               ? " Mail enviado al emisor y al beneficiario."
               : " Mail de confirmación enviado.";
-        toast.success(`Entrada de tercero confirmada.${extra}`);
+        const excepcion = result.cupo_excepcional ? " (excepción de cupo)." : "";
+        toast.success(`Entrada de tercero confirmada.${extra}${excepcion}`);
       } catch {
         toast.message("Reserva creada. El mail no pudo enviarse automáticamente.");
       }
@@ -2515,6 +2535,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
     setAyudaLoteMensaje("");
     setAyudaLoteProgress("");
     setAyudaLoteYaTienen([]);
+    setAyudaLoteForzarCupo(false);
   }, [conciertosTercerosSelect]);
 
   const closeAyudaLote = () => {
@@ -2523,6 +2544,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
     setAyudaLoteMensaje("");
     setAyudaLoteProgress("");
     setAyudaLoteYaTienen([]);
+    setAyudaLoteForzarCupo(false);
   };
 
   const ayudaLoteConcierto = useMemo(() => {
@@ -2589,10 +2611,17 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
     if (!concierto?.id) throw new Error("Elegí un concierto.");
 
     const disponibles = computeDisponibles(concierto);
-    if (disponibles < ayudaLoteTotalEntradas) {
+    const sinCupoLote = disponibles < ayudaLoteTotalEntradas;
+    if (sinCupoLote && !ayudaLoteForzarCupo) {
       throw new Error(
-        `No hay cupo suficiente: el lote pide ${ayudaLoteTotalEntradas} entradas y quedan ${disponibles}.`,
+        `No hay cupo suficiente: el lote pide ${ayudaLoteTotalEntradas} y quedan ${disponibles}. Marcá la excepción de cupo para continuar.`,
       );
+    }
+    if (sinCupoLote && ayudaLoteForzarCupo) {
+      const ok = window.confirm(
+        `Cupo insuficiente (quedan ${disponibles}, el lote pide ${ayudaLoteTotalEntradas}).\n\n¿Emitir todas igual como excepción?`,
+      );
+      if (!ok) throw new Error("Cancelado.");
     }
 
     setAyudaLoteBusy(true);
@@ -2618,6 +2647,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
             cantidad,
             emailBeneficiario: email || null,
             beneficiarioReferencia: refParts.join(" — ") || null,
+            forzarCupo: sinCupoLote && ayudaLoteForzarCupo,
           });
           const reservaQr = await tokenToQrDataUrl(result.qr_reserva_token);
           const entriesQr = await Promise.all(
@@ -4454,7 +4484,10 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
                 id="admin-tercero-concierto"
                 className={`w-full max-w-xl ${ui.select}`}
                 value={adminTerceroConciertoId}
-                onChange={(e) => setAdminTerceroConciertoId(e.target.value)}
+                onChange={(e) => {
+                  setAdminTerceroConciertoId(e.target.value);
+                  setTerceroForzarCupo(false);
+                }}
               >
                 {conciertosTercerosSelect.map((c) => (
                   <option key={c.id} value={String(c.id)}>
@@ -4525,7 +4558,10 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
                   <select
                     className={`w-full max-w-xs ${ui.select}`}
                     value={adminTerceroCantidad}
-                    onChange={(e) => setAdminTerceroCantidad(Number(e.target.value))}
+                    onChange={(e) => {
+                      setAdminTerceroCantidad(Number(e.target.value));
+                      setTerceroForzarCupo(false);
+                    }}
                   >
                     {[1, 2, 3, 4].map((n) => (
                       <option key={n} value={n}>
@@ -4550,12 +4586,31 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
                     Si lo completás, aparece arriba del mail de confirmación con las entradas.
                   </p>
                 </div>
+                {adminTerceroConciertoSelected
+                  && computeDisponibles(adminTerceroConciertoSelected) < adminTerceroCantidad ? (
+                  <label className="flex items-start gap-2 text-sm cursor-pointer max-w-xl rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5 text-amber-950">
+                    <input
+                      type="checkbox"
+                      checked={terceroForzarCupo}
+                      onChange={(e) => setTerceroForzarCupo(e.target.checked)}
+                      className="mt-0.5"
+                    />
+                    <span>
+                      <strong>Excepción de cupo:</strong> emitir igual aunque no haya disponibles
+                      {" "}(quedan {computeDisponibles(adminTerceroConciertoSelected)}).
+                      La reserva quedará marcada como excepcional.
+                    </span>
+                  </label>
+                ) : null}
                 <button
                   type="button"
                   onClick={handleCreateReservaTercero}
                   disabled={
                     creatingTerceroReserva
-                    || computeDisponibles(adminTerceroConciertoSelected) < adminTerceroCantidad
+                    || (
+                      computeDisponibles(adminTerceroConciertoSelected) < adminTerceroCantidad
+                      && !terceroForzarCupo
+                    )
                     || (terceroBeneficiarioLookup?.encontrado && !terceroBeneficiarioConfirmado)
                   }
                   className={`${ui.btnPrimary} w-full sm:w-auto`}
@@ -6817,7 +6872,11 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
         confirmDisabled={
           !ayudaLoteConcierto
           || !conciertosTercerosSelect.length
-          || (ayudaLoteConcierto && computeDisponibles(ayudaLoteConcierto) < ayudaLoteTotalEntradas)
+          || (
+            ayudaLoteConcierto
+            && computeDisponibles(ayudaLoteConcierto) < ayudaLoteTotalEntradas
+            && !ayudaLoteForzarCupo
+          )
         }
         loadingText={ayudaLoteProgress || "Reservando…"}
         confirmClassName="px-4 py-2.5 sm:py-2 text-sm font-bold text-white bg-sky-600 hover:bg-sky-700 rounded-lg shadow-md"
@@ -6834,7 +6893,10 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
                 className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-medium text-slate-800"
                 value={ayudaLoteConciertoId}
                 disabled={ayudaLoteBusy}
-                onChange={(e) => setAyudaLoteConciertoId(e.target.value)}
+                onChange={(e) => {
+                  setAyudaLoteConciertoId(e.target.value);
+                  setAyudaLoteForzarCupo(false);
+                }}
               >
                 {conciertosTercerosSelect.map((c) => (
                   <option key={c.id} value={String(c.id)}>
@@ -6848,6 +6910,22 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
                 </p>
               ) : null}
             </div>
+            {ayudaLoteConcierto
+              && computeDisponibles(ayudaLoteConcierto) < ayudaLoteTotalEntradas ? (
+              <label className="flex items-start gap-2 text-sm cursor-pointer rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5 text-amber-950">
+                <input
+                  type="checkbox"
+                  checked={ayudaLoteForzarCupo}
+                  disabled={ayudaLoteBusy}
+                  onChange={(e) => setAyudaLoteForzarCupo(e.target.checked)}
+                  className="mt-0.5"
+                />
+                <span>
+                  <strong>Excepción de cupo:</strong> emitir el lote igual aunque no haya disponibles.
+                  Cada reserva quedará marcada como excepcional.
+                </span>
+              </label>
+            ) : null}
             <div className="space-y-1.5">
               <label htmlFor="ayuda-lote-mensaje" className="text-xs font-bold uppercase tracking-wide text-slate-500">
                 Mensaje personalizado (igual para todos)

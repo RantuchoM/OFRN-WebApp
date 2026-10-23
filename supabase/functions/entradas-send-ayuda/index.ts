@@ -124,7 +124,8 @@ function buildWhatsAppUrl(
   const digits = normalizePhoneForWhatsApp(phone);
   if (!digits) return null;
   const text = buildEntradasWhatsAppText({ nombre, ...detalle });
-  return `https://wa.me/${digits}?text=${encodeURIComponent(text)}`;
+  // whatsapp:// prioriza la app de escritorio en Windows; wa.me suele abrir Web.
+  return `whatsapp://send?phone=${digits}&text=${encodeURIComponent(text)}`;
 }
 
 async function detalleWhatsAppDeConcierto(

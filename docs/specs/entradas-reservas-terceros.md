@@ -14,6 +14,7 @@
 | `reservada_por` | UUID del creador (admin, boletos o boletos+recepc). `NULL` = reserva personal. |
 | `email_beneficiario` | Mail pendiente de vinculación (lowercase). |
 | `beneficiario_referencia` | Nota libre del emisor. |
+| `cupo_excepcional` | `true` si se emitió forzando cupo (función agotada / sin plazas). |
 
 ## Roles (`entrada_rol`)
 
@@ -33,6 +34,7 @@
 
 - [x] Reserva personal: máx. 1 activa por `(usuario_id, concierto)` si `reservada_por IS NULL`.
 - [x] Admin / boletos / boletos_recep pueden crear **varias** reservas a terceros para el mismo concierto.
+- [x] **Excepción de cupo:** emitir tercero (formulario o lote de ayuda) aunque la función esté agotada, con checkbox + confirmación. RPC `entrada_admin_crear_reserva_tercero(..., p_forzar_cupo)`; marca `cupo_excepcional` en la reserva. Migración `20261023120000_entrada_tercero_forzar_cupo.sql`.
 - [x] Sin mail: titular temporal = el emisor (`usuario_id = auth.uid()`).
 - [x] Con mail existente en `entrada_usuario`: vinculación inmediata tras confirmación UI (Apellido, Nombre).
 - [x] Con mail inexistente: pendiente hasta login; `entrada_vincular_reservas_pendientes()` en `entrada_ensure_profile`.
@@ -54,6 +56,7 @@ Migraciones:
 - `supabase/migrations/20260619120000_entradas_reservas_terceros.sql`
 - `supabase/migrations/20260819150000_entradas_roles_boletos.sql` (enum `boletos` / `boletos_recep`)
 - `supabase/migrations/20260819150100_entradas_roles_boletos_rpcs.sql` (RPCs, RLS; transacción aparte por SQLSTATE 55P04)
+- `supabase/migrations/20261023120000_entrada_tercero_forzar_cupo.sql` (`cupo_excepcional` + `p_forzar_cupo`)
 
 ## UI
 
@@ -77,7 +80,7 @@ Migraciones:
 - [x] Cola + deep link + detección de ya resuelta.
 - [x] Acuse al consultante + Abrir (scroll / auto-confirm) + mensaje personalizado en mail.
 - [x] Aceptar varias a la vez + aviso de reservas existentes.
-- [x] Botón WhatsApp (wa.me, AR por defecto) en cola, banner, listado y mail de consulta. Mensaje: saludo, día, hora, lugar, cantidad y, si ya hay reserva, link al PDF.
+- [x] Botón WhatsApp (`whatsapp://`, AR por defecto) en cola, banner, listado y mail de consulta. Mensaje: saludo, día, hora, lugar, cantidad, link al PDF si hay reserva, y PD de que no se responden consultas por ese medio.
 - [x] Link público PDF en WhatsApp: `/entradas/pdf?t=` identifica la reserva (`pdf_share_token`). `entrada_pdf_share_payload` lee concierto, evento (`eventos.id_locacion`), programa y plazas con la misma forma que Mis entradas. La página llama a `descargarPdfDesdeReservaRow` (el mismo generador). Sin sesión.
 
 ## Edge

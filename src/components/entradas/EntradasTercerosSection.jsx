@@ -158,6 +158,7 @@ function TerceroReservaCard({
       {estado.detail && <p className={`text-xs ${ui.textSoft}`}>{estado.detail}</p>}
       <p className={`text-xs ${ui.textSoft}`}>
         Entradas: {reserva.cantidad_solicitada} · Ingresadas: {ingresadas}
+        {reserva.cupo_excepcional ? " · Excepción de cupo" : ""}
       </p>
 
       {editReferencia ? (

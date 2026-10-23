@@ -1,13 +1,20 @@
 /**
- * Teléfono → wa.me (Argentina por defecto si no hay código de país).
- * Formato API: https://wa.me/<digits>?text=<urlencoded>
+ * Teléfono → enlace WhatsApp (Argentina por defecto si no hay código de país).
+ * Por defecto usa whatsapp:// (app de escritorio / móvil).
+ * Con preferWeb: https://wa.me/… (útil en mails HTML donde el protocolo a veces no abre).
  */
 
-export const ENTRADAS_WHATSAPP_MENSAJE_ENTRADAS =
+export const ENTRADAS_WHATSAPP_MENSAJE_PD =
+  "PD: no respondemos consultas por este medio, este mensaje solo tiene el fin de acercarte la entrada de forma más fácil";
+
+const ENTRADAS_WHATSAPP_MENSAJE_BASE =
   "Hola {nombre}, te enviamos las entradas para la Filarmónica que solicitaste. ¡Que disfrutes!\n\nDía: {dia}\nHora: {hora}\nLugar: {lugar}\nCantidad de entradas: {cantidad}";
 
+export const ENTRADAS_WHATSAPP_MENSAJE_ENTRADAS =
+  `${ENTRADAS_WHATSAPP_MENSAJE_BASE}\n\n${ENTRADAS_WHATSAPP_MENSAJE_PD}`;
+
 export const ENTRADAS_WHATSAPP_MENSAJE_ENTRADAS_CON_PDF =
-  `${ENTRADAS_WHATSAPP_MENSAJE_ENTRADAS}\n\nDescargá el PDF acá (no hace falta iniciar sesión):\n{pdfUrl}`;
+  `${ENTRADAS_WHATSAPP_MENSAJE_BASE}\n\nDescargá el PDF acá (no hace falta iniciar sesión):\n{pdfUrl}\n\n${ENTRADAS_WHATSAPP_MENSAJE_PD}`;
 
 const ENTRADAS_WHATSAPP_TZ = "America/Argentina/Buenos_Aires";
 
@@ -60,6 +67,7 @@ export function buildMensajeWhatsAppEntradas({ nombre, dia, hora, lugar, cantida
   if (url) {
     lines.push("", "Descargá el PDF acá (no hace falta iniciar sesión):", url);
   }
+  lines.push("", ENTRADAS_WHATSAPP_MENSAJE_PD);
   return lines.join("\n");
 }
 
@@ -121,7 +129,9 @@ export function fillEntradasWhatsAppMensaje(template, vars = {}) {
     .replace(/\{cantidad\}/g, vars.cantidad == null ? "" : String(vars.cantidad).trim())
     .replace(/\{pdfUrl\}/g, vars.pdfUrl ? String(vars.pdfUrl) : "");
   if (!vars.pdfUrl) {
-    out = out.replace(/\n*Descargá el PDF[\s\S]*$/i, "").replace(/\{pdfUrl\}/g, "");
+    out = out
+      .replace(/\n*Descargá el PDF[\s\S]*?(?=\n\nPD:|$)/i, "")
+      .replace(/\{pdfUrl\}/g, "");
   }
   out = out
     .split("\n")
@@ -129,12 +139,15 @@ export function fillEntradasWhatsAppMensaje(template, vars = {}) {
     .join("\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+  if (out && !out.includes(ENTRADAS_WHATSAPP_MENSAJE_PD)) {
+    out = `${out}\n\n${ENTRADAS_WHATSAPP_MENSAJE_PD}`;
+  }
   return out || built;
 }
 
 /**
  * @param {string} phone
- * @param {{ nombre?: string, dia?: string, hora?: string, lugar?: string, cantidad?: string|number|null, message?: string, withText?: boolean, pdfUrl?: string }} [opts]
+ * @param {{ nombre?: string, dia?: string, hora?: string, lugar?: string, cantidad?: string|number|null, message?: string, withText?: boolean, pdfUrl?: string, preferWeb?: boolean }} [opts]
  * @returns {string|null}
  */
 export function buildEntradasWhatsAppUrl(phone, {
@@ -146,14 +159,25 @@ export function buildEntradasWhatsAppUrl(phone, {
   message,
   withText = false,
   pdfUrl,
+  preferWeb = false,
 } = {}) {
   const digits = normalizePhoneForWhatsApp(phone);
   if (!digits) return null;
-  if (!withText && message == null) {
-    return `https://wa.me/${digits}`;
+  const text = (() => {
+    if (!withText && message == null) return "";
+    return message != null && message !== ""
+      ? fillEntradasWhatsAppMensaje(message, { nombre, dia, hora, lugar, cantidad, pdfUrl })
+      : buildMensajeWhatsAppEntradas({ nombre, dia, hora, lugar, cantidad, pdfUrl });
+  })();
+  const q = text ? `?text=${encodeURIComponent(text)}` : "";
+  // whatsapp:// abre la app de Windows/macOS/móvil si está instalada.
+  // wa.me es HTTPS y en PC suele caer en WhatsApp Web.
+  if (preferWeb) {
+    return text
+      ? `https://wa.me/${digits}?text=${encodeURIComponent(text)}`
+      : `https://wa.me/${digits}`;
   }
-  const text = message != null && message !== ""
-    ? fillEntradasWhatsAppMensaje(message, { nombre, dia, hora, lugar, cantidad, pdfUrl })
-    : buildMensajeWhatsAppEntradas({ nombre, dia, hora, lugar, cantidad, pdfUrl });
-  return `https://wa.me/${digits}?text=${encodeURIComponent(text)}`;
+  return text
+    ? `whatsapp://send?phone=${digits}&text=${encodeURIComponent(text)}`
+    : `whatsapp://send?phone=${digits}${q}`;
 }

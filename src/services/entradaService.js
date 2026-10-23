@@ -667,12 +667,19 @@ export async function buscarBeneficiarioPorEmail(email) {
   return data;
 }
 
-export async function crearReservaTercero({ conciertoId, cantidad, emailBeneficiario, beneficiarioReferencia }) {
+export async function crearReservaTercero({
+  conciertoId,
+  cantidad,
+  emailBeneficiario,
+  beneficiarioReferencia,
+  forzarCupo = false,
+}) {
   const { data, error } = await supabaseEntradasPublic.rpc("entrada_admin_crear_reserva_tercero", {
     p_concierto_id: conciertoId,
     p_cantidad: cantidad,
     p_email_beneficiario: emailBeneficiario ? String(emailBeneficiario).trim() : null,
     p_beneficiario_referencia: beneficiarioReferencia ? String(beneficiarioReferencia).trim() : null,
+    p_forzar_cupo: Boolean(forzarCupo),
   });
   if (error) throw error;
   const payload = Array.isArray(data) ? data[0] : data;
@@ -707,7 +714,7 @@ const RESERVA_CONCIERTO_EMBED = `id, nombre, slug_publico, detalle_richtext, act
     entrada_programa(id, nombre, detalle_richtext), ${ENTRADA_CONCIERTO_EVENTO_EMBED}`;
 
 const RESERVA_TERCEROS_SELECT = `id, codigo_reserva, cantidad_solicitada, estado, created_at, qr_reserva_token,
-  reservada_por, email_beneficiario, beneficiario_referencia, usuario_id,
+  reservada_por, email_beneficiario, beneficiario_referencia, cupo_excepcional, usuario_id,
   concierto:entrada_concierto(${RESERVA_CONCIERTO_EMBED}),
   entradas:entrada_reserva_entrada(id, orden, estado_ingreso, ingresada_at, qr_entrada_token),
   titular:entrada_usuario!entrada_reserva_usuario_id_fkey(id, nombre, apellido, email)`;
