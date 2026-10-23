@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import ConfirmModal from "../../../components/ui/ConfirmModal";
+import EntradasAyudaWhatsAppBtn from "../../../components/entradas/EntradasAyudaWhatsAppBtn";
 import EntradasConciertoDatetimeField from "../../../components/entradas/EntradasConciertoDatetimeField";
 import EntradasReservasHabilitadasToggle from "../../../components/entradas/EntradasReservasHabilitadasToggle";
 import EntradasFormCollapsibleSection from "../../../components/entradas/EntradasFormCollapsibleSection";
@@ -4368,9 +4369,19 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
                   ? ` · ${new Date(ayudaConsulta.resolved_at).toLocaleString("es-AR")}`
                   : ""}
               </p>
-              <p className={ui.textMuted}>
-                No hace falta volver a reservar. Podés responder el mail si querés avisar a la persona.
-              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <p className={ui.textMuted}>
+                  No hace falta volver a reservar. Podés avisar por mail o WhatsApp.
+                </p>
+                {ayudaConsulta.telefono ? (
+                  <EntradasAyudaWhatsAppBtn
+                    telefono={ayudaConsulta.telefono}
+                    nombre={ayudaConsulta.nombre}
+                    reservaId={ayudaConsulta.reserva_id}
+                    isDark={isDark}
+                  />
+                ) : null}
+              </div>
             </>
           ) : ayudaConsulta.estado === "descartada" ? (
             <>
@@ -4382,9 +4393,19 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
           ) : (
             <>
               <p className="font-bold text-base">Consulta de ayuda abierta</p>
-              <p>
-                {ayudaConsulta.nombre} · {ayudaConsulta.email}
-                {ayudaConsulta.telefono ? ` · tel ${ayudaConsulta.telefono}` : ""}
+              <p className="flex flex-wrap items-center gap-2">
+                <span>
+                  {ayudaConsulta.nombre} · {ayudaConsulta.email}
+                  {ayudaConsulta.telefono ? ` · ${ayudaConsulta.telefono}` : ""}
+                </span>
+                {ayudaConsulta.telefono ? (
+                  <EntradasAyudaWhatsAppBtn
+                    telefono={ayudaConsulta.telefono}
+                    nombre={ayudaConsulta.nombre}
+                    reservaId={ayudaConsulta.reserva_id}
+                    isDark={isDark}
+                  />
+                ) : null}
               </p>
               <p className={ui.textMuted}>
                 Formulario precargado abajo. Al reservar se marca como resuelta automáticamente.

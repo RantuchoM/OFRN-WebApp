@@ -45,6 +45,31 @@ function escHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
+/** AR por defecto si no hay código de país → dígitos para wa.me */
+function normalizePhoneForWhatsApp(phone: unknown): string {
+  let clean = String(phone || "").replace(/\D/g, "");
+  if (!clean) return "";
+  if (clean.startsWith("00")) clean = clean.slice(2);
+  if (clean.startsWith("54")) {
+    if (!clean.startsWith("549") && clean.length >= 12) {
+      clean = `549${clean.slice(2)}`;
+    }
+    return clean.length >= 12 ? clean : "";
+  }
+  if (clean.startsWith("0")) clean = clean.slice(1);
+  if (clean.length === 10) return `549${clean}`;
+  if (clean.length >= 8 && clean.length <= 11) return `549${clean}`;
+  return clean.length >= 12 ? clean : "";
+}
+
+function buildWhatsAppUrl(phone: unknown, nombre: string): string | null {
+  const digits = normalizePhoneForWhatsApp(phone);
+  if (!digits) return null;
+  const name = String(nombre || "").trim() || "hola";
+  const text = `Hola ${name}, te enviamos las entradas que solicitaste. ¡Que disfrutes!`;
+  return `https://wa.me/${digits}?text=${encodeURIComponent(text)}`;
+}
+
 function pruneCooldown(now: number) {
   for (const [key, at] of recentByKey) {
     if (now - at > COOLDOWN_MS * 2) recentByKey.delete(key);
@@ -354,7 +379,11 @@ serve(async (req) => {
     }
 
     const nombre = String(body?.nombre || "").trim();
-    const telefono = String(body?.telefono || "").trim();
+    const telefonoRaw = String(body?.telefono || "").trim();
+    const telefono =
+      normalizePhoneForWhatsApp(telefonoRaw)
+      || telefonoRaw.replace(/\D/g, "")
+      || "";
     const cantidadRaw = String(body?.cantidad || "").trim();
     const funcion = String(body?.funcion || "").trim();
     const comentarios = String(body?.comentarios || "").trim();
@@ -409,6 +438,7 @@ serve(async (req) => {
 
     const staffUrl =
       `${PUBLIC_BASE}/entradas?view=entradas-terceros&ayuda=${encodeURIComponent(consultaId)}`;
+    const waUrl = buildWhatsAppUrl(telefono, nombre);
 
     const subject = `Consulta sobre entradas — ${nombre}`;
     const cantidadTxt = cantidad != null ? String(cantidad) : "—";
@@ -416,6 +446,7 @@ serve(async (req) => {
       "Consulta desde el formulario de ayuda de Entradas OFRN.",
       "",
       `Abrir en Entradas (Terceros): ${staffUrl}`,
+      waUrl ? `WhatsApp: ${waUrl}` : "",
       "",
       `Nombre completo: ${nombre}`,
       `Mail: ${email}`,
@@ -427,22 +458,33 @@ serve(async (req) => {
       "",
       `ID consulta: ${consultaId}`,
       `IP: ${ip}`,
-    ];
+    ].filter((line, i, arr) => !(line === "" && arr[i - 1] === ""));
+    const waBtnHtml = waUrl
+      ? `<p style="margin: 12px 0 18px 0;">
+    <a href="${escHtml(waUrl)}"
+       style="display:inline-block;background:#25D366;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:8px;font-weight:700;font-size:14px;">
+      WhatsApp
+    </a>
+  </p>`
+      : "";
     const html = `<!DOCTYPE html>
 <html><head><meta charset="utf-8" /></head>
 <body style="font-family: Helvetica, Arial, sans-serif; color: #334155; line-height: 1.5;">
   <p>Consulta desde el formulario de ayuda de <strong>Entradas OFRN</strong>.</p>
-  <p style="margin: 18px 0;">
+  <p style="margin: 18px 0 8px 0;">
     <a href="${escHtml(staffUrl)}"
        style="display:inline-block;background:#1ebbf0;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:8px;font-weight:700;font-size:14px;">
       Reservar en Entradas
     </a>
   </p>
+  ${waBtnHtml}
   <p style="font-size:12px;color:#64748b;">Si ya fue resuelta, al abrir el enlace lo vas a ver marcado.</p>
   <table style="border-collapse:collapse;width:100%;max-width:520px;">
     <tr><td style="padding:6px 0;font-weight:700;">Nombre completo</td><td style="padding:6px 0;">${escHtml(nombre)}</td></tr>
     <tr><td style="padding:6px 0;font-weight:700;">Mail</td><td style="padding:6px 0;"><a href="mailto:${escHtml(email)}">${escHtml(email)}</a></td></tr>
-    <tr><td style="padding:6px 0;font-weight:700;">Teléfono</td><td style="padding:6px 0;">${escHtml(telefono || "—")}</td></tr>
+    <tr><td style="padding:6px 0;font-weight:700;">Teléfono</td><td style="padding:6px 0;">${escHtml(telefono || "—")}${
+      waUrl ? ` · <a href="${escHtml(waUrl)}">WhatsApp</a>` : ""
+    }</td></tr>
     <tr><td style="padding:6px 0;font-weight:700;">Cantidad de entradas</td><td style="padding:6px 0;">${escHtml(cantidadTxt)}</td></tr>
     <tr><td style="padding:6px 0;font-weight:700;">Función</td><td style="padding:6px 0;">${escHtml(funcion || "—")}</td></tr>
     <tr><td style="padding:6px 0;font-weight:700;vertical-align:top;">Otros comentarios</td><td style="padding:6px 0;white-space:pre-wrap;">${escHtml(comentarios || "—")}</td></tr>

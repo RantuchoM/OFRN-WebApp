@@ -14,6 +14,7 @@ import {
   isValidEntradasAyudaEmail,
   listEntradasConciertosAbiertosPublicos,
 } from "../../utils/entradasConciertosAbiertosPublicos";
+import { normalizePhoneForWhatsApp } from "../../utils/entradasWhatsApp";
 
 const emptyForm = {
   nombre: "",
@@ -186,6 +187,7 @@ export default function EntradasAyudaFlotante({
   };
 
   const onTelefonoChange = (event) => {
+    // Permite + y espacios al tipear; guardamos solo dígitos (máx. razonable).
     const digits = event.target.value.replace(/\D/g, "").slice(0, 15);
     setForm((prev) => ({ ...prev, telefono: digits }));
   };
@@ -261,10 +263,13 @@ export default function EntradasAyudaFlotante({
     setSending(true);
     try {
       const skipEntradas = hasReservasAbiertas;
+      const telNorm =
+        normalizePhoneForWhatsApp(form.telefono)
+        || String(form.telefono || "").replace(/\D/g, "");
       await sendEntradasAyudaConsulta({
         nombre: form.nombre,
         email: form.email,
-        telefono: form.telefono,
+        telefono: telNorm,
         cantidad: skipEntradas ? "" : form.cantidad,
         funcion: skipEntradas ? "" : form.funcion || selectedFuncion?.label || "",
         conciertoId: skipEntradas ? null : form.funcionId || selectedFuncion?.id || null,
@@ -542,7 +547,7 @@ export default function EntradasAyudaFlotante({
                       )}
 
                       <label className={`${ui.label} text-sm`} htmlFor="ayuda-telefono">
-                        Teléfono{" "}
+                        Teléfono / WhatsApp{" "}
                         <span className={`font-normal normal-case tracking-normal ${ui.textMuted}`}>
                           (opcional)
                         </span>
@@ -551,13 +556,15 @@ export default function EntradasAyudaFlotante({
                         id="ayuda-telefono"
                         type="tel"
                         autoComplete="tel"
-                        inputMode="numeric"
-                        pattern="[0-9]*"
+                        inputMode="tel"
                         value={form.telefono}
                         onChange={onTelefonoChange}
                         className={inputClass}
-                        placeholder="Solo números"
+                        placeholder="Ej. 2994123456 o 5492994123456"
                       />
+                      <p className={`text-xs ${ui.textMuted}`}>
+                        Sin código de país asumimos Argentina (+54). Sirve para contactarte por WhatsApp.
+                      </p>
 
                       {!hasReservasAbiertas && (
                         <>

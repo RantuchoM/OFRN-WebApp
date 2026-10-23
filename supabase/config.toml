@@ -74,6 +74,13 @@ import_map = "./functions/entradas-send-ayuda/deno.json"
 entrypoint = "./functions/entradas-send-ayuda/index.ts"
 # Formulario público de ayuda (Reply-To = mail del consultante). Secrets GMAIL_* / ENTRADAS_GMAIL_*.
 
+[functions.entradas-pdf-share]
+enabled = true
+verify_jwt = false
+import_map = "./functions/entradas-pdf-share/deno.json"
+entrypoint = "./functions/entradas-pdf-share/index.ts"
+# Descarga pública del PDF por pdf_share_token (?t=). Sin JWT.
+
 [functions.db-backup-cron]
 enabled = true
 verify_jwt = false
