@@ -658,6 +658,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
   const [ayudaLoteYaTienen, setAyudaLoteYaTienen] = useState([]);
   const [ayudaLoteCheckBusy, setAyudaLoteCheckBusy] = useState(false);
   const terceroFormRef = useRef(null);
+  const tercerosListadoRef = useRef(null);
   /** Al abrir una consulta de ayuda, confirmar automáticamente el beneficiario hallado. */
   const ayudaAutoConfirmRef = useRef(false);
   const [recepcionConciertoId, setRecepcionConciertoId] = useState("");
@@ -2427,6 +2428,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
       return;
     }
     setCreatingTerceroReserva(true);
+    const desdeSolicitud = Boolean(ayudaConsulta?.id && ayudaConsulta.estado === "pendiente");
     try {
       const result = await crearReservaTercero({
         conciertoId: concierto.id,
@@ -2480,6 +2482,11 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
       }
       resetAdminTerceroForm();
       await loadBase({ quiet: true });
+      if (desdeSolicitud) {
+        window.setTimeout(() => {
+          tercerosListadoRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }, 80);
+      }
     } catch (error) {
       toast.error(error?.message || "No se pudo crear la reserva.");
     } finally {
@@ -2653,7 +2660,12 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
         setAyudaConsulta(null);
       }
       await loadBase({ quiet: true });
-      if (ok) toast.success(`${ok} reserva${ok === 1 ? "" : "s"} creada${ok === 1 ? "" : "s"}.`);
+      if (ok) {
+        toast.success(`${ok} reserva${ok === 1 ? "" : "s"} creada${ok === 1 ? "" : "s"}.`);
+        window.setTimeout(() => {
+          tercerosListadoRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }, 80);
+      }
       if (fallos.length) {
         toast.error(`${fallos.length} fallaron. ${fallos.slice(0, 3).join(" · ")}`);
       }
@@ -4524,10 +4536,10 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
         )}
       </div>
 
-      <div className="space-y-3">
+      <div ref={tercerosListadoRef} className="space-y-3">
         <h3 className={ui.sectionTitle}>Entradas de terceros activas</h3>
         <p className={`text-sm ${ui.textMuted}`}>
-          Próximos conciertos. Podés cambiar la cantidad, descargar el PDF, asociar un mail o cancelar.
+          Próximos conciertos. Podés cambiar la cantidad, descargar el PDF, enviarlo por WhatsApp, asociar un mail o cancelar.
         </p>
         <EntradasTercerosSection
           entradasTerceros={entradasTerceros}

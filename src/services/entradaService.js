@@ -958,7 +958,41 @@ export async function listarEntradasTercerosAdmin() {
     .eq("estado", "activa")
     .order("id", { ascending: false });
   if (error) throw error;
-  return (data || []).map(mapReservaConConcierto);
+  return attachAyudaContactoTerceros((data || []).map(mapReservaConConcierto));
+}
+
+/** Teléfono y nombre de la consulta de ayuda que originó cada reserva (para WhatsApp). */
+async function attachAyudaContactoTerceros(rows) {
+  const ids = rows.map((row) => row.id).filter((id) => id != null);
+  if (!ids.length) return rows;
+  const { data: ayudas, error } = await supabaseEntradasPublic
+    .from("entrada_ayuda_consulta")
+    .select("reserva_id, telefono, nombre")
+    .in("reserva_id", ids);
+  if (error) {
+    console.error(error);
+    return rows;
+  }
+  const byReserva = new Map();
+  for (const ayuda of ayudas || []) {
+    if (ayuda?.reserva_id == null) continue;
+    const key = String(ayuda.reserva_id);
+    const prev = byReserva.get(key);
+    const tel = String(ayuda.telefono || "").trim();
+    if (!prev || (tel && !String(prev.telefono || "").trim())) {
+      byReserva.set(key, ayuda);
+    }
+  }
+  if (!byReserva.size) return rows;
+  return rows.map((row) => {
+    const ayuda = byReserva.get(String(row.id));
+    if (!ayuda) return row;
+    return {
+      ...row,
+      ayuda_telefono: String(ayuda.telefono || "").trim() || null,
+      ayuda_nombre: String(ayuda.nombre || "").trim() || null,
+    };
+  });
 }
 
 export async function previewEntradaQr(token, conciertoId = null) {

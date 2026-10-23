@@ -13,6 +13,11 @@ import {
   isReservaActivaFutura,
   splitMisReservas,
 } from "../../utils/entradasMisReservas";
+import WhatsAppLink from "../ui/WhatsAppLink";
+import {
+  buildMensajeWhatsAppEntradaTercero,
+  telefonoParaWhatsAppEntradaTercero,
+} from "../../utils/entradasTerceroWhatsApp";
 import EntradasCambiarCantidadControls from "./EntradasCambiarCantidadControls";
 import EntradasVerQrButton from "./EntradasVerQrButton";
 import MisReservasQrModal from "./MisReservasQrModal";
@@ -86,6 +91,8 @@ function TerceroReservaCard({
     !editEmail ||
     !emailLookup?.encontrado ||
     emailConfirmado;
+  const telefonoWhatsApp = telefonoParaWhatsAppEntradaTercero(reserva);
+  const mensajeWhatsApp = telefonoWhatsApp ? buildMensajeWhatsAppEntradaTercero(reserva) : "";
 
   const guardarEmail = async () => {
     const email = String(emailDraft || "").trim();
@@ -250,6 +257,20 @@ function TerceroReservaCard({
         >
           {downloadingPdfReservaId === reserva.id ? "Generando PDF…" : "Descargar PDF"}
         </button>
+        {telefonoWhatsApp ? (
+          <WhatsAppLink
+            phone={telefonoWhatsApp}
+            message={mensajeWhatsApp}
+            label="WhatsApp"
+            iconSize={14}
+            title="Enviar la entrada ya generada por WhatsApp"
+            className="w-full sm:w-auto inline-flex items-center justify-center gap-1 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-700"
+            onClick={() => {
+              toast.message("Se abrió WhatsApp. Adjuntá el PDF que se descarga para enviar la entrada.");
+              void onDownloadPdf(reserva);
+            }}
+          />
+        ) : null}
         <button type="button" onClick={() => onCancel(reserva)} className={`w-full sm:w-auto rounded-lg px-3 py-2 text-xs font-bold ${ui.btnDanger}`}>
           Cancelar
         </button>
