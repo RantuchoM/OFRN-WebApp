@@ -324,7 +324,7 @@
   overflow: hidden;
   white-space: nowrap;
   max-width: min(22rem, calc(100vw - 6rem));
-  animation: entradas-ayuda-expand 0.7s cubic-bezier(0.22, 1, 0.36, 1) 0.45s both;
+  animation: entradas-ayuda-expand 1.8s cubic-bezier(0.22, 1, 0.36, 1) 0.7s both;
 }
 
 .entradas-ayuda-fab-label {
