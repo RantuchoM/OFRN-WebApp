@@ -13,6 +13,7 @@
 - Roles **recepcionista**, **boletos_recep** (Boletos+Recepc) o **admin** en `/entradas?view=recepcion`.
 - El rol **boletos** no accede a recepción (solo reservas a terceros).
 - Escaneo de QR (cámara, foto o código manual de 10 dígitos) contra el concierto elegido.
+- [x] Al abrir Recepción, el selector arranca en el concierto más próximo (menor distancia entre su fecha/hora y ahora, entre los de hoy en adelante). Si hay empate, queda el que todavía no empezó. Si la persona elige otro, se respeta mientras siga en la lista.
 
 ## Flujo de ingreso
 

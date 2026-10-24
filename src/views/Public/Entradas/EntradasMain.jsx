@@ -120,7 +120,10 @@ import {
   updateRecepcionIngresoQueueItem,
 } from "../../../utils/recepcionSnapshotStore";
 import { normalizeDriveImageUrlForStorage } from "../../../utils/entradasDriveImage";
-import { aplicarDatosEventoAConciertoEntrada } from "../../../utils/entradasConciertoEvento";
+import {
+  aplicarDatosEventoAConciertoEntrada,
+  pickConciertoRecepcionMasProximo,
+} from "../../../utils/entradasConciertoEvento";
 import { downloadEntradasReservaPdfBlob } from "../../../utils/entradasReservaPdf";
 import { formatEntradasConciertoFechaHora as formatConciertoFechaHoraEs } from "../../../utils/entradasReservaCopy";
 import {
@@ -1798,6 +1801,31 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
       })
       .sort(compareConciertosPorFechaHora);
   }, [concertosFlat, inicioDiaHoy]);
+
+  useEffect(() => {
+    if (section !== "recepcion" || !canRecepcion) return;
+    const selectedStillListed = conciertosRecepcion.some(
+      (c) => String(c.id) === String(recepcionConciertoId),
+    );
+    if (selectedStillListed) return;
+    const pick = pickConciertoRecepcionMasProximo(conciertosRecepcion);
+    if (!pick?.id) {
+      if (recepcionConciertoId) setRecepcionConciertoId("");
+      return;
+    }
+    setRecepcionConciertoId(String(pick.id));
+    setScannerToken("");
+    setManualReservaCode("");
+    setQrPreview(null);
+    setRecepcionStatHelp(null);
+    setRecepcionUltimoIngreso(null);
+    setRecepcionQrYaUsado(null);
+    setRecepcionIngresoNetworkError(false);
+    setRecepcionSnapshotStatus("loading");
+    setRecepcionSnapshotAt(null);
+    setRecepcionSnapshotError("");
+    setRecepcionSnapshotPlazaCount(0);
+  }, [section, canRecepcion, conciertosRecepcion, recepcionConciertoId]);
 
   useEffect(() => {
     if (section !== "recepcion") setRecepcionStatHelp(null);
