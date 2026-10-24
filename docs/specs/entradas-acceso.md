@@ -78,6 +78,13 @@ RPC `entrada_mark_password_set()` marca `entrada_usuario.password_set_at`.
 - Teléfono de ayuda → formato WhatsApp (AR +54/549 si falta país); botón **WhatsApp** en mail a staff, cola y banner de consulta. Mensaje: `Hola {nombre}, te enviamos las entradas para la Filarmónica que solicitaste. ¡Que disfrutes!` más día, hora, lugar, cantidad y, si ya hay reserva, el link al PDF (`wa.me` + `text=`).
 - Si la consulta ya tiene `reserva_id`, el WhatsApp incluye link a `/entradas/pdf?t=<pdf_share_token>`: la webapp (sin login) llama RPC `entrada_pdf_share_payload` y descarga el **mismo PDF** (`descargarPdfDesdeReservaRow` / jsPDF). La Edge `entradas-pdf-share` solo redirige a esa ruta.
 
+## Recordatorio pre-concierto (BCC + mi entrada)
+
+- Cron `entradas-cron-mails` (`*/30`): un SMTP por concierto vía **BCC** (sin QR/PDF personalizado; Gmail no aguanta 400–600 individuales).
+- Copy: aclara que **ese mail no trae QR/PDF**; CTA **Abrir mi entrada** → `/entradas/mi-entrada?concierto=<slug>`.
+- Pantalla pública: un campo mail + «Ver mi entrada» → RPC `entrada_lookup_mi_entrada_pdf` (rate limit 10/10 min por mail) → **QR en pantalla** (variante door, móvil) + descarga PDF opcional vía `entrada_pdf_share_payload`. Si el dispositivo ya tiene sesión de Entradas, usa ese mail y abre el QR sin pedir el formulario.
+- Secundario: PDF del mail de reserva / Mis entradas (login). Mail de prueba admin (`entradas-send-test-mail`) usa el mismo template (`to` opcional).
+
 ## Usuarios OFRN (`integrantes`)
 
 Quienes ya tienen mail + `clave_acceso` en `integrantes` entran a `/entradas` con **la misma clave**, sin tener que crear otra.

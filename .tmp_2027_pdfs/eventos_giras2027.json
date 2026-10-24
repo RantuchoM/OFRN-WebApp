@@ -1,0 +1,281 @@
+[
+  {
+    "descripcion": "Concierto Principal",
+    "fecha": "2027-02-19",
+    "hora_fin": "21:30:00",
+    "hora_inicio": "20:00:00",
+    "id_gira": 201,
+    "id_tipo_evento": 1,
+    "tipo_evento": "Concierto"
+  },
+  {
+    "descripcion": "Concierto Principal",
+    "fecha": "2027-02-20",
+    "hora_fin": "21:30:00",
+    "hora_inicio": "20:00:00",
+    "id_gira": 201,
+    "id_tipo_evento": 1,
+    "tipo_evento": "Concierto"
+  },
+  {
+    "descripcion": "Concierto Principal",
+    "fecha": "2027-03-05",
+    "hora_fin": "21:30:00",
+    "hora_inicio": "20:00:00",
+    "id_gira": 202,
+    "id_tipo_evento": 1,
+    "tipo_evento": "Concierto"
+  },
+  {
+    "descripcion": "Concierto Principal",
+    "fecha": "2027-03-07",
+    "hora_fin": "21:30:00",
+    "hora_inicio": "20:00:00",
+    "id_gira": 202,
+    "id_tipo_evento": 1,
+    "tipo_evento": "Concierto"
+  },
+  {
+    "descripcion": "Concierto Principal",
+    "fecha": "2027-04-09",
+    "hora_fin": "21:30:00",
+    "hora_inicio": "20:00:00",
+    "id_gira": 203,
+    "id_tipo_evento": 1,
+    "tipo_evento": "Concierto"
+  },
+  {
+    "descripcion": "Concierto Principal",
+    "fecha": "2027-04-10",
+    "hora_fin": "13:30:00",
+    "hora_inicio": "12:00:00",
+    "id_gira": 203,
+    "id_tipo_evento": 1,
+    "tipo_evento": "Concierto"
+  },
+  {
+    "descripcion": "Concierto Principal",
+    "fecha": "2027-04-23",
+    "hora_fin": "21:30:00",
+    "hora_inicio": "20:00:00",
+    "id_gira": 204,
+    "id_tipo_evento": 1,
+    "tipo_evento": "Concierto"
+  },
+  {
+    "descripcion": "Concierto Principal",
+    "fecha": "2027-04-24",
+    "hora_fin": "13:30:00",
+    "hora_inicio": "12:00:00",
+    "id_gira": 204,
+    "id_tipo_evento": 1,
+    "tipo_evento": "Concierto"
+  },
+  {
+    "descripcion": "Concierto Principal",
+    "fecha": "2027-05-07",
+    "hora_fin": "21:30:00",
+    "hora_inicio": "20:00:00",
+    "id_gira": 205,
+    "id_tipo_evento": 1,
+    "tipo_evento": "Concierto"
+  },
+  {
+    "descripcion": "Concierto Principal",
+    "fecha": "2027-05-08",
+    "hora_fin": "13:30:00",
+    "hora_inicio": "12:00:00",
+    "id_gira": 205,
+    "id_tipo_evento": 1,
+    "tipo_evento": "Concierto"
+  },
+  {
+    "descripcion": "Concierto Principal",
+    "fecha": "2027-05-21",
+    "hora_fin": "21:30:00",
+    "hora_inicio": "20:00:00",
+    "id_gira": 206,
+    "id_tipo_evento": 1,
+    "tipo_evento": "Concierto"
+  },
+  {
+    "descripcion": "Concierto Principal",
+    "fecha": "2027-05-22",
+    "hora_fin": "13:30:00",
+    "hora_inicio": "12:00:00",
+    "id_gira": 206,
+    "id_tipo_evento": 1,
+    "tipo_evento": "Concierto"
+  },
+  {
+    "descripcion": "Concierto Principal",
+    "fecha": "2027-06-04",
+    "hora_fin": "21:30:00",
+    "hora_inicio": "20:00:00",
+    "id_gira": 207,
+    "id_tipo_evento": 1,
+    "tipo_evento": "Concierto"
+  },
+  {
+    "descripcion": "Concierto Principal",
+    "fecha": "2027-06-05",
+    "hora_fin": "21:30:00",
+    "hora_inicio": "20:00:00",
+    "id_gira": 207,
+    "id_tipo_evento": 1,
+    "tipo_evento": "Concierto"
+  },
+  {
+    "descripcion": "Concierto Principal",
+    "fecha": "2027-07-09",
+    "hora_fin": "21:30:00",
+    "hora_inicio": "20:00:00",
+    "id_gira": 208,
+    "id_tipo_evento": 1,
+    "tipo_evento": "Concierto"
+  },
+  {
+    "descripcion": "Concierto Principal",
+    "fecha": "2027-07-10",
+    "hora_fin": "21:30:00",
+    "hora_inicio": "20:00:00",
+    "id_gira": 208,
+    "id_tipo_evento": 1,
+    "tipo_evento": "Concierto"
+  },
+  {
+    "descripcion": "Concierto Principal",
+    "fecha": "2027-08-06",
+    "hora_fin": "21:30:00",
+    "hora_inicio": "20:00:00",
+    "id_gira": 209,
+    "id_tipo_evento": 1,
+    "tipo_evento": "Concierto"
+  },
+  {
+    "descripcion": "Concierto Principal",
+    "fecha": "2027-08-07",
+    "hora_fin": "12:30:00",
+    "hora_inicio": "11:00:00",
+    "id_gira": 209,
+    "id_tipo_evento": 1,
+    "tipo_evento": "Concierto"
+  },
+  {
+    "descripcion": "Concierto Principal",
+    "fecha": "2027-08-20",
+    "hora_fin": "21:30:00",
+    "hora_inicio": "20:00:00",
+    "id_gira": 210,
+    "id_tipo_evento": 1,
+    "tipo_evento": "Concierto"
+  },
+  {
+    "descripcion": "Concierto Principal",
+    "fecha": "2027-08-21",
+    "hora_fin": "12:30:00",
+    "hora_inicio": "11:00:00",
+    "id_gira": 210,
+    "id_tipo_evento": 1,
+    "tipo_evento": "Concierto"
+  },
+  {
+    "descripcion": "Concierto Principal",
+    "fecha": "2027-09-16",
+    "hora_fin": "21:30:00",
+    "hora_inicio": "20:00:00",
+    "id_gira": 211,
+    "id_tipo_evento": 1,
+    "tipo_evento": "Concierto"
+  },
+  {
+    "descripcion": "Concierto Principal",
+    "fecha": "2027-09-18",
+    "hora_fin": "21:30:00",
+    "hora_inicio": "20:00:00",
+    "id_gira": 211,
+    "id_tipo_evento": 1,
+    "tipo_evento": "Concierto"
+  },
+  {
+    "descripcion": "Concierto Principal",
+    "fecha": "2027-09-19",
+    "hora_fin": "21:30:00",
+    "hora_inicio": "20:00:00",
+    "id_gira": 211,
+    "id_tipo_evento": 1,
+    "tipo_evento": "Concierto"
+  },
+  {
+    "descripcion": "Concierto Principal",
+    "fecha": "2027-10-22",
+    "hora_fin": "21:30:00",
+    "hora_inicio": "20:00:00",
+    "id_gira": 212,
+    "id_tipo_evento": 1,
+    "tipo_evento": "Concierto"
+  },
+  {
+    "descripcion": "Concierto Principal",
+    "fecha": "2027-11-05",
+    "hora_fin": "21:30:00",
+    "hora_inicio": "20:00:00",
+    "id_gira": 213,
+    "id_tipo_evento": 1,
+    "tipo_evento": "Concierto"
+  },
+  {
+    "descripcion": "Concierto Principal",
+    "fecha": "2027-11-06",
+    "hora_fin": "21:30:00",
+    "hora_inicio": "20:00:00",
+    "id_gira": 213,
+    "id_tipo_evento": 1,
+    "tipo_evento": "Concierto"
+  },
+  {
+    "descripcion": "Concierto Principal",
+    "fecha": "2027-11-13",
+    "hora_fin": "21:30:00",
+    "hora_inicio": "20:00:00",
+    "id_gira": 214,
+    "id_tipo_evento": 1,
+    "tipo_evento": "Concierto"
+  },
+  {
+    "descripcion": "Concierto Principal",
+    "fecha": "2027-11-15",
+    "hora_fin": "21:30:00",
+    "hora_inicio": "20:00:00",
+    "id_gira": 214,
+    "id_tipo_evento": 1,
+    "tipo_evento": "Concierto"
+  },
+  {
+    "descripcion": "Concierto Principal",
+    "fecha": "2027-12-03",
+    "hora_fin": "21:30:00",
+    "hora_inicio": "20:00:00",
+    "id_gira": 215,
+    "id_tipo_evento": 1,
+    "tipo_evento": "Concierto"
+  },
+  {
+    "descripcion": "Concierto Principal",
+    "fecha": "2027-12-04",
+    "hora_fin": "13:30:00",
+    "hora_inicio": "12:00:00",
+    "id_gira": 215,
+    "id_tipo_evento": 1,
+    "tipo_evento": "Concierto"
+  },
+  {
+    "descripcion": "Concierto Principal",
+    "fecha": "2027-12-08",
+    "hora_fin": "21:30:00",
+    "hora_inicio": "20:00:00",
+    "id_gira": 216,
+    "id_tipo_evento": 1,
+    "tipo_evento": "Concierto"
+  }
+]

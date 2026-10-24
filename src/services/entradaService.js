@@ -188,6 +188,19 @@ export async function ensureEntradaPdfShareToken(reservaId) {
 }
 
 /**
+ * Público (sin login): mail (+ slug de concierto) → pdf_share_token.
+ * Rate limit en DB (10 / 10 min por mail).
+ */
+export async function lookupMiEntradaPdfByEmail({ email, slug } = {}) {
+  const { data, error } = await supabaseEntradasPublic.rpc("entrada_lookup_mi_entrada_pdf", {
+    p_email: String(email || "").trim().toLowerCase(),
+    p_slug: slug ? String(slug).trim() : null,
+  });
+  if (error) throw new Error(error.message || "No se pudo buscar tu entrada.");
+  return data && typeof data === "object" ? data : { ok: false, error: "Respuesta inválida." };
+}
+
+/**
  * El token solo identifica la reserva. La RPC lee concierto, evento (`id_locacion`),
  * programa y plazas con la misma forma que `listarMisReservas`.
  * El PDF lo arma `descargarPdfDesdeReservaRow`, igual que en la app.
@@ -929,10 +942,11 @@ export async function enviarMailCancelacionReserva({ reservaId }) {
   if (error) throw error;
 }
 
-export async function tokenToQrDataUrl(token, { used = false } = {}) {
+export async function tokenToQrDataUrl(token, { used = false, width = 320 } = {}) {
+  const px = Number(width);
   return QRCode.toDataURL(token, {
     margin: 1,
-    width: 320,
+    width: Number.isFinite(px) && px >= 120 ? Math.min(px, 1024) : 320,
     color: {
       dark: used ? "#dc2626" : "#000000",
       light: "#ffffff",
@@ -1545,14 +1559,15 @@ export async function enviarMailCancelacionPrograma({ programaNombre, notificar,
   return data;
 }
 
-/** Mail de prueba de cron (recordatorio / encuesta) al admin logueado. */
-export async function enviarMailPruebaConciertoAdmin({ tipo, conciertoId, preview }) {
+/** Mail de prueba de cron (recordatorio / encuesta) al admin logueado (o `to` override). */
+export async function enviarMailPruebaConciertoAdmin({ tipo, conciertoId, preview, to } = {}) {
   const { data, error } = await supabaseEntradasPublic.functions.invoke("entradas-send-test-mail", {
     body: {
       tipo,
       conciertoId: conciertoId ? Number(conciertoId) : undefined,
       preview: preview || undefined,
       appUrl: window.location.origin,
+      ...(to ? { to: String(to).trim() } : {}),
     },
   });
   if (error) throw error;

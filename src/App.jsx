@@ -132,6 +132,7 @@ const TransporteSCRNPage = lazy(
 );
 const EntradasPage = lazy(() => import("./views/Public/Entradas/EntradasPage"));
 const EntradasPdfSharePage = lazy(() => import("./views/Public/Entradas/EntradasPdfSharePage"));
+const EntradasMiEntradaPage = lazy(() => import("./views/Public/Entradas/EntradasMiEntradaPage"));
 const EntradasRecordarmePage = lazy(
   () => import("./views/Public/Entradas/EntradasRecordarmePage"),
 );
@@ -1753,6 +1754,14 @@ export default function App() {
                 element={
                   <LazyRoute>
                     <EntradasPdfSharePage />
+                  </LazyRoute>
+                }
+              />
+              <Route
+                path="/entradas/mi-entrada"
+                element={
+                  <LazyRoute>
+                    <EntradasMiEntradaPage />
                   </LazyRoute>
                 }
               />

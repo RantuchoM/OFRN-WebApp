@@ -14,6 +14,7 @@ import {
 import {
   formatFechaHoraEntradasMail,
   linkEntradasCatalogoConcierto,
+  linkEntradasMiEntrada,
   linkEntradasMisReservas,
   subjectRecordatorio,
   templateEncuesta,
@@ -101,8 +102,10 @@ serve(async (req) => {
         /\/$/,
         "",
       );
-      const linkConcierto = linkEntradasCatalogoConcierto(baseUrl, String(concierto.slug_publico || ""));
+      const slug = String(concierto.slug_publico || "");
+      const linkConcierto = linkEntradasCatalogoConcierto(baseUrl, slug);
       const linkMisEntradas = linkEntradasMisReservas(baseUrl);
+      const linkMiEntrada = linkEntradasMiEntrada(baseUrl, slug);
       const fechaTexto = formatFechaHoraEntradasMail(fechaHoraDesdeEventoOfrn(concierto.evento));
       const bcc = uniqueRecipientEmails(
         (reservas || []).map((row) => String(row?.usuario?.email || "")),
@@ -119,6 +122,7 @@ serve(async (req) => {
               lugar: lugarNombreDesdeEventoOfrn(concierto.evento),
               linkConcierto,
               linkMisEntradas,
+              linkMiEntrada,
             }),
             bcc,
           });

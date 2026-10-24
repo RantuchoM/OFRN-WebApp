@@ -13,6 +13,7 @@ import {
 import {
   formatFechaHoraEntradasMail,
   linkEntradasCatalogoConcierto,
+  linkEntradasMiEntrada,
   linkEntradasMisReservas,
   subjectRecordatorio,
   templateEncuesta,
@@ -72,6 +73,8 @@ serve(async (req) => {
       conciertoId?: number;
       preview?: PreviewPayload;
       appUrl?: string;
+      /** Solo admin: destino opcional (p. ej. ofrn.archivo@gmail.com). */
+      to?: string;
     };
 
     const tipo = body?.tipo;
@@ -108,9 +111,13 @@ serve(async (req) => {
       });
     }
 
-    const emailTo = String(perfil?.email || user.email || "").trim();
+    const emailOverride = String(body?.to || "").trim().toLowerCase();
+    const emailTo = emailOverride || String(perfil?.email || user.email || "").trim();
     if (!emailTo) {
       throw new Error("No hay email en tu perfil de Entradas para enviar la prueba.");
+    }
+    if (emailOverride && !emailOverride.includes("@")) {
+      throw new Error("El destino (to) no es un mail válido.");
     }
 
     const conciertoId = Number(body?.conciertoId || 0);
@@ -143,6 +150,7 @@ serve(async (req) => {
       .replace(/\/$/, "");
     const linkConcierto = linkEntradasCatalogoConcierto(appUrl, slugPublico);
     const linkMisEntradas = linkEntradasMisReservas(appUrl);
+    const linkMiEntrada = linkEntradasMiEntrada(appUrl, slugPublico);
 
     const transporter = nodemailer.createTransport({
       service: "gmail",
@@ -156,20 +164,31 @@ serve(async (req) => {
         lugar,
         linkConcierto,
         linkMisEntradas,
+        linkMiEntrada,
         esPrueba: true,
       });
 
+      const bccArchivo = "ofrn.archivo@gmail.com";
       const info = await transporter.sendMail({
         from: `"Entradas OFRN" <${GMAIL_USER}>`,
         to: emailTo,
+        bcc: emailTo.toLowerCase() === bccArchivo ? undefined : bccArchivo,
         subject: `[Prueba] ${subjectRecordatorio(conciertoNombre)}`,
         html,
       });
 
-      return new Response(JSON.stringify({ success: true, id: info.messageId, to: emailTo }), {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({
+          success: true,
+          id: info.messageId,
+          to: emailTo,
+          bcc: emailTo.toLowerCase() === bccArchivo ? null : bccArchivo,
+        }),
+        {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
     }
 
     const encuestaFinal = encuestaUrl || ENCUESTA_URL;

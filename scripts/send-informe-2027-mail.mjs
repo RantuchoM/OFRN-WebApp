@@ -49,7 +49,7 @@ async function sendOne(filePath) {
     <ul>
       <li>Giras en casa / fuera (pesos por tramo)</li>
       <li>Cipolletti → Villa Regina: solo el último día en Regina (giras ajustadas)</li>
-      <li>PCV + Ens. netos + Prest. tot.</li>
+      <li>PCV + Ens. netos + Feriados (1 serv. por feriado/no laborable en gira) + Prest. tot.</li>
     </ul>
     <p>Generado automáticamente desde OFRN WebApp.</p>
   `

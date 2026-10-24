@@ -208,6 +208,12 @@ export default defineConfig(({ command }) => {
   worker: {
     format: "es",
   },
+  // Evita EBUSY/crash del watcher con CSVs/PDF temporales en la raíz del repo.
+  server: {
+    watch: {
+      ignored: ["**/.tmp_*/**", "**/.tmp_2027_pdfs/**"],
+    },
+  },
   build: {
     // Reduce ruido en consola durante builds grandes
     chunkSizeWarningLimit: 2000,

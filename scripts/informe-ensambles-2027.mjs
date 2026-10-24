@@ -192,6 +192,15 @@ const ensayosProx = JSON.parse(
 const ciclosRaw = JSON.parse(
   fs.readFileSync(path.join(dataDir, "ciclos2027.json"), "utf8"),
 );
+const feriados2027 = JSON.parse(
+  fs.readFileSync(path.join(dataDir, "feriados2027.json"), "utf8"),
+);
+const eventosGiras2027 = JSON.parse(
+  fs.readFileSync(path.join(dataDir, "eventos_giras2027.json"), "utf8"),
+);
+
+/** Tipos que cuentan como servicio musical (paridad serviciosCantidad). */
+const TIPO_SERVICIO = new Set([1, 2, 3, 13]); // Concierto, Ensayo, Ensayo General, Ensayo Ensamble
 
 /** Localidades */
 const LOC = {
@@ -284,6 +293,16 @@ function normalizeProgram(row) {
   const localias = Array.isArray(row.localias) ? row.localias : [];
   const fuentes = Array.isArray(row.fuentes) ? row.fuentes : [];
   const tramos = Array.isArray(row.tramos) ? row.tramos : [];
+  const pid = Number(row.id);
+  const eventos = eventosGiras2027
+    .filter((e) => Number(e.id_gira) === pid)
+    .map((e) => ({
+      fecha: String(e.fecha).slice(0, 10),
+      id_tipo_evento: Number(e.id_tipo_evento),
+      tipo_evento: e.tipo_evento || e.descripcion || "",
+      hora_inicio: e.hora_inicio,
+      hora_fin: e.hora_fin,
+    }));
   return {
     id: row.id,
     nombre_gira: row.nombre_gira,
@@ -292,6 +311,7 @@ function normalizeProgram(row) {
     fecha_desde: row.fecha_desde,
     fecha_hasta: row.fecha_hasta,
     estado: row.estado,
+    eventos,
     giras_localidades: localias.map((l) => ({
       id_localidad: l.id,
       localidades: { id: l.id, localidad: l.localidad },
@@ -773,6 +793,65 @@ for (const ens of ensambles) {
     Math.round(girasTotalR * SERVICIOS_POR_GIRA * 100) / 100;
   const cicloStats = ensambleCicloStats(ens.id);
 
+  /**
+   * Feriados: 1 servicio por día no hábil (feriado / no laborable / domingo)
+   * en que hay ensayo o concierto (no traslados ni otros eventos de logística).
+   */
+  const feriadosLookup = new Map(
+    feriados2027.map((f) => [String(f.fecha).slice(0, 10), f]),
+  );
+  const serviceDayMeta = new Map(); // fecha -> { giras:Set, tipos:Set }
+  const bumpServiceDay = (day, giraNombre, tipoLabel) => {
+    if (!day) return;
+    let meta = serviceDayMeta.get(day);
+    if (!meta) {
+      meta = { giras: new Set(), tipos: new Set() };
+      serviceDayMeta.set(day, meta);
+    }
+    if (giraNombre) meta.giras.add(giraNombre);
+    if (tipoLabel) meta.tipos.add(tipoLabel);
+  };
+
+  for (const program of programs) {
+    const cls = classifyProgramaEnsambleConvocatoria(program, ens);
+    if (cls.status !== "convocado") continue;
+    const gName = giraDisplayName(program);
+    for (const ev of program.eventos || []) {
+      if (!TIPO_SERVICIO.has(Number(ev.id_tipo_evento))) continue;
+      bumpServiceDay(
+        String(ev.fecha).slice(0, 10),
+        gName,
+        ev.tipo_evento || "Servicio",
+      );
+    }
+  }
+  for (const prog of cicloPrograms) {
+    if (!prog.ensambleIds.includes(Number(ens.id))) continue;
+    const gName = prog.nombre_gira || "Ciclo ensamble";
+    for (const ev of prog.eventos || []) {
+      // Ciclos: conciertos (y ensayos si hubiera)
+      bumpServiceDay(String(ev.fecha).slice(0, 10), gName, "Concierto ensamble");
+    }
+  }
+
+  const feriadosHits = [];
+  for (const [day, meta] of [...serviceDayMeta.entries()].sort((a, b) =>
+    a[0].localeCompare(b[0]),
+  )) {
+    const fer = feriadosLookup.get(day);
+    const isSunday = new Date(`${day}T12:00:00`).getDay() === 0;
+    if (!fer && !isSunday) continue;
+    feriadosHits.push({
+      fecha: day,
+      detalle: fer?.detalle || "Domingo",
+      es_feriado: fer ? Boolean(fer.es_feriado) : true,
+      tipo: fer ? (fer.es_feriado ? "Feriado" : "No laborable") : "Domingo",
+      giras: [...meta.giras].join(" · "),
+      servicios: [...meta.tipos].join(" · "),
+    });
+  }
+  const feriadosCount = feriadosHits.length;
+
   rows.push({
     ensamble: ens.ensamble,
     familia: ens.id_familia || "",
@@ -786,12 +865,15 @@ for (const ens of ensambles) {
     servGirasEst,
     pcv: pcvRound,
     prestNetas,
+    feriados: feriadosCount,
+    feriadosHits,
     serviciosTotales:
       Math.round(
         (pcvRound +
           prestNetas +
           servGirasEst +
-          cicloStats.conciertosEnsamble) *
+          cicloStats.conciertosEnsamble +
+          feriadosCount) *
           100,
       ) / 100,
     ensayosSemanaModelo: tpl.length,
@@ -983,6 +1065,7 @@ async function writeExcel(outPath) {
     { key: "pcv", label: "PCV", group: "Prestaciones", fill: FILL.pcv, w: 9, align: "center" },
     { key: "prestNetas", label: "Ens. netos", group: "Prestaciones", fill: FILL.prestNetas, w: 10, align: "center" },
     { key: "conciertosEnsamble", label: "Conc. ensamble", group: "Prestaciones", fill: "FFD1FAE5", w: 11, align: "center" },
+    { key: "feriados", label: "Feriados", group: "Prestaciones", fill: "FFFCE7F3", w: 9, align: "center" },
     { key: "serviciosTotales", label: "Prest. tot.", group: "Prestaciones", fill: FILL.total, w: 10, align: "center" },
   ];
 
@@ -1118,7 +1201,11 @@ async function writeExcel(outPath) {
     ws.getCell(line, 2).value = r.prestNetas;
     line += 1;
     ws.getCell(line, 1).value =
-      "Prest. tot. (Giras x7 + PCV + Ens. netos + Conc. ens.)";
+      "Feriados (feriado / no laborable / domingo en gira)";
+    ws.getCell(line, 2).value = r.feriados;
+    line += 1;
+    ws.getCell(line, 1).value =
+      "Prest. tot. (Giras x7 + PCV + Ens. netos + Conc. ens. + Feriados)";
     ws.getCell(line, 2).value = r.serviciosTotales;
     line += 2;
 
@@ -1185,6 +1272,33 @@ async function writeExcel(outPath) {
         ws.getCell(line, 3).value = g.pcv;
         ws.getCell(line, 4).value = g.pcvFranja || "";
         ws.getCell(line, 5).value = g.pcvNota || "";
+        line += 1;
+      }
+    }
+    line += 1;
+
+    ws.getCell(line, 1).value = "Feriados / no laborables / domingos en gira";
+    ws.getCell(line, 1).font = { bold: true };
+    paintHeader(ws.getCell(line, 1), "FFFCE7F3");
+    line += 1;
+    ws.getCell(line, 1).value = "Fecha";
+    ws.getCell(line, 2).value = "Detalle";
+    ws.getCell(line, 3).value = "Tipo";
+    ws.getCell(line, 4).value = "Servicio(s)";
+    ws.getCell(line, 5).value = "Gira(s)";
+    for (let i = 1; i <= 5; i += 1) paintHeader(ws.getCell(line, i), "FFFCE7F3");
+    line += 1;
+    const ferList = r.feriadosHits || [];
+    if (!ferList.length) {
+      ws.getCell(line, 1).value = "(ninguno)";
+      line += 1;
+    } else {
+      for (const f of ferList) {
+        ws.getCell(line, 1).value = f.fecha;
+        ws.getCell(line, 2).value = f.detalle;
+        ws.getCell(line, 3).value = f.tipo;
+        ws.getCell(line, 4).value = f.servicios || "";
+        ws.getCell(line, 5).value = f.giras;
         line += 1;
       }
     }
@@ -1270,8 +1384,9 @@ async function writeExcel(outPath) {
     "Primera hoja: matriz giras × ensambles — L = local (en casa), A = afuera, L/A = mixto por tramos. Pie: nL + mA = total.",
     "Colores alineados a Prestaciones: Fuera=naranja, En casa=celeste, PCV=teal, Ens. netos=esmeralda, Detalle ensayos=esmeralda.",
     "x7 = Total giras × 7 (estimado fijo por gira; respeta pesos de tramo). Separado del bloque Giras.",
-    "Dos secciones: Giras (incl. Prog. ensamble) | Prestaciones (Giras x7, PCV, Ens. netos, Conc. ensamble, Prest. tot.).",
-    "Prest. tot. = Giras x7 + PCV + Ens. netos + Conc. ensamble.",
+    "Dos secciones: Giras (incl. Prog. ensamble) | Prestaciones (Giras x7, PCV, Ens. netos, Conc. ensamble, Feriados, Prest. tot.).",
+    "Feriados: 1 servicio por feriado / no laborable / domingo SOLO si ese día hay ensayo o concierto (tipos 1/2/3/13). No cuenta día de traslado ni otros eventos de logística. Domingos por criterio (no en tabla). Puentes turísticos 2027 aún no decretados; 2026 ya en BD.",
+    "Prest. tot. = Giras x7 + PCV + Ens. netos + Conc. ensamble + Feriados.",
     "Prog./Conc. ensamble = Ciclos de Cámara I–III. Concierto=1; didáctico=0,5. No entran en la matriz L/A.",
     "Ens. netos = servicios de ensayos proyectados netos de conflicto pleno pendiente.",
     "Tramos de localía: con 2+ segmentos con sede, casa/fuera y PCV se pesan 1/n por tramo (igual que el informe de ensamble en la app). Sin tramos: la unión de giras_localidades es todo o nada.",
@@ -1280,7 +1395,7 @@ async function writeExcel(outPath) {
     "Tramos seed: Cipolletti→Villa Regina último día (207, 213); El Bolsón→Ñorquinco último día (214 Falú).",
     "Cada gira se lista con localía entre paréntesis.",
     "Ensayos: plantilla 26–30/10/2026 × 46 semanas (01/02/2027–13/12/2027).",
-    "Hojas Det <ensamble>: cálculo de ensayos, giras en casa, franjas PCV y conflictos.",
+    "Hojas Det <ensamble>: cálculo de ensayos, giras en casa, franjas PCV, feriados en gira y conflictos.",
   ];
   lines.forEach((l, i) => {
     notas.getCell(i + 1, 1).value = l;
@@ -1323,7 +1438,11 @@ function pdfWriteEnsamblePage(doc, r) {
         String(r.conciertosEnsamble),
       ]),
       pdfRow([
-        "Prest. tot. (Giras x7 + PCV + Ens. netos + Conc. ens.)",
+        "Feriados (feriado / no laborable / domingo en gira)",
+        String(r.feriados),
+      ]),
+      pdfRow([
+        "Prest. tot. (Giras x7 + PCV + Ens. netos + Conc. ens. + Feriados)",
         String(r.serviciosTotales),
       ]),
     ],
@@ -1331,6 +1450,39 @@ function pdfWriteEnsamblePage(doc, r) {
   });
 
   let y = (doc.lastAutoTable?.finalY || 120) + 14;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.setTextColor(15, 23, 42);
+  doc.text(pdfText("Feriados / no laborables / domingos en gira"), 36, y);
+  y += 4;
+  const ferList = r.feriadosHits || [];
+  autoTable(doc, {
+    startY: y,
+    margin: { left: 36, right: 36 },
+    styles: { fontSize: 7, cellPadding: 2, font: "helvetica" },
+    headStyles: { fillColor: [252, 231, 243], textColor: [15, 23, 42] },
+    head: [pdfRow(["Fecha", "Detalle", "Tipo", "Servicio", "Gira(s)"])],
+    body: ferList.length
+      ? ferList.map((f) =>
+          pdfRow([
+            formatDdMmYyyyIso(f.fecha),
+            f.detalle,
+            f.tipo,
+            f.servicios || "",
+            f.giras || "",
+          ]),
+        )
+      : [pdfRow(["(ninguno)", "", "", "", ""])],
+    columnStyles: {
+      0: { cellWidth: 62 },
+      1: { cellWidth: 160 },
+      2: { cellWidth: 58 },
+      3: { cellWidth: 90 },
+      4: { cellWidth: 210 },
+    },
+  });
+
+  y = (doc.lastAutoTable?.finalY || y) + 12;
   doc.setFont("helvetica", "bold");
   doc.setFontSize(10);
   doc.setTextColor(15, 23, 42);
@@ -1526,13 +1678,13 @@ function writePdfResumenPage(doc) {
   doc.setTextColor(71, 85, 105);
   doc.text(
     pdfText(
-      "Dos bloques: Giras (… Prog. ensamble) | Prestaciones (Giras x7 … Conc. ensamble … Prest. tot.). Conc.=1 (0,5 didactico). Matriz L/A en pag. 2.",
+      "Dos bloques: Giras | Prestaciones (… Feriados … Prest. tot.). Feriados=feriado/no laborable/domingo en gira. Conc.=1 (0,5 didactico). Matriz L/A pag. 2.",
     ),
     40,
     46,
   );
 
-  // Giras … Prog.ens. | Prestaciones: Giras x7, PCV, Ens. netos, Conc.ens., Prest. tot.
+  // Giras … Prog.ens. | Prestaciones: Giras x7, PCV, Ens. netos, Conc.ens., Feriados, Prest. tot.
   const SEP = "";
   const pdfHead = pdfRow([
     "Ens.",
@@ -1546,6 +1698,7 @@ function writePdfResumenPage(doc) {
     "PCV",
     "Ens. netos",
     "Conc. ens.",
+    "Feriados",
     "Prest. tot.",
   ]);
   const pdfBody = rows.map((r) =>
@@ -1561,6 +1714,7 @@ function writePdfResumenPage(doc) {
       r.pcv,
       r.prestNetas,
       r.conciertosEnsamble,
+      r.feriados,
       r.serviciosTotales,
     ]),
   );
@@ -1574,13 +1728,14 @@ function writePdfResumenPage(doc) {
     8: [240, 253, 250],
     9: [236, 253, 245],
     10: [209, 250, 229],
-    11: [248, 250, 252],
+    11: [252, 231, 243],
+    12: [248, 250, 252],
   };
   const pageW = doc.internal.pageSize.getWidth();
-  const marginX = 28;
+  const marginX = 24;
   const usable = pageW - marginX * 2;
-  const sepW = 6;
-  const dataCols = 11;
+  const sepW = 5;
+  const dataCols = 12;
   const dataW = (usable - sepW) / dataCols;
 
   autoTable(doc, {
@@ -1665,7 +1820,7 @@ console.log(
   rows
     .map(
       (r) =>
-        `${r.ensamble}: fuera=${r.girasFuera} casa=${r.girasCasa} ×7=${r.servGirasEst} pcv=${r.pcv} prestNetas=${r.prestNetas} tot=${r.serviciosTotales}`,
+        `${r.ensamble}: fuera=${r.girasFuera} casa=${r.girasCasa} ×7=${r.servGirasEst} pcv=${r.pcv} prestNetas=${r.prestNetas} feriados=${r.feriados} tot=${r.serviciosTotales}`,
     )
     .join("\n"),
 );

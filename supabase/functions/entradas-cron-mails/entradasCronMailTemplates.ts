@@ -23,6 +23,14 @@ export function linkEntradasMisReservas(appUrl: string): string {
   return `${normalizeEntradasAppUrl(appUrl)}/entradas?view=mis-reservas`;
 }
 
+/** Pantalla pública: mail → PDF (sin login). Query `concierto` = slug_publico. */
+export function linkEntradasMiEntrada(appUrl: string, slugPublico?: string | null): string {
+  const base = `${normalizeEntradasAppUrl(appUrl)}/entradas/mi-entrada`;
+  const slug = String(slugPublico || "").trim();
+  if (!slug) return base;
+  return `${base}?concierto=${encodeURIComponent(slug)}`;
+}
+
 export function subjectRecordatorio(conciertoNombre: string): string {
   const nombre = String(conciertoNombre || "Concierto").trim() || "Concierto";
   return `¡Te esperamos! Filarmónica de Río Negro - ${nombre}`;
@@ -81,6 +89,7 @@ export function templateRecordatorio(d: {
   lugar: string;
   linkConcierto: string;
   linkMisEntradas: string;
+  linkMiEntrada: string;
   esPrueba?: boolean;
 }): string {
   const avisoPrueba = d.esPrueba
@@ -97,11 +106,26 @@ export function templateRecordatorio(d: {
       ${esc(d.fechaTexto)}<br/>
       ${d.lugar ? esc(d.lugar) : ""}
     </p>
-    <p>Tu código de la misma y los QR están en <a href="${esc(d.linkMisEntradas)}" style="color:#4f46e5;font-weight:700;">Mis entradas</a> (iniciá sesión con el mismo mail con el que sacaste tu entrada).</p>
-    <p>Si sabés que no vas a poder asistir, cancelá tu entrada desde <a href="${esc(d.linkMisEntradas)}" style="color:#4f46e5;font-weight:700;">Mis entradas</a> para liberar el cupo y que otra persona pueda asistir.</p>
+    <p style="margin:0 0 12px;padding:10px 12px;background:#eef2ff;border-radius:8px;font-size:14px;">
+      <strong>Este mail no incluye el QR ni el PDF de tu entrada.</strong>
+      Recordá que debés llevarlo impreso o en tu celular. Si no lo tenés a mano, podés descargarlo o verlo desde aquí solo ingresando tu mail:
+    </p>
+    <p style="margin:20px 0;text-align:center;">
+      <a href="${esc(d.linkMiEntrada)}" style="display:inline-block;background:#4f46e5;color:#fff;text-decoration:none;padding:14px 22px;border-radius:8px;font-weight:700;font-size:16px;">Abrir mi entrada</a>
+    </p>
+    <p style="font-size:12px;word-break:break-all;text-align:center;">
+      <a href="${esc(d.linkMiEntrada)}" style="color:#64748b;">${esc(d.linkMiEntrada)}</a>
+    </p>
+    <p>También podés usar el PDF que te llegó al reservar, o entrar a
+      <a href="${esc(d.linkMisEntradas)}" style="color:#4f46e5;font-weight:700;">Mis entradas</a>
+      con el mismo mail.
+    </p>
+    <p>Si sabés que no vas a poder asistir, cancelá tu entrada desde
+      <a href="${esc(d.linkMisEntradas)}" style="color:#4f46e5;font-weight:700;">Mis entradas</a>
+      para liberar el cupo y que otra persona pueda asistir.
+    </p>
     <p>Presentate con tu QR o código <strong>10 minutos antes</strong> del concierto. De no ser así, tu entrada será liberada para quienes no cuenten con la misma y se les cederá el lugar.</p>
     <p style="margin-top:20px;"><a href="${esc(d.linkConcierto)}" style="color:#4f46e5;font-weight:700;">Ver detalle del concierto en la web</a></p>
-    <p style="margin-top:8px;font-size:12px;word-break:break-all;"><a href="${esc(d.linkConcierto)}" style="color:#64748b;">${esc(d.linkConcierto)}</a></p>
     <p style="margin-top:24px;font-size:12px;color:#64748b;">Orquesta Filarmónica de Río Negro</p>
   </div></body></html>`;
 }

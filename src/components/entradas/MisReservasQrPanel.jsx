@@ -8,7 +8,12 @@ import {
 } from "../../services/entradaService";
 import { entradasTodasIngresadas } from "../../utils/entradasMisReservas";
 
-export default function MisReservasQrPanel({ reserva, isDark = false }) {
+/**
+ * @param {{ reserva: object, isDark?: boolean, variant?: "default" | "door" }} props
+ * `door`: QR grande para mostrar en puerta (móvil / mi-entrada).
+ */
+export default function MisReservasQrPanel({ reserva, isDark = false, variant = "default" }) {
+  const isDoor = variant === "door";
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [reservaQr, setReservaQr] = useState(null);
@@ -25,6 +30,7 @@ export default function MisReservasQrPanel({ reserva, isDark = false }) {
 
   const cantidad = Number(reserva?.cantidad_solicitada) || sortedEntradas.length || 0;
   const qrReservaUsado = entradasTodasIngresadas(reserva);
+  const qrPixelSize = isDoor ? 560 : 320;
 
   useEffect(() => {
     let cancelled = false;
@@ -45,7 +51,10 @@ export default function MisReservasQrPanel({ reserva, isDark = false }) {
         if (!grupoToken) {
           throw new Error("No hay código de reserva para mostrar el QR grupal.");
         }
-        const grupo = await tokenToQrDataUrl(grupoToken, { used: qrReservaUsado });
+        const grupo = await tokenToQrDataUrl(grupoToken, {
+          used: qrReservaUsado,
+          width: qrPixelSize,
+        });
         if (cancelled) return;
         setReservaRow(row);
         setReservaQr(grupo);
@@ -59,7 +68,7 @@ export default function MisReservasQrPanel({ reserva, isDark = false }) {
     return () => {
       cancelled = true;
     };
-  }, [reserva, sortedEntradas, qrReservaUsado]);
+  }, [reserva, sortedEntradas, qrReservaUsado, qrPixelSize]);
 
   useEffect(() => {
     if (!showIndividuales || !reservaRow || entradasQr.length > 0) return;
@@ -93,10 +102,14 @@ export default function MisReservasQrPanel({ reserva, isDark = false }) {
   }, [showIndividuales, reservaRow, entradasQr.length]);
 
   if (loading) {
-    return <p className={`text-xs ${isDark ? "text-slate-400" : "text-slate-500"}`}>Cargando código QR…</p>;
+    return (
+      <p className={`${isDoor ? "text-sm text-center py-8" : "text-xs"} ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+        Cargando código QR…
+      </p>
+    );
   }
   if (error) {
-    return <p className="text-xs text-rose-600 dark:text-rose-400">{error}</p>;
+    return <p className={`${isDoor ? "text-sm" : "text-xs"} text-rose-600 dark:text-rose-400`}>{error}</p>;
   }
 
   const grayBox = isDark
@@ -106,7 +119,11 @@ export default function MisReservasQrPanel({ reserva, isDark = false }) {
   return (
     <div className="space-y-3">
       <div>
-        <p className={`text-[10px] font-bold uppercase tracking-wide mb-1 ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+        <p
+          className={`${isDoor ? "text-xs text-center" : "text-[10px]"} font-bold uppercase tracking-wide mb-1 ${
+            isDark ? "text-slate-400" : "text-slate-500"
+          }`}
+        >
           QR general
           {qrReservaUsado && (
             <span className="ml-2 normal-case font-semibold text-rose-600 dark:text-rose-400">
@@ -115,7 +132,11 @@ export default function MisReservasQrPanel({ reserva, isDark = false }) {
           )}
         </p>
         {cantidad > 0 && (
-          <p className={`text-sm font-bold mb-2 ${isDark ? "text-slate-100" : "text-slate-800"}`}>
+          <p
+            className={`${isDoor ? "text-base text-center" : "text-sm"} font-bold mb-2 ${
+              isDark ? "text-slate-100" : "text-slate-800"
+            }`}
+          >
             {cantidad} entrada{cantidad === 1 ? "" : "s"}
           </p>
         )}
@@ -123,12 +144,20 @@ export default function MisReservasQrPanel({ reserva, isDark = false }) {
           <img
             src={reservaQr}
             alt="QR reserva general"
-            className={`w-full aspect-square max-w-full object-contain rounded-lg border ${
-              qrReservaUsado ? "border-rose-300 dark:border-rose-800" : isDark ? "border-slate-600" : "border-slate-200"
+            className={`w-full aspect-square max-w-[min(100%,22rem)] mx-auto object-contain rounded-lg border bg-white ${
+              qrReservaUsado
+                ? "border-rose-300 dark:border-rose-800"
+                : isDark
+                  ? "border-slate-600"
+                  : "border-slate-200"
             }`}
           />
         )}
-        <p className={`mt-2 text-[11px] ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+        <p
+          className={`mt-2 ${isDoor ? "text-sm text-center" : "text-[11px]"} ${
+            isDark ? "text-slate-400" : "text-slate-500"
+          }`}
+        >
           Mostrá este código en puerta: vale por todas las entradas de la reserva.
         </p>
       </div>
