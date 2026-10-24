@@ -30,7 +30,8 @@
 - [x] Edge Function `entradas-send-cancelacion` (plantilla en `entradasCronMailTemplates.ts`)
 - [x] Enlace «Mis entradas» en mails (cancelación / recordatorio / prueba): `https://ofrn-web-app.vercel.app/entradas?view=mis-reservas` (`ENTRADAS_PUBLIC_URL` o ese fallback; helper `linkEntradasMisReservas`)
 - [x] Recordatorio pre-concierto: BCC genérico + CTA «Abrir mi entrada» → `/entradas/mi-entrada?concierto=<slug>` (lookup por mail sin login; ver `entradas-acceso.md`)
-- [x] Mail de confirmación / cambio de cantidad (`entradas-send-reserva-email`): tras la nota de puntualidad (10 min), bloque con aviso de que se puede **cancelar en cualquier momento** o **cambiar la cantidad** desde la app, y botón CTA «Gestionar mis entradas» → `…/entradas?view=mis-reservas`
+- [x] Mail de confirmación / cambio de cantidad (`entradas-send-reserva-email`): tras la nota de puntualidad (10 min), bloque «Gestionar mis entradas» + CTA «Cancelar mi entrada» → `…/entradas?view=mis-reservas`
+- [x] Admin · Reservas activas (`EntradasAdminReservasListModal`): PDF, **reenviar mail** (mismo `entradas-send-reserva-email` / confirmación) y **cancelar** (`entrada_admin_cancelar_reserva` + mail de cancelación)
 
 ## Reactivar programa
 

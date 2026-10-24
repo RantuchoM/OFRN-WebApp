@@ -715,6 +715,14 @@ export async function cancelarReservaTercero(reservaId) {
   if (error) throw error;
 }
 
+/** Admin: cancela cualquier reserva activa (listado Reservas activas). */
+export async function adminCancelarReserva(reservaId) {
+  const { error } = await supabaseEntradasPublic.rpc("entrada_admin_cancelar_reserva", {
+    p_reserva_id: Number(reservaId),
+  });
+  if (error) throw error;
+}
+
 export async function actualizarReferenciaTercero(reservaId, referencia) {
   const { error } = await supabaseEntradasPublic.rpc("entrada_actualizar_referencia_tercero", {
     p_reserva_id: reservaId,
@@ -888,6 +896,46 @@ export async function fetchReservaParaPdf(reservaId) {
 export async function descargarPdfDesdeReservaId(reservaId) {
   const row = await fetchReservaParaPdf(reservaId);
   await descargarPdfDesdeReservaRow(row);
+}
+
+/**
+ * Reenvía el mail de confirmación (mismo flujo que al reservar: PDF adjunto + QRs).
+ * Para admin / listados sin tokens precargados.
+ */
+export async function reenviarMailReservaDesdeId(reservaId) {
+  let row = await fetchReservaParaPdf(reservaId);
+  if (String(row?.estado || "") !== "activa") {
+    throw new Error("Solo se puede reenviar el mail de reservas activas.");
+  }
+  if (!entradasConTokensCompletos(row)) {
+    const payload = await asegurarQrTokensReserva(row.id);
+    row = mergeAsegurarQrEnReserva(row, payload);
+  }
+  const grupoToken = tokenQrReservaGrupo(row);
+  if (!grupoToken) {
+    throw new Error("No hay código de reserva para armar el mail.");
+  }
+  const sorted = [...(row.entradas || [])].sort((a, b) => (a.orden || 0) - (b.orden || 0));
+  const tokens = sorted.map((e) => e.qr_entrada_token).filter(Boolean);
+  if (tokens.length !== Number(row.cantidad_solicitada) || !tokens.length) {
+    throw new Error("Faltan datos de entradas para reenviar el mail.");
+  }
+  const { blob } = await buildEntradasReservaPdfConQr({
+    concierto: row.concierto,
+    reserva: row,
+    qrReservaToken: grupoToken,
+    qrEntradaTokens: tokens,
+    entradasRows: sorted,
+  });
+  const pdfBase64 = await blobToPdfBase64ForMail(blob);
+  await enviarMailReserva({
+    reservaId: row.id,
+    qrReservaToken: grupoToken,
+    qrEntradaTokens: tokens,
+    pdfBase64,
+    action: "confirmacion",
+  });
+  return { codigoReserva: row.codigo_reserva, email: row?.usuario?.email || null };
 }
 
 export async function blobToPdfBase64ForMail(blob) {

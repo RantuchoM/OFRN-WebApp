@@ -6966,6 +6966,9 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
         subtitle={adminReservasListModal?.subtitle || ""}
         isDark={isDark}
         ui={ui}
+        onReservaCancelada={() => {
+          void loadBase({ quiet: true });
+        }}
       />
 
       <MisReservasQrModal

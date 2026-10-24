@@ -167,8 +167,12 @@ function templateEntradasReservaConfirmada(d: {
   </div>
 
   <div style="margin:16px 0;padding:14px 16px;background:#f8fafc;border-left:4px solid #4f46e5;border-radius:8px;font-size:14px;line-height:1.55;color:#1e293b;">
-    <p style="margin:0 0 14px 0;">Podés <strong>cancelar tus entradas en cualquier momento</strong> o <strong>cambiar la cantidad</strong> desde la aplicación.</p>
-    <a href="${esc(d.linkMisEntradas)}" style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:8px;font-weight:700;font-size:14px;">Gestionar mis entradas</a>
+    <p style="margin:0 0 14px 0;">Podés <strong>cambiar la cantidad</strong> o gestionar tu reserva desde la aplicación.</p>
+    <p style="margin:0 0 12px 0;">
+      <a href="${esc(d.linkMisEntradas)}" style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:8px;font-weight:700;font-size:14px;">Gestionar mis entradas</a>
+    </p>
+    <p style="margin:0 0 10px 0;">Si deseás cancelar tu entrada, presioná aquí:</p>
+    <a href="${esc(d.linkMisEntradas)}" style="display:inline-block;background:#be123c;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:8px;font-weight:700;font-size:14px;">Cancelar mi entrada</a>
   </div>
 
   <p>Adjuntamos un <strong>PDF</strong> con el mismo resumen, el detalle del programa (si aplica), los códigos QR y la misma nota sobre la puntualidad. Podés mostrar en puerta <strong>este correo</strong>, el PDF o los códigos QR de abajo. Cada QR individual sirve para un ingreso; el QR de reserva completa agrupa a todas las entradas pendientes.</p>
