@@ -117,7 +117,7 @@ export default function EntradasAyudaFlotante({
   const funcionLlena = Boolean(selectedFuncion?.llena);
 
   const fabClass =
-    "fixed bottom-3 left-3 z-[90] inline-flex max-w-[calc(100vw-6rem)] items-center gap-2 rounded-full border-2 border-[#0e7490] bg-[#1ebbf0] px-3.5 py-2.5 text-sm font-bold text-white shadow-lg hover:bg-[#0ea5d0] hover:border-[#0c4a6e]";
+    "entradas-ayuda-fab fixed bottom-3 left-3 z-[90] inline-flex max-w-[calc(100vw-6rem)] items-center rounded-full border-2 border-[#0e7490] bg-[#1ebbf0] py-2.5 text-sm font-bold text-white shadow-lg hover:bg-[#0ea5d0] hover:border-[#0c4a6e]";
   const mailtoBtnClass =
     "w-full inline-flex items-center justify-center gap-2 rounded-md bg-[#1ebbf0] px-4 py-3.5 text-base sm:text-lg font-bold text-white no-underline shadow-md hover:bg-[#0ea5d0]";
   const submitBtnClass =
@@ -295,7 +295,7 @@ export default function EntradasAyudaFlotante({
         aria-expanded={open}
       >
         <IconHelpCircle size={20} className="shrink-0" />
-        <span>¿Necesitás ayuda?</span>
+        <span className="entradas-ayuda-fab-label">¿Necesitás ayuda?</span>
       </button>
 
       {open
