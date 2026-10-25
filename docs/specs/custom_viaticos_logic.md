@@ -48,6 +48,7 @@ COMMENT ON COLUMN public.giras_viaticos_config.rendicion_fecha IS 'Fecha límite
   - Fondo **azul** + hint `calc.` + **IconRefresh**: solo si `anticipo_custom` **difiere** del cálculo vivo (cambio de logística o override manual). Refresh → `anticipo_custom = null` (vuelve al automático).
   - Helpers: `anticipoCustomDiffersFromCalc` / `getAnticipoCalculado` en `viaticosAnticipo.js`.
 - Si el usuario edita un monto igual al cálculo vigente (histórico o actual en commit), se normaliza a `null`.
+- [x] **Oficina externa (2026-10-24):** el mismo override en `/viaticos-manual` (Resumen + Subtotal anticipo) y en prefill SCRN (`viaticos_opciones.anticipo_custom` → `ScrnViaticosOpcionesFields`). `/rendiciones-manual` consume el custom sin editarlo.
 
 ### 3.2 Fecha de rendición (`ViaticosManager`)
 

@@ -145,8 +145,8 @@ const PROGRAMAS = [
     num: 3,
     nombre: "Directora mujer: Andrea Vela / Cinthia Aliretti",
     tipo: "Sinfónico",
-    desde: "2027-03-30",
-    hasta: "2027-04-02",
+    desde: "2027-04-07",
+    hasta: "2027-04-10",
     formacion: "Full orquesta",
     director_nota: "Andrea Vela (Ec.) o Cinthia Aliretti (Br.) — a confirmar",
     obras_nota: "A definir",
@@ -157,8 +157,8 @@ const PROGRAMAS = [
     fuentes: FUENTE_FULL,
     personas: [],
     conciertos: [
-      concierto("2027-04-01", "Cipolletti", IDS.Cipolletti, "20:00", "Fecha tentativa"),
-      concierto("2027-04-02", "General Roca", IDS.GeneralRoca, "12:00", "Sábado 12:00 (doc)"),
+      concierto("2027-04-09", "Cipolletti", IDS.Cipolletti, "20:00", "Fecha tentativa"),
+      concierto("2027-04-10", "General Roca", IDS.GeneralRoca, "12:00", "Sábado 12:00"),
     ],
   },
   {

@@ -40,7 +40,7 @@ Menú: **Gestión** (staff: `isAdmin || isEditor` en `App.jsx`), mismo módulo q
 - Clic en fila → modal Portal `z-[100]` con los **mismos chips** que el listado (Fuera / En casa / Conc.ens. / Prest.conc. / Ensayos / PCV / Total / Prest/mes), más desglose de giras, desglose PCV y ensayos.
 - **Ensayos en conflicto en el detalle:** la fila del ensayo lleva color y etiqueta. Pleno pendiente = ámbar «En conflicto» (valor 0, «no suma»; si el conteo lo había omitido, igual aparece en el listado). «Se ensayó igual» = verde. Tutti-N = celeste, solo si esa persona está en el roster de la gira. El PDF de detalle (persona y lote) pinta la fila del mismo color y agrega la etiqueta al texto del evento. El total del resumen no cambia.
 - **Orden / separadores:** `compareInstrumentIds` (mismo sort que Convocatorias). Con «Agrupar por ensambles»: `buildAsistenciaMatrixRowGroups` (encabezados de ensamble tildado completo + «Otros»). Vista Ensambles/Cameratas/Regiones: `filterEnsamblesForConvocatoriaView` / `groupRegionalEnsamblesByRegion`.
-- **Barra superior (escritorio):** el listado arriba y el informe de ensamble abajo. Primera línea: período (Desde, Hasta, Año actual) en un recuadro, Gira, Buscar y Exportar a la derecha. Segunda línea: Agrupar por ensambles y Estimar futuros. Franja índigo: combo (Elegí ensamble / Todos) y Ensayos en conflicto. En el teléfono el conflicto y Exportar siguen en el encabezado del árbol.
+- **Barra superior (escritorio):** pestañas Listado | Proyección (default Proyección). Primera línea: período (Desde, Hasta, Año siguiente) en un recuadro, Gira, Buscar y Exportar. Segunda línea: Agrupar por ensambles y Estimar futuros. Franja índigo: combo ensamble / Ensayos en conflicto.
 
 ## Exportes
 
@@ -75,7 +75,7 @@ Menú: **Gestión** (staff: `isAdmin || isEditor` en `App.jsx`), mismo módulo q
 - Árbol izquierda: **Ninguno** por defecto (como Convocatorias). Catálogo del árbol: `fetchAsistenciaMatrixBaseData` al entrar (igual que el informe de convocatoria).
 - **Eventos + roster no se piden** hasta que hay integrantes seleccionados (`selectedIntegranteIds.size === 0` → empty state, sin `fetchServiciosCantidadPeriod` ni `resolveGiraRosterForMatrix`).
 - Tipos de programa: `TIPOS_PROGRAMA_ASISTENCIA_MATRIZ` (Sinfónico, Camerata Filarmónica, Ensamble, Jazz Band, Comisión). Default: **todos tildados**. El usuario puede destildar.
-- Rango **desde/hasta**: default año calendario (`currentYearBounds`) **cuando corre** el cálculo; el usuario puede cambiarlo. No dispara eventos si nadie está tildado.
+- Rango **desde/hasta**: default **año calendario siguiente** completo (`year+1-01-01` … `year+1-12-31`); botón «Año siguiente» lo restaura. El usuario puede cambiarlo. No dispara eventos si nadie está tildado.
 - Gira opcional: combo sobre programas del catálogo que solapan el rango (`programOverlapsDateRange` `calendarOnly`).
 - Familia de instrumento: join `instrumentos`, no columna en `integrantes`.
 
@@ -86,23 +86,33 @@ Toggle **«Estimar futuros»** (`IconCalculator`, default **ON**). El usuario pu
 ### Pasado vs futuro (calendario del programa)
 
 - **Pasada:** `programas.fecha_hasta` &lt; hoy (`toLocalDateString`). Siempre exacta.
-- **A estimar (toggle ON):** solo programas **`tipo = Sinfónico`** con `fecha_hasta >= hoy` (o sin fin). Incluye giras **en curso y con cronograma ya cargado**: se reemplaza el **bucket entero** de esa gira (ensayos 2/3 + conciertos/didácticos). No se limita a giras sin agenda.
-- **Borrador / CF / jazz / ensamble-gira:** no se estima.
+- **A estimar (toggle ON):** programas **`Sinfónico`** y **`Camerata Filarmónica`** con `fecha_hasta >= hoy` (o sin fin). Incluye giras en curso: se reemplaza el bucket de gira (ensayos 2/3 + conciertos/didácticos).
+- **Jazz / ensamble-gira:** no se estima. Ensayos de ensamble (tipo 13) nunca se pisan.
 
-### Qué pisa el toggle
+### Valor por gira (ya no es un 8 fijo global)
 
-- **Pisa:** conciertos, didácticos y ensayos de gira (tipos 2/3) de cada **sinfónica** futura/en curso en la que el músico está en nómina (counted / R / L). El valor real se descarta y se sustituye por **8** prestaciones (repartido: 1 concierto + 7 ensayos ≥2h de gira).
-- **No pisa:** ensayos de ensamble (tipo 13). Extra de ensamble asociado a una gira (p. ej. Navidad Coral) **queda exacto**.
-- Quién recibe el estimado: misma marca de matriz; el estimado se anota como `counted` (sin R/L).
-- Varias sinfónicas futuras: `N × promedio`.
+Prioridad en `resolveGiraServiciosEstimate` ([`giraProyeccionPcv.js`](../../src/utils/giraProyeccionPcv.js)):
 
-### Promedio fijo
+1. `programas.servicios_estimados` si está seteado (manual, Proyección).
+2. Suma de eventos tipo 1/2/3 ya cargados (concierto 1 / didáctico 0,5; ensayos por duración).
+3. Default **7** (`FIXED_FUTURE_GIRA_SERVICIOS`): 1 concierto + 6 ensayos ≥2h.
 
-- No se calcula la media empírica (antes ~13,26; el fijo anterior era 10). Constante `FIXED_FUTURE_GIRA_SERVICIOS = 8`.
-- UI / PDF / Excel: `promedio 8 prest./gira`.
-- Mezcla interna: 1 concierto + 7 ensayos de gira ≥2h (`FIXED_FUTURE_GIRA_BY_KIND`). Los bloques cortos (15/30 min) no entran; la suma es **8**.
+### Proyección (Prestaciones)
 
-HTML, PDF (listado/detalle/lote) y Excel muestran el 8. El detalle lista filas sintéticas «Estimación» en lugar de los eventos reales de esas giras.
+Subvista **«Proyección»** (default al entrar) junto a Listado ([`PrestacionesProyeccionSandbox.jsx`](../../src/components/management/PrestacionesProyeccionSandbox.jsx)). Toggle **Vista Listado | Proyección** un nivel arriba; en Proyección se ocultan sidebar (tipos/integrantes/ensambles), gira/buscar/agrupar/estimar futuros, barra de informe de ensamble y leyenda de listado — solo quedan fechas + contenido de proyección. Rango de fechas por defecto = **año calendario siguiente** completo:
+
+- Por gira Sinf/CF: columnas **F. inicio / H. inicio / F. fin / H. fin** (doble clic) + **Serv.** + **Feriados** (días feriado/no laborable/domingo con ensayo o concierto tipos 1/2/3/13); luego **una columna por ensamble regional**, agrupadas bajo encabezado de CF (CFMar / CFMon / CFVal).
+- Celda gira×ensamble: vacía si no convocado; **L** si local; número de **PCV** (días) si fuera. Casa = `ensambles.id_localidad` vs sedes/tramos de la gira (`classifyProgramaEnsambleConvocatoria` + `giraTramoPesos` + `estimatePcvFromFueraSegs`).
+- Precarga horaria 15:00 / 23|14. Override manual (**M**) con `IconRefresh` al lado.
+- **IconEdit** abre [`GiraForm`](../../src/views/Giras/GiraForm.jsx) (horas proyección + prestaciones manuales) vía portal.
+- Filas coloreadas con `getProgramTypeColor` / `PROGRAM_TYPES`.
+- Export **PDF informe** / **Excel informe** = informe planificación ensambles 2027 (mail CLI).
+- **PCV con tramos empalmados:** salen de casa hacia el **primer** tramo fuera; vuelven desde el **último** tramo fuera (`estimatePcvFromFueraSegs` / `estimatePcvWindow` con `destBackLocId`). No se cuenta una ida/vuelta por cada tramo. Un tramo cuya localía es la casa propia corta el viaje y abre otro. Demoras: `gira_demoras_localidad`; sin tramo → fallback 6h en la nota.
+- **Demoras** en modal Portal `z-[100]` ([`DemorasLocalidadModal.jsx`](../../src/components/management/DemorasLocalidadModal.jsx)): se elige una localidad y se listan / editan / agregan conexiones desde o hacia ella (`gira_demoras_localidad`, minutos). Alerta si faltan pares usados por PCV en la temporada o localidades de giras sin ningún tramo (`findMissingDemorasTemporada`). Botón **Demoras** en la barra (badge si hay faltantes).
+- Donde estaba la tabla de demoras: **selector de ensamble** + detalle vivo ([`EnsambleProyeccionDetalle.jsx`](../../src/components/management/EnsambleProyeccionDetalle.jsx)) alineado a las hojas individuales del PDF/Excel (resumen, giras en casa, fuera+franja PCV, feriados).
+- **Plantilla semanal de ensayos** editable por ensamble (`ensamble_proyeccion_ensayos`: `iso_dow`, horas, `id_locacion` → sede, título). Seed desde eventos tipo 13 de la semana 26/10–01/11/2026 (`eventos.id_locacion`). Se proyecta lunes 01/02/2027 → lunes 13/12/2027; Ens. netos = brutos − conflictos con giras convocadas ([`EnsambleProyeccionEnsayosEditor.jsx`](../../src/components/management/EnsambleProyeccionEnsayosEditor.jsx), [`ensambleProyeccionEnsayos.js`](../../src/utils/ensambleProyeccionEnsayos.js)). El informe PDF/Excel lee esta tabla.
+
+Migraciones: `20261024200000_gira_proyeccion_sandbox.sql`, `20261024210000_gira_demoras_localidad.sql`, `20261024220000_gira_demoras_todas_localidades_hub.sql`, `20261025200000_ensamble_proyeccion_ensayos.sql`, `20261025210000_ensamble_proyeccion_ensayos_locacion.sql`.
 
 ### Exportar y móvil
 

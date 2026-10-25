@@ -305,6 +305,7 @@ export const fetchAsistenciaMatrixBaseData = async (supabase) => {
       .from("programas")
       .select(
         `id, nomenclador, mes_letra, nombre_gira, subtitulo, tipo, fecha_desde, fecha_hasta, zona, estado,
+        hora_inicio_proyeccion, hora_fin_proyeccion, servicios_estimados,
         giras_fuentes ( id, tipo, valor_id, valor_texto ),
         giras_localidades ( localidades ( localidad ) )`,
       )

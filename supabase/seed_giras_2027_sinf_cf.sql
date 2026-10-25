@@ -123,8 +123,8 @@ BEGIN
     nombre_gira, fecha_desde, fecha_hasta, tipo, zona, estado, subtitulo
   ) VALUES (
     'Directora mujer: Andrea Vela / Cinthia Aliretti',
-    '2027-03-30'::date,
-    '2027-04-02'::date,
+    '2027-04-07'::date,
+    '2027-04-10'::date,
     'Sinfónico'::tipo_programa,
     'Valle',
     'Borrador'::estado_gira,
@@ -146,11 +146,11 @@ BEGIN
   ) VALUES (
     v_gid,
     1,
-    '2027-04-01'::date,
+    '2027-04-09'::date,
     '20:00'::time,
     '21:30'::time,
     'Concierto Principal',
-    'Fecha tentativa',
+    'Cipolletti 20:00 (fecha tentativa)',
     false,
     true,
     false
@@ -161,11 +161,11 @@ BEGIN
   ) VALUES (
     v_gid,
     1,
-    '2027-04-02'::date,
+    '2027-04-10'::date,
     '12:00'::time,
     '13:30'::time,
     'Concierto Principal',
-    'Sábado 12:00 (doc)',
+    'General Roca sábado 12:00',
     false,
     true,
     false

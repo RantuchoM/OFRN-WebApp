@@ -61,6 +61,7 @@ const IN_CHUNK = 200;
 const ROSTER_CONCURRENCY = 8;
 
 const PROGRAMAS_FUENTES_SELECT = `id, nomenclador, mes_letra, nombre_gira, subtitulo, tipo, fecha_desde, fecha_hasta, zona, estado,
+            hora_inicio_proyeccion, hora_fin_proyeccion, servicios_estimados,
             giras_fuentes ( id, tipo, valor_id, valor_texto )`;
 
 const EVENT_SELECT = `
@@ -815,6 +816,7 @@ export function buildServiciosComputeContext({
   estimarFuturos = false,
   estimableGiraIds = null,
   giraAverage = null,
+  giraEstimateById = null,
   programasById = null,
   pendingConflictoEventIds = null,
   prestacionesMetaByIntegranteId = null,
@@ -834,6 +836,8 @@ export function buildServiciosComputeContext({
     estimarFuturos: Boolean(estimarFuturos),
     estimableGiraIds: estimableGiraIds instanceof Set ? estimableGiraIds : new Set(),
     giraAverage: giraAverage || null,
+    giraEstimateById:
+      giraEstimateById instanceof Map ? giraEstimateById : new Map(),
     programasById: programasById || new Map(),
     pendingConflictoEventIds:
       pendingConflictoEventIds instanceof Set

@@ -79,7 +79,7 @@ export default function RangosValorDiario({
           </div>
         );
       })}
-      {soloDinero || (showTotal && !soloTarifa) ? (
+      {showTotal && (soloDinero || !soloTarifa) ? (
         <div className="flex items-center justify-between gap-3 border-t border-slate-200 pt-2 text-[11px] text-slate-600">
           <span className="font-bold text-slate-700">
             {soloDinero ? "Viáticos anticipados" : (

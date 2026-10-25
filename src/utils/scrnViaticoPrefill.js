@@ -4,6 +4,8 @@ import { VIATICO_GASTO_KEYS as GASTO_KEYS } from "./viaticosManualStorage";
 export const EMPTY_VIATICOS_OPCIONES = {
   porcentaje: 100,
   temporada_alta: false,
+  /** null = automático en la planilla; número = override (incluye 0). */
+  anticipo_custom: null,
   ...Object.fromEntries(GASTO_KEYS.map((key) => [key, 0])),
 };
 
@@ -13,7 +15,16 @@ const toNumber = (v) => {
   return Number.isFinite(n) ? n : 0;
 };
 
+const round2 = (num) => Math.round((Number(num || 0) + Number.EPSILON) * 100) / 100;
+
 const hasText = (v) => String(v ?? "").trim() !== "";
+
+/** Parsea anticipo_custom: null si vacío; número (incluye 0) si viene informado. */
+export function parseOpcionesAnticipoCustom(raw) {
+  if (raw == null || raw === "") return null;
+  const n = parseFloat(String(raw).replace(",", "."));
+  return Number.isFinite(n) ? round2(n) : null;
+}
 
 export function normalizeViaticosOpciones(raw) {
   const base = { ...EMPTY_VIATICOS_OPCIONES };
@@ -23,6 +34,7 @@ export function normalizeViaticosOpciones(raw) {
   if ([100, 80, 0].includes(pct)) base.porcentaje = pct;
 
   base.temporada_alta = Boolean(raw.temporada_alta);
+  base.anticipo_custom = parseOpcionesAnticipoCustom(raw.anticipo_custom);
 
   for (const key of GASTO_KEYS) {
     base[key] = toNumber(raw[key]);
@@ -157,6 +169,7 @@ export function buildScrnViaticoPrefill({
 
     porcentaje: opciones.porcentaje,
     temporada_alta: opciones.temporada_alta,
+    anticipo_custom: opciones.anticipo_custom,
 
     check_terrestre: true,
     check_patente_oficial: Boolean(patente),

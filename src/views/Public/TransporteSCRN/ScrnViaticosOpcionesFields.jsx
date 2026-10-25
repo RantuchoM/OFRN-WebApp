@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import ArsAmountInput from "../../../components/viaticos/ArsAmountInput";
+import { IconRefresh } from "../../../components/ui/Icons";
 import {
   EMPTY_VIATICOS_OPCIONES,
   normalizeViaticosOpciones,
@@ -31,6 +32,7 @@ export default function ScrnViaticosOpcionesFields({
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const opts = normalizeViaticosOpciones(value);
+  const hasAnticipoCustom = opts.anticipo_custom != null;
 
   const patch = (partial) => {
     onChange?.(normalizeViaticosOpciones({ ...opts, ...partial }));
@@ -98,6 +100,39 @@ export default function ScrnViaticosOpcionesFields({
                 <span className="text-xs font-semibold">Temporada alta (+30%)</span>
               </label>
             </div>
+          </div>
+
+          <div className="space-y-1">
+            <div className="flex items-center justify-between gap-2">
+              <label className={lbl} htmlFor="scrn-viatico-anticipo_custom">
+                Anticipo de viáticos
+              </label>
+              {hasAnticipoCustom ? (
+                <button
+                  type="button"
+                  title="Volver al cálculo automático en la planilla"
+                  className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-slate-500 hover:text-emerald-600"
+                  onClick={() => patch({ anticipo_custom: null })}
+                >
+                  <IconRefresh size={10} />
+                  Automático
+                </button>
+              ) : null}
+            </div>
+            <ArsAmountInput
+              id="scrn-viatico-anticipo_custom"
+              value={opts.anticipo_custom}
+              allowEmpty
+              emptyValue={null}
+              onValueChange={(n) => patch({ anticipo_custom: n })}
+              className={`${inp} ${
+                hasAnticipoCustom ? "bg-blue-50 border-blue-200 text-blue-900" : ""
+              }`}
+              placeholder="Automático (cálculo en planilla)"
+            />
+            <p className="text-[10px] text-slate-500 leading-snug">
+              Vacío = se calcula en la planilla. Cargá el monto pagado (o $0 si no hubo anticipo).
+            </p>
           </div>
 
           <div className={`grid gap-2 ${compact ? "grid-cols-1" : "sm:grid-cols-2"}`}>

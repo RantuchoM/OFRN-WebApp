@@ -747,6 +747,14 @@ export default function GirasView({ supabase, trigger = 0 }) {
       subtitulo: gira.subtitulo || "",
       fecha_desde: gira.fecha_desde || "",
       fecha_hasta: gira.fecha_hasta || "",
+      hora_inicio_proyeccion: gira.hora_inicio_proyeccion
+        ? String(gira.hora_inicio_proyeccion).slice(0, 5)
+        : "",
+      hora_fin_proyeccion: gira.hora_fin_proyeccion
+        ? String(gira.hora_fin_proyeccion).slice(0, 5)
+        : "",
+      servicios_estimados:
+        gira.servicios_estimados != null ? gira.servicios_estimados : null,
       tipo: gira.tipo || "Sinfónico",
       zona: gira.zona || "",
       token_publico: gira.token_publico || "",
@@ -990,6 +998,17 @@ export default function GirasView({ supabase, trigger = 0 }) {
       subtitulo: formData.subtitulo?.trim() || null,
       fecha_desde: formData.fecha_desde || null,
       fecha_hasta: formData.fecha_hasta || null,
+      hora_inicio_proyeccion: formData.hora_inicio_proyeccion
+        ? String(formData.hora_inicio_proyeccion).slice(0, 5)
+        : null,
+      hora_fin_proyeccion: formData.hora_fin_proyeccion
+        ? String(formData.hora_fin_proyeccion).slice(0, 5)
+        : null,
+      servicios_estimados:
+        formData.servicios_estimados === "" ||
+        formData.servicios_estimados == null
+          ? null
+          : Number(formData.servicios_estimados),
       tipo: formData.tipo || "Sinfónico",
       zona: formData.zona?.trim() || null,
       token_publico: formData.token_publico || null,
@@ -1330,6 +1349,9 @@ export default function GirasView({ supabase, trigger = 0 }) {
       subtitulo: "",
       fecha_desde: "",
       fecha_hasta: "",
+      hora_inicio_proyeccion: "",
+      hora_fin_proyeccion: "",
+      servicios_estimados: null,
       tipo: "Sinfónico",
       zona: "",
       otros_comentarios: "",
@@ -2000,6 +2022,9 @@ export default function GirasView({ supabase, trigger = 0 }) {
                           subtitulo: "",
                           fecha_desde: "",
                           fecha_hasta: "",
+                          hora_inicio_proyeccion: "",
+                          hora_fin_proyeccion: "",
+                          servicios_estimados: null,
                           // 2. FORZAR TIPO
                           tipo: isCoordinator
                             ? "Ensamble"

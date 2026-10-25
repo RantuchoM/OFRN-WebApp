@@ -115,6 +115,20 @@ CREATE TABLE public.ensambles_cf (
   CONSTRAINT ensambles_cf_id_ensamble_fkey FOREIGN KEY (id_ensamble) REFERENCES public.ensambles(id),
   CONSTRAINT ensambles_cf_id_ensamble_cf_fkey FOREIGN KEY (id_ensamble_cf) REFERENCES public.ensambles(id)
 );
+CREATE TABLE public.ensamble_proyeccion_ensayos (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  id_ensamble bigint NOT NULL,
+  iso_dow smallint NOT NULL,
+  hora_inicio time without time zone NOT NULL,
+  hora_fin time without time zone NOT NULL,
+  id_locacion bigint,
+  titulo text,
+  activo boolean NOT NULL DEFAULT true,
+  CONSTRAINT ensamble_proyeccion_ensayos_pkey PRIMARY KEY (id),
+  CONSTRAINT ensamble_proyeccion_ensayos_id_ensamble_fkey FOREIGN KEY (id_ensamble) REFERENCES public.ensambles(id),
+  CONSTRAINT ensamble_proyeccion_ensayos_id_locacion_fkey FOREIGN KEY (id_locacion) REFERENCES public.locaciones(id),
+  CONSTRAINT ensamble_proyeccion_ensayos_horas_chk CHECK (hora_fin > hora_inicio)
+);
 CREATE TABLE public.programas_ensamble_drive_shortcuts (
   id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
   id_programa bigint NOT NULL,
@@ -905,9 +919,29 @@ CREATE TABLE public.localidades (
   created_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
   id_provincia integer,
   cp text,
+  hub text,
   CONSTRAINT localidades_pkey PRIMARY KEY (id),
   CONSTRAINT localidades_id_region_fkey FOREIGN KEY (id_region) REFERENCES public.regiones(id),
   CONSTRAINT localidades_id_provincia_fkey FOREIGN KEY (id_provincia) REFERENCES public.provincias(id)
+);
+CREATE TABLE public.gira_demoras_hub (
+  hub_origen text NOT NULL,
+  hub_destino text NOT NULL,
+  minutos integer NOT NULL DEFAULT 0,
+  modo_salida text NOT NULL DEFAULT 'morning'::text,
+  hora_salida_default time without time zone,
+  lead_min integer,
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT gira_demoras_hub_pkey PRIMARY KEY (hub_origen, hub_destino)
+);
+CREATE TABLE public.gira_demoras_localidad (
+  id_localidad_origen integer NOT NULL,
+  id_localidad_destino integer NOT NULL,
+  minutos integer NOT NULL DEFAULT 0,
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT gira_demoras_localidad_pkey PRIMARY KEY (id_localidad_origen, id_localidad_destino),
+  CONSTRAINT gira_demoras_localidad_id_localidad_origen_fkey FOREIGN KEY (id_localidad_origen) REFERENCES public.localidades(id) ON DELETE CASCADE,
+  CONSTRAINT gira_demoras_localidad_id_localidad_destino_fkey FOREIGN KEY (id_localidad_destino) REFERENCES public.localidades(id) ON DELETE CASCADE
 );
 CREATE TABLE public.logos_generales (
   id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
@@ -1065,6 +1099,9 @@ CREATE TABLE public.programas (
   notificaciones_habilitadas boolean DEFAULT true,
   organico_revisado boolean DEFAULT false,
   organico_comentario text,
+  hora_inicio_proyeccion time without time zone,
+  hora_fin_proyeccion time without time zone,
+  servicios_estimados numeric,
   CONSTRAINT programas_pkey PRIMARY KEY (id)
 );
 CREATE TABLE public.programas_agenda_comidas (

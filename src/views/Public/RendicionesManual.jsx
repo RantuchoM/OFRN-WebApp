@@ -130,6 +130,7 @@ const parseCsv = (text) => {
 };
 
 import { calcDevolucionReintegro } from "../../utils/rendicionDiff";
+import { parseAnticipoCustom } from "../../utils/viaticosAnticipo";
 
 const DEFAULT_BASE = {
   apellido: "",
@@ -231,13 +232,23 @@ export default function RendicionesManual() {
     email: profile?.email || session?.user?.email,
   });
 
-  const computeDefaultAnt = (b) => {
+  /** Anticipo de viáticos: `anticipo_custom` si hay; si no, subtotal calculado. */
+  const resolveAnticipoViaticos = (b, calcSubtotal = null) => {
+    const custom = parseAnticipoCustom(b);
+    if (custom != null) return custom;
+    if (calcSubtotal != null && Number.isFinite(Number(calcSubtotal))) {
+      return round2(toNumber(calcSubtotal));
+    }
+    if (b?.subtotal != null && b.subtotal !== "") return round2(toNumber(b.subtotal));
     const dias = toNumber(b?.dias_computables);
     const vd = toNumber(b?.valorDiarioCalc || b?.valor_diario_base);
+    return round2(dias * vd);
+  };
+
+  const computeDefaultAnt = (b) => {
     return {
-      // Viáticos anticipados: el subtotal calculado (no se edita).
-      rendicion_viaticos:
-        b?.subtotal != null && b.subtotal !== "" ? toNumber(b.subtotal) : dias * vd,
+      // Viáticos anticipados: custom o subtotal (no se edita en esta vista).
+      rendicion_viaticos: resolveAnticipoViaticos(b),
       rendicion_gasto_alojamiento: toNumber(b?.gasto_alojamiento),
       rendicion_transporte_otros: toNumber(
         b?.gasto_pasajes || b?.gastos_movilidad,
@@ -339,12 +350,13 @@ export default function RendicionesManual() {
     });
   }, [dias_computables, valorDiarioCalc, subtotal, factor_temporada]);
 
-  // El anticipo de viáticos no se edita: siempre es el subtotal de los datos cargados.
+  // El anticipo de viáticos no se edita acá: custom de la planilla o subtotal calculado.
   useEffect(() => {
-    const computed = round2(toNumber(subtotal));
+    const computed = resolveAnticipoViaticos(base, subtotal);
     const waitingHistorial =
       vigenciasLoading &&
       computed <= 0 &&
+      !parseAnticipoCustom(base) &&
       tieneFechasViatico(base?.fecha_salida, base?.fecha_llegada);
     if (waitingHistorial) return;
 
@@ -359,6 +371,7 @@ export default function RendicionesManual() {
       return { ...rest, rendicion_viaticos: computed };
     });
   }, [
+    base?.anticipo_custom,
     base?.fecha_llegada,
     base?.fecha_salida,
     subtotal,
@@ -483,7 +496,7 @@ export default function RendicionesManual() {
     ];
   }, []);
 
-  const viaticosAnticipo = round2(toNumber(subtotal));
+  const viaticosAnticipo = resolveAnticipoViaticos(base, subtotal);
 
   const totals = useMemo(() => {
     const totalAnt =
@@ -692,10 +705,7 @@ export default function RendicionesManual() {
       const nextBase = { ...DEFAULT_BASE, ...datos };
       const nextAnt = {
         ...(datos?.manual_rendicion?.ant || computeDefaultAnt(nextBase)),
-        rendicion_viaticos:
-          nextBase.subtotal != null && nextBase.subtotal !== ""
-            ? toNumber(nextBase.subtotal)
-            : computeDefaultAnt(nextBase).rendicion_viaticos,
+        rendicion_viaticos: resolveAnticipoViaticos(nextBase),
       };
       delete nextAnt.viaticos_manual;
       const nextRend = datos?.manual_rendicion?.rend || { ...ZERO_REND };
@@ -784,6 +794,13 @@ export default function RendicionesManual() {
         ).toLowerCase() === "true" ||
         String(get("temporada_alta") || "").trim() === "1",
       subtotal: toNumber(get("subtotal") || base.subtotal),
+      anticipo_custom: (() => {
+        if (!has("anticipo_custom")) return base.anticipo_custom ?? null;
+        const raw = get("anticipo_custom");
+        if (raw === "" || raw == null) return null;
+        const n = parseFloat(String(raw).replace(",", "."));
+        return Number.isFinite(n) ? round2(n) : base.anticipo_custom ?? null;
+      })(),
       gasto_alojamiento: toNumber(
         get("gasto_alojamiento") || base.gasto_alojamiento,
       ),
@@ -810,7 +827,7 @@ export default function RendicionesManual() {
     setBase(merged);
     const nextAnt = has("ant_rendicion_viaticos")
       ? {
-          rendicion_viaticos: round2(toNumber(subtotal)),
+          rendicion_viaticos: resolveAnticipoViaticos(merged),
           rendicion_gasto_alojamiento: get("ant_rendicion_gasto_alojamiento"),
           rendicion_transporte_otros: get("ant_rendicion_transporte_otros"),
           rendicion_gasto_combustible: get("ant_rendicion_gasto_combustible"),

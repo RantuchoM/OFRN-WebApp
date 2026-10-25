@@ -44,8 +44,10 @@ import {
 } from "../../services/serviciosCantidadService";
 import { buildAsistenciaMatrixRowGroups } from "../../utils/asistenciaMatrixExport";
 import { saveBlobFile } from "../../utils/downloadBlob";
+import PrestacionesProyeccionSandbox from "../../components/management/PrestacionesProyeccionSandbox";
 import EnsambleServiciosModal from "./EnsambleServiciosModal";
 import EnsayosConflictoModal from "./EnsayosConflictoModal";
+import { resolveGiraServiciosEstimate } from "../../utils/giraProyeccionPcv";
 import {
   CONVOCATORIA_ENSAMBLE_VIEW_MODES,
   CONVOCATORIA_VIEW_SECTION_TITLES,
@@ -108,9 +110,11 @@ function createEmptySelectionByMode() {
   };
 }
 
+/** Año calendario siguiente completo (proyección de planificación). */
 function yearDefaultRange() {
   const b = currentYearBounds();
-  return { fechaDesde: b.desde, fechaHasta: b.hasta };
+  const y = b.year + 1;
+  return { fechaDesde: `${y}-01-01`, fechaHasta: `${y}-12-31` };
 }
 
 /** Misma ordenación que Gestión → Convocatorias. */
@@ -939,6 +943,8 @@ export default function ServiciosCantidadReport({ supabase }) {
     ENSAYO_COLUMN_VIEWS.origen,
   );
   const [estimarFuturos, setEstimarFuturos] = useState(true);
+  /** listado | sandbox — proyección editable de giras / demoras */
+  const [panelMode, setPanelMode] = useState("sandbox");
   const [selectedTypes, setSelectedTypes] = useState(
     () => new Set(TIPOS_PROGRAMA_ASISTENCIA_MATRIZ),
   );
@@ -1337,14 +1343,63 @@ export default function ServiciosCantidadReport({ supabase }) {
         today: toLocalDateString(),
         selectedTypes,
         giraIdFilter: giraId || null,
+        onlySinfonico: true,
       }).map((p) => Number(p.id)),
     );
   }, [estimarFuturos, filteredProgramas, selectedTypes, giraId]);
 
+  /** Estimación por gira (servicios_estimados / eventos / default 7). */
+  const giraEstimateById = useMemo(() => {
+    const map = new Map();
+    if (!estimarFuturos) return map;
+    const eventsByGira = new Map();
+    for (const evt of events || []) {
+      if (evt?.id_gira == null) continue;
+      const gid = Number(evt.id_gira);
+      if (!eventsByGira.has(gid)) eventsByGira.set(gid, []);
+      eventsByGira.get(gid).push(evt);
+    }
+    for (const id of estimableGiraIds) {
+      const prog =
+        programasById.get?.(id) ||
+        programasById.get?.(Number(id)) ||
+        filteredProgramas.find((p) => Number(p.id) === Number(id));
+      if (!prog) continue;
+      if (
+        prog.tipo !== "Sinfónico" &&
+        prog.tipo !== "Camerata Filarmónica"
+      ) {
+        continue;
+      }
+      const est = resolveGiraServiciosEstimate(
+        prog,
+        eventsByGira.get(Number(id)) || [],
+      );
+      const byKind = est.byKind || {
+        concierto: 1,
+        didactico: 0,
+        ensayo_gira_full: Math.max(0, Number(est.value) - 1),
+        ensayo_gira_half: 0,
+      };
+      map.set(Number(id), {
+        mean: est.value,
+        byKind,
+        source: est.source,
+      });
+    }
+    return map;
+  }, [
+    estimarFuturos,
+    estimableGiraIds,
+    events,
+    programasById,
+    filteredProgramas,
+  ]);
+
   const estimateNote = useMemo(() => {
     if (!estimarFuturos) return "";
-    return `Estimar futuros · ${formatGiraAveragePlain(giraAverage)}`;
-  }, [estimarFuturos, giraAverage]);
+    return `Estimar futuros · por gira (default ${FIXED_FUTURE_GIRA_SERVICIOS}; override en Proyección)`;
+  }, [estimarFuturos]);
 
   const pendingConflictoEventIds = useMemo(
     () => pendingFullConflictoEventIdSet(conflictoGroups),
@@ -1434,6 +1489,7 @@ export default function ServiciosCantidadReport({ supabase }) {
         estimarFuturos,
         estimableGiraIds,
         giraAverage,
+        giraEstimateById,
         programasById,
         pendingConflictoEventIds,
         prestacionesMetaByIntegranteId,
@@ -1452,6 +1508,7 @@ export default function ServiciosCantidadReport({ supabase }) {
       estimarFuturos,
       estimableGiraIds,
       giraAverage,
+      giraEstimateById,
       programasById,
       pendingConflictoEventIds,
       prestacionesMetaByIntegranteId,
@@ -2113,8 +2170,41 @@ export default function ServiciosCantidadReport({ supabase }) {
     );
   }
 
+  const isProyeccion = panelMode === "sandbox";
+
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-y-contain pb-8 [-webkit-overflow-scrolling:touch] lg:flex-row lg:overflow-hidden lg:pb-0">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-y-contain pb-8 [-webkit-overflow-scrolling:touch] lg:overflow-hidden lg:pb-0">
+      <div className="flex shrink-0 flex-wrap items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-2">
+        <span className="mr-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+          Vista
+        </span>
+        <button
+          type="button"
+          onClick={() => setPanelMode("listado")}
+          className={`rounded-md px-2.5 py-1 text-[11px] font-bold ${
+            panelMode === "listado"
+              ? "bg-indigo-600 text-white"
+              : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+          }`}
+        >
+          Listado
+        </button>
+        <button
+          type="button"
+          onClick={() => setPanelMode("sandbox")}
+          className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-bold ${
+            isProyeccion
+              ? "bg-orange-600 text-white"
+              : "bg-orange-50 text-orange-800 hover:bg-orange-100"
+          }`}
+        >
+          <IconCalculator size={13} />
+          Proyección
+        </button>
+      </div>
+
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 lg:flex-row lg:overflow-hidden">
+      {!isProyeccion ? (
       <aside className="flex w-full shrink-0 flex-col rounded-lg border border-slate-200 bg-white lg:min-h-0 lg:w-72 lg:self-stretch lg:overflow-hidden">
         <div className="shrink-0 border-b border-slate-100 px-3 py-2">
           <h3 className="mb-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">
@@ -2317,6 +2407,7 @@ export default function ServiciosCantidadReport({ supabase }) {
             : visibleEnsamblesForView.map((en) => renderEnsambleNode(en))}
         </div>
       </aside>
+      ) : null}
 
       <div className="flex min-w-0 shrink-0 flex-col rounded-lg border border-slate-200 bg-white lg:min-h-0 lg:flex-1 lg:shrink lg:overflow-hidden">
         <div className="sticky top-0 z-[4] border-b border-slate-100 bg-white lg:static">
@@ -2343,12 +2434,14 @@ export default function ServiciosCantidadReport({ supabase }) {
                 type="button"
                 onClick={resetYear}
                 className="mb-px inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[11px] font-bold text-slate-600 hover:border-slate-300"
-                title="Rango = año calendario en curso"
+                title="Rango = año calendario siguiente completo"
               >
                 <IconRefresh size={14} />
-                Año actual
+                Año siguiente
               </button>
             </div>
+            {!isProyeccion ? (
+              <>
             <label className="min-w-[9rem] flex-1">
               <span className="mb-1 block text-[10px] font-bold uppercase text-slate-400">
                 Gira
@@ -2392,7 +2485,10 @@ export default function ServiciosCantidadReport({ supabase }) {
                 onExcel={handleExportExcel}
               />
             </div>
+              </>
+            ) : null}
             </div>
+            {!isProyeccion ? (
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
               <label className="inline-flex cursor-pointer items-center gap-1.5 text-[11px] font-medium text-slate-600">
                 <input
@@ -2405,7 +2501,7 @@ export default function ServiciosCantidadReport({ supabase }) {
               </label>
               <label
                 className="inline-flex cursor-pointer items-center gap-1.5 text-[11px] font-medium text-slate-600"
-                title={`Giras sinfónicas con fecha_hasta de hoy en adelante: reemplaza ensayos de gira y conciertos por ${FIXED_FUTURE_GIRA_SERVICIOS} prestaciones. Ensamble queda exacto.`}
+                title={`Giras Sinf/CF con fecha_hasta de hoy en adelante: reemplaza ensayos/conciertos de gira por servicios estimados (default ${FIXED_FUTURE_GIRA_SERVICIOS}; editable en Proyección). Ensamble queda exacto.`}
               >
                 <input
                   type="checkbox"
@@ -2427,7 +2523,9 @@ export default function ServiciosCantidadReport({ supabase }) {
                 </button>
               )}
             </div>
+            ) : null}
           </div>
+          {!isProyeccion ? (
           <div className="flex flex-wrap items-center gap-2 border-t border-indigo-100 bg-indigo-50/60 px-3 py-1.5">
             <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-indigo-700">
               <IconMusic size={13} />
@@ -2460,8 +2558,10 @@ export default function ServiciosCantidadReport({ supabase }) {
               Ensayos en conflicto
             </button>
           </div>
+          ) : null}
         </div>
 
+        {!isProyeccion ? (
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-50 px-3 py-1.5 text-[11px] text-slate-500">
           <span>
             {!hasSelection
@@ -2494,9 +2594,18 @@ export default function ServiciosCantidadReport({ supabase }) {
             Tocá una persona para el resumen. Deslizá para ver el resto.
           </span>
         </div>
+        ) : null}
 
         <div className="max-h-[68vh] min-h-[14rem] overflow-auto overscroll-contain [-webkit-overflow-scrolling:touch] lg:max-h-none lg:min-h-0 lg:flex-1">
-          {!hasSelection ? (
+          {isProyeccion ? (
+            <div className="p-3">
+              <PrestacionesProyeccionSandbox
+                supabase={supabase}
+                fechaDesde={fechaDesde}
+                fechaHasta={fechaHasta}
+              />
+            </div>
+          ) : !hasSelection ? (
             <div className="flex h-full items-center justify-center p-8 text-center text-sm text-slate-400">
               No hay músicos seleccionados. Elegí ensambles o pulsá Todos.
             </div>
@@ -2733,6 +2842,7 @@ export default function ServiciosCantidadReport({ supabase }) {
             </>
           )}
         </div>
+      </div>
       </div>
 
       {detalleIntegrante && (

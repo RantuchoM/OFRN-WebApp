@@ -36,6 +36,7 @@ Sección pública para la gestión de flota y solicitudes de transporte de pasaj
 {
   "porcentaje": 100,
   "temporada_alta": false,
+  "anticipo_custom": null,
   "gasto_alojamiento": 0,
   "gasto_pasajes": 0,
   "gasto_combustible": 0,
@@ -45,6 +46,7 @@ Sección pública para la gestión de flota y solicitudes de transporte de pasaj
   "gasto_ceremonial": 0
 }
 ```
+- [x] **`anticipo_custom`** (nullable): si es número (incluye `0`), precompleta el anticipo en `/viaticos-manual`; si es `null`/vacío, la planilla calcula solo. UI en `ScrnViaticosOpcionesFields` (placeholder «Automático», botón volver a automático).
 
 ### Utilidades
 - `src/utils/scrnViaticoPrefill.js` — mapeo recorrido → campos de viático manual.

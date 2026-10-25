@@ -276,27 +276,63 @@ export function formatTramoShareLabel(parte, total) {
  */
 export function giraTramoPesos(program, ensamble) {
   const home = Number(ensamble?.id_localidad ?? ensamble?.localidades?.id);
-  const withLocs = [...(program?.giras_tramo_segmentos || [])]
-    .sort((a, b) => Number(a?.indice) - Number(b?.indice))
-    .map((seg) => segmentLocalidadIds(seg))
-    .filter((ids) => ids.length > 0);
+  const segs = [...(program?.giras_tramo_segmentos || [])].sort(
+    (a, b) => Number(a?.indice) - Number(b?.indice),
+  );
+  const withLocs = segs
+    .map((seg) => ({ seg, ids: segmentLocalidadIds(seg) }))
+    .filter((x) => x.ids.length > 0);
 
-  const whole = (fuera) =>
-    fuera
-      ? { tramoCount: 1, tramosFuera: 1, pesoEnCasa: 0, pesoFuera: 1 }
-      : { tramoCount: 1, tramosFuera: 0, pesoEnCasa: 1, pesoFuera: 0 };
+  const whole = (fuera) => {
+    const fueraSegs = fuera
+      ? [
+          {
+            fecha_desde: program?.fecha_desde,
+            fecha_hasta: program?.fecha_hasta || program?.fecha_desde,
+            localidad_ids: programLocalidadIds(program),
+          },
+        ]
+      : [];
+    return fuera
+      ? {
+          tramoCount: 1,
+          tramosFuera: 1,
+          pesoEnCasa: 0,
+          pesoFuera: 1,
+          fueraSegs,
+        }
+      : {
+          tramoCount: 1,
+          tramosFuera: 0,
+          pesoEnCasa: 1,
+          pesoFuera: 0,
+          fueraSegs: [],
+        };
+  };
 
   if (withLocs.length < 2 || !Number.isFinite(home) || home <= 0) {
     return whole(isGiraFueraDeCasa(program, ensamble));
   }
 
   const tramoCount = withLocs.length;
-  const tramosFuera = withLocs.filter((ids) => !ids.includes(home)).length;
+  const fueraSegs = [];
+  let tramosFuera = 0;
+  for (const { seg, ids } of withLocs) {
+    if (ids.includes(home)) continue;
+    tramosFuera += 1;
+    fueraSegs.push({
+      fecha_desde: seg?.fecha_desde || program?.fecha_desde,
+      fecha_hasta: seg?.fecha_hasta || program?.fecha_hasta || program?.fecha_desde,
+      localidad_ids: ids,
+      indice: seg?.indice,
+    });
+  }
   return {
     tramoCount,
     tramosFuera,
     pesoEnCasa: (tramoCount - tramosFuera) / tramoCount,
     pesoFuera: tramosFuera / tramoCount,
+    fueraSegs,
   };
 }
 

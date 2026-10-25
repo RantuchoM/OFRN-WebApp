@@ -52,9 +52,14 @@ import {
   writeViaticoToStorage,
 } from "../../utils/viaticosManualStorage";
 import {
+  anticipoCustomDiffersFromCalc,
+  parseAnticipoCustom,
+} from "../../utils/viaticosAnticipo";
+import {
   IconCalculator,
   IconFileDownload,
   IconHistory,
+  IconRefresh,
   IconTrash,
 } from "../../components/ui/Icons";
 
@@ -157,6 +162,8 @@ const DEFAULT_FORM = {
   valor_diario_base: 0, // debe iniciar en 0
   temporada_alta: false, // +30%
   porcentaje: 100,
+  /** Override del anticipo calculado (null = automático). */
+  anticipo_custom: null,
 
   // Transporte (checks + detalles)
   check_aereo: false,
@@ -320,6 +327,16 @@ export default function ViaticosManual() {
   const subtotal = calcFinanciero.subtotal;
   const segmentosValor = calcFinanciero.segmentos;
 
+  const anticipoEfectivo = useMemo(() => {
+    const custom = parseAnticipoCustom(form);
+    return custom != null ? custom : round2(subtotal);
+  }, [form.anticipo_custom, subtotal]);
+
+  const showAnticipoCustomUi = anticipoCustomDiffersFromCalc(
+    { anticipo_custom: form.anticipo_custom, subtotal },
+    subtotal,
+  );
+
   const totalGastos = useMemo(() => {
     return round2(
       toNumber(form.gasto_alojamiento) +
@@ -340,7 +357,10 @@ export default function ViaticosManual() {
     form.gasto_ceremonial,
   ]);
 
-  const totalFinal = useMemo(() => round2(subtotal + totalGastos), [subtotal, totalGastos]);
+  const totalFinal = useMemo(
+    () => round2(anticipoEfectivo + totalGastos),
+    [anticipoEfectivo, totalGastos],
+  );
 
   const buildViaticoDatos = useCallback(
     () => ({
@@ -636,6 +656,15 @@ export default function ViaticosManual() {
     notifyFieldChange(key);
   };
 
+  const commitAnticipoCustom = (val) => {
+    const n = round2(toNumber(val));
+    if (Math.abs(n - round2(subtotal)) < 0.01) {
+      setValue("anticipo_custom", null);
+    } else {
+      setValue("anticipo_custom", n);
+    }
+  };
+
   const handleDownload = async () => {
     const configData = {
       lugar_comision: form.lugar_comision || "",
@@ -664,6 +693,7 @@ export default function ViaticosManual() {
       porcentaje: toNumber(form.porcentaje),
       valorDiarioCalc,
       subtotal,
+      anticipo_custom: form.anticipo_custom,
       segmentosValorDiario: segmentosValor,
       usaProporcional: calcFinanciero.usaProporcional,
 
@@ -816,6 +846,12 @@ export default function ViaticosManual() {
         gastos_capacit: get("gastos_capacit") !== "" ? get("gastos_capacit") : prev.gastos_capacit,
         gastos_movil_otros: get("gastos_movil_otros") !== "" ? get("gastos_movil_otros") : prev.gastos_movil_otros,
         gasto_ceremonial: get("gasto_ceremonial") !== "" ? get("gasto_ceremonial") : prev.gasto_ceremonial,
+        anticipo_custom: (() => {
+          const raw = get("anticipo_custom");
+          if (raw === "" || raw == null) return prev.anticipo_custom;
+          const n = parseFloat(String(raw).replace(",", "."));
+          return Number.isFinite(n) ? round2(n) : prev.anticipo_custom;
+        })(),
       }));
     } catch {}
   };
@@ -1124,7 +1160,7 @@ export default function ViaticosManual() {
                     <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">
                       Resumen (anticipo)
                     </div>
-                    {segmentosParaVista(segmentosValor).length > 1 ? (
+                    {segmentosParaVista(segmentosValor).length > 1 && !showAnticipoCustomUi ? (
                       <div className="mt-2">
                         <RangosValorDiario
                           segmentos={segmentosValor}
@@ -1133,14 +1169,42 @@ export default function ViaticosManual() {
                           subtotal={subtotal}
                           fmtMoney={fmtMoneyPreview}
                           presentacion="dinero"
+                          showTotal={false}
                         />
                       </div>
-                    ) : (
-                      <div className="mt-2 flex items-center justify-between gap-3">
-                        <span className="text-[11px] font-bold text-slate-600">Viáticos anticipados</span>
-                        <span className="text-sm font-black text-slate-800">{fmtMoneyPreview(subtotal)}</span>
+                    ) : null}
+                    <div className="mt-2 flex items-center justify-between gap-3">
+                      <span className="text-[11px] font-bold text-slate-600">
+                        Viáticos anticipados
+                      </span>
+                      <div className="flex min-w-0 items-center gap-1.5">
+                        <ArsAmountInput
+                          id="viaticos-manual-anticipo"
+                          value={anticipoEfectivo}
+                          onValueChange={commitAnticipoCustom}
+                          className={`w-36 min-w-0 text-right text-sm font-black outline-none rounded-lg border px-2.5 py-1.5 ${
+                            showAnticipoCustomUi
+                              ? "bg-blue-100 border-blue-200 text-blue-800"
+                              : "bg-orange-50 border-orange-200 text-orange-900"
+                          }`}
+                        />
+                        {showAnticipoCustomUi ? (
+                          <button
+                            type="button"
+                            title="Actualizar al cálculo automático"
+                            className="inline-flex shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white p-1 text-slate-400 shadow-sm hover:border-emerald-300 hover:text-emerald-600"
+                            onClick={() => setValue("anticipo_custom", null)}
+                          >
+                            <IconRefresh size={12} />
+                          </button>
+                        ) : null}
                       </div>
-                    )}
+                    </div>
+                    {showAnticipoCustomUi ? (
+                      <div className="mt-1 text-right text-[10px] font-bold text-slate-500">
+                        Cálculo: {fmtMoneyPreview(subtotal)}
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               </div>
@@ -1309,12 +1373,36 @@ export default function ViaticosManual() {
                 </div>
               </div>
               <div className="rounded-xl border border-slate-200 bg-white p-4">
-                <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-                  Subtotal (anticipo)
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                    Subtotal (anticipo)
+                  </div>
+                  {showAnticipoCustomUi ? (
+                    <button
+                      type="button"
+                      title="Actualizar al cálculo automático"
+                      className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-white p-1 text-slate-400 shadow-sm hover:border-emerald-300 hover:text-emerald-600"
+                      onClick={() => setValue("anticipo_custom", null)}
+                    >
+                      <IconRefresh size={12} />
+                    </button>
+                  ) : null}
                 </div>
-                <div className="text-2xl font-black text-slate-800 mt-1">
-                  {fmtMoneyPreview(subtotal)}
-                </div>
+                <ArsAmountInput
+                  id="viaticos-manual-anticipo-resumen"
+                  value={anticipoEfectivo}
+                  onValueChange={commitAnticipoCustom}
+                  className={`mt-1 w-full text-2xl font-black outline-none rounded-lg border px-2 py-1 ${
+                    showAnticipoCustomUi
+                      ? "bg-blue-100 border-blue-200 text-blue-800"
+                      : "bg-transparent border-transparent text-slate-800"
+                  }`}
+                />
+                {showAnticipoCustomUi ? (
+                  <div className="mt-1 text-[10px] font-bold text-slate-500">
+                    Cálculo: {fmtMoneyPreview(subtotal)}
+                  </div>
+                ) : null}
               </div>
               <div className="rounded-xl border border-slate-200 bg-white p-4">
                 <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">

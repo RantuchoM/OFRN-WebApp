@@ -90,6 +90,7 @@ Escribe en `scrn_solicitudes_nuevo_viaje`. Campos (`ViajeFormFields`):
 {
   "porcentaje": 100,
   "temporada_alta": false,
+  "anticipo_custom": null,
   "gasto_alojamiento": 0,
   "gasto_pasajes": 0,
   "gasto_combustible": 0,
@@ -99,6 +100,7 @@ Escribe en `scrn_solicitudes_nuevo_viaje`. Campos (`ViajeFormFields`):
   "gasto_ceremonial": 0
 }
 ```
+`anticipo_custom`: monto de anticipo pagado (o `$0` si no hubo). Vacío/`null` = la planilla calcula.
 
 ## 4. Articulación con `viaticos-manual`
 

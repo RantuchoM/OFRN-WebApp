@@ -3,6 +3,7 @@
 -- {
 --   "porcentaje": 100,
 --   "temporada_alta": false,
+--   "anticipo_custom": null,
 --   "gasto_alojamiento": 0,
 --   "gasto_pasajes": 0,
 --   "gasto_combustible": 0,

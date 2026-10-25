@@ -26,7 +26,7 @@ export function formatArsAmount(val) {
 
 /**
  * Input de pesos: muestra `$ 1.234,56` en reposo y deja editar con coma decimal.
- * `onValueChange` recibe un número. No formatea el cálculo, solo la captura.
+ * `onValueChange` recibe un número (o `emptyValue` si `allowEmpty` y el campo queda vacío).
  */
 export default function ArsAmountInput({
   id,
@@ -34,12 +34,21 @@ export default function ArsAmountInput({
   onValueChange,
   className = "",
   placeholder = "$ 0,00",
+  allowEmpty = false,
+  emptyValue = null,
 }) {
   const [focused, setFocused] = useState(false);
   const [draft, setDraft] = useState("");
 
-  const n = parseArsAmount(value);
-  const display = n ? formatArsAmount(n) : "";
+  const isEmpty =
+    allowEmpty && (value === null || value === undefined || value === "");
+  const n = isEmpty ? 0 : parseArsAmount(value);
+  // Con allowEmpty, el 0 explícito se muestra; sin él, 0 queda en placeholder (gastos).
+  const display = isEmpty
+    ? ""
+    : n || (allowEmpty && value != null && value !== "")
+      ? formatArsAmount(n)
+      : "";
 
   return (
     <input
@@ -51,22 +60,32 @@ export default function ArsAmountInput({
       value={focused ? draft : display}
       onFocus={() => {
         setDraft(
-          n
-            ? n.toLocaleString("es-AR", {
-                minimumFractionDigits: 0,
-                maximumFractionDigits: 2,
-              })
-            : "",
+          isEmpty
+            ? ""
+            : n || (allowEmpty && value != null && value !== "")
+              ? n.toLocaleString("es-AR", {
+                  minimumFractionDigits: 0,
+                  maximumFractionDigits: 2,
+                })
+              : "",
         );
         setFocused(true);
       }}
       onChange={(e) => {
         const next = e.target.value.replace(/[^\d.,]/g, "");
         setDraft(next);
+        if (allowEmpty && String(next).trim() === "") {
+          onValueChange(emptyValue);
+          return;
+        }
         onValueChange(parseArsAmount(next));
       }}
       onBlur={() => {
         setFocused(false);
+        if (allowEmpty && String(draft).trim() === "") {
+          onValueChange(emptyValue);
+          return;
+        }
         onValueChange(parseArsAmount(draft));
       }}
     />

@@ -507,6 +507,9 @@ export default function GiraForm({
       "tipo",
       "fecha_desde",
       "fecha_hasta",
+      "hora_inicio_proyeccion",
+      "hora_fin_proyeccion",
+      "servicios_estimados",
       "zona",
       "estado",
       "token_publico",
@@ -1241,6 +1244,69 @@ export default function GiraForm({
             onChange={(val) => {
               setFormData({ ...formData, fecha_hasta: val });
               handleAutoSave("fecha_hasta", val);
+            }}
+          />
+        </div>
+        <div className="col-span-6 md:col-span-2">
+          <TimeInput
+            label="Hora inicio (proyección PCV)"
+            value={formData.hora_inicio_proyeccion || ""}
+            allowEmpty
+            className={getFieldStatusClass(
+              "hora_inicio_proyeccion",
+              "bg-white border border-slate-300 rounded h-[42px]",
+            )}
+            onChange={(v) => {
+              setFormData({ ...formData, hora_inicio_proyeccion: v });
+              handleAutoSave("hora_inicio_proyeccion", v || null);
+            }}
+          />
+        </div>
+        <div className="col-span-6 md:col-span-2">
+          <TimeInput
+            label="Hora fin (proyección PCV)"
+            value={formData.hora_fin_proyeccion || ""}
+            allowEmpty
+            className={getFieldStatusClass(
+              "hora_fin_proyeccion",
+              "bg-white border border-slate-300 rounded h-[42px]",
+            )}
+            onChange={(v) => {
+              setFormData({ ...formData, hora_fin_proyeccion: v });
+              handleAutoSave("hora_fin_proyeccion", v || null);
+            }}
+          />
+        </div>
+        <div className="col-span-6 md:col-span-2">
+          <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block min-h-[16px]">
+            Prestaciones (manual)
+          </label>
+          <input
+            type="number"
+            step="0.5"
+            min="0"
+            placeholder="Auto"
+            title="Vacío = automático (eventos o 7). Prestaciones de gira para Estimar futuros."
+            className={`w-full h-[42px] border border-slate-300 p-2 rounded outline-none focus:ring-2 focus:ring-fixed-indigo-500 ${getFieldStatusClass("servicios_estimados", "bg-white")}`}
+            value={
+              formData.servicios_estimados != null &&
+              formData.servicios_estimados !== ""
+                ? formData.servicios_estimados
+                : ""
+            }
+            onChange={(e) =>
+              setFormData({
+                ...formData,
+                servicios_estimados:
+                  e.target.value === "" ? null : e.target.value,
+              })
+            }
+            onBlur={() => {
+              const v = formData.servicios_estimados;
+              handleAutoSave(
+                "servicios_estimados",
+                v === "" || v == null ? null : Number(v),
+              );
             }}
           />
         </div>

@@ -405,6 +405,7 @@ export default function GiraTramosEditor({
     segmentRows,
     cortesCount,
     loading,
+    error: segmentosError,
     refreshSegmentos,
   } = useGiraSegmentos(supabase, gira);
 
@@ -784,7 +785,11 @@ export default function GiraTramosEditor({
 
         {!rows.length && (
           <p className="text-xs text-slate-400 italic py-2">
-            Guardá fechas de inicio y fin para configurar localías y cortes.
+            {!canEdit
+              ? "Guardá fechas de inicio y fin para configurar localías y cortes."
+              : segmentosError
+                ? `No se pudieron cargar los tramos: ${segmentosError.message || segmentosError}`
+                : "No hay tramos aún. Recargá el programa o volvé a abrir este formulario."}
           </p>
         )}
       </div>

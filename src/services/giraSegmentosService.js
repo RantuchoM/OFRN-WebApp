@@ -67,7 +67,25 @@ export async function fetchGiraSegmentosBundle(supabase, giraId, gira = null) {
   if (segmentosRes.error) throw segmentosRes.error;
 
   const cortes = cortesRes.data || [];
-  const segmentRows = segmentosRes.data || [];
+  let segmentRows = segmentosRes.data || [];
+
+  // Giras con fechas pero sin filas en giras_tramo_segmentos (seed / pre-migración):
+  // crear segmento 0 para que Localías y Cortes sea editable.
+  if (
+    !segmentRows.length &&
+    programa?.fecha_desde &&
+    programa?.fecha_hasta
+  ) {
+    await ensureDefaultSegment(supabase, giraId, programa);
+    const { data: ensured, error: ensuredErr } = await supabase
+      .from("giras_tramo_segmentos")
+      .select(SEGMENTO_SELECT)
+      .eq("id_gira", giraId)
+      .order("indice");
+    if (ensuredErr) throw ensuredErr;
+    segmentRows = ensured || [];
+  }
+
   const localidadesByIndice = mapSegmentRows(segmentRows);
   const segments = buildSegments(programa, cortes, localidadesByIndice);
 
@@ -81,7 +99,7 @@ export async function fetchGiraSegmentosBundle(supabase, giraId, gira = null) {
 }
 
 /** Crea segmento 0 si la gira aún no tiene segmentos (post-migración / giras nuevas). */
-export async function ensureDefaultSegment(supabase, giraId) {
+export async function ensureDefaultSegment(supabase, giraId, fechasHint = null) {
   const { data: existing } = await supabase
     .from("giras_tramo_segmentos")
     .select("id")
@@ -97,7 +115,12 @@ export async function ensureDefaultSegment(supabase, giraId) {
     .eq("id", giraId)
     .single();
   if (progErr) throw progErr;
-  if (!programa?.fecha_desde || !programa?.fecha_hasta) {
+
+  const fecha_desde =
+    fechasHint?.fecha_desde || programa?.fecha_desde || null;
+  const fecha_hasta =
+    fechasHint?.fecha_hasta || programa?.fecha_hasta || null;
+  if (!fecha_desde || !fecha_hasta) {
     throw new Error(
       "La gira necesita fecha_desde y fecha_hasta para crear segmentos.",
     );
@@ -108,8 +131,8 @@ export async function ensureDefaultSegment(supabase, giraId) {
     .insert({
       id_gira: giraId,
       indice: 0,
-      fecha_desde: programa.fecha_desde,
-      fecha_hasta: programa.fecha_hasta,
+      fecha_desde,
+      fecha_hasta,
     })
     .select("id")
     .single();

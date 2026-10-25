@@ -72,11 +72,19 @@ export const TOTAL_ATOMIC_KIND_KEYS = [
   "pcv",
 ];
 
-/** Estimar futuros: solo programas Sinfónico (no CF / jazz / ensamble). */
+/** Estimar futuros: Sinfónico y Camerata Filarmónica (no jazz / ensamble). */
 export const TIPO_PROGRAMA_ESTIMAR = "Sinfónico";
+export const TIPOS_PROGRAMA_ESTIMAR = new Set([
+  "Sinfónico",
+  "Camerata Filarmónica",
+]);
 
 export function isSinfonicoProgram(program) {
   return (program?.tipo || "") === TIPO_PROGRAMA_ESTIMAR;
+}
+
+export function isEstimableProgramTipo(program) {
+  return TIPOS_PROGRAMA_ESTIMAR.has(program?.tipo || "");
 }
 
 /**
@@ -570,7 +578,7 @@ export function listEstimableGiras(
   const day = today || toLocalDateString();
   return (programs || []).filter((p) => {
     if (!isEstimableGira(p, day)) return false;
-    if (onlySinfonico && !isSinfonicoProgram(p)) return false;
+    if (onlySinfonico && !isEstimableProgramTipo(p)) return false;
     if (selectedTypes instanceof Set && p.tipo && !selectedTypes.has(p.tipo)) {
       return false;
     }
@@ -690,14 +698,14 @@ export function computeGiraServiciosAverage({
   return { mean, byKind, observations: n, girasUsed };
 }
 
-/** Promedio fijo de servicios de gira para sinfónicas futuras (redondo). */
-export const FIXED_FUTURE_GIRA_SERVICIOS = 8;
+/** Default de servicios de gira futuras cuando no hay override ni eventos (sandbox). */
+export const FIXED_FUTURE_GIRA_SERVICIOS = 7;
 
-/** 1 concierto + 7 ensayos ≥2h. Sin didáctico ni bloques de 15/30 min. Suma 8. */
+/** 1 concierto + 6 ensayos ≥2h. Suma 7 (paridad proyección / informe). */
 export const FIXED_FUTURE_GIRA_BY_KIND = {
   concierto: 1,
   didactico: 0,
-  ensayo_gira_full: 7,
+  ensayo_gira_full: 6,
   ensayo_gira_half: 0,
 };
 
@@ -709,6 +717,23 @@ export function getFixedGiraServiciosAverage() {
     girasUsed: 0,
     source: "fixed",
   };
+}
+
+/**
+ * Estimación por gira: usa `ctx.giraEstimateById` (sandbox) o el promedio fijo.
+ * Shape: { mean, byKind }
+ */
+export function resolveEstimateForGira(giraId, ctx) {
+  const map = ctx?.giraEstimateById;
+  if (map) {
+    const row =
+      map.get?.(giraId) ||
+      map.get?.(Number(giraId)) ||
+      map[giraId] ||
+      map[Number(giraId)];
+    if (row?.mean != null) return row;
+  }
+  return ctx?.giraAverage || getFixedGiraServiciosAverage();
 }
 
 export function formatGiraAveragePlain(avg) {
@@ -821,9 +846,8 @@ function skipExactGiraHit(hit, evt, estimableIds) {
 }
 
 function applyGiraEstimatesToAtomic(atomic, integranteId, ctx) {
-  const avg = ctx?.giraAverage;
   const ids = ctx?.estimableGiraIds;
-  if (!ctx?.estimarFuturos || !avg || avg.mean == null || !ids?.size) return;
+  if (!ctx?.estimarFuturos || !ids?.size) return;
   const iid = integranteKey(integranteId);
   for (const giraId of ids) {
     if (!matchesGiraIdFilter(giraId, ctx.giraIdFilter)) continue;
@@ -831,6 +855,8 @@ function applyGiraEstimatesToAtomic(atomic, integranteId, ctx) {
     if (mark !== "counted" && mark !== "reemplazo" && mark !== "licencia") {
       continue;
     }
+    const avg = resolveEstimateForGira(giraId, ctx);
+    if (!avg || avg.mean == null) continue;
     for (const k of GIRA_ATOMIC_KIND_KEYS) {
       const v = Number(avg.byKind?.[k] || 0);
       if (v) addToBucket(atomic, k, "counted", v);
@@ -840,20 +866,21 @@ function applyGiraEstimatesToAtomic(atomic, integranteId, ctx) {
 
 export function buildGiraEstimateHits(integranteId, ctx) {
   const hits = [];
-  const avg = ctx?.giraAverage;
   const ids = ctx?.estimableGiraIds;
-  if (!ctx?.estimarFuturos || !avg || avg.mean == null || !ids?.size) {
+  if (!ctx?.estimarFuturos || !ids?.size) {
     return hits;
   }
   const iid = integranteKey(integranteId);
   const programasById = ctx.programasById || new Map();
-  const label = formatGiraAveragePlain(avg);
   for (const giraId of ids) {
     if (!matchesGiraIdFilter(giraId, ctx.giraIdFilter)) continue;
     const mark = getAsistenciaMatrixCellMark(ctx.rosterByGiraId?.[giraId], iid);
     if (mark !== "counted" && mark !== "reemplazo" && mark !== "licencia") {
       continue;
     }
+    const avg = resolveEstimateForGira(giraId, ctx);
+    if (!avg || avg.mean == null) continue;
+    const label = formatGiraAveragePlain(avg);
     const prog = programasById.get?.(giraId) || programasById.get?.(Number(giraId));
     const fecha = normalizeIsoDate(prog?.fecha_desde) || ctx.fechaDesde;
     for (const k of GIRA_ATOMIC_KIND_KEYS) {

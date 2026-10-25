@@ -14,9 +14,18 @@ Proveer una interfaz de carga única y manual de viáticos que permita exportar 
 4. **Campos del Formulario**:
    - Personales: Apellido, Nombre, DNI, Cargo, Jornada, Ciudad Origen.
    - Comisión: Motivo, Lugar, Fecha/Hora Salida, Fecha/Hora Llegada.
-   - Financieros: % Viático (100/80/0), Switch Temporada (30%).
+   - Financieros: % Viático (100/80/0), Switch Temporada (30%), **anticipo editable** (`anticipo_custom`).
    - Transporte: Terrestre, patente oficial, detalle.
    - Gastos: Alojamiento, Pasajes, Combustible, Otros, Capacitación, Movilidad otros, Ceremonial.
+
+## Anticipo personalizado (mismo criterio que ViaticosManager)
+- [x] El **Resumen (anticipo)** y el **Subtotal (anticipo)** son editables (`ArsAmountInput`).
+- [x] `anticipo_custom` null → se usa el subtotal calculado (días × valor efectivo).
+- [x] Si el monto editado ≈ cálculo, se normaliza a `null` (naranja / automático).
+- [x] Si difiere: fondo azul, hint «Cálculo: …» e `IconRefresh` para volver al automático.
+- [x] PDF / total final / cloud / CSV respetan el override (`viaticosAnticipo.js` + `anticipo_custom` en la fila).
+- [x] Prefill desde SCRN puede traer `anticipo_custom` en `viaticos_opciones`.
+- [x] `/rendiciones-manual` no edita el anticipo, pero **sí** usa `anticipo_custom` de la planilla si existe.
 
 ## Prefill desde Transporte SCRN
 - [x] Query `?prefill=scrn` en `/viaticos-manual` consume payload de `sessionStorage` (`SCRN_VIATICO_PREFILL_SESSION_KEY`).
