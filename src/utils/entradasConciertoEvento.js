@@ -60,6 +60,37 @@ export function compareConciertosPorFechaHora(a, b) {
   return ta - tb;
 }
 
+function instanteConciertoEntrada(concierto) {
+  const fh = fechaHoraDesdeConciertoEntrada(concierto) || concierto?.fecha_hora;
+  const t = fh ? new Date(fh).getTime() : NaN;
+  return Number.isFinite(t) ? t : NaN;
+}
+
+/**
+ * Concierto de recepción más próximo a `now`: el de menor distancia en el tiempo.
+ * Si hay empate, gana el que todavía no empezó.
+ */
+export function pickConciertoRecepcionMasProximo(conciertos, now = new Date()) {
+  const nowMs = now instanceof Date ? now.getTime() : new Date(now).getTime();
+  if (!Number.isFinite(nowMs)) return null;
+  let best = null;
+  let bestDist = Infinity;
+  let bestTime = NaN;
+  for (const concierto of conciertos || []) {
+    const t = instanteConciertoEntrada(concierto);
+    if (!Number.isFinite(t)) continue;
+    const dist = Math.abs(t - nowMs);
+    const closer = dist < bestDist;
+    const tiePreferUpcoming = dist === bestDist && t >= nowMs && !(bestTime >= nowMs);
+    if (closer || tiePreferUpcoming) {
+      best = concierto;
+      bestDist = dist;
+      bestTime = t;
+    }
+  }
+  return best;
+}
+
 export function localidadLabelDesdeProgramaEntrada(programa, conciertos = null) {
   const lista = conciertos ?? programa?.entrada_concierto ?? [];
   const locs = new Set();
