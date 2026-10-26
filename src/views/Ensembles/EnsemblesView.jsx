@@ -98,7 +98,14 @@ export default function EnsemblesView({ supabase }) {
     const [loadingMembers, setLoadingMembers] = useState(false);
     const [togglingId, setTogglingId] = useState(null); 
     const [isEditingHeader, setIsEditingHeader] = useState(false);
-    const [headerForm, setHeaderForm] = useState({ ensamble: '', descripcion: '', id_localidad: null, id_familia: '', id_ensamble_cf_ids: [] });
+    const [headerForm, setHeaderForm] = useState({
+        ensamble: '',
+        descripcion: '',
+        id_localidad: null,
+        id_familia: '',
+        id_ensamble_cf_ids: [],
+        es_ensamble_local: true,
+    });
     const [localidadOptions, setLocalidadOptions] = useState([]);
     const [musicianSortMode, setMusicianSortMode] = useState('instrument');
     const [coordinatorIds, setCoordinatorIds] = useState(new Set());
@@ -146,6 +153,7 @@ export default function EnsemblesView({ supabase }) {
                 id_localidad: selectedEnsemble.id_localidad ?? null,
                 id_familia: selectedEnsemble.id_familia || '',
                 id_ensamble_cf_ids: storedEnsambleCfIds(selectedEnsemble),
+                es_ensamble_local: selectedEnsemble.es_ensamble_local !== false,
             });
             setShowMusicianPicker(false);
             setSearchText('');
@@ -293,6 +301,7 @@ export default function EnsemblesView({ supabase }) {
             descripcion: headerForm.descripcion,
             id_localidad: idLocalidad,
             id_familia: headerForm.id_familia || null,
+            es_ensamble_local: headerForm.es_ensamble_local !== false,
         };
         const { error } = await supabase.from('ensambles').update(payload).eq('id', selectedEnsemble.id);
         if (error) {
@@ -652,6 +661,21 @@ export default function EnsemblesView({ supabase }) {
                                                 />
                                             </div>
                                         )}
+                                        <label className="flex items-center gap-2 text-sm text-slate-700">
+                                            <input
+                                                type="checkbox"
+                                                checked={headerForm.es_ensamble_local !== false}
+                                                onChange={(e) =>
+                                                    setHeaderForm({
+                                                        ...headerForm,
+                                                        es_ensamble_local: e.target.checked,
+                                                    })
+                                                }
+                                                className="rounded border-slate-300"
+                                            />
+                                            Es ensamble local
+                                            <span className="text-[11px] text-slate-400">(informes / convocatoria / proyección)</span>
+                                        </label>
                                         <div className="flex gap-2 justify-end"><button type="button" onClick={() => setIsEditingHeader(false)} className="px-3 py-1 bg-white border rounded text-sm hover:bg-slate-50">Cancelar</button><button type="button" onClick={saveHeader} className="px-3 py-1 bg-indigo-600 text-white rounded text-sm hover:bg-indigo-700">Guardar</button></div>
                                     </div>
                                 </div>,

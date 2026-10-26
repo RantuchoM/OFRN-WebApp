@@ -1,10 +1,19 @@
 /**
- * Plantilla semanal de ensayos → proyección feb–dic + conflictos con giras.
+ * Plantilla semanal de ensayos → proyección por tramos + conflictos con giras.
  * Paridad informe ensambles (valor ≥2h→1, >30min→0,5).
  */
+import {
+  defaultTramosForYear,
+  getAnioProyeccion,
+  normalizeTramos,
+} from "./ensambleProyeccionConfig.js";
 
+/** @deprecated Preferir tramos de ensamble_proyeccion_config */
 export const PROYECCION_WEEK_START = "2027-02-01";
+/** @deprecated Preferir tramos de ensamble_proyeccion_config */
 export const PROYECCION_WEEK_END = "2027-12-13";
+
+export { getAnioProyeccion };
 
 export const DOW_LABEL = {
   1: "lunes",
@@ -40,13 +49,45 @@ export function ensayoServicioValue(horaInicio, horaFin) {
 export function addDaysIso(iso, n) {
   const d = new Date(`${String(iso).slice(0, 10)}T12:00:00`);
   d.setDate(d.getDate() + Number(n || 0));
-  return d.toISOString().slice(0, 10);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
+/** Lunes ISO del día (o el lunes anterior si no es lunes). */
+export function mondayOnOrBefore(iso) {
+  const d = new Date(`${String(iso).slice(0, 10)}T12:00:00`);
+  const dow = d.getDay(); // 0=dom … 1=lun
+  const sub = dow === 0 ? 6 : dow - 1;
+  d.setDate(d.getDate() - sub);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/** Primer lunes ≥ iso. */
+export function mondayOnOrAfter(iso) {
+  const d = new Date(`${String(iso).slice(0, 10)}T12:00:00`);
+  const dow = d.getDay();
+  const add = dow === 1 ? 0 : dow === 0 ? 1 : 8 - dow;
+  d.setDate(d.getDate() + add);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/**
+ * Lunes inclusivos en [fromIso, toIso].
+ * Ancla: desde = lunes ≥ from; hasta = lunes ≤ to.
+ */
 export function listMondays(fromIso, toIso) {
   const out = [];
-  let cur = String(fromIso).slice(0, 10);
-  const end = String(toIso).slice(0, 10);
+  let cur = mondayOnOrAfter(fromIso);
+  const end = mondayOnOrBefore(toIso);
+  if (!cur || !end || cur > end) return out;
   while (cur <= end) {
     out.push(cur);
     cur = addDaysIso(cur, 7);
@@ -120,26 +161,61 @@ export function groupSlotsByEnsambleId(rows) {
 }
 
 /**
+ * Une lunes de todos los tramos (huecos = cortes / vacaciones).
+ * @param {Array<{desde:string,hasta:string}>} tramos
+ */
+export function listMondaysFromTramos(tramos) {
+  const set = new Set();
+  for (const t of normalizeTramos(tramos)) {
+    for (const m of listMondays(t.desde, t.hasta)) set.add(m);
+  }
+  return [...set].sort();
+}
+
+/** Clip de días: desde el primer lunes hasta el domingo de la última semana. */
+export function dayClipFromTramos(tramos) {
+  const norm = normalizeTramos(tramos);
+  if (!norm.length) {
+    const d = defaultTramosForYear(getAnioProyeccion());
+    return dayClipFromTramos(d);
+  }
+  const dayFrom = norm[0].desde;
+  const lastHasta = norm[norm.length - 1].hasta;
+  return { dayFrom, dayTo: addDaysIso(lastHasta, 6) };
+}
+
+/**
  * @param {object} opts
  * @param {object[]} opts.slots plantilla del ensamble
  * @param {object[]} opts.programs giras Sinf/CF (con fecha_desde/hasta)
  * @param {(program) => boolean} opts.isConvocado
- * @param {string} [opts.weekStart]
+ * @param {Array<{desde:string,hasta:string}>} [opts.tramos]
+ * @param {string} [opts.weekStart] legacy si no hay tramos
  * @param {string} [opts.weekEnd]
- * @param {string} [opts.dayFrom] clip inferior (default weekStart)
- * @param {string} [opts.dayTo] clip superior (default 2027-12-19 como informe)
+ * @param {string} [opts.dayFrom]
+ * @param {string} [opts.dayTo]
  */
 export function projectEnsayosNetos({
   slots,
   programs = [],
   isConvocado,
-  weekStart = PROYECCION_WEEK_START,
-  weekEnd = PROYECCION_WEEK_END,
-  dayFrom = "2027-02-01",
-  dayTo = "2027-12-19",
+  tramos,
+  weekStart,
+  weekEnd,
+  dayFrom,
+  dayTo,
 } = {}) {
   const tpl = (slots || []).filter((s) => s && s.activo !== false);
-  const mondays = listMondays(weekStart, weekEnd);
+  const effectiveTramos =
+    normalizeTramos(tramos).length > 0
+      ? normalizeTramos(tramos)
+      : weekStart && weekEnd
+        ? [{ desde: weekStart, hasta: weekEnd, nota: null }]
+        : defaultTramosForYear(getAnioProyeccion());
+  const mondays = listMondaysFromTramos(effectiveTramos);
+  // dayFrom/dayTo: clip opcional (tests). Default null = no rellenar huecos entre tramos.
+  const from = dayFrom || null;
+  const to = dayTo || null;
   let ensayosTotal = 0;
   let ensayosServiciosBrutos = 0;
   let ensayosConflicto = 0;
@@ -149,7 +225,8 @@ export function projectEnsayosNetos({
   for (const monday of mondays) {
     for (const slot of tpl) {
       const day = dateForDow(monday, slot.isoDow);
-      if (day < dayFrom || day > dayTo) continue;
+      if (from && day < from) continue;
+      if (to && day > to) continue;
       const value =
         slot.value != null
           ? Number(slot.value)

@@ -104,6 +104,7 @@ CREATE TABLE public.ensambles (
   id_familia text,
   google_drive_folder_id text,
   id_localidad bigint,
+  es_ensamble_local boolean NOT NULL DEFAULT true,
   CONSTRAINT ensambles_pkey PRIMARY KEY (id),
   CONSTRAINT ensambles_id_familia_fkey FOREIGN KEY (id_familia) REFERENCES public.familia(familia),
   CONSTRAINT ensambles_id_localidad_fkey FOREIGN KEY (id_localidad) REFERENCES public.localidades(id)
@@ -128,6 +129,14 @@ CREATE TABLE public.ensamble_proyeccion_ensayos (
   CONSTRAINT ensamble_proyeccion_ensayos_id_ensamble_fkey FOREIGN KEY (id_ensamble) REFERENCES public.ensambles(id),
   CONSTRAINT ensamble_proyeccion_ensayos_id_locacion_fkey FOREIGN KEY (id_locacion) REFERENCES public.locaciones(id),
   CONSTRAINT ensamble_proyeccion_ensayos_horas_chk CHECK (hora_fin > hora_inicio)
+);
+CREATE TABLE public.ensamble_proyeccion_config (
+  anio smallint NOT NULL,
+  servicios_por_gira numeric(6, 2) NOT NULL DEFAULT 7,
+  tramos jsonb NOT NULL DEFAULT '[]'::jsonb,
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT ensamble_proyeccion_config_pkey PRIMARY KEY (anio),
+  CONSTRAINT ensamble_proyeccion_config_servicios_chk CHECK (servicios_por_gira >= 0)
 );
 CREATE TABLE public.programas_ensamble_drive_shortcuts (
   id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
@@ -920,6 +929,7 @@ CREATE TABLE public.localidades (
   id_provincia integer,
   cp text,
   hub text,
+  alias text,
   CONSTRAINT localidades_pkey PRIMARY KEY (id),
   CONSTRAINT localidades_id_region_fkey FOREIGN KEY (id_region) REFERENCES public.regiones(id),
   CONSTRAINT localidades_id_provincia_fkey FOREIGN KEY (id_provincia) REFERENCES public.provincias(id)

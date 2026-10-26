@@ -36,12 +36,31 @@ export function isCamerataEnsambleRow(row) {
   return isCfEnsambleLabel(name) || isJazzBandEnsambleLabel(name);
 }
 
-/** Ensambles regionales en convocatorias (excluye camerata y Prod.). */
-export function isRegionalConvocatoriaEnsamble(row) {
+/**
+ * Heurística legacy por nombre (CF / Jazz / Prod. / Prueba).
+ * Preferir `es_ensamble_local` en BD cuando el row lo trae.
+ */
+export function isRegionalConvocatoriaEnsambleByName(row) {
   const name = row?.ensamble ?? "";
+  if (isEnsamblePruebaLabel(name)) return false;
   if (isProduccionParticipanteLabel(name)) return false;
   if (isCamerataEnsambleRow(row)) return false;
   return true;
+}
+
+/**
+ * Ensambles locales/regionales (informes, convocatoria, proyección).
+ * Si el row trae `es_ensamble_local`, manda ese bool; si no, heurística de nombre.
+ */
+export function isRegionalConvocatoriaEnsamble(row) {
+  if (
+    row &&
+    Object.prototype.hasOwnProperty.call(row, "es_ensamble_local") &&
+    row.es_ensamble_local != null
+  ) {
+    return row.es_ensamble_local === true;
+  }
+  return isRegionalConvocatoriaEnsambleByName(row);
 }
 
 /**

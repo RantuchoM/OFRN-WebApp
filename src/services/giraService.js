@@ -337,7 +337,7 @@ export const fetchAsistenciaMatrixBaseData = async (supabase) => {
       supabase
         .from("ensambles")
         .select(
-          "id, ensamble, id_localidad, id_familia, localidades(id, localidad, id_region, regiones(id, region))",
+          "id, ensamble, id_localidad, id_familia, es_ensamble_local, localidades(id, localidad, id_region, regiones(id, region))",
         )
         .order("ensamble"),
       supabase.from("ensambles_cf").select("id_ensamble, id_ensamble_cf"),

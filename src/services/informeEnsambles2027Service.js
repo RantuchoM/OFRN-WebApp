@@ -1,20 +1,7 @@
 import { fetchGiraDemorasLocalidad } from "./giraProyeccionService";
-
-const YEAR = 2027;
-const ENSAMBLE_INFORME_NAMES = new Set([
-  "ABRON",
-  "BRAT",
-  "CAV",
-  "CEB",
-  "CPAT",
-  "ECAS",
-  "ES",
-  "PILTRI",
-  "PV",
-  "TREPUN",
-  "VN",
-  "VS",
-]);
+import { fetchOrCreateProyeccionConfig } from "./ensambleProyeccionEnsayosService";
+import { getAnioProyeccion } from "../utils/ensambleProyeccionConfig";
+import { isRegionalConvocatoriaEnsamble } from "../utils/convocatoriaEnsambleViews";
 
 async function fetchInChunks(supabase, table, select, column, ids) {
   const unique = [...new Set((ids || []).map(Number).filter(Boolean))];
@@ -35,10 +22,12 @@ async function fetchInChunks(supabase, table, select, column, ids) {
 /**
  * Bundle vivo desde Supabase, misma forma que los JSON del CLI
  * (`scripts/informe-ensambles-2027.mjs`).
+ * Año = getAnioProyeccion() («el que viene»).
  */
 export async function fetchInformeEnsambles2027Bundle(supabase) {
   if (!supabase) throw new Error("Supabase no disponible");
 
+  const YEAR = getAnioProyeccion();
   const yearStart = `${YEAR}-01-01`;
   const yearEnd = `${YEAR}-12-31`;
 
@@ -50,6 +39,8 @@ export async function fetchInformeEnsambles2027Bundle(supabase) {
     ciclosRes,
     feriadosRes,
     demorasRows,
+    proyeccionConfig,
+    locsRes,
   ] = await Promise.all([
     supabase
       .from("programas")
@@ -59,7 +50,7 @@ export async function fetchInformeEnsambles2027Bundle(supabase) {
         fecha_desde, fecha_hasta,
         hora_inicio_proyeccion, hora_fin_proyeccion,
         giras_fuentes ( tipo, valor_id, valor_texto ),
-        giras_localidades ( id_localidad, localidades ( id, localidad ) )
+        giras_localidades ( id_localidad, localidades ( id, localidad, alias ) )
       `,
       )
       .in("tipo", ["Sinfónico", "Camerata Filarmónica"])
@@ -68,7 +59,9 @@ export async function fetchInformeEnsambles2027Bundle(supabase) {
       .order("fecha_desde"),
     supabase
       .from("ensambles")
-      .select("id, ensamble, id_familia, id_localidad, localidades ( id, localidad )")
+      .select(
+        "id, ensamble, id_familia, id_localidad, es_ensamble_local, localidades ( id, localidad, alias )",
+      )
       .order("ensamble"),
     supabase.from("ensambles_cf").select("id_ensamble, id_ensamble_cf"),
     supabase
@@ -102,6 +95,8 @@ export async function fetchInformeEnsambles2027Bundle(supabase) {
       .lte("fecha", yearEnd)
       .order("fecha"),
     fetchGiraDemorasLocalidad(),
+    fetchOrCreateProyeccionConfig(YEAR),
+    supabase.from("localidades").select("id, localidad, alias").order("localidad"),
   ]);
 
   if (girasRes.error) throw girasRes.error;
@@ -110,6 +105,7 @@ export async function fetchInformeEnsambles2027Bundle(supabase) {
   if (ensayosRes.error) throw ensayosRes.error;
   if (ciclosRes.error) throw ciclosRes.error;
   if (feriadosRes.error) throw feriadosRes.error;
+  if (locsRes.error) throw locsRes.error;
 
   const cfByEns = new Map();
   for (const row of cfRes.data || []) {
@@ -119,13 +115,15 @@ export async function fetchInformeEnsambles2027Bundle(supabase) {
   }
 
   const ensamblesRaw = (ensRes.data || [])
-    .filter((e) => ENSAMBLE_INFORME_NAMES.has(String(e.ensamble || "").trim()))
+    .filter((e) => isRegionalConvocatoriaEnsamble(e))
     .map((e) => ({
       id: e.id,
       ensamble: e.ensamble,
       id_familia: e.id_familia,
       id_localidad: e.id_localidad,
+      es_ensamble_local: e.es_ensamble_local !== false,
       localidad: e.localidades?.localidad || "",
+      localidad_alias: e.localidades?.alias || null,
       cf_ids: cfByEns.get(Number(e.id)) || [],
     }));
 
@@ -178,12 +176,13 @@ export async function fetchInformeEnsambles2027Bundle(supabase) {
       .map((gl) => ({
         id: gl.localidades?.id ?? gl.id_localidad,
         localidad: gl.localidades?.localidad || "",
+        alias: gl.localidades?.alias || null,
       }))
       .filter((l) => l.id),
     tramos: tramosByGira.get(Number(g.id)) || [],
   }));
 
-  const eventosGiras2027 = (eventosGiras || [])
+  const eventosGirasYear = (eventosGiras || [])
     .filter((e) => !e.is_deleted)
     .filter((e) => [1, 2, 3, 13].includes(Number(e.id_tipo_evento)))
     .map((e) => ({
@@ -241,20 +240,29 @@ export async function fetchInformeEnsambles2027Bundle(supabase) {
     eventos: cicloEvByGira.get(Number(c.id)) || [],
   }));
 
-  const feriados2027 = (feriadosRes.data || []).map((f) => ({
+  const feriadosYear = (feriadosRes.data || []).map((f) => ({
     fecha: f.fecha,
     detalle: f.detalle,
     es_feriado: f.es_feriado,
   }));
 
+  const localidades = (locsRes.data || []).map((l) => ({
+    id: l.id,
+    localidad: l.localidad,
+    alias: l.alias || null,
+  }));
+
   return {
+    anio: YEAR,
+    proyeccionConfig,
     girasRaw,
     ensamblesRaw,
     ensayosProx,
     ciclosRaw,
-    feriados2027,
-    eventosGiras2027,
+    feriados2027: feriadosYear,
+    eventosGiras2027: eventosGirasYear,
     demorasRows,
+    localidades,
   };
 }
 

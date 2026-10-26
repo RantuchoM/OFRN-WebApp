@@ -137,10 +137,17 @@ export function defaultHoraInicioProyeccion() {
 }
 
 /**
- * Servicios estimados: override manual | suma eventos gira 1/2/3 | default 7.
+ * Servicios estimados: override manual | suma eventos gira 1/2/3 | default config.
  * Concierto=1, didáctico=0.5; ensayos por duración (≥2h=1, >30min=0.5).
+ * @param {object} program
+ * @param {object[]} [eventos]
+ * @param {number} [defaultServicios] — `ensamble_proyeccion_config.servicios_por_gira` (fallback 7)
  */
-export function resolveGiraServiciosEstimate(program, eventos = []) {
+export function resolveGiraServiciosEstimate(
+  program,
+  eventos = [],
+  defaultServicios = DEFAULT_SERVICIOS_ESTIMADOS,
+) {
   if (program?.servicios_estimados != null && program.servicios_estimados !== "") {
     const n = Number(program.servicios_estimados);
     if (Number.isFinite(n) && n >= 0) {
@@ -191,13 +198,16 @@ export function resolveGiraServiciosEstimate(program, eventos = []) {
       };
     }
   }
+  const def = Number(defaultServicios);
+  const fallback =
+    Number.isFinite(def) && def >= 0 ? def : DEFAULT_SERVICIOS_ESTIMADOS;
   return {
-    value: DEFAULT_SERVICIOS_ESTIMADOS,
+    value: fallback,
     source: "default",
     byKind: {
       concierto: 1,
       didactico: 0,
-      ensayo_gira_full: DEFAULT_SERVICIOS_ESTIMADOS - 1,
+      ensayo_gira_full: Math.max(0, fallback - 1),
       ensayo_gira_half: 0,
     },
   };

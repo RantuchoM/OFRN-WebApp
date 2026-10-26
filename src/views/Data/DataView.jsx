@@ -177,6 +177,7 @@ export default function DataView({ supabase }) {
       table: "localidades",
       columns: [
         { key: "localidad", label: "Nombre Localidad", type: "text" },
+        { key: "alias", label: "Alias (informes)", type: "text" },
         { key: "cp", label: "Código Postal", type: "text" },
         {
           key: "id_provincia",
@@ -420,6 +421,12 @@ export default function DataView({ supabase }) {
           label: "Localidad",
           type: "select",
           options: catalogos.localidades,
+        },
+        {
+          key: "es_ensamble_local",
+          label: "Es ensamble local",
+          type: "checkbox",
+          defaultValue: true,
         },
       ],
     },

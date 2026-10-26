@@ -29,18 +29,20 @@ export async function fetchGiraDemorasHub() {
 export async function fetchLocalidadesAll() {
   const { data, error } = await supabase
     .from("localidades")
-    .select("id, localidad, hub")
+    .select("id, localidad, hub, alias")
     .order("localidad");
   if (error) throw error;
   const rows = data || [];
   const map = new Map();
   const nameById = new Map();
+  const aliasById = new Map();
   for (const row of rows) {
     const id = Number(row.id);
     if (row.hub) map.set(id, row.hub);
     nameById.set(id, row.localidad || "");
+    if (row.alias) aliasById.set(id, row.alias);
   }
-  return { rows, map, nameById };
+  return { rows, map, nameById, aliasById };
 }
 
 /** @deprecated alias */
@@ -148,21 +150,6 @@ export async function resetProgramaProyeccionDefaults(idPrograma, eventos = []) 
   });
 }
 
-const ENSAMBLE_PROYECCION_NAMES = [
-  "ABRON",
-  "BRAT",
-  "CAV",
-  "CEB",
-  "CPAT",
-  "ECAS",
-  "ES",
-  "PILTRI",
-  "PV",
-  "TREPUN",
-  "VN",
-  "VS",
-];
-
 export async function fetchProgramasProyeccion({
   fechaDesde,
   fechaHasta,
@@ -215,13 +202,15 @@ export async function fetchProgramasProyeccion({
   return programas;
 }
 
-/** Ensambles regionales del informe + mapa de CF (para encabezados de matriz). */
+/** Ensambles locales (`es_ensamble_local`) + mapa de CF (para encabezados de matriz). */
 export async function fetchEnsamblesProyeccionMatrix() {
   const [ensRes, cfRes] = await Promise.all([
     supabase
       .from("ensambles")
-      .select("id, ensamble, id_familia, id_localidad, localidades ( id, localidad )")
-      .in("ensamble", ENSAMBLE_PROYECCION_NAMES)
+      .select(
+        "id, ensamble, id_familia, id_localidad, es_ensamble_local, localidades ( id, localidad, alias )",
+      )
+      .eq("es_ensamble_local", true)
       .order("ensamble"),
     supabase.from("ensambles_cf").select("id_ensamble, id_ensamble_cf"),
   ]);

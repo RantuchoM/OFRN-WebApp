@@ -106,13 +106,13 @@ Subvista **«Proyección»** (default al entrar) junto a Listado ([`Prestaciones
 - Precarga horaria 15:00 / 23|14. Override manual (**M**) con `IconRefresh` al lado.
 - **IconEdit** abre [`GiraForm`](../../src/views/Giras/GiraForm.jsx) (horas proyección + prestaciones manuales) vía portal.
 - Filas coloreadas con `getProgramTypeColor` / `PROGRAM_TYPES`.
-- Export **PDF informe** / **Excel informe** = informe planificación ensambles 2027 (mail CLI).
+- Export **PDF informe** / **Excel informe** = informe del **año que viene** (`getAnioProyeccion()`).
 - **PCV con tramos empalmados:** salen de casa hacia el **primer** tramo fuera; vuelven desde el **último** tramo fuera (`estimatePcvFromFueraSegs` / `estimatePcvWindow` con `destBackLocId`). No se cuenta una ida/vuelta por cada tramo. Un tramo cuya localía es la casa propia corta el viaje y abre otro. Demoras: `gira_demoras_localidad`; sin tramo → fallback 6h en la nota.
 - **Demoras** en modal Portal `z-[100]` ([`DemorasLocalidadModal.jsx`](../../src/components/management/DemorasLocalidadModal.jsx)): se elige una localidad y se listan / editan / agregan conexiones desde o hacia ella (`gira_demoras_localidad`, minutos). Alerta si faltan pares usados por PCV en la temporada o localidades de giras sin ningún tramo (`findMissingDemorasTemporada`). Botón **Demoras** en la barra (badge si hay faltantes).
 - Donde estaba la tabla de demoras: **selector de ensamble** + detalle vivo ([`EnsambleProyeccionDetalle.jsx`](../../src/components/management/EnsambleProyeccionDetalle.jsx)) alineado a las hojas individuales del PDF/Excel (resumen, giras en casa, fuera+franja PCV, feriados).
-- **Plantilla semanal de ensayos** editable por ensamble (`ensamble_proyeccion_ensayos`: `iso_dow`, horas, `id_locacion` → sede, título). Seed desde eventos tipo 13 de la semana 26/10–01/11/2026 (`eventos.id_locacion`). Se proyecta lunes 01/02/2027 → lunes 13/12/2027; Ens. netos = brutos − conflictos con giras convocadas ([`EnsambleProyeccionEnsayosEditor.jsx`](../../src/components/management/EnsambleProyeccionEnsayosEditor.jsx), [`ensambleProyeccionEnsayos.js`](../../src/utils/ensambleProyeccionEnsayos.js)). El informe PDF/Excel lee esta tabla.
+- **Plantilla semanal de ensayos** editable por ensamble (`ensamble_proyeccion_ensayos`: `iso_dow`, horas, `id_locacion` → sede, título). Seed desde eventos tipo 13 de la semana 26/10–01/11/2026. Ventanas de proyección y **servicios/gira** viven en `ensamble_proyeccion_config` (tramos JSON editables arriba del sandbox; hueco entre tramos = corte p. ej. vacaciones de invierno). Ensambles del informe: `ensambles.es_ensamble_local` (Data → Ensambles). Alias corto de ciudad: `localidades.alias` (Data → Localidades).
 
-Migraciones: `20261024200000_gira_proyeccion_sandbox.sql`, `20261024210000_gira_demoras_localidad.sql`, `20261024220000_gira_demoras_todas_localidades_hub.sql`, `20261025200000_ensamble_proyeccion_ensayos.sql`, `20261025210000_ensamble_proyeccion_ensayos_locacion.sql`.
+Migraciones: `20261024200000_gira_proyeccion_sandbox.sql`, `20261024210000_gira_demoras_localidad.sql`, `20261024220000_gira_demoras_todas_localidades_hub.sql`, `20261025200000_ensamble_proyeccion_ensayos.sql`, `20261025210000_ensamble_proyeccion_ensayos_locacion.sql`, `20261026120000_proyeccion_config_ensamble_local_alias.sql`.
 
 ### Exportar y móvil
 

@@ -1,5 +1,11 @@
 import { supabase } from "./supabase";
 import { normalizeEnsayoSlot } from "../utils/ensambleProyeccionEnsayos";
+import {
+  defaultProyeccionConfig,
+  getAnioProyeccion,
+  normalizeProyeccionConfig,
+  normalizeTramos,
+} from "../utils/ensambleProyeccionConfig";
 
 const SELECT = `
   id,
@@ -51,6 +57,68 @@ export async function fetchLocacionesForProyeccion() {
     .order("nombre");
   if (error) throw error;
   return data || [];
+}
+
+/**
+ * Config anual de proyección. Si no existe fila, crea defaults (año que viene).
+ * @param {number} [anio]
+ */
+export async function fetchOrCreateProyeccionConfig(anio) {
+  const y = Number(anio) || getAnioProyeccion();
+  const { data, error } = await supabase
+    .from("ensamble_proyeccion_config")
+    .select("anio, servicios_por_gira, tramos, updated_at")
+    .eq("anio", y)
+    .maybeSingle();
+  if (error) throw error;
+  if (data) return normalizeProyeccionConfig(data, y);
+
+  const defaults = defaultProyeccionConfig(y);
+  const { data: inserted, error: insErr } = await supabase
+    .from("ensamble_proyeccion_config")
+    .upsert(
+      {
+        anio: defaults.anio,
+        servicios_por_gira: defaults.servicios_por_gira,
+        tramos: defaults.tramos,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "anio" },
+    )
+    .select("anio, servicios_por_gira, tramos, updated_at")
+    .single();
+  if (insErr) throw insErr;
+  return normalizeProyeccionConfig(inserted, y);
+}
+
+/**
+ * @param {{ anio?: number, servicios_por_gira?: number, tramos?: object[] }} payload
+ */
+export async function upsertProyeccionConfig(payload = {}) {
+  const y = Number(payload.anio) || getAnioProyeccion();
+  const tramos = normalizeTramos(payload.tramos);
+  if (!tramos.length) {
+    throw new Error("Hace falta al menos un tramo (desde / hasta)");
+  }
+  const serv = Number(payload.servicios_por_gira);
+  if (!Number.isFinite(serv) || serv < 0) {
+    throw new Error("Servicios por gira inválido");
+  }
+  const { data, error } = await supabase
+    .from("ensamble_proyeccion_config")
+    .upsert(
+      {
+        anio: y,
+        servicios_por_gira: serv,
+        tramos,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "anio" },
+    )
+    .select("anio, servicios_por_gira, tramos, updated_at")
+    .single();
+  if (error) throw error;
+  return normalizeProyeccionConfig(data, y);
 }
 
 export async function upsertEnsambleProyeccionEnsayo(payload) {

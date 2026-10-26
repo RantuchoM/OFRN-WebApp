@@ -11,6 +11,15 @@ import {
   indexDemorasLocalidad,
   sliceTime,
 } from "./giraProyeccionPcv.js";
+import {
+  defaultProyeccionConfig,
+  getAnioProyeccion,
+  normalizeProyeccionConfig,
+} from "./ensambleProyeccionConfig.js";
+import {
+  dayClipFromTramos,
+  listMondaysFromTramos,
+} from "./ensambleProyeccionEnsayos.js";
 
 /**
  * Helvetica (WinAnsi) no dibuja → × ↔ · — …; en Gmail/visor se ven letras
@@ -180,6 +189,17 @@ function giraTramoPesos(program, ensamble) {
 
 export async function exportInformeEnsambles2027(bundle, opts = {}) {
   const format = opts.format || "both";
+  const anio = Number(bundle.anio) || getAnioProyeccion();
+  const proyeccionConfig = normalizeProyeccionConfig(
+    bundle.proyeccionConfig || defaultProyeccionConfig(anio),
+    anio,
+  );
+  const serviciosPorGira = Number(proyeccionConfig.servicios_por_gira) || 7;
+  const tramosProy = proyeccionConfig.tramos;
+  const mondays = listMondaysFromTramos(tramosProy);
+  const { dayFrom: proyDayFrom, dayTo: proyDayTo } =
+    dayClipFromTramos(tramosProy); // solo para textos / metadata del informe
+
   const girasRaw = bundle.girasRaw || [];
   const ensamblesRaw = bundle.ensamblesRaw || [];
   const ensayosProx = bundle.ensayosProx || [];
@@ -190,14 +210,25 @@ export async function exportInformeEnsambles2027(bundle, opts = {}) {
     opts.demorasRows || bundle.demorasRows || [],
   );
   const locNameById = new Map();
+  const locAliasById = new Map();
+  for (const l of bundle.localidades || []) {
+    if (l?.id) {
+      locNameById.set(Number(l.id), l.localidad || "");
+      if (l.alias) locAliasById.set(Number(l.id), l.alias);
+    }
+  }
   for (const e of ensamblesRaw) {
     if (e.id_localidad && e.localidad) {
       locNameById.set(Number(e.id_localidad), e.localidad);
+    }
+    if (e.id_localidad && e.localidad_alias) {
+      locAliasById.set(Number(e.id_localidad), e.localidad_alias);
     }
   }
   for (const g of girasRaw) {
     for (const l of g.localias || []) {
       if (l?.id && l?.localidad) locNameById.set(Number(l.id), l.localidad);
+      if (l?.id && l?.alias) locAliasById.set(Number(l.id), l.alias);
     }
   }
 
@@ -377,21 +408,6 @@ function buildWeeklyTemplate(ensayos) {
   return byEnsamble;
 }
 
-function listMondays(fromIso, toIso) {
-  const out = [];
-  let cur = fromIso;
-  while (cur <= toIso) {
-    out.push(cur);
-    cur = addDays(cur, 7);
-  }
-  return out;
-}
-
-/** 1ª semana feb 2027 = lun 01/02; 3ª dic = lun 13/12 */
-const WEEK_START = "2027-02-01";
-const WEEK_END = "2027-12-13";
-const mondays = listMondays(WEEK_START, WEEK_END);
-
 function dateForDow(mondayIso, isoDow) {
   return addDays(mondayIso, isoDow - 1);
 }
@@ -410,21 +426,23 @@ function primaryDestLocId(program, homeId) {
   return (away[0] ?? ids[0]) || null;
 }
 
-const LOC_SHORT = {
-  "San Carlos de Bariloche": "Bariloche",
-  "San Antonio Oeste": "SAO",
-};
-
-function shortLocalidadName(name) {
+function shortLocalidadName(name, id) {
+  const n = Number(id);
+  if (Number.isFinite(n) && locAliasById.has(n)) {
+    return locAliasById.get(n);
+  }
   const raw = String(name || "").trim();
   if (!raw) return "";
-  return LOC_SHORT[raw] || raw;
+  for (const [lid, alias] of locAliasById) {
+    if (locNameById.get(lid) === raw) return alias;
+  }
+  return raw;
 }
 
 function localidadNameById(id) {
   const n = Number(id);
   const name = locNameById.get(n);
-  if (name) return shortLocalidadName(name) || name;
+  if (name) return shortLocalidadName(name, n) || name;
   return String(id);
 }
 
@@ -441,7 +459,12 @@ function programLocaliasLabel(program) {
   if (tramos.length >= 2) return tramos.join(" → ");
 
   const names = (program?.giras_localidades || [])
-    .map((r) => shortLocalidadName(r?.localidades?.localidad))
+    .map((r) =>
+      shortLocalidadName(
+        r?.localidades?.localidad,
+        r?.id_localidad ?? r?.localidades?.id,
+      ),
+    )
     .filter(Boolean);
   return [...new Set(names)].join(" · ");
 }
@@ -595,12 +618,14 @@ for (const ens of ensambles) {
   let ensayosServiciosConflicto = 0;
   const conflictosEns = [];
 
+  // Solo semanas cuyo lunes está en algún tramo (huecos = vacaciones / cortes).
   for (const monday of mondays) {
     for (const slot of tpl) {
       const day = dateForDow(monday, slot.isoDow);
-      if (day < "2027-02-01" || day > "2027-12-19") continue;
+      const slotVal = Number(slot.value) || 0;
+      if (!slotVal) continue;
       ensayosTotal += 1;
-      ensayosServiciosBrutos += slot.value;
+      ensayosServiciosBrutos += slotVal;
 
       const conflicting = programs.filter(
         (p) =>
@@ -609,12 +634,12 @@ for (const ens of ensambles) {
       );
       if (conflicting.length) {
         ensayosConflicto += 1;
-        ensayosServiciosConflicto += slot.value;
+        ensayosServiciosConflicto += slotVal;
         const rowC = {
           ensamble: ens.ensamble,
           fecha: day,
           hora: `${slot.hora_inicio}-${slot.hora_fin}`,
-          servicio: slot.value,
+          servicio: slotVal,
           giras: conflicting.map((p) => giraDisplayName(p)).join(" · "),
         };
         conflictosEns.push(rowC);
@@ -632,10 +657,9 @@ for (const ens of ensambles) {
   const girasFueraR = Math.round(girasFuera * 100) / 100;
   const girasCasaR = Math.round(girasCasa * 100) / 100;
   const girasTotalR = Math.round((girasFueraR + girasCasaR) * 100) / 100;
-  /** Estimado fijo de servicios de gira (conciertos/ensayos de gira). */
-  const SERVICIOS_POR_GIRA = 7;
+  /** Estimado de servicios de gira (`ensamble_proyeccion_config.servicios_por_gira`). */
   const servGirasEst =
-    Math.round(girasTotalR * SERVICIOS_POR_GIRA * 100) / 100;
+    Math.round(girasTotalR * serviciosPorGira * 100) / 100;
   const cicloStats = ensambleCicloStats(ens.id);
 
   /**
@@ -894,7 +918,7 @@ function writeExcelMatrix(ws) {
 
 async function writeExcel() {
   const wb = new ExcelJS.Workbook();
-  wb.creator = "OFRN informe ensambles 2027";
+  wb.creator = `OFRN informe ensambles ${anio}`;
 
   const resumen = wb.addWorksheet("Resumen");
   const metricsStart = writeExcelMatrix(resumen);
@@ -1061,7 +1085,7 @@ async function writeExcel() {
     line += 1;
     ws.getCell(line, 1).value = "Modelo";
     ws.getCell(line, 2).value =
-      "Plantilla semanal editable (ensamble_proyeccion_ensayos), repetida lun 01/02/2027 … lun 13/12/2027";
+      `Plantilla semanal editable (ensamble_proyeccion_ensayos) × tramos de ${anio}`;
     line += 1;
     ws.getCell(line, 1).value = "Slots semanales";
     ws.getCell(line, 2).value =
@@ -1227,12 +1251,12 @@ async function writeExcel() {
   const notas = wb.addWorksheet("Notas");
   notas.getColumn(1).width = 110;
   const lines = [
-    "Informe planificación ensambles 2027 (incluye giras Borrador seed).",
+    `Informe planificación ensambles ${anio} (incluye giras Borrador seed).`,
     "Primera hoja: matriz giras × ensambles — L = local (en casa), A = afuera, L/A = mixto por tramos. Pie: nL + mA = total.",
     "Colores alineados a Prestaciones: Fuera=naranja, En casa=celeste, PCV=teal, Ens. netos=esmeralda, Detalle ensayos=esmeralda.",
     "x7 = Total giras × 7 (estimado fijo por gira; respeta pesos de tramo). Separado del bloque Giras.",
     "Dos secciones: Giras (incl. Prog. ensamble) | Prestaciones (Giras x7, PCV, Ens. netos, Conc. ensamble, Feriados, Prest. tot.).",
-    "Feriados: 1 servicio por feriado / no laborable / domingo SOLO si ese día hay ensayo o concierto (tipos 1/2/3/13). No cuenta día de traslado ni otros eventos de logística. Domingos por criterio (no en tabla). Puentes turísticos 2027 aún no decretados; 2026 ya en BD.",
+    `Feriados: 1 servicio por feriado / no laborable / domingo SOLO si ese día hay ensayo o concierto (tipos 1/2/3/13). No cuenta día de traslado ni otros eventos de logística. Domingos por criterio (no en tabla). Año ${anio}.`,
     "Prest. tot. = Giras x7 + PCV + Ens. netos + Conc. ensamble + Feriados.",
     "Prog./Conc. ensamble = Ciclos de Cámara I–III. Concierto=1; didáctico=0,5. No entran en la matriz L/A.",
     "Ens. netos = servicios de ensayos proyectados netos de conflicto pleno pendiente.",
@@ -1241,7 +1265,7 @@ async function writeExcel() {
     "PCV: ventana ida+vuelta (matriz + salidas); con tramos solo los tramos fuera. El Bolsón ↔ Bariloche ~2h30.",
     "Tramos seed: Cipolletti→Villa Regina último día (207, 213); El Bolsón→Ñorquinco último día (214 Falú).",
     "Cada gira se lista con localía entre paréntesis.",
-    "Ensayos: plantilla editable ensamble_proyeccion_ensayos × 46 semanas (01/02/2027–13/12/2027).",
+    `Ensayos: plantilla editable ensamble_proyeccion_ensayos × ${mondays.length} lunes en tramos de config (${proyDayFrom}–${proyDayTo}). Servicios/gira estimados: ${serviciosPorGira}.`,
     "Hojas Det <ensamble>: cálculo de ensayos, giras en casa, franjas PCV, feriados en gira y conflictos.",
   ];
   lines.forEach((l, i) => {
@@ -1516,7 +1540,7 @@ function writePdfResumenPage(doc) {
   doc.setFontSize(13);
   doc.setTextColor(15, 23, 42);
   doc.text(
-    pdfText("Informe ensambles 2027 - giras / PCV / Ens. netos"),
+    pdfText(`Informe ensambles ${anio} - giras / PCV / Ens. netos`),
     40,
     32,
   );
@@ -1647,7 +1671,7 @@ async function writePdf() {
 
 
   const stamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, "");
-  const base = opts.fileBase || `informe_ensambles_2027_${stamp}`;
+  const base = opts.fileBase || `informe_ensambles_${anio}_${stamp}`;
   const results = {};
   if (format === "xlsx" || format === "both" || format === "excel") {
     const buf = await writeExcel();

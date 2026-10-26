@@ -102,7 +102,7 @@ export default function EnsambleProyeccionDetalle({
                 <tr>
                   <th className="px-1 py-1">Fecha</th>
                   <th className="px-1 py-1">Hora</th>
-                  <th className="px-1 py-1">Serv.</th>
+                  <th className="px-1 py-1">Prest.</th>
                   <th className="px-1 py-1">Giras</th>
                 </tr>
               </thead>

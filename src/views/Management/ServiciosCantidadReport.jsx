@@ -2174,33 +2174,63 @@ export default function ServiciosCantidadReport({ supabase }) {
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-y-contain pb-8 [-webkit-overflow-scrolling:touch] lg:overflow-hidden lg:pb-0">
-      <div className="flex shrink-0 flex-wrap items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-2">
-        <span className="mr-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-          Vista
-        </span>
-        <button
-          type="button"
-          onClick={() => setPanelMode("listado")}
-          className={`rounded-md px-2.5 py-1 text-[11px] font-bold ${
-            panelMode === "listado"
-              ? "bg-indigo-600 text-white"
-              : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-          }`}
-        >
-          Listado
-        </button>
-        <button
-          type="button"
-          onClick={() => setPanelMode("sandbox")}
-          className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-bold ${
-            isProyeccion
-              ? "bg-orange-600 text-white"
-              : "bg-orange-50 text-orange-800 hover:bg-orange-100"
-          }`}
-        >
-          <IconCalculator size={13} />
-          Proyección
-        </button>
+      <div className="flex shrink-0 flex-wrap items-end gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5">
+        <div className="flex flex-wrap items-center gap-1 pb-0.5">
+          <span className="mr-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+            Vista
+          </span>
+          <button
+            type="button"
+            onClick={() => setPanelMode("listado")}
+            className={`rounded-md px-2.5 py-1 text-[11px] font-bold ${
+              panelMode === "listado"
+                ? "bg-indigo-600 text-white"
+                : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+            }`}
+          >
+            Listado
+          </button>
+          <button
+            type="button"
+            onClick={() => setPanelMode("sandbox")}
+            className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-bold ${
+              isProyeccion
+                ? "bg-orange-600 text-white"
+                : "bg-orange-50 text-orange-800 hover:bg-orange-100"
+            }`}
+          >
+            <IconCalculator size={13} />
+            Proyección
+          </button>
+        </div>
+        <div className="mx-1 hidden h-7 w-px bg-slate-200 sm:block" aria-hidden />
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="w-[9rem]">
+            <DateInput
+              label="Desde"
+              value={fechaDesde}
+              onChange={(v) => v && setFechaDesde(v)}
+              showDayName={false}
+            />
+          </div>
+          <div className="w-[9rem]">
+            <DateInput
+              label="Hasta"
+              value={fechaHasta}
+              onChange={(v) => v && setFechaHasta(v)}
+              showDayName={false}
+            />
+          </div>
+          <button
+            type="button"
+            onClick={resetYear}
+            className="mb-px inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-[11px] font-bold text-slate-600 hover:border-slate-300 hover:bg-white"
+            title="Rango = año calendario siguiente completo"
+          >
+            <IconRefresh size={14} />
+            Año siguiente
+          </button>
+        </div>
       </div>
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 lg:flex-row lg:overflow-hidden">
@@ -2410,38 +2440,10 @@ export default function ServiciosCantidadReport({ supabase }) {
       ) : null}
 
       <div className="flex min-w-0 shrink-0 flex-col rounded-lg border border-slate-200 bg-white lg:min-h-0 lg:flex-1 lg:shrink lg:overflow-hidden">
+        {!isProyeccion ? (
         <div className="sticky top-0 z-[4] border-b border-slate-100 bg-white lg:static">
           <div className="flex flex-col gap-2 px-3 py-2">
             <div className="flex flex-wrap items-end gap-2">
-            <div className="flex flex-wrap items-end gap-2 rounded-lg border border-slate-200 bg-slate-50/80 px-2 py-1.5">
-              <div className="w-[9.5rem]">
-                <DateInput
-                  label="Desde"
-                  value={fechaDesde}
-                  onChange={(v) => v && setFechaDesde(v)}
-                  showDayName={false}
-                />
-              </div>
-              <div className="w-[9.5rem]">
-                <DateInput
-                  label="Hasta"
-                  value={fechaHasta}
-                  onChange={(v) => v && setFechaHasta(v)}
-                  showDayName={false}
-                />
-              </div>
-              <button
-                type="button"
-                onClick={resetYear}
-                className="mb-px inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[11px] font-bold text-slate-600 hover:border-slate-300"
-                title="Rango = año calendario siguiente completo"
-              >
-                <IconRefresh size={14} />
-                Año siguiente
-              </button>
-            </div>
-            {!isProyeccion ? (
-              <>
             <label className="min-w-[9rem] flex-1">
               <span className="mb-1 block text-[10px] font-bold uppercase text-slate-400">
                 Gira
@@ -2485,10 +2487,7 @@ export default function ServiciosCantidadReport({ supabase }) {
                 onExcel={handleExportExcel}
               />
             </div>
-              </>
-            ) : null}
             </div>
-            {!isProyeccion ? (
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
               <label className="inline-flex cursor-pointer items-center gap-1.5 text-[11px] font-medium text-slate-600">
                 <input
@@ -2523,9 +2522,7 @@ export default function ServiciosCantidadReport({ supabase }) {
                 </button>
               )}
             </div>
-            ) : null}
           </div>
-          {!isProyeccion ? (
           <div className="flex flex-wrap items-center gap-2 border-t border-indigo-100 bg-indigo-50/60 px-3 py-1.5">
             <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-indigo-700">
               <IconMusic size={13} />
@@ -2558,8 +2555,8 @@ export default function ServiciosCantidadReport({ supabase }) {
               Ensayos en conflicto
             </button>
           </div>
-          ) : null}
         </div>
+        ) : null}
 
         {!isProyeccion ? (
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-50 px-3 py-1.5 text-[11px] text-slate-500">
@@ -2596,9 +2593,15 @@ export default function ServiciosCantidadReport({ supabase }) {
         </div>
         ) : null}
 
-        <div className="max-h-[68vh] min-h-[14rem] overflow-auto overscroll-contain [-webkit-overflow-scrolling:touch] lg:max-h-none lg:min-h-0 lg:flex-1">
+        <div
+          className={
+            isProyeccion
+              ? "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+              : "max-h-[68vh] min-h-[14rem] overflow-auto overscroll-contain [-webkit-overflow-scrolling:touch] lg:max-h-none lg:min-h-0 lg:flex-1"
+          }
+        >
           {isProyeccion ? (
-            <div className="p-3">
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col p-3">
               <PrestacionesProyeccionSandbox
                 supabase={supabase}
                 fechaDesde={fechaDesde}

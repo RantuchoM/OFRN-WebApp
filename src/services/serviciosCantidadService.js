@@ -280,7 +280,7 @@ export async function fetchConflictoAgendaContext(
     );
     const ensamblesRaw = await supabase
       .from("ensambles")
-      .select("id, ensamble, id_familia")
+      .select("id, ensamble, id_familia, es_ensamble_local")
       .order("ensamble");
     const ensCfRaw = await supabase
       .from("ensambles_cf")
@@ -434,7 +434,7 @@ export async function fetchEnsayosConflictoPeriod(
       ),
       supabase
         .from("ensambles")
-        .select("id, ensamble, id_familia")
+        .select("id, ensamble, id_familia, es_ensamble_local")
         .order("ensamble"),
       supabase.from("ensambles_cf").select("id_ensamble, id_ensamble_cf"),
       supabase.from("integrantes").select("id, nombre, apellido, id_instr"),
