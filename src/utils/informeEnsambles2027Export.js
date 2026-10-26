@@ -9,6 +9,7 @@ import autoTable from "jspdf-autotable";
 import {
   estimatePcvFromFueraSegs,
   indexDemorasLocalidad,
+  resolveGiraServiciosEstimate,
   sliceTime,
 } from "./giraProyeccionPcv.js";
 import {
@@ -20,6 +21,12 @@ import {
   dayClipFromTramos,
   listMondaysFromTramos,
 } from "./ensambleProyeccionEnsayos.js";
+import {
+  aggregateCicloStats,
+  ciclosForEnsamble,
+  formatConciertosEnsambleLabel,
+  formatEnsNetosLabel,
+} from "./ensambleCicloConciertos.js";
 
 /**
  * Helvetica (WinAnsi) no dibuja → × ↔ · — …; en Gmail/visor se ven letras
@@ -265,6 +272,7 @@ function normalizeProgram(row) {
       tipo_evento: e.tipo_evento || e.descripcion || "",
       hora_inicio: e.hora_inicio,
       hora_fin: e.hora_fin,
+      es_didactico: Boolean(e.es_didactico),
     }));
   return {
     id: row.id,
@@ -276,6 +284,7 @@ function normalizeProgram(row) {
     estado: row.estado,
     hora_inicio_proyeccion: row.hora_inicio_proyeccion || null,
     hora_fin_proyeccion: row.hora_fin_proyeccion || null,
+    servicios_estimados: row.servicios_estimados ?? null,
     eventos,
     giras_localidades: localias.map((l) => ({
       id_localidad: l.id,
@@ -340,24 +349,11 @@ function normalizeCicloProgram(row) {
 
 const cicloPrograms = ciclosRaw.map(normalizeCicloProgram);
 
-/** Concierto = 1; didáctico = 0,5. */
-function conciertoServicioValue(evt) {
-  return evt?.es_didactico ? 0.5 : 1;
-}
-
 function ensambleCicloStats(ensambleId) {
-  let programas = 0;
-  let conciertos = 0;
-  for (const prog of cicloPrograms) {
-    if (!prog.ensambleIds.includes(Number(ensambleId))) continue;
-    programas += 1;
-    for (const ev of prog.eventos || []) {
-      conciertos += conciertoServicioValue(ev);
-    }
-  }
+  const list = ciclosForEnsamble(cicloPrograms, ensambleId);
   return {
-    programasEnsamble: programas,
-    conciertosEnsamble: Math.round(conciertos * 100) / 100,
+    ...aggregateCicloStats(list),
+    programasList: list,
   };
 }
 
@@ -731,9 +727,19 @@ for (const ens of ensambles) {
     girasTotal: girasTotalR,
     programasEnsamble: cicloStats.programasEnsamble,
     conciertosEnsamble: cicloStats.conciertosEnsamble,
+    conciertosEnsambleReg: cicloStats.conciertosEnsambleReg,
+    conciertosEnsambleDid: cicloStats.conciertosEnsambleDid,
+    conciertosEnsambleLabel: cicloStats.conciertosEnsambleLabel,
+    programasEnsambleList: cicloStats.programasList || [],
     servGirasEst,
     pcv: pcvRound,
     prestNetas,
+    ensNetosLabel: formatEnsNetosLabel(
+      Math.round(ensayosServiciosBrutos * 100) / 100,
+      Math.round(ensayosServiciosConflicto * 100) / 100,
+      prestNetas,
+      fmtQty,
+    ),
     feriados: feriadosCount,
     feriadosHits,
     serviciosTotales:
@@ -802,15 +808,23 @@ function matrixSumLabel(casa, fuera) {
   return `${fmtQty(n)}L + ${fmtQty(m)}A = ${fmtQty(t)}`;
 }
 
-/** Matriz doble entrada: filas = giras, columnas = ensambles, celda L/A. */
+/** Matriz Excel: filas = giras, columnas = ensambles, celda L/A. */
 const ensambleCols = rows.map((r) => r.ensamble);
 const markByKey = new Map();
+/** Cuadro PDF (panel superior): L / días PCV / vacío. */
+const cuadroCellByKey = new Map();
 for (const r of rows) {
   for (const g of r.girasList || []) {
-    markByKey.set(
-      `${r.ensamble}|${g.giraId}`,
-      matrixMark(g.pesoFuera, g.pesoEnCasa),
-    );
+    const key = `${r.ensamble}|${g.giraId}`;
+    markByKey.set(key, matrixMark(g.pesoFuera, g.pesoEnCasa));
+    if ((Number(g.pesoFuera) || 0) <= 0) {
+      cuadroCellByKey.set(key, { kind: "L", label: "L" });
+    } else {
+      cuadroCellByKey.set(key, {
+        kind: "pcv",
+        label: fmtQty(g.pcv),
+      });
+    }
   }
 }
 const matrixPrograms = [...programs].sort((a, b) => {
@@ -829,6 +843,55 @@ const matrixRows = matrixPrograms.map((program) => ({
 const matrixTotals = rows.map((r) =>
   matrixSumLabel(r.girasCasa, r.girasFuera),
 );
+
+const feriadosByDay = new Map(
+  (feriados2027 || []).map((f) => [String(f.fecha).slice(0, 10), f]),
+);
+
+function feriadosCountForProgram(program) {
+  const days = new Set();
+  for (const ev of program.eventos || []) {
+    if (!TIPO_SERVICIO.has(Number(ev.id_tipo_evento))) continue;
+    const day = String(ev.fecha || "").slice(0, 10);
+    if (!day) continue;
+    const fer = feriadosByDay.get(day);
+    const isSunday = new Date(`${day}T12:00:00`).getDay() === 0;
+    if (fer || isSunday) days.add(day);
+  }
+  return days.size;
+}
+
+/**
+ * Prest. del cuadro: solo override manual o default de config
+ * (`servicios_por_gira`). No usa suma de eventos (E) — eso distorsiona
+ * la proyección.
+ */
+function prestLabelForProgram(program) {
+  const est = resolveGiraServiciosEstimate(program, [], serviciosPorGira);
+  const src = est.source === "manual" ? "M" : "A";
+  return `${fmtQty(est.value)} ${src}`;
+}
+
+const cuadroRows = matrixPrograms.map((program) => {
+  const locs = programLocaliasLabel(program);
+  return {
+    program,
+    gira: program.nombre_gira || `Gira ${program.id}`,
+    giraSub: [program.tipo, locs].filter(Boolean).join(" · ") || "—",
+    fDesde: formatDdMmYyyyIso(program.fecha_desde),
+    hInicio: sliceTime(program.hora_inicio_proyeccion) || "15:00",
+    fHasta: formatDdMmYyyyIso(
+      program.fecha_hasta || program.fecha_desde,
+    ),
+    hFin: sliceTime(program.hora_fin_proyeccion) || "23:00",
+    prest: prestLabelForProgram(program),
+    feriados: feriadosCountForProgram(program),
+    cells: ensambleCols.map((ensName) => {
+      const cell = cuadroCellByKey.get(`${ensName}|${program.id}`);
+      return cell || { kind: "empty", label: "" };
+    }),
+  };
+});
 
 const FILL = {
   identity: "FFF1F5F9", // slate-100
@@ -923,7 +986,7 @@ async function writeExcel() {
   const resumen = wb.addWorksheet("Resumen");
   const metricsStart = writeExcelMatrix(resumen);
 
-  // Dos secciones: Giras (… Prog. ensamble) | Prestaciones (Giras x7 … Conc. ensamble … Prest. tot.)
+  // Dos secciones: Giras (… Prog. ensamble) | Prestaciones (Prest. por gira … Prest. tot.)
   const colDefs = [
     { key: "ensamble", label: "Ensamble", group: "Giras", fill: FILL.identity, w: 11, align: "center" },
     { key: "familia", label: "Familia", group: "Giras", fill: FILL.identity, w: 11, align: "center" },
@@ -932,10 +995,10 @@ async function writeExcel() {
     { key: "girasCasa", label: "En casa", group: "Giras", fill: FILL.casa, w: 9, align: "center" },
     { key: "girasTotal", label: "Total Giras", group: "Giras", fill: FILL.girasTot, w: 10, align: "center" },
     { key: "programasEnsamble", label: "Prog. ensamble", group: "Giras", fill: "FFECFDF5", w: 11, align: "center" },
-    { key: "servGirasEst", label: "Giras x7", group: "Prestaciones", fill: FILL.servGiras, w: 10, align: "center" },
+    { key: "servGirasEst", label: "Prest. por gira", group: "Prestaciones", fill: FILL.servGiras, w: 12, align: "center" },
     { key: "pcv", label: "PCV", group: "Prestaciones", fill: FILL.pcv, w: 9, align: "center" },
-    { key: "prestNetas", label: "Ens. netos", group: "Prestaciones", fill: FILL.prestNetas, w: 10, align: "center" },
-    { key: "conciertosEnsamble", label: "Conc. ensamble", group: "Prestaciones", fill: "FFD1FAE5", w: 11, align: "center" },
+    { key: "ensNetosLabel", label: "Ens. netos", group: "Prestaciones", fill: FILL.prestNetas, w: 16, align: "center" },
+    { key: "conciertosEnsambleLabel", label: "Conc. ensamble", group: "Prestaciones", fill: "FFD1FAE5", w: 16, align: "center" },
     { key: "feriados", label: "Feriados", group: "Prestaciones", fill: "FFFCE7F3", w: 9, align: "center" },
     { key: "serviciosTotales", label: "Prest. tot.", group: "Prestaciones", fill: FILL.total, w: 10, align: "center" },
   ];
@@ -1025,6 +1088,45 @@ async function writeExcel() {
   const totValues = colDefs.map((d) => {
     if (d.key === "ensamble") return "TOTAL";
     if (["familia", "sede"].includes(d.key)) return "";
+    if (d.key === "conciertosEnsambleLabel") {
+      const reg = rows.reduce(
+        (acc, r) => acc + (Number(r.conciertosEnsambleReg) || 0),
+        0,
+      );
+      const did = rows.reduce(
+        (acc, r) => acc + (Number(r.conciertosEnsambleDid) || 0),
+        0,
+      );
+      const w = rows.reduce(
+        (acc, r) => acc + (Number(r.conciertosEnsamble) || 0),
+        0,
+      );
+      return formatConciertosEnsambleLabel({
+        regular: reg,
+        didactic: did,
+        weighted: Math.round(w * 100) / 100,
+      });
+    }
+    if (d.key === "ensNetosLabel") {
+      const b = rows.reduce(
+        (acc, r) => acc + (Number(r.ensayosServiciosBrutos) || 0),
+        0,
+      );
+      const c = rows.reduce(
+        (acc, r) => acc + (Number(r.ensayosServiciosConflicto) || 0),
+        0,
+      );
+      const n = rows.reduce(
+        (acc, r) => acc + (Number(r.prestNetas) || 0),
+        0,
+      );
+      return formatEnsNetosLabel(
+        Math.round(b * 100) / 100,
+        Math.round(c * 100) / 100,
+        Math.round(n * 100) / 100,
+        fmtQty,
+      );
+    }
     if (typeof rows[0]?.[d.key] === "number") {
       const s = rows.reduce((acc, r) => acc + (Number(r[d.key]) || 0), 0);
       return Math.round(s * 100) / 100;
@@ -1060,23 +1162,24 @@ async function writeExcel() {
     ws.getCell(line, 2).value = r.programasEnsamble;
     line += 1;
     ws.getCell(line, 1).value = "Conciertos de ensamble (1 / 0,5 didácticos)";
-    ws.getCell(line, 2).value = r.conciertosEnsamble;
+    ws.getCell(line, 2).value =
+      r.conciertosEnsambleLabel || String(r.conciertosEnsamble);
     line += 1;
-    ws.getCell(line, 1).value = "Giras x7";
+    ws.getCell(line, 1).value = "Prestaciones por gira";
     ws.getCell(line, 2).value = r.servGirasEst;
     line += 1;
     ws.getCell(line, 1).value = "PCV";
     ws.getCell(line, 2).value = r.pcv;
     line += 1;
     ws.getCell(line, 1).value = "Ens. netos (ensayos)";
-    ws.getCell(line, 2).value = r.prestNetas;
+    ws.getCell(line, 2).value = r.ensNetosLabel || String(r.prestNetas);
     line += 1;
     ws.getCell(line, 1).value =
       "Feriados (feriado / no laborable / domingo en gira)";
     ws.getCell(line, 2).value = r.feriados;
     line += 1;
     ws.getCell(line, 1).value =
-      "Prest. tot. (Giras x7 + PCV + Ens. netos + Conc. ens. + Feriados)";
+      "Prest. tot. (Prest. por gira + PCV + Ens. netos + Conc. ens. + Feriados)";
     ws.getCell(line, 2).value = r.serviciosTotales;
     line += 2;
 
@@ -1097,6 +1200,37 @@ async function writeExcel() {
     ws.getCell(line, 1).value = "Valor por ensayo";
     ws.getCell(line, 2).value = "≥2 h → 1; >30 min y <2 h → 0,5; ≤30 min → 0";
     line += 2;
+
+    ws.getCell(line, 1).value = "Programas de ensamble (listado)";
+    ws.getCell(line, 1).font = { bold: true };
+    paintHeader(ws.getCell(line, 1), "FFECFDF5");
+    line += 1;
+    const progList = r.programasEnsambleList || [];
+    if (!progList.length) {
+      ws.getCell(line, 1).value = "(ninguno)";
+      line += 1;
+    } else {
+      ws.getCell(line, 1).value = "Programa";
+      ws.getCell(line, 2).value = "Fechas";
+      ws.getCell(line, 3).value = "Conc.";
+      ws.getCell(line, 4).value = "Didáct.";
+      ws.getCell(line, 5).value = "Prest.";
+      for (let i = 1; i <= 5; i += 1) {
+        paintHeader(ws.getCell(line, i), "FFECFDF5");
+      }
+      line += 1;
+      for (const p of progList) {
+        ws.getCell(line, 1).value = p.subtitulo
+          ? `${p.nombre} — ${p.subtitulo}`
+          : p.nombre;
+        ws.getCell(line, 2).value = `${p.desde} → ${p.hasta}`;
+        ws.getCell(line, 3).value = p.regular;
+        ws.getCell(line, 4).value = p.didactic;
+        ws.getCell(line, 5).value = p.label;
+        line += 1;
+      }
+    }
+    line += 1;
 
     ws.getCell(line, 1).value = "Giras en casa";
     ws.getCell(line, 1).font = { bold: true };
@@ -1254,10 +1388,10 @@ async function writeExcel() {
     `Informe planificación ensambles ${anio} (incluye giras Borrador seed).`,
     "Primera hoja: matriz giras × ensambles — L = local (en casa), A = afuera, L/A = mixto por tramos. Pie: nL + mA = total.",
     "Colores alineados a Prestaciones: Fuera=naranja, En casa=celeste, PCV=teal, Ens. netos=esmeralda, Detalle ensayos=esmeralda.",
-    "x7 = Total giras × 7 (estimado fijo por gira; respeta pesos de tramo). Separado del bloque Giras.",
-    "Dos secciones: Giras (incl. Prog. ensamble) | Prestaciones (Giras x7, PCV, Ens. netos, Conc. ensamble, Feriados, Prest. tot.).",
+    `Prestaciones por gira = Total giras x ${serviciosPorGira} (config). Separado del bloque Giras.`,
+    "Dos secciones: Giras (incl. Prog. ensamble) | Prestaciones (Prest. por gira, PCV, Ens. netos, Conc. ensamble, Feriados, Prest. tot.).",
     `Feriados: 1 servicio por feriado / no laborable / domingo SOLO si ese día hay ensayo o concierto (tipos 1/2/3/13). No cuenta día de traslado ni otros eventos de logística. Domingos por criterio (no en tabla). Año ${anio}.`,
-    "Prest. tot. = Giras x7 + PCV + Ens. netos + Conc. ensamble + Feriados.",
+    "Prest. tot. = Prest. por gira + PCV + Ens. netos + Conc. ensamble + Feriados.",
     "Prog./Conc. ensamble = Ciclos de Cámara I–III. Concierto=1; didáctico=0,5. No entran en la matriz L/A.",
     "Ens. netos = servicios de ensayos proyectados netos de conflicto pleno pendiente.",
     "Tramos de localía: con 2+ segmentos con sede, casa/fuera y PCV se pesan 1/n por tramo (igual que el informe de ensamble en la app). Sin tramos: la unión de giras_localidades es todo o nada.",
@@ -1276,51 +1410,191 @@ async function writeExcel() {
 }
 
 function pdfWriteEnsamblePage(doc, r) {
+  const marginX = 36;
+  const nGira = serviciosPorGira;
+  const nGiraLabel = fmtQty(nGira);
+  const prestGiraLabel = `${fmtQty(r.girasTotal)} x ${nGiraLabel} = ${fmtQty(r.servGirasEst)}`;
+
+  // Encabezado
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(14);
+  doc.setFontSize(16);
   doc.setTextColor(15, 23, 42);
-  doc.text(pdfText(r.ensamble), 36, 36);
+  doc.text(pdfText(r.ensamble), marginX, 32);
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(9);
+  doc.setFontSize(10);
   doc.setTextColor(71, 85, 105);
   doc.text(
-    pdfText(`${r.sede || "sin sede"}${r.familia ? ` - ${r.familia}` : ""}`),
-    36,
-    50,
+    pdfText(
+      `${r.sede || "sin sede"}${r.familia ? `  |  ${r.familia}` : ""}  |  Proyeccion ${anio}`,
+    ),
+    marginX,
+    46,
   );
 
+  // --- Bloque 1: Giras ---
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.setTextColor(154, 52, 18);
+  doc.text(pdfText("1. Giras (convocatoria)"), marginX, 62);
+
   autoTable(doc, {
-    startY: 60,
-    margin: { left: 36, right: 36 },
-    styles: { fontSize: 8, cellPadding: 2.5, font: "helvetica" },
-    headStyles: { fillColor: [30, 41, 59], textColor: 255 },
-    head: [pdfRow(["Concepto", "Valor"])],
-    body: [
+    startY: 66,
+    margin: { left: marginX, right: marginX },
+    styles: {
+      fontSize: 9,
+      cellPadding: 3.2,
+      font: "helvetica",
+      halign: "center",
+      valign: "middle",
+    },
+    headStyles: {
+      fillColor: [30, 41, 59],
+      textColor: 255,
+      fontSize: 8,
+      fontStyle: "bold",
+    },
+    head: [
       pdfRow([
-        "Giras fuera / en casa / total",
-        `${r.girasFuera} / ${r.girasCasa} / ${r.girasTotal}`,
-      ]),
-      pdfRow(["Programas de ensamble", String(r.programasEnsamble)]),
-      pdfRow(["Giras x7", String(r.servGirasEst)]),
-      pdfRow(["PCV", String(r.pcv)]),
-      pdfRow(["Ens. netos (ensayos)", String(r.prestNetas)]),
-      pdfRow([
-        "Conc. ensamble (1 / 0,5 didacticos)",
-        String(r.conciertosEnsamble),
-      ]),
-      pdfRow([
-        "Feriados (feriado / no laborable / domingo en gira)",
-        String(r.feriados),
-      ]),
-      pdfRow([
-        "Prest. tot. (Giras x7 + PCV + Ens. netos + Conc. ens. + Feriados)",
-        String(r.serviciosTotales),
+        "Fuera de casa",
+        "En casa",
+        "Total giras",
+        "Programas de ensamble",
       ]),
     ],
-    columnStyles: { 0: { cellWidth: 170 }, 1: { cellWidth: "auto" } },
+    body: [
+      pdfRow([
+        String(r.girasFuera),
+        String(r.girasCasa),
+        String(r.girasTotal),
+        String(r.programasEnsamble),
+      ]),
+    ],
+    columnStyles: {
+      0: { cellWidth: 130, fillColor: [255, 247, 237], textColor: [154, 52, 18], fontStyle: "bold", fontSize: 12 },
+      1: { cellWidth: 120, fillColor: [240, 249, 255], textColor: [12, 74, 110], fontStyle: "bold", fontSize: 12 },
+      2: { cellWidth: 120, fillColor: [226, 232, 240], textColor: [15, 23, 42], fontStyle: "bold", fontSize: 12 },
+      3: { cellWidth: 150, fillColor: [236, 253, 245], textColor: [6, 95, 70], fontStyle: "bold", fontSize: 12 },
+    },
   });
 
-  let y = (doc.lastAutoTable?.finalY || 120) + 14;
+  let y = (doc.lastAutoTable?.finalY || 90) + 12;
+
+  // --- Bloque 2: Prestaciones ---
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.setTextColor(49, 46, 129);
+  doc.text(pdfText("2. Prestaciones (como se arma el total)"), marginX, y);
+  y += 4;
+
+  const prestRows = [
+    {
+      label: "Prestaciones por gira",
+      hint: `Total giras x ${nGiraLabel} (config)`,
+      value: prestGiraLabel,
+      fill: [224, 231, 255],
+    },
+    {
+      label: "PCV",
+      hint: "Dias de viatico fuera de casa",
+      value: fmtQty(r.pcv),
+      fill: [204, 251, 241],
+    },
+    {
+      label: "Ensayos netos",
+      hint: "Brutos - conflicto = netos",
+      value: r.ensNetosLabel || String(r.prestNetas),
+      fill: [237, 233, 254],
+    },
+    {
+      label: "Conciertos de ensamble",
+      hint: "1 por concierto; 0,5 por didactico",
+      value: r.conciertosEnsambleLabel || String(r.conciertosEnsamble),
+      fill: [209, 250, 229],
+    },
+    {
+      label: "Feriados",
+      hint: "Feriado / no laborable / domingo con servicio",
+      value: String(r.feriados),
+      fill: [252, 231, 243],
+    },
+  ];
+
+  autoTable(doc, {
+    startY: y,
+    margin: { left: marginX, right: marginX },
+    styles: {
+      fontSize: 9,
+      cellPadding: 3,
+      font: "helvetica",
+      valign: "middle",
+    },
+    headStyles: {
+      fillColor: [49, 46, 129],
+      textColor: 255,
+      fontSize: 8,
+      fontStyle: "bold",
+    },
+    head: [pdfRow(["Concepto", "Que significa", "Valor"])],
+    body: prestRows.map((row) => pdfRow([row.label, row.hint, row.value])),
+    columnStyles: {
+      0: { cellWidth: 130, fontStyle: "bold", halign: "left" },
+      1: { cellWidth: 220, fontSize: 8, textColor: [71, 85, 105], halign: "left" },
+      2: { cellWidth: 170, fontStyle: "bold", fontSize: 11, halign: "center" },
+    },
+    didParseCell(data) {
+      if (data.section !== "body" || data.column.index !== 2) return;
+      const fill = prestRows[data.row.index]?.fill;
+      if (fill) data.cell.styles.fillColor = fill;
+    },
+  });
+
+  y = (doc.lastAutoTable?.finalY || y) + 6;
+
+  // Total destacado
+  autoTable(doc, {
+    startY: y,
+    margin: { left: marginX, right: marginX },
+    styles: {
+      fontSize: 11,
+      cellPadding: 4,
+      font: "helvetica",
+      fontStyle: "bold",
+      valign: "middle",
+    },
+    body: [
+      pdfRow([
+        "TOTAL PRESTACIONES",
+        "Prest. por gira + PCV + Ens. netos + Conc. ens. + Feriados",
+        fmtQty(r.serviciosTotales),
+      ]),
+    ],
+    columnStyles: {
+      0: {
+        cellWidth: 130,
+        fillColor: [15, 23, 42],
+        textColor: 255,
+        halign: "left",
+      },
+      1: {
+        cellWidth: 220,
+        fillColor: [30, 41, 59],
+        textColor: [203, 213, 225],
+        fontSize: 8,
+        fontStyle: "normal",
+        halign: "left",
+      },
+      2: {
+        cellWidth: 170,
+        fillColor: [15, 23, 42],
+        textColor: 255,
+        fontSize: 14,
+        halign: "center",
+      },
+    },
+    theme: "plain",
+  });
+
+  y = (doc.lastAutoTable?.finalY || y) + 14;
   doc.setFont("helvetica", "bold");
   doc.setFontSize(10);
   doc.setTextColor(15, 23, 42);
@@ -1350,6 +1624,39 @@ function pdfWriteEnsamblePage(doc, r) {
       2: { cellWidth: 58 },
       3: { cellWidth: 90 },
       4: { cellWidth: 210 },
+    },
+  });
+
+  y = (doc.lastAutoTable?.finalY || y) + 12;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.setTextColor(15, 23, 42);
+  doc.text(pdfText("Programas de ensamble"), 36, y);
+  y += 4;
+  const progList = r.programasEnsambleList || [];
+  autoTable(doc, {
+    startY: y,
+    margin: { left: 36, right: 36 },
+    styles: { fontSize: 7, cellPadding: 2, font: "helvetica" },
+    headStyles: { fillColor: [236, 253, 245], textColor: [15, 23, 42] },
+    head: [pdfRow(["Programa", "Fechas", "Conc.", "Didact.", "Prest."])],
+    body: progList.length
+      ? progList.map((p) =>
+          pdfRow([
+            p.subtitulo ? `${p.nombre} - ${p.subtitulo}` : p.nombre,
+            `${p.desde} > ${p.hasta}`,
+            String(p.regular),
+            String(p.didactic),
+            p.label,
+          ]),
+        )
+      : [pdfRow(["(ninguno)", "", "", "", ""])],
+    columnStyles: {
+      0: { cellWidth: 220 },
+      1: { cellWidth: 110 },
+      2: { cellWidth: 40 },
+      3: { cellWidth: 48 },
+      4: { cellWidth: 90 },
     },
   });
 
@@ -1447,14 +1754,16 @@ function pdfWriteEnsamblePage(doc, r) {
   }
 }
 
+/**
+ * Página 2: mismo cuadro que el panel superior de Proyección
+ * (gira · fechas · horas · prest. · feriados · L / PCV por ensamble).
+ */
 function writePdfMatrixPage(doc) {
   doc.setFont("helvetica", "bold");
   doc.setFontSize(12);
   doc.setTextColor(15, 23, 42);
   doc.text(
-    pdfText(
-      "Matriz giras x ensambles (L/A) - solo giras Sinfonico/CF (sin programas de ensamble)",
-    ),
+    pdfText(`Proyeccion PCV ${anio} - cuadro giras x ensambles`),
     28,
     28,
   );
@@ -1463,33 +1772,63 @@ function writePdfMatrixPage(doc) {
   doc.setTextColor(71, 85, 105);
   doc.text(
     pdfText(
-      "Filas: fecha desde - hasta. Zona. Localia/es. Pie: nL + mA = total por ensamble.",
+      "L = en casa. Numero = dias PCV. Prest. M=manual A=default config (no suma eventos). Feriados = feriado/no laborable/domingo con servicio.",
     ),
     28,
     40,
   );
 
-  const head = [
-    pdfRow(["Gira (fechas. zona. localia)", ...ensambleCols]),
+  const metaKeys = [
+    "Gira",
+    "F. inicio",
+    "H. inicio",
+    "F. fin",
+    "H. fin",
+    "Prest.",
+    "Feriados",
   ];
-  const body = [
-    ...matrixRows.map((mr) => pdfRow([mr.label, ...mr.cells])),
-    pdfRow(["Suma (nL + mA = total)", ...matrixTotals]),
-  ];
-  const totalRowIndex = body.length - 1;
+  const head = [pdfRow([...metaKeys, ...ensambleCols])];
+  const body = cuadroRows.map((row) =>
+    pdfRow([
+      `${row.gira}\n${row.giraSub}`,
+      row.fDesde,
+      row.hInicio,
+      row.fHasta,
+      row.hFin,
+      row.prest,
+      row.feriados > 0 ? String(row.feriados) : "",
+      ...row.cells.map((c) => c.label || ""),
+    ]),
+  );
 
   const pageW = doc.internal.pageSize.getWidth();
-  const margin = 24;
+  const margin = 18;
   const usable = pageW - margin * 2;
-  const labelW = 200;
-  const ensW = Math.max(28, (usable - labelW) / Math.max(ensambleCols.length, 1));
+  const ensCount = Math.max(ensambleCols.length, 1);
+  const giraW = 118;
+  const dateW = 42;
+  const timeW = 32;
+  const prestW = 36;
+  const ferW = 28;
+  const metaW = giraW + dateW * 2 + timeW * 2 + prestW + ferW;
+  const ensW = Math.max(22, (usable - metaW) / ensCount);
+  const metaIdx = {
+    gira: 0,
+    fDesde: 1,
+    hInicio: 2,
+    fHasta: 3,
+    hFin: 4,
+    prest: 5,
+    feriados: 6,
+  };
+  const firstEnsCol = metaKeys.length;
 
   autoTable(doc, {
     startY: 48,
     margin: { left: margin, right: margin },
     styles: {
       fontSize: 5.5,
-      cellPadding: 1.2,
+      cellPadding: 1.1,
       font: "helvetica",
       overflow: "linebreak",
       valign: "middle",
@@ -1498,38 +1837,55 @@ function writePdfMatrixPage(doc) {
     headStyles: {
       fillColor: [30, 41, 59],
       textColor: 255,
-      fontSize: 6,
+      fontSize: 5.5,
       fontStyle: "bold",
+      valign: "middle",
     },
     columnStyles: {
-      0: { cellWidth: labelW, halign: "left", fontSize: 5 },
+      [metaIdx.gira]: { cellWidth: giraW, halign: "left", fontSize: 5 },
+      [metaIdx.fDesde]: { cellWidth: dateW },
+      [metaIdx.hInicio]: { cellWidth: timeW },
+      [metaIdx.fHasta]: { cellWidth: dateW },
+      [metaIdx.hFin]: { cellWidth: timeW },
+      [metaIdx.prest]: { cellWidth: prestW },
+      [metaIdx.feriados]: { cellWidth: ferW, fillColor: [252, 231, 243] },
       ...Object.fromEntries(
-        ensambleCols.map((_, i) => [i + 1, { cellWidth: ensW, halign: "center" }]),
+        ensambleCols.map((_, i) => [
+          firstEnsCol + i,
+          { cellWidth: ensW, halign: "center" },
+        ]),
       ),
     },
     head,
     body,
     didParseCell(data) {
-      if (data.section === "body" && data.column.index > 0) {
-        const raw = String(data.cell.raw ?? data.cell.text?.[0] ?? "");
-        if (raw === "L") {
-          data.cell.styles.fillColor = [219, 234, 254];
-          data.cell.styles.fontStyle = "bold";
-          data.cell.styles.fontSize = 8;
-        } else if (raw === "A") {
-          data.cell.styles.fillColor = [255, 237, 213];
-          data.cell.styles.fontStyle = "bold";
-          data.cell.styles.fontSize = 8;
-        } else if (raw === "L/A") {
-          data.cell.styles.fillColor = [254, 243, 199];
-          data.cell.styles.fontStyle = "bold";
-          data.cell.styles.fontSize = 6.5;
-        }
+      if (data.section === "head" && data.column.index === metaIdx.feriados) {
+        data.cell.styles.fillColor = [251, 207, 232];
+        data.cell.styles.textColor = [131, 24, 67];
       }
-      if (data.section === "body" && data.row.index === totalRowIndex) {
-        data.cell.styles.fillColor = [226, 232, 240];
+      if (data.section !== "body") return;
+      const col = data.column.index;
+      if (col === metaIdx.feriados) {
+        data.cell.styles.fillColor = [252, 231, 243];
+        data.cell.styles.textColor = [157, 23, 77];
         data.cell.styles.fontStyle = "bold";
-        data.cell.styles.fontSize = 5;
+        return;
+      }
+      if (col < firstEnsCol) return;
+      const ensIdx = col - firstEnsCol;
+      const row = cuadroRows[data.row.index];
+      const cell = row?.cells?.[ensIdx];
+      if (!cell) return;
+      if (cell.kind === "L") {
+        data.cell.styles.fillColor = [224, 242, 254];
+        data.cell.styles.textColor = [12, 74, 110];
+        data.cell.styles.fontStyle = "bold";
+        data.cell.styles.fontSize = 7;
+      } else if (cell.kind === "pcv") {
+        data.cell.styles.fillColor = [240, 253, 250];
+        data.cell.styles.textColor = [19, 78, 74];
+        data.cell.styles.fontStyle = "bold";
+        data.cell.styles.fontSize = 6.5;
       }
     },
   });
@@ -1549,114 +1905,150 @@ function writePdfResumenPage(doc) {
   doc.setTextColor(71, 85, 105);
   doc.text(
     pdfText(
-      "Dos bloques: Giras | Prestaciones (… Feriados … Prest. tot.). Feriados=feriado/no laborable/domingo en gira. Conc.=1 (0,5 didactico). Matriz L/A pag. 2.",
+      "Dos cuadros: Giras (arriba) y Prestaciones (abajo). Conc. ens.=prest. (N + M did.). Pag. 2 = cuadro proyeccion (L / PCV).",
     ),
     40,
     46,
   );
 
-  // Giras … Prog.ens. | Prestaciones: Giras x7, PCV, Ens. netos, Conc.ens., Feriados, Prest. tot.
-  const SEP = "";
-  const pdfHead = pdfRow([
-    "Ens.",
-    "Sede",
-    "Fuera",
-    "Casa",
-    "Total Giras",
-    "Prog. ens.",
-    SEP,
-    "Giras x7",
-    "PCV",
-    "Ens. netos",
-    "Conc. ens.",
-    "Feriados",
-    "Prest. tot.",
-  ]);
-  const pdfBody = rows.map((r) =>
-    pdfRow([
+  const marginX = 28;
+  const pageW = doc.internal.pageSize.getWidth();
+  const usable = pageW - marginX * 2;
+  const ensW = 78;
+  const sedeW = 88;
+
+  const drawResumenBlock = ({
+    startY,
+    title,
+    head,
+    body,
+    toneByCol,
+    widths,
+  }) => {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.setTextColor(15, 23, 42);
+    doc.text(pdfText(title), marginX, startY);
+
+    autoTable(doc, {
+      startY: startY + 6,
+      margin: { left: marginX, right: marginX },
+      styles: {
+        fontSize: 8.5,
+        cellPadding: 2.2,
+        font: "helvetica",
+        halign: "center",
+        valign: "middle",
+        overflow: "linebreak",
+      },
+      headStyles: {
+        fillColor: [30, 41, 59],
+        textColor: 255,
+        halign: "center",
+        valign: "middle",
+        fontSize: 8,
+      },
+      columnStyles: Object.fromEntries(
+        widths.map((w, i) => [
+          i,
+          {
+            cellWidth: w,
+            halign: i === 0 || i === 1 ? "left" : "center",
+          },
+        ]),
+      ),
+      head: [pdfRow(head)],
+      body: body.map((cells) => pdfRow(cells)),
+      didParseCell(data) {
+        const idx = data.column.index;
+        data.cell.styles.halign = idx <= 1 ? "left" : "center";
+        if (data.section === "body" && toneByCol[idx]) {
+          data.cell.styles.fillColor = toneByCol[idx];
+          data.cell.styles.textColor = [15, 23, 42];
+        }
+      },
+    });
+    return doc.lastAutoTable?.finalY || startY;
+  };
+
+  // Cuadro 1 — Giras
+  const girasRest = usable - ensW - sedeW;
+  const girasMetricW = girasRest / 4;
+  const yAfterGiras = drawResumenBlock({
+    startY: 58,
+    title: "Giras",
+    head: ["Ensamble", "Sede", "Fuera", "En casa", "Total giras", "Prog. ens."],
+    body: rows.map((r) => [
       r.ensamble,
       r.sede,
       r.girasFuera,
       r.girasCasa,
       r.girasTotal,
       r.programasEnsamble,
-      SEP,
+    ]),
+    toneByCol: {
+      2: [255, 247, 237],
+      3: [240, 249, 255],
+      4: [226, 232, 240],
+      5: [236, 253, 245],
+    },
+    widths: [ensW, sedeW, girasMetricW, girasMetricW, girasMetricW, girasMetricW],
+  });
+
+  // Cuadro 2 — Prestaciones (nombres de ensamble repetidos)
+  const prestRest = usable - ensW - sedeW;
+  // Ens. netos + Conc. ens. más anchos (etiquetas compuestas)
+  const prestNetosW = Math.max(90, prestRest * 0.2);
+  const prestConcW = Math.max(78, prestRest * 0.18);
+  const prestFerW = Math.max(42, prestRest * 0.09);
+  const prestOtherW = (prestRest - prestNetosW - prestConcW - prestFerW) / 3;
+  drawResumenBlock({
+    startY: yAfterGiras + 16,
+    title: "Prestaciones",
+    head: [
+      "Ensamble",
+      "Sede",
+      "Prest. por gira",
+      "PCV",
+      "Ens. netos",
+      "Conc. ens.",
+      "Feriados",
+      "Prest. tot.",
+    ],
+    body: rows.map((r) => [
+      r.ensamble,
+      r.sede,
       r.servGirasEst,
       r.pcv,
-      r.prestNetas,
-      r.conciertosEnsamble,
+      r.ensNetosLabel || String(r.prestNetas),
+      r.conciertosEnsambleLabel || String(r.conciertosEnsamble),
       r.feriados,
       r.serviciosTotales,
     ]),
-  );
-  const sepCols = new Set([6]);
-  const toneByCol = {
-    2: [255, 247, 237],
-    3: [240, 249, 255],
-    4: [226, 232, 240],
-    5: [236, 253, 245],
-    7: [224, 231, 255],
-    8: [240, 253, 250],
-    9: [236, 253, 245],
-    10: [209, 250, 229],
-    11: [252, 231, 243],
-    12: [248, 250, 252],
-  };
-  const pageW = doc.internal.pageSize.getWidth();
-  const marginX = 24;
-  const usable = pageW - marginX * 2;
-  const sepW = 5;
-  const dataCols = 12;
-  const dataW = (usable - sepW) / dataCols;
-
-  autoTable(doc, {
-    startY: 56,
-    margin: { left: marginX, right: marginX },
-    styles: {
-      fontSize: 6.5,
-      cellPadding: 1.4,
-      font: "helvetica",
-      halign: "center",
-      valign: "middle",
-      overflow: "linebreak",
+    toneByCol: {
+      2: [224, 231, 255],
+      3: [240, 253, 250],
+      4: [236, 253, 245],
+      5: [209, 250, 229],
+      6: [252, 231, 243],
+      7: [248, 250, 252],
     },
-    headStyles: {
-      fillColor: [30, 41, 59],
-      textColor: 255,
-      halign: "center",
-      valign: "middle",
-      fontSize: 6.5,
-    },
-    columnStyles: Object.fromEntries(
-      pdfHead.map((_, i) => [
-        i,
-        sepCols.has(i)
-          ? { cellWidth: sepW, fillColor: [51, 65, 85] }
-          : { cellWidth: dataW, halign: "center" },
-      ]),
-    ),
-    head: [pdfHead],
-    body: pdfBody,
-    didParseCell(data) {
-      const idx = data.column.index;
-      if (sepCols.has(idx)) {
-        data.cell.styles.fillColor = [51, 65, 85];
-        data.cell.styles.textColor = [51, 65, 85];
-        data.cell.text = [""];
-        return;
-      }
-      data.cell.styles.halign = "center";
-      if (data.section === "body" && toneByCol[idx]) {
-        data.cell.styles.fillColor = toneByCol[idx];
-        data.cell.styles.textColor = [15, 23, 42];
-      }
-    },
+    widths: [
+      ensW,
+      sedeW,
+      prestOtherW,
+      prestOtherW,
+      prestNetosW,
+      prestConcW,
+      prestFerW,
+      prestOtherW,
+    ],
   });
 }
 
 async function writePdf() {
   const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
-  // 1) Resumen  2) Matriz L/A (solo giras sinf/CF)  3+) detalle por ensamble
+  // 1) Resumen  2) Cuadro proyección (panel superior)  3+) detalle por ensamble
   writePdfResumenPage(doc);
   doc.addPage("a4", "landscape");
   writePdfMatrixPage(doc);

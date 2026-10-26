@@ -48,7 +48,7 @@ export async function fetchInformeEnsambles2027Bundle(supabase) {
         `
         id, nombre_gira, tipo, zona, estado,
         fecha_desde, fecha_hasta,
-        hora_inicio_proyeccion, hora_fin_proyeccion,
+        hora_inicio_proyeccion, hora_fin_proyeccion, servicios_estimados,
         giras_fuentes ( tipo, valor_id, valor_texto ),
         giras_localidades ( id_localidad, localidades ( id, localidad, alias ) )
       `,
@@ -171,6 +171,7 @@ export async function fetchInformeEnsambles2027Bundle(supabase) {
     fecha_hasta: g.fecha_hasta,
     hora_inicio_proyeccion: g.hora_inicio_proyeccion,
     hora_fin_proyeccion: g.hora_fin_proyeccion,
+    servicios_estimados: g.servicios_estimados,
     fuentes: g.giras_fuentes || [],
     localias: (g.giras_localidades || [])
       .map((gl) => ({

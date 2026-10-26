@@ -252,6 +252,81 @@ export async function fetchEnsamblesProyeccionMatrix() {
   return { ensambles, cfById };
 }
 
+/**
+ * Programas tipo Ensamble (ciclos) del rango + conciertos (tipo 1) anidados.
+ * Misma regla de vínculo que el informe: `giras_fuentes` ENSAMBLE.
+ */
+export async function fetchCiclosEnsambleProyeccion({
+  fechaDesde,
+  fechaHasta,
+} = {}) {
+  let q = supabase
+    .from("programas")
+    .select(
+      `
+      id, nombre_gira, tipo, subtitulo, fecha_desde, fecha_hasta,
+      giras_fuentes ( tipo, valor_id, valor_texto )
+    `,
+    )
+    .eq("tipo", "Ensamble")
+    .order("fecha_desde", { ascending: true });
+  if (fechaDesde) q = q.gte("fecha_hasta", fechaDesde);
+  if (fechaHasta) q = q.lte("fecha_desde", fechaHasta);
+  const { data, error } = await q;
+  if (error) throw error;
+  const ciclos = data || [];
+  const ids = ciclos.map((c) => c.id).filter(Boolean);
+  if (!ids.length) {
+    return ciclos.map((c) => ({
+      ...c,
+      ensambleIds: (c.giras_fuentes || [])
+        .filter((f) => f?.tipo === "ENSAMBLE")
+        .map((f) => Number(f.valor_id))
+        .filter((id) => Number.isFinite(id) && id > 0),
+      eventos: [],
+    }));
+  }
+
+  const eventos = [];
+  const chunk = 80;
+  for (let i = 0; i < ids.length; i += chunk) {
+    const slice = ids.slice(i, i + chunk);
+    const { data: rows, error: evErr } = await supabase
+      .from("eventos")
+      .select(
+        "id, id_gira, fecha, hora_inicio, hora_fin, id_tipo_evento, es_didactico, is_deleted",
+      )
+      .in("id_gira", slice)
+      .eq("id_tipo_evento", 1)
+      .eq("is_deleted", false);
+    if (evErr) throw evErr;
+    eventos.push(...(rows || []));
+  }
+  const byGira = new Map();
+  for (const ev of eventos) {
+    const gid = Number(ev.id_gira);
+    if (!byGira.has(gid)) byGira.set(gid, []);
+    byGira.get(gid).push(ev);
+  }
+  return ciclos.map((c) => ({
+    id: c.id,
+    nombre_gira: c.nombre_gira,
+    tipo: c.tipo,
+    subtitulo: c.subtitulo,
+    fecha_desde: c.fecha_desde,
+    fecha_hasta: c.fecha_hasta,
+    ensambleIds: [
+      ...new Set(
+        (c.giras_fuentes || [])
+          .filter((f) => f?.tipo === "ENSAMBLE")
+          .map((f) => Number(f.valor_id))
+          .filter((id) => Number.isFinite(id) && id > 0),
+      ),
+    ],
+    eventos: byGira.get(Number(c.id)) || [],
+  }));
+}
+
 /** Concierto / ensayos de gira / ensayo ensamble (paridad informe feriados). */
 export async function fetchEventosGiraTiposServicio(giraIds) {
   const ids = [...new Set((giraIds || []).map(Number).filter(Boolean))];

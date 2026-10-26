@@ -2,7 +2,6 @@ import React, {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
 } from "react";
 import { toast } from "sonner";
@@ -19,6 +18,7 @@ import {
 } from "../ui/Icons";
 import {
   demorasMapFromRows,
+  fetchCiclosEnsambleProyeccion,
   fetchEnsamblesProyeccionMatrix,
   fetchEventosGiraTiposServicio,
   fetchFeriadosPeriod,
@@ -39,10 +39,15 @@ function serviciosPorGiraDefault(proyConfig) {
   const n = Number(proyConfig?.servicios_por_gira);
   return Number.isFinite(n) && n >= 0 ? n : DEFAULT_SERVICIOS_ESTIMADOS;
 }
-import { projectEnsayosNetos } from "../../utils/ensambleProyeccionEnsayos";
+import {
+  groupSlotsByEnsambleId,
+  projectEnsayosNetos,
+} from "../../utils/ensambleProyeccionEnsayos";
 import { getAnioProyeccion } from "../../utils/ensambleProyeccionConfig";
+import { formatEnsNetosLabel } from "../../utils/ensambleCicloConciertos";
 import { downloadInformeEnsambles2027 } from "../../services/informeEnsambles2027Service";
 import {
+  fetchAllEnsambleProyeccionEnsayos,
   fetchLocacionesForProyeccion,
   fetchOrCreateProyeccionConfig,
   upsertProyeccionConfig,
@@ -61,6 +66,7 @@ import {
 import DemorasLocalidadModal from "./DemorasLocalidadModal";
 import EnsambleProyeccionDetalle from "./EnsambleProyeccionDetalle";
 import GiraFormEditPortal from "./GiraFormEditPortal";
+import ProyeccionPrestacionesVista from "./ProyeccionPrestacionesVista";
 import ProyeccionTramosModal from "./ProyeccionTramosModal";
 
 function timeInputValue(t) {
@@ -168,9 +174,11 @@ export default function PrestacionesProyeccionSandbox({
   supabase,
   fechaDesde,
   fechaHasta,
+  vista = "programas",
 }) {
   const [loading, setLoading] = useState(true);
   const [programas, setProgramas] = useState([]);
+  const [ciclos, setCiclos] = useState([]);
   const [eventosByGira, setEventosByGira] = useState(new Map());
   const [demoras, setDemoras] = useState([]);
   const [locNameById, setLocNameById] = useState(() => new Map());
@@ -185,27 +193,37 @@ export default function PrestacionesProyeccionSandbox({
   const [tramosModalOpen, setTramosModalOpen] = useState(false);
   const [selectedEnsambleId, setSelectedEnsambleId] = useState("");
   const [ensayoSlots, setEnsayoSlots] = useState([]);
+  /** @type {Map<number, object[]>} */
+  const [slotsByEnsambleId, setSlotsByEnsambleId] = useState(() => new Map());
   /** @type {[{ id: number, field: string, value: string }|null, Function]} */
   const [editCell, setEditCell] = useState(null);
   const anioProy = useMemo(() => getAnioProyeccion(), []);
   const [proyConfig, setProyConfig] = useState(null);
   const [savingConfig, setSavingConfig] = useState(false);
-  /** % altura del panel superior (cuadro); el inferior ocupa el resto. */
-  const [splitTopPct, setSplitTopPct] = useState(58);
-  const splitRef = useRef(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [progs, demRows, locs, matrix, feriados, locsVenue, cfg] =
-        await Promise.all([
+      const [
+        progs,
+        ciclosRows,
+        demRows,
+        locs,
+        matrix,
+        feriados,
+        locsVenue,
+        cfg,
+        allSlots,
+      ] = await Promise.all([
         fetchProgramasProyeccion({ fechaDesde, fechaHasta }),
+        fetchCiclosEnsambleProyeccion({ fechaDesde, fechaHasta }),
         fetchGiraDemorasLocalidad(),
         fetchLocalidadesAll(),
         fetchEnsamblesProyeccionMatrix(),
         fetchFeriadosPeriod({ fechaDesde, fechaHasta }),
         fetchLocacionesForProyeccion(),
         fetchOrCreateProyeccionConfig(getAnioProyeccion()),
+        fetchAllEnsambleProyeccionEnsayos(),
       ]);
       const evts = await fetchEventosGiraTiposServicio(progs.map((p) => p.id));
       const byGira = new Map();
@@ -220,6 +238,7 @@ export default function PrestacionesProyeccionSandbox({
         if (day) ferMap.set(day, f);
       }
       setProgramas(progs);
+      setCiclos(ciclosRows || []);
       setEventosByGira(byGira);
       setLocNameById(locs.nameById);
       setDemoras(enrichDemoras(demRows, locs.nameById));
@@ -230,6 +249,7 @@ export default function PrestacionesProyeccionSandbox({
       );
       setFeriadosByFecha(ferMap);
       setProyConfig(cfg);
+      setSlotsByEnsambleId(groupSlotsByEnsambleId(allSlots || []));
     } catch (err) {
       console.error(err);
       toast.error(err?.message || "No se pudo cargar la proyección");
@@ -341,6 +361,7 @@ export default function PrestacionesProyeccionSandbox({
         demorasMap,
         locNameById,
         feriadosByFecha,
+        ciclos,
       }),
     [
       selectedEnsamble,
@@ -349,20 +370,111 @@ export default function PrestacionesProyeccionSandbox({
       demorasMap,
       locNameById,
       feriadosByFecha,
+      ciclos,
     ],
   );
 
   const ensayosStats = useMemo(() => {
     if (!selectedEnsamble) return null;
+    const slots =
+      ensayoSlots?.length
+        ? ensayoSlots
+        : slotsByEnsambleId.get(Number(selectedEnsamble.id)) || [];
     return projectEnsayosNetos({
-      slots: ensayoSlots,
+      slots,
       programs: programas,
       tramos: proyConfig?.tramos,
       isConvocado: (p) =>
         classifyProgramaEnsambleConvocatoria(p, selectedEnsamble).status ===
         "convocado",
     });
-  }, [selectedEnsamble, ensayoSlots, programas, proyConfig]);
+  }, [
+    selectedEnsamble,
+    ensayoSlots,
+    slotsByEnsambleId,
+    programas,
+    proyConfig,
+  ]);
+
+  const prestacionesRows = useMemo(() => {
+    const nPorGira = serviciosPorGiraDefault(proyConfig);
+    return flatEnsambles.map((ens) => {
+      const detail = buildEnsambleProyeccionDetalle({
+        ensamble: ens,
+        programas,
+        eventosByGira,
+        demorasMap,
+        locNameById,
+        feriadosByFecha,
+        ciclos,
+      });
+      const slots = slotsByEnsambleId.get(Number(ens.id)) || [];
+      const ensayos = projectEnsayosNetos({
+        slots,
+        programs: programas,
+        tramos: proyConfig?.tramos,
+        isConvocado: (p) =>
+          classifyProgramaEnsambleConvocatoria(p, ens).status === "convocado",
+      });
+      const girasTotal = detail?.girasTotal || 0;
+      const servGirasEst =
+        Math.round(girasTotal * nPorGira * 100) / 100;
+      const pcv = detail?.pcv || 0;
+      const feriados = detail?.feriados || 0;
+      const conc = detail?.conciertosEnsamble || 0;
+      const ensNetos = ensayos.ensayosNetos || 0;
+      const serviciosTotales =
+        Math.round(
+          (servGirasEst + pcv + ensNetos + conc + feriados) * 100,
+        ) / 100;
+      return {
+        id: ens.id,
+        ensamble: ens.ensamble,
+        sede:
+          ens.localidades?.localidad ||
+          detail?.sede ||
+          "",
+        girasFuera: detail?.girasFuera || 0,
+        girasCasa: detail?.girasCasa || 0,
+        girasTotal,
+        programasEnsamble: detail?.programasEnsamble || 0,
+        servGirasEst,
+        pcv,
+        ensayosBrutos: ensayos.ensayosServiciosBrutos,
+        ensayosConflicto: ensayos.ensayosServiciosConflicto,
+        ensayosNetos: ensNetos,
+        ensNetosLabel: formatEnsNetosLabel(
+          ensayos.ensayosServiciosBrutos,
+          ensayos.ensayosServiciosConflicto,
+          ensNetos,
+        ),
+        conciertosEnsambleLabel: detail?.conciertosEnsambleLabel || "0",
+        feriados,
+        serviciosTotales,
+      };
+    });
+  }, [
+    flatEnsambles,
+    programas,
+    eventosByGira,
+    demorasMap,
+    locNameById,
+    feriadosByFecha,
+    ciclos,
+    slotsByEnsambleId,
+    proyConfig,
+  ]);
+
+  const onEnsayoSlotsChange = (next) => {
+    setEnsayoSlots(next || []);
+    if (!selectedEnsambleId) return;
+    const eid = Number(selectedEnsambleId);
+    setSlotsByEnsambleId((prev) => {
+      const map = new Map(prev);
+      map.set(eid, next || []);
+      return map;
+    });
+  };
 
   const saveProyConfig = async (next) => {
     setSavingConfig(true);
@@ -495,25 +607,6 @@ export default function PrestacionesProyeccionSandbox({
     } finally {
       setExporting(null);
     }
-  };
-
-  const onSplitPointerDown = (e) => {
-    e.preventDefault();
-    const root = splitRef.current;
-    if (!root) return;
-    const onMove = (ev) => {
-      const rect = root.getBoundingClientRect();
-      if (rect.height < 40) return;
-      const pct = ((ev.clientY - rect.top) / rect.height) * 100;
-      setSplitTopPct(Math.min(82, Math.max(22, pct)));
-    };
-    const onUp = () => {
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-    };
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-    onMove(e);
   };
 
   if (loading) {
@@ -659,14 +752,9 @@ export default function PrestacionesProyeccionSandbox({
         ) : null}
       </div>
 
-      <div
-        ref={splitRef}
-        className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
-      >
-        <div
-          className="min-h-0 overflow-auto rounded-lg border border-slate-200 bg-white"
-          style={{ flex: `0 0 ${splitTopPct}%` }}
-        >
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        {vista === "programas" ? (
+        <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-slate-200 bg-white">
         <table className="min-w-full border-collapse text-center text-[11px]">
           <thead className="bg-slate-50 text-[10px] tracking-wide text-slate-500">
             <tr>
@@ -1012,18 +1100,9 @@ export default function PrestacionesProyeccionSandbox({
           ) : null}
         </table>
         </div>
+        ) : null}
 
-        <div
-          role="separator"
-          aria-orientation="horizontal"
-          aria-label="Redimensionar paneles"
-          title="Arrastrá para cambiar el tamaño"
-          onPointerDown={onSplitPointerDown}
-          className="group relative z-10 flex h-3 shrink-0 cursor-row-resize items-center justify-center touch-none"
-        >
-          <div className="h-1 w-16 rounded-full bg-slate-300 transition group-hover:bg-orange-400 group-active:bg-orange-500" />
-        </div>
-
+        {vista === "ensambles" ? (
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white">
           <div className="flex shrink-0 flex-wrap items-end justify-between gap-2 border-b border-slate-100 px-3 py-2">
             <div>
@@ -1041,7 +1120,10 @@ export default function PrestacionesProyeccionSandbox({
                 value={selectedEnsambleId}
                 onChange={(e) => {
                   setSelectedEnsambleId(e.target.value);
-                  setEnsayoSlots([]);
+                  const eid = Number(e.target.value);
+                  setEnsayoSlots(
+                    eid ? slotsByEnsambleId.get(eid) || [] : [],
+                  );
                 }}
                 className="mt-0.5 block min-w-[12rem] rounded border border-slate-300 bg-white px-2 py-1.5 text-xs font-semibold normal-case text-slate-800"
               >
@@ -1069,10 +1151,20 @@ export default function PrestacionesProyeccionSandbox({
               }
               locaciones={locaciones}
               ensayosStats={ensayosStats}
-              onEnsayoSlotsChange={setEnsayoSlots}
+              onEnsayoSlotsChange={onEnsayoSlotsChange}
             />
           </div>
         </div>
+        ) : null}
+
+        {vista === "prestaciones" ? (
+          <div className="min-h-0 flex-1 overflow-hidden rounded-lg border border-slate-200 bg-white">
+            <ProyeccionPrestacionesVista
+              rows={prestacionesRows}
+              serviciosPorGira={serviciosPorGiraDefault(proyConfig)}
+            />
+          </div>
+        ) : null}
       </div>
 
       <DemorasLocalidadModal

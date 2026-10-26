@@ -1,11 +1,35 @@
 import React from "react";
 import { formatDdMmYyyy } from "../../utils/dates";
+import EnsNetosValue from "./EnsNetosValue";
 import EnsambleProyeccionEnsayosEditor from "./EnsambleProyeccionEnsayosEditor";
 
 function fmt(n) {
   const v = Math.round(Number(n) * 100) / 100;
   if (!Number.isFinite(v)) return "—";
   return String(v).replace(".", ",");
+}
+
+function Metric({ label, value, tone = "slate", className = "" }) {
+  const tones = {
+    slate: "bg-slate-50 text-slate-600 ring-slate-100",
+    orange: "bg-orange-50 text-orange-800 ring-orange-100",
+    teal: "bg-teal-50 text-teal-800 ring-teal-100",
+    pink: "bg-pink-50 text-pink-800 ring-pink-100",
+    emerald: "bg-emerald-50 text-emerald-800 ring-emerald-100",
+    violet: "bg-violet-50 text-violet-800 ring-violet-100",
+  };
+  return (
+    <div
+      className={`flex min-w-0 flex-col gap-0.5 rounded-md px-2.5 py-1.5 ring-1 ring-inset ${tones[tone] || tones.slate} ${className}`}
+    >
+      <span className="text-[9px] font-bold uppercase tracking-wide opacity-80">
+        {label}
+      </span>
+      <span className="truncate text-sm font-bold tabular-nums leading-tight text-inherit">
+        {value}
+      </span>
+    </div>
+  );
 }
 
 /**
@@ -37,52 +61,68 @@ export default function EnsambleProyeccionDetalle({
         </h3>
       </div>
 
-      <section>
-        <h4 className="mb-1 text-[10px] font-black uppercase tracking-wide text-slate-500">
+      <section className="space-y-1.5">
+        <h4 className="text-[10px] font-black uppercase tracking-wide text-slate-500">
           Resumen
         </h4>
-        <dl className="grid gap-1 sm:grid-cols-2">
-          <div className="flex justify-between gap-2 rounded bg-slate-50 px-2 py-1">
-            <dt className="text-slate-500">Giras fuera / en casa / total</dt>
-            <dd className="font-bold tabular-nums">
-              {fmt(detail.girasFuera)} / {fmt(detail.girasCasa)} /{" "}
-              {fmt(detail.girasTotal)}
-            </dd>
-          </div>
-          <div className="flex justify-between gap-2 rounded bg-teal-50 px-2 py-1">
-            <dt className="text-teal-800">PCV</dt>
-            <dd className="font-bold tabular-nums text-teal-900">
-              {fmt(detail.pcv)}
-            </dd>
-          </div>
-          <div className="flex justify-between gap-2 rounded bg-pink-50 px-2 py-1">
-            <dt className="text-pink-800">Feriados</dt>
-            <dd className="font-bold tabular-nums text-pink-900">
-              {detail.feriados}
-            </dd>
-          </div>
+        <div className="flex flex-wrap gap-1.5">
+          <Metric
+            label="Fuera"
+            value={fmt(detail.girasFuera)}
+            tone="orange"
+            className="min-w-[4.5rem] flex-1"
+          />
+          <Metric
+            label="En casa"
+            value={fmt(detail.girasCasa)}
+            tone="slate"
+            className="min-w-[4.5rem] flex-1"
+          />
+          <Metric
+            label="Total giras"
+            value={fmt(detail.girasTotal)}
+            tone="slate"
+            className="min-w-[4.5rem] flex-1"
+          />
+          <Metric
+            label="PCV"
+            value={fmt(detail.pcv)}
+            tone="teal"
+            className="min-w-[4.5rem] flex-1"
+          />
+          <Metric
+            label="Feriados"
+            value={detail.feriados}
+            tone="pink"
+            className="min-w-[4.5rem] flex-1"
+          />
+          <Metric
+            label="Prog. ens."
+            value={detail.programasEnsamble ?? 0}
+            tone="emerald"
+            className="min-w-[4.5rem] flex-1"
+          />
+          <Metric
+            label="Conc. ens."
+            value={detail.conciertosEnsambleLabel || "0"}
+            tone="emerald"
+            className="min-w-[7rem] flex-[1.4]"
+          />
           {ensayosStats ? (
-            <>
-              <div className="flex justify-between gap-2 rounded bg-violet-50 px-2 py-1">
-                <dt className="text-violet-800">Ens. netos</dt>
-                <dd className="font-bold tabular-nums text-violet-900">
-                  {fmt(ensayosStats.ensayosNetos)}
-                </dd>
-              </div>
-              <div className="flex justify-between gap-2 rounded bg-violet-50/60 px-2 py-1 sm:col-span-2">
-                <dt className="text-violet-700">
-                  Ensayos (brutos − conflicto)
-                </dt>
-                <dd className="font-medium tabular-nums text-violet-900">
-                  {fmt(ensayosStats.ensayosServiciosBrutos)} −{" "}
-                  {fmt(ensayosStats.ensayosServiciosConflicto)} ·{" "}
-                  {ensayosStats.ensayosSemanaModelo} slots ×{" "}
-                  {ensayosStats.semanasProyectadas} sem.
-                </dd>
-              </div>
-            </>
+            <Metric
+              label="Ens. netos"
+              value={
+                <EnsNetosValue
+                  brutos={ensayosStats.ensayosServiciosBrutos}
+                  conflicto={ensayosStats.ensayosServiciosConflicto}
+                  netos={ensayosStats.ensayosNetos}
+                />
+              }
+              tone="violet"
+              className="min-w-[9rem] flex-[1.5]"
+            />
           ) : null}
-        </dl>
+        </div>
       </section>
 
       <EnsambleProyeccionEnsayosEditor
@@ -90,6 +130,51 @@ export default function EnsambleProyeccionDetalle({
         locaciones={locaciones}
         onSlotsChange={onEnsayoSlotsChange}
       />
+
+      <section>
+        <h4 className="mb-1 rounded bg-emerald-50 px-2 py-1 text-[10px] font-black uppercase tracking-wide text-emerald-900">
+          Programas de ensamble ({detail.programasEnsamble ?? 0})
+        </h4>
+        {!detail.programasEnsambleList?.length ? (
+          <p className="px-1 text-slate-400 italic">(ninguno)</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-left">
+              <thead className="text-[10px] uppercase text-slate-500">
+                <tr>
+                  <th className="px-1 py-1">Programa</th>
+                  <th className="px-1 py-1">Fechas</th>
+                  <th className="px-1 py-1">Conc.</th>
+                  <th className="px-1 py-1">Didáct.</th>
+                  <th className="px-1 py-1">Prest.</th>
+                </tr>
+              </thead>
+              <tbody>
+                {detail.programasEnsambleList.map((p) => (
+                  <tr key={p.id} className="border-t border-slate-100">
+                    <td className="px-1 py-1 font-medium">
+                      {p.nombre}
+                      {p.subtitulo ? (
+                        <span className="ml-1 text-[10px] font-normal text-slate-500">
+                          {p.subtitulo}
+                        </span>
+                      ) : null}
+                    </td>
+                    <td className="px-1 py-1 whitespace-nowrap text-slate-600">
+                      {formatDdMmYyyy(p.desde)} → {formatDdMmYyyy(p.hasta)}
+                    </td>
+                    <td className="px-1 py-1 tabular-nums">{p.regular}</td>
+                    <td className="px-1 py-1 tabular-nums">{p.didactic}</td>
+                    <td className="px-1 py-1 font-semibold tabular-nums text-emerald-900">
+                      {p.label}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
 
       {ensayosStats?.conflictos?.length ? (
         <section>

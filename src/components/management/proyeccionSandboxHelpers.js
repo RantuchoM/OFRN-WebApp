@@ -6,6 +6,10 @@ import {
   sliceTime,
 } from "../../utils/giraProyeccionPcv";
 import {
+  aggregateCicloStats,
+  ciclosForEnsamble,
+} from "../../utils/ensambleCicloConciertos";
+import {
   classifyProgramaEnsambleConvocatoria,
   formatTramoShareLabel,
   giraTramoPesos,
@@ -281,6 +285,7 @@ export function buildEnsambleProyeccionDetalle({
   demorasMap,
   locNameById,
   feriadosByFecha,
+  ciclos = [],
 }) {
   if (!ensamble) return null;
   const home = Number(ensamble?.id_localidad ?? ensamble?.localidades?.id);
@@ -398,6 +403,9 @@ export function buildEnsambleProyeccionDetalle({
   const girasCasaR = Math.round(girasCasa * 100) / 100;
   const pcvRound = Math.round(pcv * 100) / 100;
 
+  const programasEnsambleList = ciclosForEnsamble(ciclos, ensamble.id);
+  const cicloStats = aggregateCicloStats(programasEnsambleList);
+
   return {
     ensamble: ensamble.ensamble,
     sede,
@@ -411,5 +419,11 @@ export function buildEnsambleProyeccionDetalle({
     girasList,
     enCasa: girasList.filter((g) => Number(g.pesoFuera) === 0),
     fuera: girasList.filter((g) => Number(g.pesoFuera) > 0),
+    programasEnsambleList,
+    programasEnsamble: cicloStats.programasEnsamble,
+    conciertosEnsamble: cicloStats.conciertosEnsamble,
+    conciertosEnsambleReg: cicloStats.conciertosEnsambleReg,
+    conciertosEnsambleDid: cicloStats.conciertosEnsambleDid,
+    conciertosEnsambleLabel: cicloStats.conciertosEnsambleLabel,
   };
 }

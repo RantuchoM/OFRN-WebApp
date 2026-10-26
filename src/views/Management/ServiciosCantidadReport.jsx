@@ -944,7 +944,9 @@ export default function ServiciosCantidadReport({ supabase }) {
   );
   const [estimarFuturos, setEstimarFuturos] = useState(true);
   /** listado | sandbox — proyección editable de giras / demoras */
-  const [panelMode, setPanelMode] = useState("sandbox");
+  const [panelMode, setPanelMode] = useState("listado");
+  /** programas | ensambles | prestaciones — subvista de Proyección */
+  const [proyeccionVista, setProyeccionVista] = useState("programas");
   const [selectedTypes, setSelectedTypes] = useState(
     () => new Set(TIPOS_PROGRAMA_ASISTENCIA_MATRIZ),
   );
@@ -2202,6 +2204,28 @@ export default function ServiciosCantidadReport({ supabase }) {
             <IconCalculator size={13} />
             Proyección
           </button>
+          {isProyeccion ? (
+            <div className="ml-1 flex flex-wrap items-center gap-0.5 rounded-md border border-orange-200 bg-orange-50/80 p-0.5">
+              {[
+                { id: "programas", label: "Programas" },
+                { id: "ensambles", label: "Ensambles" },
+                { id: "prestaciones", label: "Prestaciones" },
+              ].map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => setProyeccionVista(opt.id)}
+                  className={`rounded px-2 py-0.5 text-[11px] font-bold ${
+                    proyeccionVista === opt.id
+                      ? "bg-white text-orange-900 shadow-sm"
+                      : "text-orange-800/80 hover:bg-white/60"
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          ) : null}
         </div>
         <div className="mx-1 hidden h-7 w-px bg-slate-200 sm:block" aria-hidden />
         <div className="flex flex-wrap items-end gap-2">
@@ -2606,6 +2630,7 @@ export default function ServiciosCantidadReport({ supabase }) {
                 supabase={supabase}
                 fechaDesde={fechaDesde}
                 fechaHasta={fechaHasta}
+                vista={proyeccionVista}
               />
             </div>
           ) : !hasSelection ? (
