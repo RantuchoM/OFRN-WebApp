@@ -5,7 +5,7 @@
  * Solo tipas Sinfónico, Camerata Filarmónica y Jazz Band.
  * Programas tipo Ensamble / Comisión no entran en Fuera / En casa / PCV.
  *
- * Pesos de tramo: `giraTramoPesos` con localidad efectiva de viáticos.
+ * Casa/fuera/mixta enteros: `giraTramoPesos` con localidad efectiva de viáticos.
  * PCV: días computables (`calculateDaysDiff`) por tramo fuera de casa.
  * Conciertos (incl. didácticos): paréntesis en Fuera/En casa + columna ensamble.
  */
@@ -244,6 +244,7 @@ export function pcvDaysForProgram(program, homeLocalidadId, transportEvents) {
  * @returns {{
  *   girasFuera: number,
  *   girasEnCasa: number,
+ *   girasMixtas: number,
  *   conciertosFuera: number,
  *   conciertosEnCasa: number,
  *   conciertosEnsamble: number,
@@ -278,6 +279,7 @@ export function computeIntegranteGirasYPcv(
 
   let girasFuera = 0;
   let girasEnCasa = 0;
+  let girasMixtas = 0;
   let pcv = 0;
   const girasDetalle = [];
   const pcvDetalle = [];
@@ -296,8 +298,10 @@ export function computeIntegranteGirasYPcv(
     const pesos = giraTramoPesos(program, homeProxy);
     const pesoFuera = Number(pesos.pesoFuera) || 0;
     const pesoEnCasa = Number(pesos.pesoEnCasa) || 0;
+    const pesoMixta = Number(pesos.pesoMixta) || 0;
     girasFuera += pesoFuera;
     girasEnCasa += pesoEnCasa;
+    girasMixtas += pesoMixta;
 
     const transportEvents =
       transportEventsByGiraId?.get?.(gid) ||
@@ -317,6 +321,8 @@ export function computeIntegranteGirasYPcv(
       fechaHasta: program.fecha_hasta || "",
       pesoFuera,
       pesoEnCasa,
+      pesoMixta,
+      kind: pesos.kind || null,
       tramoCount: pesos.tramoCount,
       tramosFuera: pesos.tramosFuera,
       pcv: pcvGira,
@@ -399,6 +405,7 @@ export function computeIntegranteGirasYPcv(
   return {
     girasFuera,
     girasEnCasa,
+    girasMixtas,
     conciertosFuera,
     conciertosEnCasa,
     conciertosEnsamble,

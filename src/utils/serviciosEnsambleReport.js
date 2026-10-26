@@ -259,7 +259,7 @@ function gcdInt(a, b) {
   return x || 1;
 }
 
-/** "2/3 fuera de casa" cuando el peso no es 0 ni 1. */
+/** Legado: "2/3 fuera de casa". La clasificación actual usa enteros (giraKindLabel). */
 export function formatTramoShareLabel(parte, total) {
   const p = Number(parte) || 0;
   const n = Number(total) || 0;
@@ -269,71 +269,163 @@ export function formatTramoShareLabel(parte, total) {
 }
 
 /**
- * Peso en casa / fuera de casa.
- * Un tramo (o sedes sueltas en `giras_localidades`): la gira entera es 1 o 0.
- * Dos o más tramos con localidad: cada tramo vale 1/n. El tramo está en casa
- * si alguna de sus localidades es la del ensamble.
+ * Segmentos de tramo: soporta `giras_tramo_segmentos` (app) y `tramos`
+ * con `localidad_ids` (export proyección).
+ */
+function programTramoSegments(program) {
+  const raw = program?.giras_tramo_segmentos?.length
+    ? program.giras_tramo_segmentos
+    : program?.tramos || [];
+  return [...raw].sort((a, b) => Number(a?.indice) - Number(b?.indice));
+}
+
+function segmentLocalidadIdsFlexible(seg) {
+  const fromJoin = segmentLocalidadIds(seg);
+  if (fromJoin.length) return fromJoin;
+  return [
+    ...new Set(
+      (seg?.localidad_ids || [])
+        .map(Number)
+        .filter((id) => Number.isFinite(id) && id > 0),
+    ),
+  ];
+}
+
+/**
+ * Clasificación entera casa / fuera / mixta (sin pesos 1/n).
+ *
+ * - **Mixta:** 2+ localías, al menos una es la casa del ensamble y otra no.
+ * - **Fuera:** ninguna localía es la casa.
+ * - **Casa:** todas las localías son casa (o solo casa).
+ *
+ * PCV: `fueraSegs` = tramos sin la casa; si no hay tramos, ventana con localías
+ * ajenas (mixta/fuera).
  */
 export function giraTramoPesos(program, ensamble) {
   const home = Number(ensamble?.id_localidad ?? ensamble?.localidades?.id);
-  const segs = [...(program?.giras_tramo_segmentos || [])].sort(
-    (a, b) => Number(a?.indice) - Number(b?.indice),
-  );
+  let locs = programLocalidadIds(program);
+  const segs = programTramoSegments(program);
   const withLocs = segs
-    .map((seg) => ({ seg, ids: segmentLocalidadIds(seg) }))
+    .map((seg) => ({ seg, ids: segmentLocalidadIdsFlexible(seg) }))
     .filter((x) => x.ids.length > 0);
 
-  const whole = (fuera) => {
-    const fueraSegs = fuera
-      ? [
-          {
-            fecha_desde: program?.fecha_desde,
-            fecha_hasta: program?.fecha_hasta || program?.fecha_desde,
-            localidad_ids: programLocalidadIds(program),
-          },
-        ]
-      : [];
-    return fuera
-      ? {
-          tramoCount: 1,
-          tramosFuera: 1,
-          pesoEnCasa: 0,
-          pesoFuera: 1,
-          fueraSegs,
-        }
-      : {
-          tramoCount: 1,
-          tramosFuera: 0,
-          pesoEnCasa: 1,
-          pesoFuera: 0,
-          fueraSegs: [],
-        };
+  if (!locs.length) {
+    locs = [...new Set(withLocs.flatMap((x) => x.ids))];
+  }
+
+  const buildFueraSegsFromTramos = () => {
+    const fueraSegs = [];
+    let tramosFuera = 0;
+    for (const { seg, ids } of withLocs) {
+      if (Number.isFinite(home) && home > 0 && ids.includes(home)) continue;
+      tramosFuera += 1;
+      fueraSegs.push({
+        fecha_desde: seg?.fecha_desde || program?.fecha_desde,
+        fecha_hasta:
+          seg?.fecha_hasta || program?.fecha_hasta || program?.fecha_desde,
+        localidad_ids: ids,
+        indice: seg?.indice,
+      });
+    }
+    return { fueraSegs, tramosFuera, tramoCount: Math.max(withLocs.length, 1) };
   };
 
-  if (withLocs.length < 2 || !Number.isFinite(home) || home <= 0) {
-    return whole(isGiraFueraDeCasa(program, ensamble));
+  const wholeAwaySegs = (awayIds) => [
+    {
+      fecha_desde: program?.fecha_desde,
+      fecha_hasta: program?.fecha_hasta || program?.fecha_desde,
+      localidad_ids: awayIds.length ? awayIds : locs,
+    },
+  ];
+
+  if (!Number.isFinite(home) || home <= 0 || !locs.length) {
+    const fuera = isGiraFueraDeCasa(program, ensamble);
+    return {
+      kind: fuera ? "fuera" : "casa",
+      tramoCount: 1,
+      tramosFuera: fuera ? 1 : 0,
+      pesoEnCasa: fuera ? 0 : 1,
+      pesoFuera: fuera ? 1 : 0,
+      pesoMixta: 0,
+      fueraSegs: fuera ? wholeAwaySegs(locs) : [],
+    };
   }
 
-  const tramoCount = withLocs.length;
-  const fueraSegs = [];
-  let tramosFuera = 0;
-  for (const { seg, ids } of withLocs) {
-    if (ids.includes(home)) continue;
-    tramosFuera += 1;
-    fueraSegs.push({
-      fecha_desde: seg?.fecha_desde || program?.fecha_desde,
-      fecha_hasta: seg?.fecha_hasta || program?.fecha_hasta || program?.fecha_desde,
-      localidad_ids: ids,
-      indice: seg?.indice,
-    });
+  const hasLocal = locs.includes(home);
+  const awayLocs = locs.filter((id) => id !== home);
+  const hasAway = awayLocs.length > 0;
+
+  let kind = "casa";
+  let pesoEnCasa = 1;
+  let pesoFuera = 0;
+  let pesoMixta = 0;
+  if (hasLocal && hasAway) {
+    kind = "mixta";
+    pesoEnCasa = 0;
+    pesoFuera = 0;
+    pesoMixta = 1;
+  } else if (!hasLocal) {
+    kind = "fuera";
+    pesoEnCasa = 0;
+    pesoFuera = 1;
+    pesoMixta = 0;
   }
+
+  let fueraSegs = [];
+  let tramosFuera = 0;
+  let tramoCount = 1;
+  if (kind === "casa") {
+    return {
+      kind,
+      tramoCount: Math.max(withLocs.length, 1),
+      tramosFuera: 0,
+      pesoEnCasa,
+      pesoFuera,
+      pesoMixta,
+      fueraSegs: [],
+    };
+  }
+
+  if (withLocs.length) {
+    const fromTramos = buildFueraSegsFromTramos();
+    fueraSegs = fromTramos.fueraSegs;
+    tramosFuera = fromTramos.tramosFuera;
+    tramoCount = fromTramos.tramoCount;
+  }
+  if (!fueraSegs.length) {
+    fueraSegs = wholeAwaySegs(awayLocs);
+    tramosFuera = 1;
+    tramoCount = 1;
+  }
+
   return {
+    kind,
     tramoCount,
     tramosFuera,
-    pesoEnCasa: (tramoCount - tramosFuera) / tramoCount,
-    pesoFuera: tramosFuera / tramoCount,
+    pesoEnCasa,
+    pesoFuera,
+    pesoMixta,
     fueraSegs,
   };
+}
+
+/** Etiqueta entera para UI/PDF (sin fracciones 1/n). */
+export function giraKindLabel(pesos) {
+  if ((Number(pesos?.pesoMixta) || 0) >= 1 || pesos?.kind === "mixta") {
+    return "Mixta";
+  }
+  if ((Number(pesos?.pesoFuera) || 0) >= 1 || pesos?.kind === "fuera") {
+    return "Fuera";
+  }
+  return "En casa";
+}
+
+/** True si la gira aporta PCV (fuera plena o mixta con tramos ajenos). */
+export function giraHasAwayPcv(pesos) {
+  return (
+    (Number(pesos?.pesoFuera) || 0) > 0 ||
+    (Number(pesos?.pesoMixta) || 0) > 0
+  );
 }
 
 function rosterMarkOf(rosterEntry, iid) {
@@ -466,14 +558,18 @@ export function summarizeEnsambleServiciosReport(report, pendingEventIds) {
     conciertosEnsamble += row?.conciertos?.length || 0;
   }
 
+  const pesoMixta = (row) => Number(row?.pesoMixta) || 0;
+
   const girasEnCasa = giras.reduce((acc, row) => acc + pesoEnCasa(row), 0);
   const girasFuera = giras.reduce((acc, row) => acc + pesoFuera(row), 0);
+  const girasMixtas = giras.reduce((acc, row) => acc + pesoMixta(row), 0);
 
   return {
     ensambleName: report?.ensambleName || "",
     girasEnCasa,
     girasFuera,
-    girasTotal: girasEnCasa + girasFuera,
+    girasMixtas,
+    girasTotal: girasEnCasa + girasFuera + girasMixtas,
     programasEnsamble,
     conciertosEnsamble,
     ensayosEnsamble,
@@ -552,7 +648,14 @@ export function buildEnsambleServiciosReport({
       .filter(Boolean);
     const pesos = giraTipos.has(program.tipo)
       ? giraTramoPesos(program, ensamble)
-      : { tramoCount: 1, tramosFuera: 0, pesoEnCasa: 1, pesoFuera: 0 };
+      : {
+          kind: "casa",
+          tramoCount: 1,
+          tramosFuera: 0,
+          pesoEnCasa: 1,
+          pesoFuera: 0,
+          pesoMixta: 0,
+        };
     const range = { fechaDesde, fechaHasta };
     let servicios = null;
     let serviciosModo = null;
@@ -584,7 +687,7 @@ export function buildEnsambleServiciosReport({
       servicios,
       serviciosModo,
       ...pesos,
-      fueraDeCasa: pesos.pesoFuera >= 1,
+      fueraDeCasa: giraHasAwayPcv(pesos),
       localidadLabels: giraTipos.has(program.tipo)
         ? programLocalidadLabels(program)
         : [],
@@ -700,6 +803,10 @@ export function buildEnsambleServiciosReport({
     giras: sortPrograms(giras),
     girasFueraDeCasa: giras.reduce(
       (acc, row) => acc + (Number(row.pesoFuera) || 0),
+      0,
+    ),
+    girasMixtas: giras.reduce(
+      (acc, row) => acc + (Number(row.pesoMixta) || 0),
       0,
     ),
     programasPropios,

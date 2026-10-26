@@ -1630,7 +1630,7 @@ export function downloadServiciosCantidadPdf({
     doc.setTextColor(100);
     doc.text(
       [
-        "Fuera/En casa = conteo de giras (pesos 1/n). PCV = dias viatico fuera de localidad. Total = ensayos + PCV. Prestaciones/mes = Total / meses feb-dic (fecha_alta). Enero no cuenta.",
+        "Fuera/Mixtas/En casa = conteo entero de giras (mixta = 2+ localias con >=1 local). PCV = dias viatico fuera de localidad. Total = ensayos + PCV. Prestaciones/mes = Total / meses feb-dic (fecha_alta). Enero no cuenta.",
         estimateNote,
       ]
         .filter(Boolean)

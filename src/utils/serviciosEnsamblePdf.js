@@ -11,10 +11,7 @@ import {
   toServiciosPdfText,
 } from "./serviciosPdf";
 import { formatServicioNumber } from "./serviciosCantidad";
-import {
-  formatTramoShareLabel,
-  summarizeEnsambleServiciosReport,
-} from "./serviciosEnsambleReport";
+import { summarizeEnsambleServiciosReport } from "./serviciosEnsambleReport";
 import {
   applySessionResolvedToEnsambleRows,
   partitionConflictoEnsayos,
@@ -200,9 +197,19 @@ export function buildEnsambleServiciosPdfTables(
     giras: {
       title: "Giras convocadas (Sinfónico y Camerata Filarmónica)",
       count: report.giras.length,
-      fueraDeCasaLabel: report.giras?.length
-        ? `(${formatServicioNumber(report.girasFueraDeCasa)} fuera de casa)`
-        : "",
+      fueraDeCasaLabel: (() => {
+        if (!report.giras?.length) return "";
+        const bits = [];
+        if (Number(report.girasFueraDeCasa) > 0) {
+          bits.push(
+            `${formatServicioNumber(report.girasFueraDeCasa)} fuera de casa`,
+          );
+        }
+        if (Number(report.girasMixtas) > 0) {
+          bits.push(`${formatServicioNumber(report.girasMixtas)} mixtas`);
+        }
+        return bits.length ? `(${bits.join(", ")})` : "";
+      })(),
       empty: "Ninguna gira Sinfónico/CF lo convoca en este rango.",
       rows: (report.giras || []).map((row) => {
         const name = stripHtml(row.label) || `Programa ${row.id}`;
@@ -214,17 +221,17 @@ export function buildEnsambleServiciosPdfTables(
             : row.serviciosModo === "promedio"
               ? ` (${formatServicioNumber(row.servicios)} promedio)`
               : ` (${formatServicioNumber(row.servicios)})`;
-        const fueraTxt = formatTramoShareLabel(row.tramosFuera, row.tramoCount);
+        const kindTxt =
+          (Number(row.pesoMixta) || 0) >= 1 || row.kind === "mixta"
+            ? "Mixta"
+            : (Number(row.pesoFuera) || 0) >= 1 || row.fueraDeCasa
+              ? "Fuera de casa"
+              : "";
         return {
           label: `${titled}${servicioTxt}`,
           fechas: fechasProgramLabel(row),
           tipo: row.tipo || "",
-          via: [
-            ensambleViaPdfLabel(row),
-            fueraTxt || (row.fueraDeCasa ? "Fuera de casa" : ""),
-          ]
-            .filter(Boolean)
-            .join(" - "),
+          via: [ensambleViaPdfLabel(row), kindTxt].filter(Boolean).join(" - "),
         };
       }),
     },
@@ -598,6 +605,10 @@ const RESUMEN_FUERA = {
   fill: [255, 237, 213],
   text: [154, 52, 18],
 };
+const RESUMEN_MIXTAS = {
+  fill: [254, 243, 199],
+  text: [146, 64, 14],
+};
 const RESUMEN_TOTAL_GIRAS = {
   fill: [241, 245, 249],
   text: [51, 65, 85],
@@ -620,9 +631,10 @@ function resumenHeadCell(content, { styles } = {}) {
 
 function resumenToneForColumn(index) {
   if (index === 1) return RESUMEN_FUERA;
-  if (index === 2) return RESUMEN_CASA;
-  if (index === 3) return RESUMEN_TOTAL_GIRAS;
-  if (index === 7) return RESUMEN_CONFLICTO;
+  if (index === 2) return RESUMEN_MIXTAS;
+  if (index === 3) return RESUMEN_CASA;
+  if (index === 4) return RESUMEN_TOTAL_GIRAS;
+  if (index === 8) return RESUMEN_CONFLICTO;
   return null;
 }
 
@@ -641,6 +653,7 @@ function resumenCells(row) {
   return [
     toServiciosPdfText(row.ensambleName),
     formatServicioNumber(row.girasFuera),
+    formatServicioNumber(row.girasMixtas),
     formatServicioNumber(row.girasEnCasa),
     formatServicioNumber(row.girasTotal),
     String(row.programasEnsamble),
@@ -655,6 +668,7 @@ function sumResumen(rows) {
     ensambleName: "Total",
     girasEnCasa: 0,
     girasFuera: 0,
+    girasMixtas: 0,
     girasTotal: 0,
     programasEnsamble: 0,
     conciertosEnsamble: 0,
@@ -664,6 +678,7 @@ function sumResumen(rows) {
   for (const row of rows) {
     total.girasEnCasa += row.girasEnCasa;
     total.girasFuera += row.girasFuera;
+    total.girasMixtas += row.girasMixtas;
     total.girasTotal += row.girasTotal;
     total.programasEnsamble += row.programasEnsamble;
     total.conciertosEnsamble += row.conciertosEnsamble;
@@ -705,7 +720,7 @@ export function buildEnsambleServiciosTodosPdfDoc({
       : "";
   const note = [
     rango,
-    "Giras fuera de casa / en casa: pesos por tramo (1/n). Total giras = suma de ambas.",
+    "Giras fuera / mixtas / en casa: enteros (mixta = 2+ localias con >=1 local). Total = suma.",
     "Programas y conciertos de ensamble: bloque propio del informe (anidados + sueltos).",
     "Ensayos de ensamble: sin conflicto pleno pendiente. Ensayos en conflicto = ese pendiente.",
     `Generado ${new Date().toLocaleString("es-AR")}`,
@@ -737,6 +752,7 @@ export function buildEnsambleServiciosTodosPdfDoc({
           resumenHeadLines("Giras", "fuera de", "casa"),
           RESUMEN_FUERA,
         ),
+        resumenToneHead(resumenHeadLines("Giras", "mixtas"), RESUMEN_MIXTAS),
         resumenToneHead(resumenHeadLines("Giras", "en casa"), RESUMEN_CASA),
         resumenToneHead(resumenHeadLines("Total", "giras"), RESUMEN_TOTAL_GIRAS),
         resumenHeadCell(resumenHeadLines("Programas", "de Ensamble")),

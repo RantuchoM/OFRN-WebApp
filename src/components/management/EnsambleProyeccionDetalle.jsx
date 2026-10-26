@@ -13,6 +13,7 @@ function Metric({ label, value, tone = "slate", className = "" }) {
   const tones = {
     slate: "bg-slate-50 text-slate-600 ring-slate-100",
     orange: "bg-orange-50 text-orange-800 ring-orange-100",
+    amber: "bg-amber-50 text-amber-900 ring-amber-100",
     teal: "bg-teal-50 text-teal-800 ring-teal-100",
     pink: "bg-pink-50 text-pink-800 ring-pink-100",
     emerald: "bg-emerald-50 text-emerald-800 ring-emerald-100",
@@ -70,6 +71,12 @@ export default function EnsambleProyeccionDetalle({
             label="Fuera"
             value={fmt(detail.girasFuera)}
             tone="orange"
+            className="min-w-[4.5rem] flex-1"
+          />
+          <Metric
+            label="Mixtas"
+            value={fmt(detail.girasMixtas)}
+            tone="amber"
             className="min-w-[4.5rem] flex-1"
           />
           <Metric
@@ -273,9 +280,9 @@ export default function EnsambleProyeccionDetalle({
                   <tr key={g.giraId} className="border-t border-slate-100">
                     <td className="px-1 py-1 font-medium">
                       {g.nombre}
-                      {g.casaFuera?.startsWith("Mixto") ? (
+                      {g.casaFuera === "Mixta" ? (
                         <span className="ml-1 text-[9px] text-amber-700">
-                          {g.casaFuera}
+                          Mixta
                         </span>
                       ) : null}
                     </td>

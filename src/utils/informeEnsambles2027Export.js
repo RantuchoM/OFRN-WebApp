@@ -27,6 +27,11 @@ import {
   formatConciertosEnsambleLabel,
   formatEnsNetosLabel,
 } from "./ensambleCicloConciertos.js";
+import {
+  giraHasAwayPcv,
+  giraKindLabel,
+  giraTramoPesos,
+} from "./serviciosEnsambleReport.js";
 
 /**
  * Helvetica (WinAnsi) no dibuja → × ↔ · — …; en Gmail/visor se ven letras
@@ -105,93 +110,6 @@ function classifyProgramaEnsambleConvocatoria(program, ensamble) {
   );
   if (cfHits.length) return { status: "convocado", via: "CF" };
   return { status: "no", via: null };
-}
-
-function isGiraFueraDeCasa(program, ensamble) {
-  const home = Number(ensamble?.id_localidad);
-  if (!Number.isFinite(home) || home <= 0) return false;
-  const locs = (program?.giras_localidades || [])
-    .map((r) => Number(r?.id_localidad ?? r?.localidades?.id))
-    .filter((id) => Number.isFinite(id) && id > 0);
-  if (!locs.length) return false;
-  return !locs.includes(home);
-}
-
-function gcdInt(a, b) {
-  let x = Math.abs(Number(a) || 0);
-  let y = Math.abs(Number(b) || 0);
-  while (y) {
-    const t = y;
-    y = x % y;
-    x = t;
-  }
-  return x || 1;
-}
-
-function formatTramoShareLabel(parte, total) {
-  const p = Number(parte) || 0;
-  const n = Number(total) || 0;
-  if (p <= 0 || n <= 1 || p >= n) return "";
-  const g = gcdInt(p, n);
-  return `${p / g}/${n / g} fuera de casa`;
-}
-
-/** Pesos por tramo (paridad serviciosEnsambleReport.giraTramoPesos). */
-function giraTramoPesos(program, ensamble) {
-  const home = Number(ensamble?.id_localidad);
-  const withLocs = [...(program?.tramos || [])]
-    .sort((a, b) => Number(a?.indice) - Number(b?.indice))
-    .map((seg) =>
-      (seg.localidad_ids || [])
-        .map(Number)
-        .filter((id) => Number.isFinite(id) && id > 0),
-    )
-    .filter((ids) => ids.length > 0);
-
-  const whole = (fuera) =>
-    fuera
-      ? { tramoCount: 1, tramosFuera: 1, pesoEnCasa: 0, pesoFuera: 1, fueraSegs: [] }
-      : { tramoCount: 1, tramosFuera: 0, pesoEnCasa: 1, pesoFuera: 0, fueraSegs: [] };
-
-  if (withLocs.length < 2 || !Number.isFinite(home) || home <= 0) {
-    const fuera = isGiraFueraDeCasa(program, ensamble);
-    return {
-      ...whole(fuera),
-      fueraSegs: fuera
-        ? [
-            {
-              fecha_desde: program.fecha_desde,
-              fecha_hasta: program.fecha_hasta,
-              localidad_ids: (program.giras_localidades || [])
-                .map((r) => Number(r.id_localidad))
-                .filter(Boolean),
-            },
-          ]
-        : [],
-    };
-  }
-
-  const segs = [...(program?.tramos || [])].sort(
-    (a, b) => Number(a?.indice) - Number(b?.indice),
-  );
-  const tramoCount = withLocs.length;
-  const fueraSegs = [];
-  let tramosFuera = 0;
-  for (const seg of segs) {
-    const ids = (seg.localidad_ids || []).map(Number).filter(Boolean);
-    if (!ids.length) continue;
-    if (!ids.includes(home)) {
-      tramosFuera += 1;
-      fueraSegs.push(seg);
-    }
-  }
-  return {
-    tramoCount,
-    tramosFuera,
-    pesoEnCasa: (tramoCount - tramosFuera) / tramoCount,
-    pesoFuera: tramosFuera / tramoCount,
-    fueraSegs,
-  };
 }
 
 export async function exportInformeEnsambles2027(bundle, opts = {}) {
@@ -530,6 +448,7 @@ const detalleEnsayosConflicto = [];
 for (const ens of ensambles) {
   let girasFuera = 0;
   let girasCasa = 0;
+  let girasMixtas = 0;
   let pcv = 0;
   let servGirasEstAcc = 0;
   const girasList = [];
@@ -538,21 +457,21 @@ for (const ens of ensambles) {
     const cls = classifyProgramaEnsambleConvocatoria(program, ens);
     if (cls.status !== "convocado") continue;
     const pesos = giraTramoPesos(program, ens);
-    girasFuera += pesos.pesoFuera;
-    girasCasa += pesos.pesoEnCasa;
-    const pesoGira =
-      (Number(pesos.pesoFuera) || 0) + (Number(pesos.pesoEnCasa) || 0);
+    girasFuera += Number(pesos.pesoFuera) || 0;
+    girasCasa += Number(pesos.pesoEnCasa) || 0;
+    girasMixtas += Number(pesos.pesoMixta) || 0;
     const estGira = resolveGiraServiciosEstimate(
       program,
       [],
       serviciosPorGira,
     );
-    servGirasEstAcc += (Number(estGira.value) || 0) * (pesoGira || 1);
+    // Cada gira convocada cuenta 1 (casa / fuera / mixta son enteros exclusivos).
+    servGirasEstAcc += Number(estGira.value) || 0;
 
     let pcvGira = 0;
     let pcvNota = "en casa — sin PCV";
     let pcvFranja = "";
-    if (pesos.pesoFuera > 0) {
+    if (giraHasAwayPcv(pesos)) {
       const homeLoc = Number(ens.id_localidad);
       const trip = estimatePcvFromFueraSegs({
         homeLocId: homeLoc,
@@ -573,18 +492,13 @@ for (const ens of ensambles) {
         .map((w) => formatPcvFranja(w))
         .filter(Boolean)
         .join(" · ");
-      if (pesos.tramoCount > 1 && pesos.tramosFuera < pesos.tramoCount) {
-        const share = formatTramoShareLabel(pesos.tramosFuera, pesos.tramoCount);
-        pcvNota = `${share || "mixto"} — ${pcvNota}`;
+      if ((Number(pesos.pesoMixta) || 0) >= 1) {
+        pcvNota = `mixta — ${pcvNota}`;
       }
       pcv += pcvGira;
     }
 
-    let casaFuera = "En casa";
-    if (pesos.pesoFuera >= 1) casaFuera = "Fuera";
-    else if (pesos.pesoFuera > 0) {
-      casaFuera = `Mixto ${formatTramoShareLabel(pesos.tramosFuera, pesos.tramoCount) || ""}`.trim();
-    }
+    const casaFuera = giraKindLabel(pesos);
 
     const item = {
       ensamble: ens.ensamble,
@@ -596,8 +510,10 @@ for (const ens of ensambles) {
       desde: program.fecha_desde,
       hasta: program.fecha_hasta,
       casaFuera,
-      pesoFuera: Math.round(pesos.pesoFuera * 100) / 100,
-      pesoEnCasa: Math.round(pesos.pesoEnCasa * 100) / 100,
+      kind: pesos.kind,
+      pesoFuera: Number(pesos.pesoFuera) || 0,
+      pesoEnCasa: Number(pesos.pesoEnCasa) || 0,
+      pesoMixta: Number(pesos.pesoMixta) || 0,
       via: cls.via,
       pcv: Math.round(pcvGira * 100) / 100,
       pcvNota,
@@ -659,9 +575,10 @@ for (const ens of ensambles) {
   );
   const pcvRound = Math.round(pcv * 100) / 100;
   const prestNetas = Math.round(ensayosNetos * 100) / 100;
-  const girasFueraR = Math.round(girasFuera * 100) / 100;
-  const girasCasaR = Math.round(girasCasa * 100) / 100;
-  const girasTotalR = Math.round((girasFueraR + girasCasaR) * 100) / 100;
+  const girasFueraR = girasFuera;
+  const girasCasaR = girasCasa;
+  const girasMixtasR = girasMixtas;
+  const girasTotalR = girasFueraR + girasCasaR + girasMixtasR;
   /** Suma por gira (manual o default config); no es total×n fijo. */
   const servGirasEst = Math.round(servGirasEstAcc * 100) / 100;
   const cicloStats = ensambleCicloStats(ens.id);
@@ -732,6 +649,7 @@ for (const ens of ensambles) {
     id_localidad: ens.id_localidad,
     girasFuera: girasFueraR,
     girasCasa: girasCasaR,
+    girasMixtas: girasMixtasR,
     girasTotal: girasTotalR,
     programasEnsamble: cicloStats.programasEnsamble,
     conciertosEnsamble: cicloStats.conciertosEnsamble,
@@ -801,19 +719,18 @@ function matrixGiraLabel(program) {
   return `${a} - ${b}. ${zona}. ${locs}`;
 }
 
-function matrixMark(pesoFuera, pesoEnCasa) {
-  const f = Number(pesoFuera) || 0;
-  const c = Number(pesoEnCasa) || 0;
-  if (f <= 0) return "L";
-  if (c <= 0) return "A";
-  return "L/A";
+function matrixMark(g) {
+  if ((Number(g?.pesoMixta) || 0) >= 1) return "M";
+  if ((Number(g?.pesoFuera) || 0) >= 1) return "A";
+  return "L";
 }
 
-function matrixSumLabel(casa, fuera) {
+function matrixSumLabel(casa, fuera, mixtas = 0) {
   const n = Number(casa) || 0;
   const m = Number(fuera) || 0;
-  const t = Math.round((n + m) * 100) / 100;
-  return `${fmtQty(n)}L + ${fmtQty(m)}A = ${fmtQty(t)}`;
+  const x = Number(mixtas) || 0;
+  const t = n + m + x;
+  return `${fmtQty(n)}L + ${fmtQty(m)}A + ${fmtQty(x)}M = ${fmtQty(t)}`;
 }
 
 /** Matriz Excel: filas = giras, columnas = ensambles, celda L/A. */
@@ -824,8 +741,8 @@ const cuadroCellByKey = new Map();
 for (const r of rows) {
   for (const g of r.girasList || []) {
     const key = `${r.ensamble}|${g.giraId}`;
-    markByKey.set(key, matrixMark(g.pesoFuera, g.pesoEnCasa));
-    if ((Number(g.pesoFuera) || 0) <= 0) {
+    markByKey.set(key, matrixMark(g));
+    if (!giraHasAwayPcv(g)) {
       cuadroCellByKey.set(key, { kind: "L", label: "L" });
     } else {
       cuadroCellByKey.set(key, {
@@ -849,7 +766,7 @@ const matrixRows = matrixPrograms.map((program) => ({
   ),
 }));
 const matrixTotals = rows.map((r) =>
-  matrixSumLabel(r.girasCasa, r.girasFuera),
+  matrixSumLabel(r.girasCasa, r.girasFuera, r.girasMixtas),
 );
 
 const feriadosByDay = new Map(
@@ -914,7 +831,9 @@ const FILL = {
   headerDark: "FF1E293B",
   matrixL: "FFDBEAFE", // blue-100
   matrixA: "FFFFEDD5", // orange-100
-  matrixLA: "FEF3C7", // amber-100
+  matrixLA: "FEF3C7", // amber-100 (legado L/A)
+  matrixM: "FEF3C7", // amber-100
+  mixtas: "FFFFFBEB", // amber-50
 };
 
 function paintHeader(cell, argb) {
@@ -931,8 +850,8 @@ function paintMatrixCell(cell, mark) {
     cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: FILL.matrixL } };
   } else if (mark === "A") {
     cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: FILL.matrixA } };
-  } else if (mark === "L/A") {
-    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: FILL.matrixLA } };
+  } else if (mark === "M" || mark === "L/A") {
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: FILL.matrixM } };
   }
 }
 
@@ -940,7 +859,7 @@ function paintMatrixCell(cell, mark) {
 function writeExcelMatrix(ws) {
   const title = ws.getCell(1, 1);
   title.value =
-    "Matriz giras × ensambles (L = local / en casa, A = afuera) — solo giras Sinfónico/CF; sin programas de ensamble";
+    "Matriz giras × ensambles (L = local / en casa, A = afuera, M = mixta) — solo giras Sinfónico/CF; sin programas de ensamble";
   title.font = { bold: true, size: 12 };
   ws.mergeCells(1, 1, 1, 1 + ensambleCols.length);
 
@@ -1000,6 +919,7 @@ async function writeExcel() {
     { key: "familia", label: "Familia", group: "Giras", fill: FILL.identity, w: 11, align: "center" },
     { key: "sede", label: "Sede", group: "Giras", fill: FILL.identity, w: 14, align: "center" },
     { key: "girasFuera", label: "Fuera", group: "Giras", fill: FILL.fuera, w: 9, align: "center" },
+    { key: "girasMixtas", label: "Mixtas", group: "Giras", fill: FILL.mixtas, w: 9, align: "center" },
     { key: "girasCasa", label: "En casa", group: "Giras", fill: FILL.casa, w: 9, align: "center" },
     { key: "girasTotal", label: "Total Giras", group: "Giras", fill: FILL.girasTot, w: 10, align: "center" },
     { key: "programasEnsamble", label: "Prog. ensamble", group: "Giras", fill: "FFECFDF5", w: 11, align: "center" },
@@ -1163,8 +1083,9 @@ async function writeExcel() {
     ws.getCell(line, 1).value = "Resumen";
     ws.getCell(line, 1).font = { bold: true };
     line += 1;
-    ws.getCell(line, 1).value = "Giras fuera / en casa / total";
-    ws.getCell(line, 2).value = `${r.girasFuera} / ${r.girasCasa} / ${r.girasTotal}`;
+    ws.getCell(line, 1).value = "Giras fuera / mixtas / en casa / total";
+    ws.getCell(line, 2).value =
+      `${r.girasFuera} / ${r.girasMixtas || 0} / ${r.girasCasa} / ${r.girasTotal}`;
     line += 1;
     ws.getCell(line, 1).value = "Programas de ensamble";
     ws.getCell(line, 2).value = r.programasEnsamble;
@@ -1244,7 +1165,9 @@ async function writeExcel() {
     ws.getCell(line, 1).font = { bold: true };
     paintHeader(ws.getCell(line, 1), FILL.casa);
     line += 1;
-    const enCasa = (r.girasList || []).filter((g) => Number(g.pesoFuera) === 0);
+    const enCasa = (r.girasList || []).filter(
+      (g) => (Number(g.pesoEnCasa) || 0) >= 1,
+    );
     if (!enCasa.length) {
       ws.getCell(line, 1).value = "(ninguna)";
       line += 1;
@@ -1267,7 +1190,7 @@ async function writeExcel() {
     ws.getCell(line, 1).font = { bold: true };
     paintHeader(ws.getCell(line, 1), FILL.pcv);
     line += 1;
-    const fueraList = (r.girasList || []).filter((g) => Number(g.pesoFuera) > 0);
+    const fueraList = (r.girasList || []).filter((g) => giraHasAwayPcv(g));
     ws.getCell(line, 1).value = "Gira";
     ws.getCell(line, 2).value = "Fechas";
     ws.getCell(line, 3).value = "PCV días";
@@ -1360,10 +1283,10 @@ async function writeExcel() {
   for (const g of detalleGiras) {
     const row = gSheet.addRow(g);
     const fill =
-      Number(g.pesoFuera) >= 1
-        ? FILL.fuera
-        : Number(g.pesoFuera) > 0
-          ? "FFFFFBEB" // amber-50 mixto
+      (Number(g.pesoMixta) || 0) >= 1
+        ? FILL.mixtas
+        : (Number(g.pesoFuera) || 0) >= 1
+          ? FILL.fuera
           : FILL.casa;
     for (let i = 1; i <= 12; i += 1) {
       row.getCell(i).fill = {
@@ -1394,17 +1317,17 @@ async function writeExcel() {
   notas.getColumn(1).width = 110;
   const lines = [
     `Informe planificación ensambles ${anio} (incluye giras Borrador seed).`,
-    "Primera hoja: matriz giras × ensambles — L = local (en casa), A = afuera, L/A = mixto por tramos. Pie: nL + mA = total.",
-    "Colores alineados a Prestaciones: Fuera=naranja, En casa=celeste, PCV=teal, Ens. netos=esmeralda, Detalle ensayos=esmeralda.",
+    "Primera hoja: matriz giras × ensambles — L = local (en casa), A = afuera, M = mixta (2+ localías con al menos una local). Pie: nL + mA + xM = total (enteros).",
+    "Colores alineados a Prestaciones: Fuera=naranja, Mixtas=ámbar, En casa=celeste, PCV=teal, Ens. netos=esmeralda.",
     `Prestaciones por gira = suma de ensayos/conciertos estimados por gira (manual o default ${serviciosPorGira}).`,
     "Dos secciones: Giras (incl. Prog. ensamble) | Prestaciones (Prest. por gira, PCV, Ens. netos, Conc. ensamble, Feriados, Prest. tot.).",
     `Feriados: 1 servicio por feriado / no laborable / domingo SOLO si ese día hay ensayo o concierto (tipos 1/2/3/13). No cuenta día de traslado ni otros eventos de logística. Domingos por criterio (no en tabla). Año ${anio}.`,
     "Prest. tot. = Prest. por gira + PCV + Ens. netos + Conc. ensamble + Feriados.",
-    "Prog./Conc. ensamble = Ciclos de Cámara I–III. Concierto=1; didáctico=0,5. No entran en la matriz L/A.",
+    "Prog./Conc. ensamble = Ciclos de Cámara I–III. Concierto=1; didáctico=0,5. No entran en la matriz L/A/M.",
     "Ens. netos = servicios de ensayos proyectados netos de conflicto pleno pendiente.",
-    "Tramos de localía: con 2+ segmentos con sede, casa/fuera y PCV se pesan 1/n por tramo (igual que el informe de ensamble en la app). Sin tramos: la unión de giras_localidades es todo o nada.",
+    "Localías: casa = todas locales; fuera = ninguna local; mixta = 2+ localías con ≥1 local y ≥1 ajena (conteo entero 1, sin 1/n).",
     "PCV franja: «martes 20/10, 22 hs a domingo 25/10, 10 hs. 4,5 días» (salida → llegada vuelta).",
-    "PCV: ventana ida+vuelta (matriz + salidas); con tramos solo los tramos fuera. El Bolsón ↔ Bariloche ~2h30.",
+    "PCV: ventana ida+vuelta (matriz + salidas); en mixtas/fuera solo tramos ajenos a la sede. El Bolsón ↔ Bariloche ~2h30.",
     "Tramos seed: Cipolletti→Villa Regina último día (207, 213); El Bolsón→Ñorquinco último día (214 Falú).",
     "Cada gira se lista con localía entre paréntesis.",
     `Ensayos: plantilla editable ensamble_proyeccion_ensayos × ${mondays.length} lunes en tramos de config (${proyDayFrom}–${proyDayTo}). Servicios/gira estimados: ${serviciosPorGira}.`,
@@ -1461,6 +1384,7 @@ function pdfWriteEnsamblePage(doc, r) {
     head: [
       pdfRow([
         "Fuera de casa",
+        "Mixtas",
         "En casa",
         "Total giras",
         "Programas de ensamble",
@@ -1469,16 +1393,18 @@ function pdfWriteEnsamblePage(doc, r) {
     body: [
       pdfRow([
         String(r.girasFuera),
+        String(r.girasMixtas || 0),
         String(r.girasCasa),
         String(r.girasTotal),
         String(r.programasEnsamble),
       ]),
     ],
     columnStyles: {
-      0: { cellWidth: 130, fillColor: [255, 247, 237], textColor: [154, 52, 18], fontStyle: "bold", fontSize: 12 },
-      1: { cellWidth: 120, fillColor: [240, 249, 255], textColor: [12, 74, 110], fontStyle: "bold", fontSize: 12 },
-      2: { cellWidth: 120, fillColor: [226, 232, 240], textColor: [15, 23, 42], fontStyle: "bold", fontSize: 12 },
-      3: { cellWidth: 150, fillColor: [236, 253, 245], textColor: [6, 95, 70], fontStyle: "bold", fontSize: 12 },
+      0: { cellWidth: 100, fillColor: [255, 247, 237], textColor: [154, 52, 18], fontStyle: "bold", fontSize: 12 },
+      1: { cellWidth: 90, fillColor: [255, 251, 235], textColor: [146, 64, 14], fontStyle: "bold", fontSize: 12 },
+      2: { cellWidth: 100, fillColor: [240, 249, 255], textColor: [12, 74, 110], fontStyle: "bold", fontSize: 12 },
+      3: { cellWidth: 100, fillColor: [226, 232, 240], textColor: [15, 23, 42], fontStyle: "bold", fontSize: 12 },
+      4: { cellWidth: 130, fillColor: [236, 253, 245], textColor: [6, 95, 70], fontStyle: "bold", fontSize: 12 },
     },
   });
 
@@ -1631,7 +1557,9 @@ function pdfWriteEnsamblePage(doc, r) {
   doc.setTextColor(15, 23, 42);
   doc.text(pdfText("Giras en casa"), marginX, y);
   y += 4;
-  const enCasa = (r.girasList || []).filter((g) => Number(g.pesoFuera) === 0);
+  const enCasa = (r.girasList || []).filter(
+    (g) => (Number(g.pesoEnCasa) || 0) >= 1,
+  );
   autoTable(doc, {
     startY: y,
     margin: { left: marginX, right: marginX },
@@ -1655,9 +1583,9 @@ function pdfWriteEnsamblePage(doc, r) {
   doc.setFont("helvetica", "bold");
   doc.setFontSize(10);
   doc.setTextColor(15, 23, 42);
-  doc.text(pdfText("Giras fuera de casa"), marginX, y);
+  doc.text(pdfText("Giras fuera / mixtas"), marginX, y);
   y += 4;
-  const fueraList = (r.girasList || []).filter((g) => Number(g.pesoFuera) > 0);
+  const fueraList = (r.girasList || []).filter((g) => giraHasAwayPcv(g));
   autoTable(doc, {
     startY: y,
     margin: { left: marginX, right: marginX },
@@ -2025,26 +1953,44 @@ function writePdfResumenPage(doc) {
 
   // Cuadro 1 — Giras
   const girasRest = usable - ensW - sedeW;
-  const girasMetricW = girasRest / 4;
+  const girasMetricW = girasRest / 5;
   const yAfterGiras = drawResumenBlock({
     startY: 58,
     title: "Giras",
-    head: ["Ensamble", "Sede", "Fuera", "En casa", "Total giras", "Prog. ens."],
+    head: [
+      "Ensamble",
+      "Sede",
+      "Fuera",
+      "Mixtas",
+      "En casa",
+      "Total giras",
+      "Prog. ens.",
+    ],
     body: rows.map((r) => [
       r.ensamble,
       r.sede,
       r.girasFuera,
+      r.girasMixtas || 0,
       r.girasCasa,
       r.girasTotal,
       r.programasEnsamble,
     ]),
     toneByCol: {
       2: [255, 247, 237],
-      3: [240, 249, 255],
-      4: [226, 232, 240],
-      5: [236, 253, 245],
+      3: [255, 251, 235],
+      4: [240, 249, 255],
+      5: [226, 232, 240],
+      6: [236, 253, 245],
     },
-    widths: [ensW, sedeW, girasMetricW, girasMetricW, girasMetricW, girasMetricW],
+    widths: [
+      ensW,
+      sedeW,
+      girasMetricW,
+      girasMetricW,
+      girasMetricW,
+      girasMetricW,
+      girasMetricW,
+    ],
   });
 
   // Cuadro 2 — Prestaciones (nombres de ensamble repetidos)

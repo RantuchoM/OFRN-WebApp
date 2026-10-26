@@ -70,6 +70,9 @@ export default function ProyeccionPrestacionesVista({ rows = [] }) {
                     <th className="bg-orange-50/20 px-2 py-1.5 font-bold">
                       Fuera
                     </th>
+                    <th className="bg-amber-50/20 px-2 py-1.5 font-bold">
+                      Mixtas
+                    </th>
                     <th className="bg-sky-50/20 px-2 py-1.5 font-bold">
                       En casa
                     </th>
@@ -93,6 +96,9 @@ export default function ProyeccionPrestacionesVista({ rows = [] }) {
                       </td>
                       <td className="bg-orange-50/60 px-2 py-1.5 font-bold tabular-nums text-orange-900">
                         {fmt(r.girasFuera)}
+                      </td>
+                      <td className="bg-amber-50/60 px-2 py-1.5 font-bold tabular-nums text-amber-900">
+                        {fmt(r.girasMixtas)}
                       </td>
                       <td className="bg-sky-50/50 px-2 py-1.5 font-bold tabular-nums text-sky-900">
                         {fmt(r.girasCasa)}

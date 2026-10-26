@@ -443,6 +443,7 @@ export default function PrestacionesProyeccionSandbox({
           "",
         girasFuera: detail?.girasFuera || 0,
         girasCasa: detail?.girasCasa || 0,
+        girasMixtas: detail?.girasMixtas || 0,
         girasTotal,
         programasEnsamble: detail?.programasEnsamble || 0,
         servGirasEst,

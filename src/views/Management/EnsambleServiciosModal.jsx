@@ -19,7 +19,6 @@ import {
   formatServicioNumber,
 } from "../../utils/serviciosCantidad";
 import { downloadEnsambleServiciosPdf } from "../../utils/serviciosEnsamblePdf";
-import { formatTramoShareLabel } from "../../utils/serviciosEnsambleReport";
 import ConflictoEnsayoActions, {
   ConflictoEnsayoLayout,
   ConflictoEnsayoUndo,
@@ -91,16 +90,20 @@ function fueraDeCasaTitle(row, homeName) {
   const sedes = (row.localidadLabels || []).join(", ") || "sin localidad";
   const casa = homeName || "sin localidad";
   const base = `Sedes: ${sedes}. Localidad del ensamble: ${casa}.`;
-  if ((row.tramoCount || 0) > 1) {
-    return `${row.tramosFuera || 0} de ${row.tramoCount} tramos fuera de casa. Cada tramo cuenta 1/${row.tramoCount} en giras y en prestaciones. ${base}`;
+  if ((Number(row.pesoMixta) || 0) >= 1 || row.kind === "mixta") {
+    return `Gira mixta (localías locales y ajenas; cuenta 1). ${base}`;
+  }
+  if ((Number(row.pesoFuera) || 0) >= 1 || row.kind === "fuera") {
+    return `Gira fuera de casa. ${base}`;
   }
   return base;
 }
 
 function fueraDeCasaBadge(row) {
-  const parcial = formatTramoShareLabel(row.tramosFuera, row.tramoCount);
-  if (parcial) return parcial;
-  if (row.fueraDeCasa) return "Fuera de casa";
+  if ((Number(row.pesoMixta) || 0) >= 1 || row.kind === "mixta") return "Mixta";
+  if ((Number(row.pesoFuera) || 0) >= 1 || row.fueraDeCasa) {
+    return "Fuera de casa";
+  }
   return "";
 }
 

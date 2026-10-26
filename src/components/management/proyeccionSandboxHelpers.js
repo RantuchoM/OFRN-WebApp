@@ -11,7 +11,8 @@ import {
 } from "../../utils/ensambleCicloConciertos";
 import {
   classifyProgramaEnsambleConvocatoria,
-  formatTramoShareLabel,
+  giraHasAwayPcv,
+  giraKindLabel,
   giraTramoPesos,
 } from "../../utils/serviciosEnsambleReport";
 
@@ -77,7 +78,7 @@ export function proyeccionCellForEnsamble(program, ensamble, demorasMap, locName
     return { kind: "empty", label: "" };
   }
   const pesos = giraTramoPesos(program, ensamble);
-  if ((Number(pesos.pesoFuera) || 0) <= 0) {
+  if (!giraHasAwayPcv(pesos)) {
     return { kind: "L", label: "L" };
   }
 
@@ -216,7 +217,7 @@ export function findMissingDemorasTemporada({
       if (!home) continue;
       seasonLocIds.add(home);
       const pesos = giraTramoPesos(program, ensamble);
-      if ((Number(pesos.pesoFuera) || 0) <= 0) continue;
+      if (!giraHasAwayPcv(pesos)) continue;
       const segs = pesos.fueraSegs?.length
         ? pesos.fueraSegs
         : [
@@ -296,6 +297,7 @@ export function buildEnsambleProyeccionDetalle({
 
   let girasFuera = 0;
   let girasCasa = 0;
+  let girasMixtas = 0;
   let pcv = 0;
   const girasList = [];
   const feriadosHits = [];
@@ -305,13 +307,14 @@ export function buildEnsambleProyeccionDetalle({
     const cls = classifyProgramaEnsambleConvocatoria(program, ensamble);
     if (cls.status !== "convocado") continue;
     const pesos = giraTramoPesos(program, ensamble);
-    girasFuera += pesos.pesoFuera;
-    girasCasa += pesos.pesoEnCasa;
+    girasFuera += Number(pesos.pesoFuera) || 0;
+    girasCasa += Number(pesos.pesoEnCasa) || 0;
+    girasMixtas += Number(pesos.pesoMixta) || 0;
 
     let pcvGira = 0;
     let pcvNota = "en casa — sin PCV";
     let pcvFranja = "";
-    if ((Number(pesos.pesoFuera) || 0) > 0) {
+    if (giraHasAwayPcv(pesos)) {
       const segs = pesos.fueraSegs?.length
         ? pesos.fueraSegs
         : [
@@ -341,22 +344,13 @@ export function buildEnsambleProyeccionDetalle({
         .map((w) => formatPcvFranja(w))
         .filter(Boolean)
         .join(" · ");
-      if (pesos.tramoCount > 1 && pesos.tramosFuera < pesos.tramoCount) {
-        const share = formatTramoShareLabel(
-          pesos.tramosFuera,
-          pesos.tramoCount,
-        );
-        pcvNota = `${share || "mixto"} — ${pcvNota}`;
+      if ((Number(pesos.pesoMixta) || 0) >= 1) {
+        pcvNota = `mixta — ${pcvNota}`;
       }
       pcv += pcvGira;
     }
 
-    let casaFuera = "En casa";
-    if (pesos.pesoFuera >= 1) casaFuera = "Fuera";
-    else if (pesos.pesoFuera > 0) {
-      casaFuera =
-        `Mixto ${formatTramoShareLabel(pesos.tramosFuera, pesos.tramoCount) || ""}`.trim();
-    }
+    const casaFuera = giraKindLabel(pesos);
 
     const locs = (program.giras_localidades || [])
       .map((g) => g.localidades?.localidad)
@@ -371,7 +365,10 @@ export function buildEnsambleProyeccionDetalle({
       desde: program.fecha_desde,
       hasta: program.fecha_hasta,
       casaFuera,
-      pesoFuera: Math.round(pesos.pesoFuera * 100) / 100,
+      kind: pesos.kind,
+      pesoFuera: Number(pesos.pesoFuera) || 0,
+      pesoEnCasa: Number(pesos.pesoEnCasa) || 0,
+      pesoMixta: Number(pesos.pesoMixta) || 0,
       via: cls.via,
       pcv: Math.round(pcvGira * 100) / 100,
       pcvNota,
@@ -399,8 +396,9 @@ export function buildEnsambleProyeccionDetalle({
   }
 
   feriadosHits.sort((a, b) => String(a.fecha).localeCompare(String(b.fecha)));
-  const girasFueraR = Math.round(girasFuera * 100) / 100;
-  const girasCasaR = Math.round(girasCasa * 100) / 100;
+  const girasFueraR = girasFuera;
+  const girasCasaR = girasCasa;
+  const girasMixtasR = girasMixtas;
   const pcvRound = Math.round(pcv * 100) / 100;
 
   const programasEnsambleList = ciclosForEnsamble(ciclos, ensamble.id);
@@ -412,13 +410,15 @@ export function buildEnsambleProyeccionDetalle({
     id_localidad: home,
     girasFuera: girasFueraR,
     girasCasa: girasCasaR,
-    girasTotal: Math.round((girasFueraR + girasCasaR) * 100) / 100,
+    girasMixtas: girasMixtasR,
+    girasTotal: girasFueraR + girasCasaR + girasMixtasR,
     pcv: pcvRound,
     feriados: feriadosHits.length,
     feriadosHits,
     girasList,
-    enCasa: girasList.filter((g) => Number(g.pesoFuera) === 0),
-    fuera: girasList.filter((g) => Number(g.pesoFuera) > 0),
+    enCasa: girasList.filter((g) => (Number(g.pesoEnCasa) || 0) >= 1),
+    fuera: girasList.filter((g) => giraHasAwayPcv(g)),
+    mixtas: girasList.filter((g) => (Number(g.pesoMixta) || 0) >= 1),
     programasEnsambleList,
     programasEnsamble: cicloStats.programasEnsamble,
     conciertosEnsamble: cicloStats.conciertosEnsamble,

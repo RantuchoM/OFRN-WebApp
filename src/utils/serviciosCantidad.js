@@ -50,6 +50,7 @@ export const ATOMIC_KIND_KEYS = [
   "ensayo_gira_half",
   "giras_fuera",
   "giras_casa",
+  "giras_mixtas",
   "pcv",
 ];
 
@@ -88,7 +89,7 @@ export function isEstimableProgramTipo(program) {
 }
 
 /**
- * Columnas del listado. Giras fuera/en casa (conteos, como PDF Todos).
+ * Columnas del listado. Giras fuera/mixtas/en casa (conteos enteros).
  * Ensayos ≥2h / <2h y Ensamble / Gira se solapan; el Total = ensayos + PCV.
  * El informe muestra un solo par de ensayos a la vez (`splitServicioListingColumns`).
  */
@@ -110,6 +111,15 @@ export const SERVICIO_COLUMN_DEFS = [
       "Giras (Sinfónico/CF/Jazz Band) en casa · entre paréntesis cantidad de conciertos de esas giras. No suma al Total.",
     sources: ["giras_casa"],
     chipClass: "bg-sky-50 text-sky-900",
+  },
+  {
+    key: "giras_mixtas",
+    label: "Giras mixtas",
+    shortLabel: "Mixtas",
+    title:
+      "Giras con más de una localía, al menos una local y otra/s no (conteo entero). No suma al Total.",
+    sources: ["giras_mixtas"],
+    chipClass: "bg-amber-50 text-amber-900",
   },
   {
     key: "conciertos_ensamble",
@@ -279,6 +289,7 @@ export function emptyAtomicBuckets() {
     ensayo_gira_half: { counted: 0, reemplazo: 0, licencia: 0 },
     giras_fuera: { counted: 0, reemplazo: 0, licencia: 0 },
     giras_casa: { counted: 0, reemplazo: 0, licencia: 0 },
+    giras_mixtas: { counted: 0, reemplazo: 0, licencia: 0 },
     conciertos_ensamble: { counted: 0, reemplazo: 0, licencia: 0 },
     pcv: { counted: 0, reemplazo: 0, licencia: 0 },
   };
@@ -944,6 +955,7 @@ export function accumulateServiciosForIntegrante(integranteId, events, ctx) {
   if (meta) {
     atomic.giras_fuera.counted = Number(meta.girasFuera) || 0;
     atomic.giras_casa.counted = Number(meta.girasEnCasa) || 0;
+    atomic.giras_mixtas.counted = Number(meta.girasMixtas) || 0;
     atomic.conciertos_ensamble.counted = Number(meta.conciertosEnsamble) || 0;
     atomic.pcv.counted = Number(meta.pcv) || 0;
   }

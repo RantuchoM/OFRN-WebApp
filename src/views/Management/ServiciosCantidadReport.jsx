@@ -413,8 +413,10 @@ function PrestacionesDetalleResumen({
     { fechaDesde, fechaHasta },
   );
   const fueraParts = formatServicioParts(buckets?.giras_fuera);
+  const mixtasParts = formatServicioParts(buckets?.giras_mixtas);
   const enCasaParts = formatServicioParts(buckets?.giras_casa);
   const fuera = fueraParts.map((p) => p.text).join("") || "—";
+  const mixtas = mixtasParts.map((p) => p.text).join("") || "—";
   const enCasa = enCasaParts.map((p) => p.text).join("") || "—";
   const concEns = formatServicioNumber(
     bucketTotal(buckets?.conciertos_ensamble),
@@ -449,6 +451,11 @@ function PrestacionesDetalleResumen({
           label="Fuera"
           value={fuera}
           className="border-orange-200 bg-orange-50 text-orange-900"
+        />
+        <PrestChip
+          label="Mixtas"
+          value={mixtas}
+          className="border-amber-200 bg-amber-50 text-amber-900"
         />
         <PrestChip
           label="En casa"
@@ -492,10 +499,10 @@ function PrestacionesDetalleResumen({
         />
       </div>
       <p className="text-[10px] leading-snug text-slate-500">
-        Fuera / En casa = giras (pesos por tramo) y entre paréntesis cantidad de
-        conciertos (incl. didácticos). Conc.ens. = conciertos de programas
-        Ensamble. Prest.conc. = suma de prestaciones de conciertos. Total =
-        conciertos + ensayos + PCV.
+        Fuera / Mixtas / En casa = giras (enteros: mixta = 2+ localías con ≥1
+        local) y entre paréntesis cantidad de conciertos (incl. didácticos).
+        Conc.ens. = conciertos de programas Ensamble. Prest.conc. = suma de
+        prestaciones de conciertos. Total = conciertos + ensayos + PCV.
         {meta?.homeLabel
           ? ` Localidad viáticos: ${meta.homeLabel}.`
           : ""}
@@ -696,13 +703,13 @@ function ServicioDetalleModal({
               openKeys={openKeys}
               toggle={toggle}
               title="Giras (Sinfónico / CF / Jazz Band)"
-              summary={`${girasDetalle.length} · fuera ${formatServicioNumber(meta?.girasFuera)} · en casa ${formatServicioNumber(meta?.girasEnCasa)}`}
+              summary={`${girasDetalle.length} · fuera ${formatServicioNumber(meta?.girasFuera)} · mixtas ${formatServicioNumber(meta?.girasMixtas)} · en casa ${formatServicioNumber(meta?.girasEnCasa)}`}
               headerClass="bg-orange-50/80 hover:bg-orange-50"
             >
               {girasDetalle.length === 0 ? (
                 <p className="px-3 py-2 text-xs text-slate-400">
                   Ninguna gira Sinfónico/CF/Jazz Band en nómina en el rango. Los
-                  programas tipo Ensamble no cuentan en Fuera / En casa.
+                  programas tipo Ensamble no cuentan en Fuera / Mixtas / En casa.
                 </p>
               ) : (
                 <ul className="divide-y divide-slate-100">
@@ -724,15 +731,17 @@ function ServicioDetalleModal({
                           {g.fechaHasta && g.fechaHasta !== g.fechaDesde
                             ? ` – ${formatDdMmYyyy(g.fechaHasta) || g.fechaHasta}`
                             : ""}
-                          {g.tramoCount > 1
-                            ? ` · ${g.tramosFuera}/${g.tramoCount} tramos fuera`
-                            : ""}
                         </p>
                       </div>
                       <div className="shrink-0 text-right text-[11px] tabular-nums">
                         {g.pesoFuera > 0 ? (
                           <div className="font-semibold text-orange-800">
                             Fuera {formatServicioNumber(g.pesoFuera)}
+                          </div>
+                        ) : null}
+                        {g.pesoMixta > 0 ? (
+                          <div className="font-semibold text-amber-800">
+                            Mixta {formatServicioNumber(g.pesoMixta)}
                           </div>
                         ) : null}
                         {g.pesoEnCasa > 0 ? (
@@ -2609,7 +2618,7 @@ export default function ServiciosCantidadReport({ supabase }) {
             ) : null}
           </span>
           <span className="hidden text-[10px] text-slate-400 sm:inline">
-            Fuera / En casa = giras (pesos por tramo) · (n) = cantidad de conciertos (incl. didácticos) · Conc.ens. = conciertos de ensamble · Prest.conc. = prestaciones de conciertos · Eventos con tags de grupo (p. ej. FIMBA) solo cuentan si el integrante está en el grupo · PCV = días de viático fuera de localidad (fracciones) · Total = conciertos + ensayos + PCV · ½ = 0,5 · R celeste · L ámbar · Prest/mes = total ÷ meses feb–dic · Estimar futuros: gira = {FIXED_FUTURE_GIRA_SERVICIOS} · clic en la fila para el detalle
+            Fuera / Mixtas / En casa = giras (enteros; mixta = 2+ localías con ≥1 local) · (n) = cantidad de conciertos (incl. didácticos) · Conc.ens. = conciertos de ensamble · Prest.conc. = prestaciones de conciertos · Eventos con tags de grupo (p. ej. FIMBA) solo cuentan si el integrante está en el grupo · PCV = días de viático fuera de localidad (fracciones) · Total = conciertos + ensayos + PCV · ½ = 0,5 · R celeste · L ámbar · Prest/mes = total ÷ meses feb–dic · Estimar futuros: gira = {FIXED_FUTURE_GIRA_SERVICIOS} · clic en la fila para el detalle
           </span>
           <span className="text-[10px] text-slate-400 sm:hidden">
             Tocá una persona para el resumen. Deslizá para ver el resto.
