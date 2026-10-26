@@ -77,58 +77,80 @@ export default function EventTranspositionModal({
   const [removeSimilarEvents, setRemoveSimilarEvents] = useState(true);
   const { user } = useAuth();
 
-  // Cargar programas candidatos (otras giras)
+  // Cargar programas candidatos (otras giras).
+  // Prioriza giras pasadas (antes de la destino) sobre futuras: el listado
+  // anterior ordenaba solo por fecha_desde desc + limit y las futuras
+  // desplazaban a las pasadas fuera del cupo.
   useEffect(() => {
     if (!isOpen || !supabase) return;
 
     let isCancelled = false;
+    const PROGRAM_SELECT =
+      "id, nombre_gira, nomenclador, mes_letra, fecha_desde, fecha_hasta, tipo, zona, estado";
+
+    const toOption = (p) => {
+      const title = p.nomenclador || p.nombre_gira || `Programa #${p.id}`;
+      const prefix = p.mes_letra ? `${p.mes_letra} | ` : "";
+      const label = `${prefix}${title}`;
+      const meta = [p.tipo, p.zona].filter(Boolean).join(" • ").trim();
+      const subLabelParts = [];
+      if (p.fecha_desde) {
+        subLabelParts.push(`Desde ${formatIsoDate(p.fecha_desde)}`);
+      }
+      if (p.fecha_hasta) {
+        subLabelParts.push(`Hasta ${formatIsoDate(p.fecha_hasta)}`);
+      }
+      if (meta) subLabelParts.push(meta);
+      return {
+        id: p.id,
+        label,
+        subLabel: subLabelParts.join(" · "),
+      };
+    };
+
     const fetchPrograms = async () => {
       setLoadingPrograms(true);
       try {
-        let query = supabase
-          .from("programas")
-          .select(
-            "id, nombre_gira, nomenclador, mes_letra, fecha_desde, fecha_hasta, tipo, zona, estado",
-          )
-          .order("fecha_desde", { ascending: false })
-          .limit(80);
-
         const destinoId = giraDestino?.id || giraId;
-        if (destinoId) {
-          query = query.neq("id", destinoId);
-        }
+        const anchorIso =
+          giraDestino?.fecha_desde ||
+          formatDate(new Date(), "yyyy-MM-dd");
 
-        const { data, error } = await query;
-        if (error) throw error;
+        const base = () => {
+          let q = supabase.from("programas").select(PROGRAM_SELECT);
+          if (destinoId) q = q.neq("id", destinoId);
+          return q;
+        };
+
+        // Pasadas primero (más recientes), luego futuras (más cercanas).
+        const [pastRes, futureRes] = await Promise.all([
+          base()
+            .lt("fecha_desde", anchorIso)
+            .order("fecha_desde", { ascending: false })
+            .limit(100),
+          base()
+            .gte("fecha_desde", anchorIso)
+            .order("fecha_desde", { ascending: true })
+            .limit(40),
+        ]);
+
+        if (pastRes.error) throw pastRes.error;
+        if (futureRes.error) throw futureRes.error;
         if (isCancelled) return;
 
-        const byId = {};
-        const opts =
-          (data || []).map((p) => {
-            byId[p.id] = p;
-            const title =
-              p.nomenclador || p.nombre_gira || `Programa #${p.id}`;
-            const prefix = p.mes_letra ? `${p.mes_letra} | ` : "";
-            const label = `${prefix}${title}`;
-            const meta = [p.tipo, p.zona]
-              .filter(Boolean)
-              .join(" • ")
-              .trim();
-            const subLabelParts = [];
-            if (p.fecha_desde) {
-              subLabelParts.push(`Desde ${formatIsoDate(p.fecha_desde)}`);
-            }
-            if (p.fecha_hasta) {
-              subLabelParts.push(`Hasta ${formatIsoDate(p.fecha_hasta)}`);
-            }
-            if (meta) subLabelParts.push(meta);
+        const seen = new Set();
+        const merged = [];
+        for (const p of [...(pastRes.data || []), ...(futureRes.data || [])]) {
+          if (!p?.id || seen.has(p.id)) continue;
+          seen.add(p.id);
+          merged.push(p);
+        }
 
-            return {
-              id: p.id,
-              label,
-              subLabel: subLabelParts.join(" · "),
-            };
-          }) || [];
+        const byId = {};
+        const opts = merged.map((p) => {
+          byId[p.id] = p;
+          return toOption(p);
+        });
 
         setProgramById(byId);
         setProgramOptions(opts);

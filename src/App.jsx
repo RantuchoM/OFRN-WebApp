@@ -38,6 +38,7 @@ import BirthdaySidebarControl from "./components/ui/BirthdaySidebarControl";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import NewsModal from "./components/news/NewsModal";
 import FeedbackWidget from "./components/ui/FeedbackWidget";
+import AIAssistant from "./components/ui/AIAssistant";
 import DesktopDestroyerEasterEgg from "./components/easter-egg/DesktopDestroyerEasterEgg";
 import { ManualProvider } from "./context/ManualContext";
 import ManualTrigger from "./components/manual/ManualTrigger";
@@ -1660,6 +1661,7 @@ const ProtectedApp = ({ initialTab }) => {
           document.body
         )}
       <FeedbackWidget supabase={supabase} userEmail={user?.email} />
+      <AIAssistant />
       <DesktopDestroyerEasterEgg enabled={isActuallyAdmin} />
     </div>
   );

@@ -1,6 +1,6 @@
 /**
  * Aplica giras Sinfónico / Camerata Filarmónica 2027 (Borrador) a la DB linked.
- * Idempotente: si ya hay programas con subtitulo que contiene [seed:giras2027-sinf-cf], aborta.
+ * Idempotente: si ya existe el primer programa del listado en 2027, aborta.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -9,7 +9,6 @@ import { spawnSync } from "node:child_process";
 import { PROGRAMAS } from "./preview-giras-2027.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const SEED_TAG = "[seed:giras2027-sinf-cf]";
 const outSql = path.join(__dirname, "..", "supabase", "seed_giras_2027_sinf_cf.sql");
 
 function sqlStr(v) {
@@ -26,9 +25,10 @@ function addMinutes(hhmm, mins) {
 }
 
 const lines = [];
+const firstNombre = PROGRAMAS[0]?.nombre || "Apertura de temporada: Mahler y Wagner";
+
 lines.push(`-- Giras Sinfónico / Camerata Filarmónica 2027`);
 lines.push(`-- Generado por scripts/apply-giras-2027.mjs — ${new Date().toISOString()}`);
-lines.push(`-- Tag: ${SEED_TAG}`);
 lines.push(`DO $$`);
 lines.push(`DECLARE`);
 lines.push(`  v_existing int;`);
@@ -36,16 +36,16 @@ lines.push(`  v_gid bigint;`);
 lines.push(`BEGIN`);
 lines.push(`  SELECT count(*) INTO v_existing`);
 lines.push(`  FROM public.programas`);
-lines.push(`  WHERE coalesce(subtitulo, '') LIKE '%${SEED_TAG.replace(/'/g, "''")}%';`);
+lines.push(`  WHERE nombre_gira = ${sqlStr(firstNombre)}`);
+lines.push(`    AND fecha_desde >= DATE '2027-01-01'`);
+lines.push(`    AND fecha_desde <= DATE '2027-12-31';`);
 lines.push(`  IF v_existing > 0 THEN`);
-lines.push(`    RAISE EXCEPTION 'Ya existen % programas con tag % — aborto (idempotencia)', v_existing, '${SEED_TAG.replace(/'/g, "''")}';`);
+lines.push(`    RAISE EXCEPTION 'Ya existe programa % en 2027 — aborto (idempotencia)', ${sqlStr(firstNombre)};`);
 lines.push(`  END IF;`);
 lines.push(``);
 
 for (const p of PROGRAMAS) {
-  const subtituloParts = [SEED_TAG];
-  if (p.nota_localia) subtituloParts.unshift(p.nota_localia);
-  const subtitulo = subtituloParts.join(" ");
+  const subtitulo = p.nota_localia || null;
 
   lines.push(`  -- Programa #${p.num}: ${p.nombre.replace(/'/g, "''")}`);
   lines.push(`  INSERT INTO public.programas (`);

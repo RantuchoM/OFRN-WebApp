@@ -1286,4 +1286,40 @@ Gira **138** *Concierto de tango (Piazzolla y mas)* — bloque Repertorio (**110
 - [x] Las tres en repertorio 110 (órdenes 2–4)
 - [x] Lema + Piazzolla + Tango + refs; sin mail
 
+---
+
+### Completado (2026-10-26) — ES 04/26 gira 129 (Música Argentina y Latinoamericana)
+
+Fuente local `C:\Users\marti\Downloads\ES`. Bloque existente **Repertorio** (`programas_repertorios.id=99`). No se duplicó el bloque. Alberdi (3 Minués) quedó fuera del programa. **Niebla** (3232) y **Fiesta Criolla** (2925) ya estaban en archivo: solo se vincularon (sin re-subir PDFs). Duraciones de programa aplicadas (Niebla 180s; Fiesta Criolla 900s).
+
+| orden | id | Obra | Partes | Notas |
+|------:|---:|------|------:|------|
+| 1 | **3668** | Miniatura Op. 31 Nº 3 (Williams) | 6 | SCORE + Str |
+| 2 | **3232** | Niebla en la Pampa (Williams) | 6 | ya en archivo |
+| 3 | **3669** | Ave Maria (Barbieri, A.M.) | 1 | SCORE coro SATB |
+| 4 | **3670** | Minué en Fa mayor (Esnaola) | 6 | SCORE + Str |
+| 5 | **3671** | Andante Appassionato Op. 2 (Soro) | 1 | Piano; pendiente arr. cuarteto |
+| 6 | **3672** | Danza Cubana Nro. 2 (Cervantes / Montgomery) | 5 | solo partes Str |
+| 7 | **3673** | Retablo (Revueltas / Aponte Cupido) | 6 | voz en SCORE |
+| 8 | **3674** | Oblivion (Piazzolla / Kremer) | 2 | SCORE + Violín Solo |
+| 9 | **2925** | Fiesta Criolla (Gómez Carrillo) | 14 | ya en archivo |
+
+`link_drive` de las 7 nuevas apunta a carpetas en [Para acomodar](https://drive.google.com/drive/folders/10ap1aEjq3X9bFRB3z4DQ-F0fB7y3JutI) (**no** `copiar_carpeta_a_archivo`). Seed `supabase/seed_es129_sync.sql` ejecutado en el proyecto linked.
+
+- [x] 27 PDFs canónicos en Drive (7 carpetas nuevas)
+- [x] 9 filas en `repertorio_obras` 99, órdenes 1–9
+- [x] Compositores/arregladores nuevos: Barbieri, Cervantes, Montgomery, Aponte Cupido, Kremer
+
+Scripts: `scripts/lib/es129Catalog.mjs`, `scripts/process-es129-local.mjs`, `scripts/generate-es129-sync.mjs`.
+
+**Archivo sin repertorio:** Alberdi **3675** `Tres Minués` (arr. Garberi, cuarteto). Carpeta [Para acomodar](https://drive.google.com/open?id=1mTPYO_ksrJeJ6pGz-HmeWBuHoAeCsWe_) — 5 PDFs (SCORE + Vn1/Vn2/Va/Vc). Seed `supabase/seed_es129_alberdiMinues_sync.sql`. No está en `repertorio_obras` 99.
+
+---
+
+### Completado (2026-10-26) — Bragato, Ritmos de Malambo (archivo)
+
+Fuente `C:\Users\marti\Downloads\Bragato.pdf` (manuscrito escaneado, 35 pp.). Obra nueva **3676** `<p>Ritmos de Malambo</p>`, José Bragato, año 1983, `instrumentacion` Str. Carpeta [Para acomodar](https://drive.google.com/open?id=1My1eOrPDC8xOyk9CMfL4vS3eXunN8nzg) — **6 PDFs** (SCORE 1–15 + Vn1/Vn2/Va/Vc/Cb). Seed `supabase/seed_bragato_malambo_sync.sql` aplicado linked. Sin `repertorio_obras`.
+
+Scripts: `scripts/lib/bragatoMalamboCatalog.mjs`, `scripts/process-bragato-malambo-local.mjs`, `scripts/generate-bragato-malambo-sync.mjs`.
+
 

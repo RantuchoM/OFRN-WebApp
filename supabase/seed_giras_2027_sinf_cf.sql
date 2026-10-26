@@ -1,6 +1,5 @@
 -- Giras Sinfónico / Camerata Filarmónica 2027
 -- Generado por scripts/apply-giras-2027.mjs — 2026-10-20T22:03:26.159Z
--- Tag: [seed:giras2027-sinf-cf]
 DO $$
 DECLARE
   v_existing int;
@@ -8,9 +7,11 @@ DECLARE
 BEGIN
   SELECT count(*) INTO v_existing
   FROM public.programas
-  WHERE coalesce(subtitulo, '') LIKE '%[seed:giras2027-sinf-cf]%';
+  WHERE nombre_gira = 'Apertura de temporada: Mahler y Wagner'
+    AND fecha_desde >= DATE '2027-01-01'
+    AND fecha_desde <= DATE '2027-12-31';
   IF v_existing > 0 THEN
-    RAISE EXCEPTION 'Ya existen % programas con tag % — aborto (idempotencia)', v_existing, '[seed:giras2027-sinf-cf]';
+    RAISE EXCEPTION 'Ya existen % programas con tag % — aborto (idempotencia)', v_existing, NULL;
   END IF;
 
   -- Programa #1: Apertura de temporada: Mahler y Wagner
@@ -23,7 +24,7 @@ BEGIN
     'Sinfónico'::tipo_programa,
     'Andina',
     'Borrador'::estado_gira,
-    'Doc: Bariloche - Frutillar (Chile). Por ahora solo Bariloche; Frutillar pendiente. [seed:giras2027-sinf-cf]'
+    'Doc: Bariloche - Frutillar (Chile). Por ahora solo Bariloche; Frutillar pendiente.'
   ) RETURNING id INTO v_gid;
 
   INSERT INTO public.giras_localidades (id_gira, id_localidad) VALUES (v_gid, 5);
@@ -75,7 +76,7 @@ BEGIN
     'Sinfónico'::tipo_programa,
     'Valle',
     'Borrador'::estado_gira,
-    '[seed:giras2027-sinf-cf]'
+    NULL
   ) RETURNING id INTO v_gid;
 
   INSERT INTO public.giras_localidades (id_gira, id_localidad) VALUES (v_gid, 60);
@@ -128,7 +129,7 @@ BEGIN
     'Sinfónico'::tipo_programa,
     'Valle',
     'Borrador'::estado_gira,
-    '[seed:giras2027-sinf-cf]'
+    NULL
   ) RETURNING id INTO v_gid;
 
   INSERT INTO public.giras_localidades (id_gira, id_localidad) VALUES (v_gid, 16);
@@ -181,7 +182,7 @@ BEGIN
     'Camerata Filarmónica'::tipo_programa,
     'Andina',
     'Borrador'::estado_gira,
-    '[seed:giras2027-sinf-cf]'
+    NULL
   ) RETURNING id INTO v_gid;
 
   INSERT INTO public.giras_localidades (id_gira, id_localidad) VALUES (v_gid, 5);
@@ -232,7 +233,7 @@ BEGIN
     'Camerata Filarmónica'::tipo_programa,
     'Atlántica',
     'Borrador'::estado_gira,
-    '[seed:giras2027-sinf-cf]'
+    NULL
   ) RETURNING id INTO v_gid;
 
   INSERT INTO public.giras_localidades (id_gira, id_localidad) VALUES (v_gid, 57);
@@ -286,7 +287,7 @@ BEGIN
     'Camerata Filarmónica'::tipo_programa,
     'Andina',
     'Borrador'::estado_gira,
-    '[seed:giras2027-sinf-cf]'
+    NULL
   ) RETURNING id INTO v_gid;
 
   INSERT INTO public.giras_localidades (id_gira, id_localidad) VALUES (v_gid, 23);
@@ -334,7 +335,7 @@ BEGIN
     'Sinfónico'::tipo_programa,
     'Valle',
     'Borrador'::estado_gira,
-    '[seed:giras2027-sinf-cf]'
+    NULL
   ) RETURNING id INTO v_gid;
 
   INSERT INTO public.giras_localidades (id_gira, id_localidad) VALUES (v_gid, 16);
@@ -387,7 +388,7 @@ BEGIN
     'Camerata Filarmónica'::tipo_programa,
     'Valle',
     'Borrador'::estado_gira,
-    '[seed:giras2027-sinf-cf]'
+    NULL
   ) RETURNING id INTO v_gid;
 
   INSERT INTO public.giras_localidades (id_gira, id_localidad) VALUES (v_gid, 14);
@@ -437,7 +438,7 @@ BEGIN
     'Camerata Filarmónica'::tipo_programa,
     'Atlántica',
     'Borrador'::estado_gira,
-    '[seed:giras2027-sinf-cf]'
+    NULL
   ) RETURNING id INTO v_gid;
 
   INSERT INTO public.giras_localidades (id_gira, id_localidad) VALUES (v_gid, 57);
@@ -486,7 +487,7 @@ BEGIN
     'Sinfónico'::tipo_programa,
     'Valle',
     'Borrador'::estado_gira,
-    '[seed:giras2027-sinf-cf]'
+    NULL
   ) RETURNING id INTO v_gid;
 
   INSERT INTO public.giras_localidades (id_gira, id_localidad) VALUES (v_gid, 16);
@@ -538,7 +539,7 @@ BEGIN
     'Sinfónico'::tipo_programa,
     'Andina',
     'Borrador'::estado_gira,
-    '[seed:giras2027-sinf-cf]'
+    NULL
   ) RETURNING id INTO v_gid;
 
   INSERT INTO public.giras_localidades (id_gira, id_localidad) VALUES (v_gid, 5);
@@ -605,7 +606,7 @@ BEGIN
     'Camerata Filarmónica'::tipo_programa,
     'Atlántica',
     'Borrador'::estado_gira,
-    '[seed:giras2027-sinf-cf]'
+    NULL
   ) RETURNING id INTO v_gid;
 
   INSERT INTO public.giras_localidades (id_gira, id_localidad) VALUES (v_gid, 57);
@@ -654,7 +655,7 @@ BEGIN
     'Sinfónico'::tipo_programa,
     'Valle',
     'Borrador'::estado_gira,
-    '[seed:giras2027-sinf-cf]'
+    NULL
   ) RETURNING id INTO v_gid;
 
   INSERT INTO public.giras_localidades (id_gira, id_localidad) VALUES (v_gid, 16);
@@ -707,7 +708,7 @@ BEGIN
     'Camerata Filarmónica'::tipo_programa,
     'Andina',
     'Borrador'::estado_gira,
-    '[seed:giras2027-sinf-cf]'
+    NULL
   ) RETURNING id INTO v_gid;
 
   INSERT INTO public.giras_localidades (id_gira, id_localidad) VALUES (v_gid, 23);
@@ -757,7 +758,7 @@ BEGIN
     'Sinfónico'::tipo_programa,
     'Andina',
     'Borrador'::estado_gira,
-    '[seed:giras2027-sinf-cf]'
+    NULL
   ) RETURNING id INTO v_gid;
 
   INSERT INTO public.giras_localidades (id_gira, id_localidad) VALUES (v_gid, 5);
@@ -809,7 +810,7 @@ BEGIN
     'Camerata Filarmónica'::tipo_programa,
     'Andina',
     'Borrador'::estado_gira,
-    '[seed:giras2027-sinf-cf]'
+    NULL
   ) RETURNING id INTO v_gid;
 
   INSERT INTO public.giras_localidades (id_gira, id_localidad) VALUES (v_gid, 5);

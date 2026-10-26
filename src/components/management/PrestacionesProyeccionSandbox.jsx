@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import {
   IconAlertTriangle,
   IconCalculator,
+  IconCalendar,
   IconClock,
   IconEdit,
   IconFileExcel,
@@ -60,6 +61,7 @@ import {
 import DemorasLocalidadModal from "./DemorasLocalidadModal";
 import EnsambleProyeccionDetalle from "./EnsambleProyeccionDetalle";
 import GiraFormEditPortal from "./GiraFormEditPortal";
+import ProyeccionTramosModal from "./ProyeccionTramosModal";
 
 function timeInputValue(t) {
   return sliceTime(t) || "";
@@ -180,6 +182,7 @@ export default function PrestacionesProyeccionSandbox({
   const [editGiraId, setEditGiraId] = useState(null);
   const [exporting, setExporting] = useState(null);
   const [demorasModalOpen, setDemorasModalOpen] = useState(false);
+  const [tramosModalOpen, setTramosModalOpen] = useState(false);
   const [selectedEnsambleId, setSelectedEnsambleId] = useState("");
   const [ensayoSlots, setEnsayoSlots] = useState([]);
   /** @type {[{ id: number, field: string, value: string }|null, Function]} */
@@ -371,9 +374,11 @@ export default function PrestacionesProyeccionSandbox({
       });
       setProyConfig(saved);
       toast.success(`Config proyección ${anioProy} guardada`);
+      return saved;
     } catch (err) {
       console.error(err);
       toast.error(err?.message || "No se pudo guardar la config");
+      return null;
     } finally {
       setSavingConfig(false);
     }
@@ -616,112 +621,39 @@ export default function PrestacionesProyeccionSandbox({
           </div>
         </div>
         {proyConfig ? (
-          <div className="flex flex-wrap items-end gap-2 border-t border-orange-100/80 pt-2">
-            <span className="text-[10px] font-bold uppercase tracking-wide text-orange-800/80">
-              Tramos ensayos (lunes → lunes)
+          <div className="flex flex-wrap items-center gap-2 border-t border-orange-100/80 pt-2">
+            <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-orange-800/80">
+              <IconCalendar size={12} />
+              Tramos ensayos
             </span>
             {(proyConfig.tramos || []).map((t, idx) => (
-              <div
+              <span
                 key={`${t.desde}-${idx}`}
-                className="flex flex-wrap items-center gap-1 rounded border border-orange-100 bg-white px-1.5 py-1"
+                className="inline-flex items-center gap-1 rounded-md border border-orange-100 bg-white px-2 py-0.5 text-[11px] text-slate-700"
+                title={t.nota || undefined}
               >
-                <input
-                  type="date"
-                  value={t.desde || ""}
-                  disabled={savingConfig}
-                  onChange={(e) => {
-                    const desde = e.target.value;
-                    setProyConfig((c) => ({
-                      ...c,
-                      tramos: (c.tramos || []).map((row, i) =>
-                        i === idx ? { ...row, desde } : row,
-                      ),
-                    }));
-                  }}
-                  className="rounded border border-slate-200 px-1 py-0.5 text-[11px]"
-                />
-                <span className="text-[10px] text-slate-400">→</span>
-                <input
-                  type="date"
-                  value={t.hasta || ""}
-                  disabled={savingConfig}
-                  onChange={(e) => {
-                    const hasta = e.target.value;
-                    setProyConfig((c) => ({
-                      ...c,
-                      tramos: (c.tramos || []).map((row, i) =>
-                        i === idx ? { ...row, hasta } : row,
-                      ),
-                    }));
-                  }}
-                  className="rounded border border-slate-200 px-1 py-0.5 text-[11px]"
-                />
-                <input
-                  type="text"
-                  placeholder="Nota"
-                  value={t.nota || ""}
-                  disabled={savingConfig}
-                  onChange={(e) => {
-                    const nota = e.target.value;
-                    setProyConfig((c) => ({
-                      ...c,
-                      tramos: (c.tramos || []).map((row, i) =>
-                        i === idx ? { ...row, nota } : row,
-                      ),
-                    }));
-                  }}
-                  className="w-24 rounded border border-slate-200 px-1 py-0.5 text-[11px]"
-                />
-                <button
-                  type="button"
-                  disabled={savingConfig || (proyConfig.tramos || []).length <= 1}
-                  title="Quitar tramo"
-                  onClick={() => {
-                    const next = {
-                      ...proyConfig,
-                      tramos: (proyConfig.tramos || []).filter((_, i) => i !== idx),
-                    };
-                    setProyConfig(next);
-                    saveProyConfig(next);
-                  }}
-                  className="rounded px-1 text-[11px] font-bold text-rose-700 hover:bg-rose-50 disabled:opacity-40"
-                >
-                  ×
-                </button>
-              </div>
+                <span className="font-semibold tabular-nums">
+                  {formatDdMmYyyy(t.desde)}
+                </span>
+                <span className="text-slate-400">→</span>
+                <span className="font-semibold tabular-nums">
+                  {formatDdMmYyyy(t.hasta)}
+                </span>
+                {t.nota ? (
+                  <span className="max-w-[10rem] truncate text-[10px] text-slate-500">
+                    · {t.nota}
+                  </span>
+                ) : null}
+              </span>
             ))}
             <button
               type="button"
-              disabled={savingConfig}
-              onClick={() => {
-                const last = (proyConfig.tramos || []).at(-1);
-                const next = {
-                  ...proyConfig,
-                  tramos: [
-                    ...(proyConfig.tramos || []),
-                    {
-                      desde: last?.hasta || `${anioProy}-08-01`,
-                      hasta: last?.hasta || `${anioProy}-12-13`,
-                      nota: "Vacaciones / corte",
-                    },
-                  ],
-                };
-                setProyConfig(next);
-              }}
-              className="rounded-md border border-dashed border-orange-300 bg-white px-2 py-1 text-[11px] font-bold text-orange-800 hover:bg-orange-50"
+              onClick={() => setTramosModalOpen(true)}
+              title="Editar tramos de ensayos"
+              aria-label="Editar tramos de ensayos"
+              className="inline-flex rounded-md border border-orange-200 bg-white p-1 text-orange-800 hover:bg-orange-50"
             >
-              + Tramo
-            </button>
-            <button
-              type="button"
-              disabled={savingConfig}
-              onClick={() => saveProyConfig(proyConfig)}
-              className="inline-flex items-center gap-1 rounded-md border border-orange-300 bg-orange-100 px-2 py-1 text-[11px] font-bold text-orange-950 hover:bg-orange-200 disabled:opacity-50"
-            >
-              {savingConfig ? (
-                <IconLoader size={12} className="animate-spin" />
-              ) : null}
-              Guardar tramos
+              <IconEdit size={13} />
             </button>
           </div>
         ) : null}
@@ -1152,6 +1084,23 @@ export default function PrestacionesProyeccionSandbox({
         missingPairs={missingDemoras.missingPairs}
         locsSinConexion={missingDemoras.locsSinConexion}
         locNameById={locNameById}
+      />
+
+      <ProyeccionTramosModal
+        open={tramosModalOpen}
+        onClose={() => setTramosModalOpen(false)}
+        anio={anioProy}
+        tramos={proyConfig?.tramos || []}
+        saving={savingConfig}
+        onSave={async (tramos) => {
+          const saved = await saveProyConfig({
+            ...(proyConfig || {}),
+            anio: anioProy,
+            servicios_por_gira: serviciosPorGiraDefault(proyConfig),
+            tramos,
+          });
+          if (saved) setTramosModalOpen(false);
+        }}
       />
 
       {editGiraId && supabase ? (

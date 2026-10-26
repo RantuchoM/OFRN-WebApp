@@ -29,6 +29,11 @@ Permitir a los editores importar cronogramas completos de giras pasadas hacia la
     - **Columna derecha**: Vista previa de la línea de tiempo.
 - **Columna Izquierda (Filtros y Configuración)**  
   - Selector `SearchableSelect` para elegir la **Gira Origen** (programa de `programas` distinto de la gira destino).
+  - **Orden del selector de origen** (prioridad de importación):
+    - Ancla = `giraDestino.fecha_desde` (o hoy si falta).
+    - Primero giras **pasadas** (`fecha_desde` &lt; ancla), más recientes primero (hasta 100).
+    - Después giras **futuras/actuales** (`fecha_desde` ≥ ancla), más cercanas primero (hasta 40).
+    - Así las pasadas no quedan fuera del listado por un `limit` global ordenado solo por fecha descendente.
   - Input numérico para `deltaDays` (entero, admite positivos y negativos).
   - Opción `Reemplazar todos los eventos similares` (checkbox, activada por defecto):
     - Identifica los tipos de los eventos efectivamente seleccionados para importar.
