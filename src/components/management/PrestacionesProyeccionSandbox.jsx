@@ -417,8 +417,15 @@ export default function PrestacionesProyeccionSandbox({
           classifyProgramaEnsambleConvocatoria(p, ens).status === "convocado",
       });
       const girasTotal = detail?.girasTotal || 0;
-      const servGirasEst =
-        Math.round(girasTotal * nPorGira * 100) / 100;
+      let servGirasEstAcc = 0;
+      for (const g of detail?.girasList || []) {
+        const prog = programas.find((p) => Number(p.id) === Number(g.giraId));
+        if (!prog) continue;
+        // Cada gira convocada aporta 1 (casa+fuera = 1, también en mixtos).
+        const est = resolveGiraServiciosEstimate(prog, [], nPorGira);
+        servGirasEstAcc += Number(est.value) || 0;
+      }
+      const servGirasEst = Math.round(servGirasEstAcc * 100) / 100;
       const pcv = detail?.pcv || 0;
       const feriados = detail?.feriados || 0;
       const conc = detail?.conciertosEnsamble || 0;
@@ -1159,10 +1166,7 @@ export default function PrestacionesProyeccionSandbox({
 
         {vista === "prestaciones" ? (
           <div className="min-h-0 flex-1 overflow-hidden rounded-lg border border-slate-200 bg-white">
-            <ProyeccionPrestacionesVista
-              rows={prestacionesRows}
-              serviciosPorGira={serviciosPorGiraDefault(proyConfig)}
-            />
+            <ProyeccionPrestacionesVista rows={prestacionesRows} />
           </div>
         ) : null}
       </div>

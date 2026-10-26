@@ -11,15 +11,9 @@ function fmt(n) {
  * Vista Prestaciones: toggle entre cuadro Programas (giras) y Prestaciones,
  * misma lógica que la 1ª página del PDF informe.
  */
-export default function ProyeccionPrestacionesVista({
-  rows = [],
-  serviciosPorGira = 7,
-}) {
+export default function ProyeccionPrestacionesVista({ rows = [] }) {
   /** programas = 1er cuadro; prestaciones = 2º cuadro */
   const [cuadro, setCuadro] = useState("prestaciones");
-  const nGira = Number(serviciosPorGira);
-  const nLabel =
-    Number.isFinite(nGira) && nGira >= 0 ? String(nGira).replace(".", ",") : "7";
 
   if (!rows.length) {
     return (
@@ -128,7 +122,7 @@ export default function ProyeccionPrestacionesVista({
                     <th className="px-2 py-1.5 text-left font-bold">Sede</th>
                     <th
                       className="px-2 py-1.5 font-bold whitespace-nowrap"
-                      title={`Total giras × ${nLabel} (prestaciones / gira)`}
+                      title="Ensayos y conciertos en gira (manual o default por gira)"
                     >
                       Prest. por gira
                     </th>
@@ -153,9 +147,9 @@ export default function ProyeccionPrestacionesVista({
                       </td>
                       <td
                         className="whitespace-nowrap bg-indigo-50 px-2 py-1.5 font-bold tabular-nums text-slate-800"
-                        title={`Total giras × ${nLabel}`}
+                        title="Ensayos y conciertos en gira"
                       >
-                        {`${fmt(r.girasTotal)} × ${nLabel} = ${fmt(r.servGirasEst)}`}
+                        {fmt(r.servGirasEst)}
                       </td>
                       <td className="bg-teal-50/70 px-2 py-1.5 font-bold tabular-nums text-teal-900">
                         {fmt(r.pcv)}

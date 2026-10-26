@@ -531,6 +531,7 @@ for (const ens of ensambles) {
   let girasFuera = 0;
   let girasCasa = 0;
   let pcv = 0;
+  let servGirasEstAcc = 0;
   const girasList = [];
 
   for (const program of programs) {
@@ -539,6 +540,14 @@ for (const ens of ensambles) {
     const pesos = giraTramoPesos(program, ens);
     girasFuera += pesos.pesoFuera;
     girasCasa += pesos.pesoEnCasa;
+    const pesoGira =
+      (Number(pesos.pesoFuera) || 0) + (Number(pesos.pesoEnCasa) || 0);
+    const estGira = resolveGiraServiciosEstimate(
+      program,
+      [],
+      serviciosPorGira,
+    );
+    servGirasEstAcc += (Number(estGira.value) || 0) * (pesoGira || 1);
 
     let pcvGira = 0;
     let pcvNota = "en casa — sin PCV";
@@ -653,9 +662,8 @@ for (const ens of ensambles) {
   const girasFueraR = Math.round(girasFuera * 100) / 100;
   const girasCasaR = Math.round(girasCasa * 100) / 100;
   const girasTotalR = Math.round((girasFueraR + girasCasaR) * 100) / 100;
-  /** Estimado de servicios de gira (`ensamble_proyeccion_config.servicios_por_gira`). */
-  const servGirasEst =
-    Math.round(girasTotalR * serviciosPorGira * 100) / 100;
+  /** Suma por gira (manual o default config); no es total×n fijo. */
+  const servGirasEst = Math.round(servGirasEstAcc * 100) / 100;
   const cicloStats = ensambleCicloStats(ens.id);
 
   /**
@@ -1388,7 +1396,7 @@ async function writeExcel() {
     `Informe planificación ensambles ${anio} (incluye giras Borrador seed).`,
     "Primera hoja: matriz giras × ensambles — L = local (en casa), A = afuera, L/A = mixto por tramos. Pie: nL + mA = total.",
     "Colores alineados a Prestaciones: Fuera=naranja, En casa=celeste, PCV=teal, Ens. netos=esmeralda, Detalle ensayos=esmeralda.",
-    `Prestaciones por gira = Total giras x ${serviciosPorGira} (config). Separado del bloque Giras.`,
+    `Prestaciones por gira = suma de ensayos/conciertos estimados por gira (manual o default ${serviciosPorGira}).`,
     "Dos secciones: Giras (incl. Prog. ensamble) | Prestaciones (Prest. por gira, PCV, Ens. netos, Conc. ensamble, Feriados, Prest. tot.).",
     `Feriados: 1 servicio por feriado / no laborable / domingo SOLO si ese día hay ensayo o concierto (tipos 1/2/3/13). No cuenta día de traslado ni otros eventos de logística. Domingos por criterio (no en tabla). Año ${anio}.`,
     "Prest. tot. = Prest. por gira + PCV + Ens. netos + Conc. ensamble + Feriados.",
@@ -1411,9 +1419,6 @@ async function writeExcel() {
 
 function pdfWriteEnsamblePage(doc, r) {
   const marginX = 36;
-  const nGira = serviciosPorGira;
-  const nGiraLabel = fmtQty(nGira);
-  const prestGiraLabel = `${fmtQty(r.girasTotal)} x ${nGiraLabel} = ${fmtQty(r.servGirasEst)}`;
 
   // Encabezado
   doc.setFont("helvetica", "bold");
@@ -1425,7 +1430,7 @@ function pdfWriteEnsamblePage(doc, r) {
   doc.setTextColor(71, 85, 105);
   doc.text(
     pdfText(
-      `${r.sede || "sin sede"}${r.familia ? `  |  ${r.familia}` : ""}  |  Proyeccion ${anio}`,
+      `${r.sede || "sin sede"}${r.familia ? `  |  ${r.familia}` : ""}  |  Proyección ${anio}`,
     ),
     marginX,
     46,
@@ -1489,8 +1494,8 @@ function pdfWriteEnsamblePage(doc, r) {
   const prestRows = [
     {
       label: "Prestaciones por gira",
-      hint: `Total giras x ${nGiraLabel} (config)`,
-      value: prestGiraLabel,
+      hint: "Ensayos y conciertos en gira",
+      value: fmtQty(r.servGirasEst),
       fill: [224, 231, 255],
     },
     {
@@ -1594,49 +1599,105 @@ function pdfWriteEnsamblePage(doc, r) {
     theme: "plain",
   });
 
+  // Detalle: Giras en casa → Giras fuera → Programas → Feriados → Ensayos en conflicto
+  const ensureSpace = (needed = 40) => {
+    const pageH = doc.internal.pageSize.getHeight();
+    if (y + needed > pageH - 28) {
+      doc.addPage("a4", "landscape");
+      y = 36;
+    }
+  };
+
+  /** "martes, 01 de julio de 2027" */
+  const formatFechaConflicto = (iso) => {
+    const day = String(iso || "").slice(0, 10);
+    const [yy, mm, dd] = day.split("-").map(Number);
+    if (!yy || !mm || !dd) return day || "";
+    const date = new Date(yy, mm - 1, dd);
+    if (Number.isNaN(date.getTime())) return day;
+    const weekday = new Intl.DateTimeFormat("es-AR", { weekday: "long" })
+      .format(date)
+      .toLowerCase();
+    const month = new Intl.DateTimeFormat("es-AR", { month: "long" })
+      .format(date)
+      .toLowerCase();
+    return `${weekday}, ${String(dd).padStart(2, "0")} de ${month} de ${yy}`;
+  };
+
   y = (doc.lastAutoTable?.finalY || y) + 14;
+  ensureSpace(50);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(10);
   doc.setTextColor(15, 23, 42);
-  doc.text(pdfText("Feriados / no laborables / domingos en gira"), 36, y);
+  doc.text(pdfText("Giras en casa"), marginX, y);
   y += 4;
-  const ferList = r.feriadosHits || [];
+  const enCasa = (r.girasList || []).filter((g) => Number(g.pesoFuera) === 0);
   autoTable(doc, {
     startY: y,
-    margin: { left: 36, right: 36 },
+    margin: { left: marginX, right: marginX },
     styles: { fontSize: 7, cellPadding: 2, font: "helvetica" },
-    headStyles: { fillColor: [252, 231, 243], textColor: [15, 23, 42] },
-    head: [pdfRow(["Fecha", "Detalle", "Tipo", "Servicio", "Gira(s)"])],
-    body: ferList.length
-      ? ferList.map((f) =>
-          pdfRow([
-            formatDdMmYyyyIso(f.fecha),
-            f.detalle,
-            f.tipo,
-            f.servicios || "",
-            f.giras || "",
-          ]),
+    headStyles: { fillColor: [186, 230, 253], textColor: [15, 23, 42] },
+    head: [pdfRow(["Gira", "Fechas", "Via"])],
+    body: enCasa.length
+      ? enCasa.map((g) =>
+          pdfRow([g.nombre, `${g.desde} > ${g.hasta}`, g.via || ""]),
         )
-      : [pdfRow(["(ninguno)", "", "", "", ""])],
+      : [pdfRow(["(ninguna)", "", ""])],
     columnStyles: {
-      0: { cellWidth: 62 },
-      1: { cellWidth: 160 },
-      2: { cellWidth: 58 },
-      3: { cellWidth: 90 },
-      4: { cellWidth: 210 },
+      0: { cellWidth: 280 },
+      1: { cellWidth: 130 },
+      2: { cellWidth: 70 },
     },
   });
 
   y = (doc.lastAutoTable?.finalY || y) + 12;
+  ensureSpace(50);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(10);
   doc.setTextColor(15, 23, 42);
-  doc.text(pdfText("Programas de ensamble"), 36, y);
+  doc.text(pdfText("Giras fuera de casa"), marginX, y);
+  y += 4;
+  const fueraList = (r.girasList || []).filter((g) => Number(g.pesoFuera) > 0);
+  autoTable(doc, {
+    startY: y,
+    margin: { left: marginX, right: marginX },
+    styles: {
+      fontSize: 6.5,
+      cellPadding: 1.8,
+      overflow: "linebreak",
+      font: "helvetica",
+    },
+    headStyles: { fillColor: [204, 251, 241], textColor: [15, 23, 42] },
+    head: [pdfRow(["Gira", "Casa/Fuera", "PCV", "Franja PCV"])],
+    body: fueraList.length
+      ? fueraList.map((g) =>
+          pdfRow([
+            g.nombre,
+            g.casaFuera,
+            String(g.pcv),
+            g.pcvFranja || g.pcvNota || "",
+          ]),
+        )
+      : [pdfRow(["(ninguna)", "", "", ""])],
+    columnStyles: {
+      0: { cellWidth: 200 },
+      1: { cellWidth: 70 },
+      2: { cellWidth: 36 },
+      3: { cellWidth: 250 },
+    },
+  });
+
+  y = (doc.lastAutoTable?.finalY || y) + 12;
+  ensureSpace(50);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.setTextColor(15, 23, 42);
+  doc.text(pdfText("Programas de ensamble"), marginX, y);
   y += 4;
   const progList = r.programasEnsambleList || [];
   autoTable(doc, {
     startY: y,
-    margin: { left: 36, right: 36 },
+    margin: { left: marginX, right: marginX },
     styles: { fontSize: 7, cellPadding: 2, font: "helvetica" },
     headStyles: { fillColor: [236, 253, 245], textColor: [15, 23, 42] },
     head: [pdfRow(["Programa", "Fechas", "Conc.", "Didact.", "Prest."])],
@@ -1661,82 +1722,73 @@ function pdfWriteEnsamblePage(doc, r) {
   });
 
   y = (doc.lastAutoTable?.finalY || y) + 12;
+  ensureSpace(50);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(10);
   doc.setTextColor(15, 23, 42);
-  doc.text(pdfText("Giras en casa"), 36, y);
+  doc.text(pdfText("Feriados"), marginX, y);
   y += 4;
-  const enCasa = (r.girasList || []).filter((g) => Number(g.pesoFuera) === 0);
+  const ferList = r.feriadosHits || [];
   autoTable(doc, {
     startY: y,
-    margin: { left: 36, right: 36 },
+    margin: { left: marginX, right: marginX },
     styles: { fontSize: 7, cellPadding: 2, font: "helvetica" },
-    headStyles: { fillColor: [186, 230, 253], textColor: [15, 23, 42] },
-    head: [pdfRow(["Gira", "Fechas", "Via"])],
-    body: enCasa.length
-      ? enCasa.map((g) =>
-          pdfRow([g.nombre, `${g.desde} > ${g.hasta}`, g.via || ""]),
-        )
-      : [pdfRow(["(ninguna)", "", ""])],
-    columnStyles: { 0: { cellWidth: 280 }, 1: { cellWidth: 130 }, 2: { cellWidth: 70 } },
-  });
-
-  y = (doc.lastAutoTable?.finalY || y) + 12;
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(10);
-  doc.text(pdfText("Giras fuera / mixtas + PCV"), 36, y);
-  y += 4;
-  const fueraList = (r.girasList || []).filter((g) => Number(g.pesoFuera) > 0);
-  autoTable(doc, {
-    startY: y,
-    margin: { left: 36, right: 36 },
-    styles: { fontSize: 6.5, cellPadding: 1.8, overflow: "linebreak", font: "helvetica" },
-    headStyles: { fillColor: [204, 251, 241], textColor: [15, 23, 42] },
-    head: [pdfRow(["Gira", "Casa/Fuera", "PCV", "Franja PCV"])],
-    body: fueraList.length
-      ? fueraList.map((g) =>
+    headStyles: { fillColor: [252, 231, 243], textColor: [15, 23, 42] },
+    head: [pdfRow(["Fecha", "Detalle", "Tipo", "Servicio", "Gira(s)"])],
+    body: ferList.length
+      ? ferList.map((f) =>
           pdfRow([
-            g.nombre,
-            g.casaFuera,
-            String(g.pcv),
-            g.pcvFranja || g.pcvNota || "",
+            formatDdMmYyyyIso(f.fecha),
+            f.detalle,
+            f.tipo,
+            f.servicios || "",
+            f.giras || "",
           ]),
         )
-      : [pdfRow(["(ninguna)", "", "", ""])],
+      : [pdfRow(["(ninguno)", "", "", "", ""])],
     columnStyles: {
-      0: { cellWidth: 200 },
-      1: { cellWidth: 70 },
-      2: { cellWidth: 36 },
-      3: { cellWidth: 250 },
+      0: { cellWidth: 62 },
+      1: { cellWidth: 160 },
+      2: { cellWidth: 58 },
+      3: { cellWidth: 90 },
+      4: { cellWidth: 210 },
     },
   });
 
   y = (doc.lastAutoTable?.finalY || y) + 12;
-  if (y > 500) {
-    doc.addPage("a4", "landscape");
-    y = 36;
-  }
+  ensureSpace(50);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(10);
-  doc.text(pdfText("Ensayos en conflicto (muestra)"), 36, y);
+  doc.setTextColor(15, 23, 42);
+  doc.text(pdfText("Ensayos en conflicto"), marginX, y);
   y += 4;
   const confl = (r.conflictosEns || []).slice(0, 18);
   autoTable(doc, {
     startY: y,
-    margin: { left: 36, right: 36 },
-    styles: { fontSize: 6.5, cellPadding: 1.6, overflow: "linebreak", font: "helvetica" },
+    margin: { left: marginX, right: marginX },
+    styles: {
+      fontSize: 6.5,
+      cellPadding: 1.6,
+      overflow: "linebreak",
+      font: "helvetica",
+    },
     headStyles: { fillColor: [254, 202, 202], textColor: [127, 29, 29] },
     head: [pdfRow(["Fecha", "Horario", "Serv.", "Gira(s)"])],
     body: confl.length
       ? confl.map((c) =>
-          pdfRow([c.fecha, c.hora, String(c.servicio), c.giras]),
+          pdfRow([
+            formatFechaConflicto(c.fecha),
+            c.hora,
+            String(c.servicio),
+            c.giras,
+          ]),
         )
       : [pdfRow(["(ninguno)", "", "", ""])],
     columnStyles: {
-      0: { cellWidth: 68 },
+      0: { cellWidth: 130 },
       1: { cellWidth: 68 },
       2: { cellWidth: 36 },
-      3: { cellWidth: 310 },
+      3: { cellWidth: 248 },
     },
   });
   if ((r.conflictosEns || []).length > confl.length) {
@@ -1748,7 +1800,7 @@ function pdfWriteEnsamblePage(doc, r) {
       pdfText(
         `... y ${(r.conflictosEns || []).length - confl.length} mas (ver Excel).`,
       ),
-      36,
+      marginX,
       footY,
     );
   }
@@ -1763,7 +1815,7 @@ function writePdfMatrixPage(doc) {
   doc.setFontSize(12);
   doc.setTextColor(15, 23, 42);
   doc.text(
-    pdfText(`Proyeccion PCV ${anio} - cuadro giras x ensambles`),
+    pdfText(`Proyección PCV ${anio} - cuadro giras x ensambles`),
     28,
     28,
   );
@@ -1896,7 +1948,7 @@ function writePdfResumenPage(doc) {
   doc.setFontSize(13);
   doc.setTextColor(15, 23, 42);
   doc.text(
-    pdfText(`Informe ensambles ${anio} - giras / PCV / Ens. netos`),
+    pdfText(`Proyección de convocatorias y prestaciones (${anio})`),
     40,
     32,
   );
@@ -1905,7 +1957,7 @@ function writePdfResumenPage(doc) {
   doc.setTextColor(71, 85, 105);
   doc.text(
     pdfText(
-      "Dos cuadros: Giras (arriba) y Prestaciones (abajo). Conc. ens.=prest. (N + M did.). Pag. 2 = cuadro proyeccion (L / PCV).",
+      "Dos cuadros: Giras (arriba) y Prestaciones (abajo). Conc. ens.=prest. (N + M did.). Pag. 2 = cuadro proyección (L / PCV).",
     ),
     40,
     46,
