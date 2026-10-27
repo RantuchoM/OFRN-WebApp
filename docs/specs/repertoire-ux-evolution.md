@@ -1322,4 +1322,54 @@ Fuente `C:\Users\marti\Downloads\Bragato.pdf` (manuscrito escaneado, 35 pp.). Ob
 
 Scripts: `scripts/lib/bragatoMalamboCatalog.mjs`, `scripts/process-bragato-malambo-local.mjs`, `scripts/generate-bragato-malambo-sync.mjs`.
 
+---
+
+### Completado (2026-10-27) — Holst, Beni Mora, Op. 29 Nro. 1 (obra **3677**)
+
+Obra nueva **3677**. Carpeta [Para acomodar](https://drive.google.com/open?id=175I0QA_nwzGtHCgghTQjVpz9Vglpi7HP): 16 IMSLP → **25 PDFs** / **30 particellas** (`3.3.2.2 - 4.3.3.1 - Timp.+1 - Hp - Str`). SCORE: portada p.1 recortada; **sin** inspección página a página (no hay otras partes mezcladas). Seed `supabase/seed_beni_mora_sync.sql` aplicado linked.
+
+Scripts: `scripts/lib/beniMoraCatalog.mjs`, `scripts/process-beni-mora-local.mjs`, `scripts/generate-beni-mora-sync.mjs`. Renamer: `Trompeta A 1y2` / `Trompeta A 3` / `Viola 1` / `Viola 2`.
+
+---
+
+### Completado (2026-10-27) — Beethoven, Obertura Las Criaturas de Prometeo, Op. 43 (obra **3678**)
+
+Obra nueva **3678**. Solo la **obertura** (no el ballet completo). Score Werke plate B.25 (#395333). Partes Breitkopf Orch.B. 4482 / Kalmus (#48657–65, #20068–69, #26222; sin #23756 ni #48664). Carpeta [Para acomodar](https://drive.google.com/open?id=1bQTBvmzcugtZ2YE8HM-LToKO0nLWnH85): **25 PDFs** → **19** filas (`2.2.2.2 - 2.2.0.0 - Timp - Str`; trigger muestra `Perc`). Clarinete/Corno/Trompeta: Do + Sib/Fa en la misma silla (2 links). Seed `supabase/seed_prometheus_ov_sync.sql` aplicado linked.
+
+Scripts: `scripts/fetch-prometheus-ov-imslp.py`, `scripts/lib/prometheusOvCatalog.mjs`, `scripts/process-prometheus-ov-local.mjs`, `scripts/generate-prometheus-ov-sync.mjs`. Renamer: `Clarinete C`, `Corno C`, `Trompeta C` / `Trompeta Bb`.
+
+---
+
+### Completado (2026-10-27) — Lote deuda Para acomodar (orquestales + cámara + SCORE-only)
+
+Process OCR → canónicos (`loteOrquestalesCatalog.mjs` + `process-lote-orquestales-local.mjs`) y seed linked `seed_lote_deuda_sync.sql`.
+
+| Obra | id | PDFs→filas |
+|------|---:|------------|
+| Onslow Quinteto Op. 68 | **3679** | 6→6 |
+| Liszt Tasso S. 96 | **3680** | 34→34 (también #3067 con otro Drive) |
+| Rimsky-Korsakov Sherezade Op. 35 | **3681** | 32→32 (+ trombones alt. en subcarpeta) |
+| Chausson Sinfonía Op. 20 | **3682** | 24→33 (`1y2`) |
+| Dvořák Carnival Op. 92 | **3683** | 30→30 |
+| Stravinsky Sinfonía Op. 1 | **3684** | 32→32 |
+| Borodin Danzas Polovtsianas | **3685** | 33→33 |
+| Mahler Sinfonía Nro. 4 | **3686** | 38→38 |
+| Holst Hammersmith [banda] | **3687** | 23→27 (`1y2`; falta `Barítono BC` en matcher) |
+| Honegger / Reger / Schoenberg Op.31 / Hammersmith orq. SCORE / Beethoven-Khym | **3688–3692** | SCORE-only |
+| Beethoven Op.29 / 9·2 / 18·2; Mozart K.157; Puccini Crisantemi; Grieg Holberg; Schoenberg Op.4 | **3693–3699** | cámara |
+| Williams Op.15 | **3700** | 27→27; `link_drive` provisional = raíz Para acomodar (carpeta aún no listada por Drive API) |
+
+Previos: Beni Mora **#3677**, Prometheus OV **#3678**.
+
+**No en IMSLP:** Cavatina Op.130 arr.; Leng *Alsino*; Guarnieri *Tres danzas*.
+
+- [x] Onslow + orquestales (Tasso, Scheherazade, Chausson, Carnival, Borodin, Stravinsky, Mahler 4)
+- [x] Seeds Hammersmith + cámara + SCORE-only + Williams (linked)
+- [x] `duracion_segundos` en #3677–#3700 (youtube-search + fallback catálogo; Onslow/Reger vía fallback)
+- [x] Inventario Excel descargable `Downloads/lote-para-acomodar-2026-10-26_27.xlsx` (completas / solo SCORE / no en IMSLP) para corregir col. G del control
+- [ ] Williams #3700: actualizar `link_drive` al id real de carpeta cuando File Stream lo suba
+- [ ] Hammersmith: instrumentar `Barítono BC` en matcher/catálogo
+
+Scripts: `scripts/lib/loteOrquestalesCatalog.mjs`, `scripts/process-lote-orquestales-local.mjs`, `scripts/lib/loteDeudaSeedMeta.mjs`, `scripts/generate-lote-deuda-sync.mjs`, `scripts/lib/extract_pdf_pages.py`.
+
 

@@ -144,6 +144,17 @@ export function normalizeInstrumentLabel(rawName) {
   if (/\bfagote\b/i.test(name)) return "Fagot";
   if (/\bcorne[- ]?ingl[eêé]s\b|\bcorno[- ]?ingl[eêé]s\b/i.test(name))
     return "Ob EH";
+  if (/\bcorneta\s+bb\s*solo\b|\bcornet\s+bb\s*solo\b|\bsolo\s+.*cornet/i.test(name))
+    return "Corneta Bb Solo";
+  if (/\bcorneta\s+bb\s*2\b|\bcornet\s+bb\s*2\b|\b2nd\s+bb\s+cornet/i.test(name))
+    return "Corneta Bb 2";
+  if (/\bcorneta\s+bb\s*1\b|\bcornet\s+bb\s*1\b/i.test(name))
+    return "Corneta Bb 1";
+  if (/\bcorneta\s+bb\b|\bcornets?\s+bb\b/i.test(name)) return "Corneta Bb";
+  if (/\bbar[ií]tono\s+bc\b|\bbaritone\s+bc\b|\bbaritone\s+bass/i.test(name))
+    return "Barítono BC";
+  if (/\bbar[ií]tono\b|\bbaritone\b|\beuphonium\b/i.test(name))
+    return "Barítono";
   if (/\bcornett?o\b|\bcorneta\b/i.test(name)) return "Trompeta Corneta";
   if (/\btrompete\s*(?:ii|2)\b/i.test(name)) return "Trompeta 2";
   if (/\btrompete\s*(?:i|1)\b/i.test(name)) return "Trompeta 1";
@@ -202,6 +213,15 @@ export function normalizeInstrumentLabel(rawName) {
     )
   )
     return "Trompeta D 1y2";
+  if (/\btrompeta\s+f\s*2\b|\btrumpet\s+f\s*2\b/i.test(name)) return "Trompeta F 2";
+  if (/\btrompeta\s+f\s*1\b|\btrumpet\s+f\s*1\b/i.test(name)) return "Trompeta F 1";
+  if (/\btrompeta\s+f\b|\btrumpet\s+f\b/i.test(name)) return "Trompeta F";
+  if (
+    /\btrompeta\s+bb\s*1y2\b|\btrompeta\s+sib\s*1y2\b|\btrumpet\s+bb\s*1-2\b/i.test(
+      name,
+    )
+  )
+    return "Trompeta Bb 1y2";
   if (/\btrompeta\s*1[\s-]?y?\s*2\b|\btrompeta\s*1-2\b|\btrumpet\s*1-2\b/i.test(name))
     return "Trompeta 1y2";
   if (
@@ -229,6 +249,30 @@ export function normalizeInstrumentLabel(rawName) {
   if (/\bclarinete\s+a\s*1\b|\bcl\s+a\s*1\b/i.test(name)) return "Clarinete A 1";
   if (/\bclarinete\s+a\b|\bcl\s+a\b/i.test(name)) return "Clarinete A";
   if (
+    /\bclarinete\s+eb\s*1y2\b|\bclarinete\s+mib\s*1y2\b|\beb\s+clarinet\s*1-2\b/i.test(
+      name,
+    )
+  )
+    return "Clarinete Eb 1y2";
+  if (/\bclarinete\s+eb\b|\bclarinete\s+mib\b|\beb\s+clarinet/i.test(name))
+    return "Clarinete Eb";
+  if (/\bclarinete\s+bb\s*solo\b|\bclarinet\s+bb\s*solo\b|\bsolo\s+bb\s+clarinet/i.test(name))
+    return "Clarinete Bb Solo";
+  if (
+    /\bclarinete\s+c\s*2\b|\bclarinet\s+(?:in\s+)?c\s*2\b|\bclarinete\s+en\s+do\s*2\b/i.test(
+      name,
+    )
+  )
+    return "Clarinete C 2";
+  if (
+    /\bclarinete\s+c\s*1\b|\bclarinet\s+(?:in\s+)?c\s*1\b|\bclarinete\s+en\s+do\s*1\b/i.test(
+      name,
+    )
+  )
+    return "Clarinete C 1";
+  if (/\bclarinete\s+c\b|\bclarinet\s+(?:in\s+)?c\b|\bclarinete\s+en\s+do\b/i.test(name))
+    return "Clarinete C";
+  if (
     /\bclarinete\s+(en\s+)?sib\s*2\b|\bclarinete\s+bb\s*2\b|\bclarinete\s*2\b|\bcl\s*2\b|\bclarinet\s*2\b/i.test(
       name,
     )
@@ -240,12 +284,24 @@ export function normalizeInstrumentLabel(rawName) {
     )
   )
     return "Clarinete Bb 1";
+  if (/\bclarinete\s+bb\s*3\b|\bclarinet\s+bb\s*3\b|\bclarinete\s*3\b/i.test(name))
+    return "Clarinete Bb 3";
   if (/\bclarinete\s+(en\s+)?sib\b|\bclarinete\s+bb\b|\bclarinet\b|\bclarinete\b/i.test(name))
     return "Clarinete Bb";
   if (/\bfagot\s+solo\b|\bbassoon\s+solo\b/i.test(name)) return "Fagot Solo";
   if (/\bfagot\s*2\b|\bbassoon\s*2\b/i.test(name)) return "Fagot 2";
   if (/\bfagot\s*1\b|\bbassoon\s*1\b/i.test(name)) return "Fagot 1";
   if (/\bbassoons?\b|\bfagot\b/i.test(name)) return "Fagot";
+  if (
+    /\bcorno\s*c\s*2\b|\bhorn\s+(?:in\s+)?c\s*2\b|\bcorno\s+en\s+do\s*2\b/i.test(name)
+  )
+    return "Corno C 2";
+  if (
+    /\bcorno\s*c\s*1\b|\bhorn\s+(?:in\s+)?c\s*1\b|\bcorno\s+en\s+do\s*1\b/i.test(name)
+  )
+    return "Corno C 1";
+  if (/\bcorno\s*c\b|\bhorn\s+(?:in\s+)?c\b|\bcorno\s+en\s+do\b/i.test(name))
+    return "Corno C";
   if (/\bcorno\s*f\s*4\b|\bhorn\s*4\b|\bcorno\s*4\b/i.test(name)) return "Corno F 4";
   if (/\bcorno\s*f\s*3\b|\bhorn\s*3\b|\bcorno\s*3\b/i.test(name)) return "Corno F 3";
   if (/\bcorno\s*f\s*2\b|\bhorn\s*2\b|\bcorno\s*2\b|\bcorno\s+en\s+f(?:a)?\s*2\b/i.test(name))
@@ -254,6 +310,43 @@ export function normalizeInstrumentLabel(rawName) {
     return "Corno F 1";
   if (/\bcorno\s+en\s+fa\b|\bhorns?\b|\bcornos?\b|\bcorno\b/i.test(name))
     return "Corno F";
+  if (
+    /\btrompeta\s+a\s*1y2\b|\btrompeta\s+a\s*1[\s-]?y?\s*2\b|\btrumpet\s+a\s*1-2\b/i.test(
+      name,
+    )
+  )
+    return "Trompeta A 1y2";
+  if (/\btrompeta\s+a\s*3\b|\btrumpet\s+a\s*3\b/i.test(name))
+    return "Trompeta A 3";
+  if (/\btrompeta\s+a\s*2\b|\btrumpet\s+a\s*2\b/i.test(name))
+    return "Trompeta A 2";
+  if (/\btrompeta\s+a\s*1\b|\btrumpet\s+a\s*1\b/i.test(name))
+    return "Trompeta A 1";
+  if (/\btrompeta\s+a\b|\btrumpet\s+a\b/i.test(name)) return "Trompeta A";
+  if (
+    /\btrompeta\s+bb\s*2\b|\btrompeta\s+sib\s*2\b|\btrumpet\s+bb\s*2\b/i.test(name)
+  )
+    return "Trompeta Bb 2";
+  if (
+    /\btrompeta\s+bb\s*1\b|\btrompeta\s+sib\s*1\b|\btrumpet\s+bb\s*1\b/i.test(name)
+  )
+    return "Trompeta Bb 1";
+  if (/\btrompeta\s+bb\b|\btrompeta\s+sib\b|\btrumpet\s+bb\b/i.test(name))
+    return "Trompeta Bb";
+  if (
+    /\btrompeta\s+c\s*2\b|\btrumpet\s+(?:in\s+)?c\s*2\b|\btrompeta\s+en\s+do\s*2\b/i.test(
+      name,
+    )
+  )
+    return "Trompeta C 2";
+  if (
+    /\btrompeta\s+c\s*1\b|\btrumpet\s+(?:in\s+)?c\s*1\b|\btrompeta\s+en\s+do\s*1\b/i.test(
+      name,
+    )
+  )
+    return "Trompeta C 1";
+  if (/\btrompeta\s+c\b|\btrumpet\s+(?:in\s+)?c\b|\btrompeta\s+en\s+do\b/i.test(name))
+    return "Trompeta C";
   if (/\btrompeta\s*2\b|\btrumpet\s*2\b/i.test(name)) return "Trompeta 2";
   if (/\btrompeta\s*1\b|\btrumpet\s*1\b/i.test(name)) return "Trompeta 1";
   if (/\btrumpets?\b|\btrompeta\b/i.test(name)) return "Trompeta";
@@ -328,6 +421,8 @@ export function normalizeInstrumentLabel(rawName) {
     )
   )
     return "Violoncello y Contrabajo";
+  if (/\bviola\s*2\b|\bviolas?\s*ii\b/i.test(name)) return "Viola 2";
+  if (/\bviola\s*1\b|\bviolas?\s*i\b/i.test(name)) return "Viola 1";
   if (/\bviolas?\b/i.test(name)) return "Viola";
   if (/\bcelli\b|\bcello\b|\bvioloncello\b|\bviolonchelo\b|\bvc\b/i.test(name))
     return "Violoncello";
