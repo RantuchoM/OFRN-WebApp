@@ -115,8 +115,13 @@ export const SEED_WORKS = [
   },
   {
     targetFolder: "Beethoven-Khym - Sonata Op. 17, versión para quinteto",
-    titulo: "<p>Sonata Op. 17 (versión para quinteto)</p>",
+    titulo:
+      "<p>Sonata para Corno en Fa mayor, Op. 17 (versión para quinteto)</p>" +
+      "<div>&nbsp; I. Allegro moderato</div>" +
+      "<div>&nbsp; II. Poco Adagio, quasi Andante</div>" +
+      "<div>&nbsp; III. Rondo. Allegro moderato</div>",
     compositor: { apellido: "Beethoven", nombre: "Ludwig van" },
+    arranger: { apellido: "Khym", nombre: "Carl" },
     anio: 1800,
   },
   // --- Cámara ya canónica ---

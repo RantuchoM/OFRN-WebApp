@@ -37,6 +37,7 @@ export const LOTE_CAMARA_CUERDAS = [
     workTitle: "Cuarteto de cuerdas",
     composerTag: "Beethoven, L",
     renames: [
+      { pdf: "IMSLP04756-SCORE.pdf", instrument: "SCORE" }, // Dover #04756
       { pdf: "IMSLP112705-Violin1.pdf", instrument: "Violín 1" },
       { pdf: "IMSLP112706-Violin2.pdf", instrument: "Violín 2" },
       { pdf: "IMSLP112707-Viola.pdf", instrument: "Viola" },

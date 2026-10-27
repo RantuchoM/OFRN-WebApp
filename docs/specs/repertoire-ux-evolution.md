@@ -1355,18 +1355,47 @@ Process OCR → canónicos (`loteOrquestalesCatalog.mjs` + `process-lote-orquest
 | Borodin Danzas Polovtsianas | **3685** | 33→33 |
 | Mahler Sinfonía Nro. 4 | **3686** | 38→38 |
 | Holst Hammersmith [banda] | **3687** | 23→27 (`1y2`; falta `Barítono BC` en matcher) |
-| Honegger / Reger / Schoenberg Op.31 / Hammersmith orq. SCORE / Beethoven-Khym | **3688–3692** | SCORE-only |
+| Honegger / Reger / Schoenberg Op.31 / Hammersmith orq. SCORE | **3688–3691** | SCORE-only → PDF **suelto** en raíz Para acomodar |
+| Beethoven / Khym Sonata Op. 17 (quinteto) | **3692** | SCORE IMSLP #607394 (Tremblay) en carpeta propia; sin partes separadas en IMSLP; arreglador Khym |
 | Beethoven Op.29 / 9·2 / 18·2; Mozart K.157; Puccini Crisantemi; Grieg Holberg; Schoenberg Op.4 | **3693–3699** | cámara |
 | Williams Op.15 | **3700** | 27→27; `link_drive` provisional = raíz Para acomodar (carpeta aún no listada por Drive API) |
 
 Previos: Beni Mora **#3677**, Prometheus OV **#3678**.
 
-**No en IMSLP:** Cavatina Op.130 arr.; Leng *Alsino*; Guarnieri *Tres danzas*.
+**No en IMSLP (restante):** Guarnieri *Tres danzas*.
+
+### Completado (2026-10-27) — Leng *La muerte de Alsino*
+
+RAR `Downloads/Leng-La muerte de Alsino.rar` → carpeta canónica Para acomodar (26 PDFs ya separados; sin split IMSLP). Seed linked `seed_leng_alsino_sync.sql`.
+
+| Obra | id | PDFs→filas | Orgánico |
+|------|---:|------------|----------|
+| Poema sinfónico La muerte de Alsino | **3703** | 26→34 (`1y2`/`3y4`) | `4.3.3.2 - 4.3.3.1 - Timp.+3 - Hp - Str` |
+
+Drive: https://drive.google.com/open?id=1-egbR4saDe6Lj7eQYyGZzBcPc4Kks-rV  
+Scripts: `lengAlsinoCatalog.mjs`, `process-leng-alsino-local.mjs`, `generate-leng-alsino-sync.mjs`.  
+Notas: `Trombón bajo o Tuba` → `Tuba`; `Tamtam` → `Perc Gong` (fix rename: tam-tam ya no cae en Platillo); matcher Ob EH → `06b` Corno Inglés (acento).
+
+- [x] Leng Alsino en Drive + BD
+
+### Completado (2026-10-27) — Beethoven Op. 130 + Cavatina
+
+Edición **Gory** (IMSLP #22856 score + #29072–75 partes; más descargas y set Vln1/2–Vla–Vc).
+
+| Obra | id | Notas |
+|------|---:|-------|
+| Cuarteto Nro. 13 en Sib mayor, Op. 130 | **3701** | 5 PDFs (SCORE + 4); 6 movs. incl. Finale Allegro |
+| Cavatina. Adagio molto espressivo (del Op. 130) | **3702** | Recorte mov. **V** (no el Finale): SCORE p.45–47; Vln1/2 p.17; Vla p.16–17; Vc p.16 |
+
+Scripts: `fetch-beethoven-op130-imslp.py`, `lib/beethovenOp130Catalog.mjs`, `process-beethoven-op130-local.mjs`, `generate-beethoven-op130-sync.mjs`. Seed linked `seed_beethoven_op130_sync.sql`.
 
 - [x] Onslow + orquestales (Tasso, Scheherazade, Chausson, Carnival, Borodin, Stravinsky, Mahler 4)
 - [x] Seeds Hammersmith + cámara + SCORE-only + Williams (linked)
 - [x] `duracion_segundos` en #3677–#3700 (youtube-search + fallback catálogo; Onslow/Reger vía fallback)
 - [x] Inventario Excel descargable `Downloads/lote-para-acomodar-2026-10-26_27.xlsx` (completas / solo SCORE / no en IMSLP) para corregir col. G del control
+- [x] SCORE-only #3688–3691: PDFs sueltos en raíz Para acomodar; `link_drive` → raíz
+- [x] Beethoven/Khym Op.17 quinteto (#3692): SCORE #607394 en carpeta; título + arreglador; sin partes en IMSLP
+- [x] Beethoven Op.130 completo (#3701) + Cavatina (#3702)
 - [ ] Williams #3700: actualizar `link_drive` al id real de carpeta cuando File Stream lo suba
 - [ ] Hammersmith: instrumentar `Barítono BC` en matcher/catálogo
 
