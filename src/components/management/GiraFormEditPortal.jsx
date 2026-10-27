@@ -45,7 +45,7 @@ export default function GiraFormEditPortal({
               `
             *,
             giras_fuentes ( id, tipo, valor_id, valor_texto ),
-            giras_integrantes ( id_integrante, rol, integrantes ( id, nombre, apellido ) ),
+            giras_integrantes ( id_integrante, rol, integrantes!giras_integrantes_id_integrante_fkey ( id, nombre, apellido ) ),
             giras_localidades ( id_localidad )
           `,
             )

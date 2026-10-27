@@ -742,7 +742,7 @@ const LinkedProgramPreview = ({ programId, supabase, showGiraCards = false }) =>
           giras_localidades(id_localidad, localidades(localidad)),
           giras_integrantes(
             id_integrante, rol, estado,
-            integrantes(
+            integrantes!giras_integrantes_id_integrante_fkey(
               id, nombre, apellido,
               id_localidad,
               instrumentos(familia)
@@ -2218,7 +2218,9 @@ export default function EnsembleCoordinatorView({ supabase }) {
             .eq("id_gira", program.id),
           supabase
             .from("giras_integrantes")
-            .select("id_integrante, rol, integrantes(apellido, nombre)")
+            .select(
+              "id_integrante, rol, integrantes!giras_integrantes_id_integrante_fkey(apellido, nombre)",
+            )
             .eq("id_gira", program.id)
             .in("rol", ["director", "solista"]),
           supabase

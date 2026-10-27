@@ -51,3 +51,10 @@ Al agregar o convocar (auto-roster, alta individual, ficha nueva en gira): `infe
 - `giras_integrantes_historial` registra `alta`, `baja`, `ausente` y `presente`, con actor y motivo. Las filas anteriores a este registro tienen alta con la fecha original y autor vacío.
 - Las bajas del cliente pasan por `baja_giras_integrantes` (`p_actor`, motivo). Vacantes (`crear_vacante`, `materializar_reemplazo`, `eliminar_vacante`) reciben `p_actor`. Asignar titular sobre la fila de la vacante deja una baja de la plaza y un alta del titular, y `created_at` pasa a ser esa asignación.
 - La app no usa `auth.uid()`. El actor es el integrante de la sesión (`creado_por` / `movido_por`, o `app.gira_actor_id` dentro de la RPC).
+
+## 7. Embeds PostgREST (`giras_integrantes` ↔ `integrantes`)
+- Hay **tres** FKs a `integrantes`: `id_integrante`, `creado_por`, `movido_por`. Un embed bare `integrantes(...)` dispara `PGRST201`.
+- Para la persona de la fila: `integrantes!giras_integrantes_id_integrante_fkey(...)` (la clave JSON sigue siendo `integrantes`).
+- Para el autor del alta: `creado_por_ref:integrantes!giras_integrantes_creado_por_fkey(...)`.
+- Deep-link / listado: `GIRAS_LIST_SELECT` en `useGirasList.js` (también `EnsembleCoordinatorView`, `GiraFormEditPortal`).
+- `useGiraRosterQuery` usa `EMPTY_ROSTER` / `EMPTY_SOURCES` estables (no `?? []` inline) para no re-disparar efectos de sync/historial en cada render.

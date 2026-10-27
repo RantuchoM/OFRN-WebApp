@@ -561,6 +561,15 @@ export default function GiraRoster({
     setLocalNotificacionInicialEnviada(gira?.notificacion_inicial_enviada === true);
   }, [gira?.id, gira?.notificaciones_habilitadas, gira?.notificacion_inicial_enviada]);
 
+  // Se refresca al cambiar la nómina (ids), no en cada re-render por referencia nueva.
+  const rosterHistorialSyncKey = useMemo(
+    () =>
+      (rawRoster || [])
+        .map((m) => `${m.id}:${m.estado_gira ?? ""}:${m.created_at ?? ""}`)
+        .join("|"),
+    [rawRoster],
+  );
+
   useEffect(() => {
     if (!supabase || !gira?.id) {
       setRosterHistorial([]);
@@ -586,7 +595,7 @@ export default function GiraRoster({
     return () => {
       cancelled = true;
     };
-  }, [supabase, gira?.id, rawRoster]);
+  }, [supabase, gira?.id, rosterHistorialSyncKey]);
 
   const linkRepertorio = useMemo(
     () =>
@@ -1195,7 +1204,15 @@ export default function GiraRoster({
         }
       });
 
-      setLocalRoster(sorted);
+      setLocalRoster((prev) => {
+        if (
+          prev.length === sorted.length &&
+          prev.every((row, i) => row === sorted[i])
+        ) {
+          return prev;
+        }
+        return sorted;
+      });
     }
   }, [
     rawRoster,

@@ -2,6 +2,10 @@ import { useQuery } from "@tanstack/react-query";
 import { fetchRosterForGira } from "./useGiraRoster";
 import { persistOrganicoFromRoster } from "../services/organicoConvocadoService";
 
+/** Referencias estables: `?? []` inline re-crea el array cada render y dispara efectos. */
+const EMPTY_ROSTER = Object.freeze([]);
+const EMPTY_SOURCES = Object.freeze([]);
+
 async function loadRoster(supabase, gira) {
   const { roster, sources } = await fetchRosterForGira(supabase, gira);
   if (gira?.id) {
@@ -33,12 +37,12 @@ export function useGiraRosterQuery(supabase, gira, { enabled = true } = {}) {
 
   const refreshRoster = async () => {
     const result = await query.refetch();
-    return result.data?.roster ?? [];
+    return result.data?.roster ?? EMPTY_ROSTER;
   };
 
   return {
-    roster: query.data?.roster ?? [],
-    sources: query.data?.sources ?? [],
+    roster: query.data?.roster ?? EMPTY_ROSTER,
+    sources: query.data?.sources ?? EMPTY_SOURCES,
     loading: query.isLoading,
     isFetching: query.isFetching,
     error: query.error,
