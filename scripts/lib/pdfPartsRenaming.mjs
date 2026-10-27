@@ -374,9 +374,8 @@ export function normalizeInstrumentLabel(rawName) {
     return "Perc Triángulo y Tambor";
   if (/\bsnare\b|\btambor\b/i.test(name)) return "Perc Tambor";
   if (/\btriangulo\b|\btriángulo\b|\btriangle\b/i.test(name)) return "Perc Triángulo";
-  if (/\btam[- ]?tam\b|\bcymbals?\b|\bplatillos?\b|\bpiatti\b/i.test(name))
-    return "Perc Platillo";
-  if (/\bgong\b/i.test(name)) return "Perc Gong";
+  if (/\btam[- ]?tam\b|\bgong\b/i.test(name)) return "Perc Gong";
+  if (/\bcymbals?\b|\bplatillos?\b|\bpiatti\b/i.test(name)) return "Perc Platillo";
   if (/\btubular\s+bells\b|\bcampanas\b/i.test(name)) return "Perc Campanas";
   if (
     /\bpercusi[oó]n\s*(?:ii|2)\b|\bpercussion\s*(?:ii|2)\b|\bperc\s*(?:ii|2)\b/i.test(

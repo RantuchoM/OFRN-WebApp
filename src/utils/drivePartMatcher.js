@@ -334,9 +334,11 @@ const resolveExplicitInstrument = (prefix, normalizedCatalog, fullCatalog) => {
       pickCatalog(normalizedCatalog, (i) => /fagot/i.test(i.instrumento || ""));
     return cf || null;
   }
-  if (/^ob\s*eh|corno\s+ingles|english\s+horn/i.test(rawL) || /ob eh/i.test(rawL)) {
+  if (/^ob\s*eh|corno\s+ingl[eé]s|english\s+horn/i.test(rawL) || /ob eh/i.test(rawL)) {
     return (
-      pickCatalog(normalizedCatalog, (i) => /ingles|english/i.test(i.instrumento || "")) ||
+      pickCatalog(normalizedCatalog, (i) =>
+        /ingl[eé]s|english/i.test(i.instrumento || ""),
+      ) ||
       pickCatalog(normalizedCatalog, (i) => /oboe/i.test(i.instrumento || ""))
     );
   }
@@ -384,6 +386,14 @@ const resolveExplicitInstrument = (prefix, normalizedCatalog, fullCatalog) => {
   }
   if (/saxo|saxof/i.test(rawL)) {
     return pickCatalog(normalizedCatalog, (i) => /saxof/i.test(i.instrumento || ""));
+  }
+  // Euphonium / barítono de banda (no hay id propio en catálogo core) → Tuba
+  if (/bar[ií]tono|euphonium|bombardino/i.test(rawL)) {
+    return pickCatalog(normalizedCatalog, (i) => /tuba/i.test(i.instrumento || ""));
+  }
+  // Corneta de banda → Trompeta
+  if (/corneta|cornet\b/i.test(rawL)) {
+    return pickCatalog(normalizedCatalog, (i) => /trompeta/i.test(i.instrumento || ""));
   }
   if (/bater[ií]a|drum\s*set|drums\b/i.test(rawL)) {
     return pickCatalog(normalizedCatalog, (i) => /perc/i.test(i.norm));
