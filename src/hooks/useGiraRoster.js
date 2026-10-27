@@ -84,7 +84,9 @@ export async function fetchRosterForGira(supabase, gira, options = {}) {
   } else {
     const { data, error: errOverrides } = await supabase
       .from("giras_integrantes")
-      .select("*")
+      .select(
+        "*, creado_por_ref:integrantes!giras_integrantes_creado_por_fkey(nombre, apellido, nombre_preferencia, apellido_preferencia)",
+      )
       .eq("id_gira", gira.id);
     if (errOverrides) throw errOverrides;
     overrides = data;
@@ -111,6 +113,8 @@ export async function fetchRosterForGira(supabase, gira, options = {}) {
       motivo_estado_actualizado_at: o.motivo_estado_actualizado_at ?? null,
       abona_reemplazo: Boolean(o.abona_reemplazo),
       abona_licencia: Boolean(o.abona_licencia),
+      created_at: o.created_at ?? null,
+      creado_por_ref: o.creado_por_ref ?? null,
     };
   });
 
@@ -304,12 +308,18 @@ export async function fetchRosterForGira(supabase, gira, options = {}) {
                 manualData.motivo_estado_actualizado_at ?? null,
               abona_reemplazo: Boolean(manualData.abona_reemplazo),
               abona_licencia: Boolean(manualData.abona_licencia),
+              roster_alta_at: manualData.created_at ?? null,
+              roster_alta_por_label: manualData.creado_por_ref
+                ? seatingApellidoNombre(manualData.creado_por_ref)
+                : "",
             }
           : {
               motivo_estado: null,
               motivo_estado_actualizado_at: null,
               abona_reemplazo: false,
               abona_licencia: false,
+              roster_alta_at: null,
+              roster_alta_por_label: "",
             }),
       });
     }

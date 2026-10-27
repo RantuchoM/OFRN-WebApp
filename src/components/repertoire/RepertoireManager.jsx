@@ -75,6 +75,7 @@ import { useDebouncedCallback } from "../../hooks/useDebouncedCallback";
 import CommentsManager from "../comments/CommentsManager";
 import CommentButton from "../comments/CommentButton";
 import { useAuth } from "../../context/AuthContext";
+import { stampRosterActor } from "../../utils/giraUtils";
 import { filterAndRankMultiTokenSearch } from "../../utils/sanitize";
 import WorkForm, { WysiwygEditor } from "../../views/Repertoire/WorkForm";
 import RepertoireWorkPickerModal from "./RepertoireWorkPickerModal";
@@ -2679,12 +2680,15 @@ export default function RepertoireManager({
       try {
         for (const solistId of value) {
           await supabase.from("giras_integrantes").upsert(
-            {
-              id_gira: giraId,
-              id_integrante: solistId,
-              rol: "solista",
-              estado: "confirmado",
-            },
+            stampRosterActor(
+              {
+                id_gira: giraId,
+                id_integrante: solistId,
+                rol: "solista",
+                estado: "confirmado",
+              },
+              user?.id,
+            ),
             { onConflict: "id_gira, id_integrante" },
           );
         }

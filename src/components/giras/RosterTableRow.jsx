@@ -14,6 +14,7 @@ import {
 import WhatsAppLink from "../ui/WhatsAppLink";
 import { seatingApellidoNombre } from "../../utils/integranteDisplayName";
 import { formatRolGiraLabel } from "../../utils/giraUtils";
+import { formatRosterStamp } from "../../utils/rosterHistorial";
 import {
   getMissingDocLabels,
   ROSTER_DOC_FIELDS,
@@ -116,6 +117,7 @@ export default function RosterTableRow({
   pendingBajaForRow,
   onCopyLink,
   onOpenMotivoModal,
+  onOpenHistorial,
   grupoTags = [],
   onRemoveFromGrupo,
 }) {
@@ -151,6 +153,14 @@ export default function RosterTableRow({
     : "";
 
   const missingDocLabels = getMissingDocLabels(m, ROSTER_DOC_FIELDS);
+  const altaStamp = m.en_giras_integrantes
+    ? formatRosterStamp(m.roster_alta_at)
+    : "";
+  const altaTitle = altaStamp
+    ? m.roster_alta_por_label
+      ? `Alta ${altaStamp} · ${m.roster_alta_por_label}`
+      : `Alta ${altaStamp}`
+    : "";
 
   return (
     <tr
@@ -287,6 +297,20 @@ export default function RosterTableRow({
                 </span>
               ))}
           </div>
+          {altaStamp && (
+            <button
+              type="button"
+              className="text-left text-[9px] md:text-[10px] font-normal text-slate-400 hover:text-indigo-600 truncate max-w-full"
+              title={altaTitle}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onOpenHistorial?.(m);
+              }}
+            >
+              {altaTitle}
+            </button>
+          )}
           {m.nota_interna && (
             <div className="hidden md:block group relative w-fit">
               <div className="bg-yellow-100 border border-yellow-200 text-yellow-800 text-[10px] px-2 py-0.5 rounded-sm shadow-sm flex items-center gap-1 cursor-help transform -rotate-1 hover:rotate-0 transition-transform origin-left max-w-[160px]">

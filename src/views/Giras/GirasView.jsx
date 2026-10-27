@@ -26,6 +26,8 @@ import {
   IconTrash,
 } from "../../components/ui/Icons";
 import { useAuth } from "../../context/AuthContext";
+import { stampRosterActor } from "../../utils/giraUtils";
+import { bajaGirasIntegrantes } from "../../services/giraRosterAudit";
 import { useSearchParams } from "react-router-dom";
 import AppNavLink from "../../components/ui/AppNavLink";
 import {
@@ -1094,23 +1096,40 @@ export default function GirasView({ supabase, trigger = 0 }) {
         }
 
         // Staff Artístico
-        await supabase
-          .from("giras_integrantes")
-          .delete()
-          .eq("id_gira", targetId)
-          .in("rol", ["director", "solista"]);
-
         if (selectedStaff.length > 0) {
-          const staffPayload = selectedStaff.map((s) => ({
-            id_gira: targetId,
-            id_integrante: s.id_integrante,
-            rol: s.rol,
-            estado: "confirmado",
-          }));
+          const staffPayload = selectedStaff.map((s) =>
+            stampRosterActor(
+              {
+                id_gira: targetId,
+                id_integrante: s.id_integrante,
+                rol: s.rol,
+              },
+              user?.id,
+            ),
+          );
           const { error: staffError } = await supabase
             .from("giras_integrantes")
-            .insert(staffPayload);
+            .upsert(staffPayload, { onConflict: "id_gira,id_integrante" });
           if (staffError) console.error("Error en staff:", staffError);
+        }
+
+        const { data: staffRows, error: staffReadError } = await supabase
+          .from("giras_integrantes")
+          .select("id_integrante, rol")
+          .eq("id_gira", targetId)
+          .in("rol", ["director", "solista"]);
+        if (staffReadError) console.error("Error leyendo staff:", staffReadError);
+        const keepStaff = new Set(selectedStaff.map((s) => String(s.id_integrante)));
+        const staffToDrop = (staffRows || [])
+          .map((row) => row.id_integrante)
+          .filter((id) => !keepStaff.has(String(id)));
+        if (staffToDrop.length > 0) {
+          await bajaGirasIntegrantes(supabase, {
+            idGira: targetId,
+            actorId: user?.id,
+            integranteIds: staffToDrop,
+            roles: ["director", "solista"],
+          });
         }
 
         touchOrganicoConvocado(supabase, targetId).catch((err) => {

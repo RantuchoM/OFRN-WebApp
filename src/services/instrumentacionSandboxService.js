@@ -1,5 +1,7 @@
 import { fetchRosterForGira } from "../hooks/useGiraRoster";
 import { touchOrganicoConvocado } from "./organicoConvocadoService";
+import { stampRosterActor } from "../utils/giraUtils";
+import { bajaGirasIntegrantes } from "./giraRosterAudit";
 import { sendConvocatoriaNotificationTasks } from "../utils/convocatoriaNotificationSend";
 import { integranteKey } from "../utils/integranteIds";
 
@@ -252,8 +254,14 @@ export async function discardAllSandboxDrafts(supabase, sandboxId) {
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {string} sandboxId
  * @param {number|string} giraId
+ * @param {number|string|null} [actorId]
  */
-export async function applyGiraDraftToProduction(supabase, sandboxId, giraId) {
+export async function applyGiraDraftToProduction(
+  supabase,
+  sandboxId,
+  giraId,
+  actorId = null,
+) {
   const gid = Number(giraId);
   const { data: draft, error: draftErr } = await supabase
     .from("instrumentacion_sandbox_gira")
@@ -303,15 +311,18 @@ export async function applyGiraDraftToProduction(supabase, sandboxId, giraId) {
 
   for (const o of integrantes) {
     const iid = Number(o.id_integrante);
-    const row = {
-      id_gira: gid,
-      id_integrante: iid,
-      estado: o.estado ?? "confirmado",
-      ...(o.rol != null ? { rol: o.rol } : {}),
-      ...(o.id_instr != null ? { id_instr: o.id_instr } : {}),
-      abona_reemplazo: Boolean(o.abona_reemplazo),
-      abona_licencia: Boolean(o.abona_licencia),
-    };
+    const row = stampRosterActor(
+      {
+        id_gira: gid,
+        id_integrante: iid,
+        estado: o.estado ?? "confirmado",
+        ...(o.rol != null ? { rol: o.rol } : {}),
+        ...(o.id_instr != null ? { id_instr: o.id_instr } : {}),
+        abona_reemplazo: Boolean(o.abona_reemplazo),
+        abona_licencia: Boolean(o.abona_licencia),
+      },
+      actorId,
+    );
     const { error: upsertErr } = await supabase
       .from("giras_integrantes")
       .upsert(row, { onConflict: "id_gira,id_integrante" });
@@ -321,12 +332,11 @@ export async function applyGiraDraftToProduction(supabase, sandboxId, giraId) {
   const draftIds = new Set(integrantes.map((o) => Number(o.id_integrante)));
   const toRemove = [...prodIds].filter((id) => !draftIds.has(id));
   if (toRemove.length > 0) {
-    const { error: delIntErr } = await supabase
-      .from("giras_integrantes")
-      .delete()
-      .eq("id_gira", gid)
-      .in("id_integrante", toRemove);
-    if (delIntErr) throw delIntErr;
+    await bajaGirasIntegrantes(supabase, {
+      idGira: gid,
+      actorId,
+      integranteIds: toRemove,
+    });
   }
 
   await deleteGiraDraft(supabase, sandboxId, gid);
@@ -410,13 +420,13 @@ export async function computeAddedMusiciansForDraft(
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {string} sandboxId
  * @param {object} program — fila programas
- * @param {{ motivo: string, notify?: boolean }} options
+ * @param {{ motivo: string, notify?: boolean, actorId?: number|string|null }} options
  */
 export async function applyGiraDraftWithNotifications(
   supabase,
   sandboxId,
   program,
-  { motivo, notify = true },
+  { motivo, notify = true, actorId = null },
 ) {
   const gid = Number(program.id);
   const { data: draft, error: draftErr } = await supabase
@@ -438,7 +448,7 @@ export async function applyGiraDraftWithNotifications(
     payload,
   );
 
-  await applyGiraDraftToProduction(supabase, sandboxId, gid);
+  await applyGiraDraftToProduction(supabase, sandboxId, gid, actorId);
 
   let notified = 0;
   let notifyFailed = 0;
@@ -487,13 +497,13 @@ export async function applyGiraDraftWithNotifications(
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {string} sandboxId
  * @param {Array<object>} programs — programas con borrador
- * @param {{ motivo: string, notify?: boolean }} options
+ * @param {{ motivo: string, notify?: boolean, actorId?: number|string|null }} options
  */
 export async function applyAllSandboxDrafts(
   supabase,
   sandboxId,
   programs,
-  { motivo, notify = true },
+  { motivo, notify = true, actorId = null },
 ) {
   const drafts = await fetchSandboxGiraDrafts(supabase, sandboxId);
   if (!drafts.length) {
@@ -513,7 +523,7 @@ export async function applyAllSandboxDrafts(
       supabase,
       sandboxId,
       program,
-      { motivo, notify },
+      { motivo, notify, actorId },
     );
     appliedIds.push(draft.id_gira);
     totalAdded += result.addedCount;

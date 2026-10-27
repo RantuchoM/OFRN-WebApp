@@ -1174,6 +1174,7 @@ export const crearVacante = async (supabase, payload = {}) => {
         ? null
         : String(payload.genero),
       p_nomenclador: payload.nomenclador || null,
+      p_actor: integranteIdForDb(payload.actorId),
     });
     if (error) throw error;
     const id = Number(data?.id);
@@ -1192,7 +1193,12 @@ export const crearVacante = async (supabase, payload = {}) => {
  * Transaccional vía RPC `eliminar_vacante` (no toca `pasajeros_ids`).
  * @returns {Promise<{ ok: true } | { ok: false, error: string }>}
  */
-export const deleteVacancyFromGira = async (supabase, giraId, vacancyId) => {
+export const deleteVacancyFromGira = async (
+  supabase,
+  giraId,
+  vacancyId,
+  actorId = null,
+) => {
   if (!supabase || giraId == null || vacancyId == null) {
     return { ok: false, error: "Parámetros inválidos" };
   }
@@ -1206,6 +1212,7 @@ export const deleteVacancyFromGira = async (supabase, giraId, vacancyId) => {
     const { error } = await supabase.rpc("eliminar_vacante", {
       p_id_gira: gid,
       p_id_vacante: vid,
+      p_actor: integranteIdForDb(actorId),
     });
     if (error) throw error;
     return { ok: true };

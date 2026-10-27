@@ -7,6 +7,7 @@ import React, {
 } from "react";
 import { toast } from "sonner";
 import { IconLoader } from "../../components/ui/Icons";
+import { useAuth } from "../../context/AuthContext";
 import { useRosterDropdownData } from "../../hooks/useRosterDropdownData";
 import {
   fetchAsistenciaMatrixBaseData,
@@ -47,6 +48,7 @@ export default function InstrumentationSandbox({
   dateTo,
   selectedType,
 }) {
+  const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [histLoading, setHistLoading] = useState(false);
   const [sandbox, setSandbox] = useState(null);
@@ -592,7 +594,7 @@ export default function InstrumentationSandbox({
             supabase,
             sandbox.id,
             applyModal.program,
-            { motivo, notify },
+            { motivo, notify, actorId: user?.id },
           );
           toast.success(
             `Gira aplicada. ${result.addedCount} alta(s); ${result.notified} mail(s) enviado(s).`,
@@ -602,7 +604,7 @@ export default function InstrumentationSandbox({
             supabase,
             sandbox.id,
             programs,
-            { motivo, notify },
+            { motivo, notify, actorId: user?.id },
           );
           toast.success(
             `${result.appliedCount} gira(s) aplicadas. ${result.addedCount} alta(s); ${result.notified} mail(s) enviado(s).`,
@@ -618,7 +620,7 @@ export default function InstrumentationSandbox({
         setApplyBusy(false);
       }
     },
-    [sandbox?.id, applyModal, supabase, programs, loadPrograms, loadHistogramRosters],
+    [sandbox?.id, applyModal, supabase, programs, loadPrograms, loadHistogramRosters, user?.id],
   );
 
   const handleConfirmDiscardAll = useCallback(async () => {

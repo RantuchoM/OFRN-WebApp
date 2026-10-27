@@ -1,7 +1,7 @@
 // src/utils/giraUtils.js
 
 import { resolveLocalidadResidencia } from "./integranteDomicilioViaticos";
-import { integranteKey } from "./integranteIds";
+import { integranteIdForDb, integranteKey } from "./integranteIds";
 import { isCondicionEstable } from "./vacantesLogistics";
 import { isProduccionParticipanteLabel } from "./participantesSort";
 import {
@@ -280,8 +280,20 @@ export const applyEffectiveGiraInstrument = (
   };
 };
 
+/** Marca quién escribe la fila. creado_por solo queda en el alta; el trigger conserva el original. */
+export const stampRosterActor = (payload, actorId) => {
+  const id = integranteIdForDb(actorId);
+  if (id == null) return payload;
+  return { ...payload, creado_por: id, movido_por: id };
+};
+
 /** Payload base para upsert en giras_integrantes preservando override de instrumento. */
-export const buildGiraIntegranteUpsert = (giraId, musician, fields = {}) => {
+export const buildGiraIntegranteUpsert = (
+  giraId,
+  musician,
+  fields = {},
+  actorId = null,
+) => {
   const payload = {
     id_gira: giraId,
     id_integrante: musician.id,
@@ -296,7 +308,7 @@ export const buildGiraIntegranteUpsert = (giraId, musician, fields = {}) => {
   if (!("id_instr" in fields) && musician.id_instr_gira_override != null) {
     payload.id_instr = musician.id_instr_gira_override;
   }
-  return payload;
+  return stampRosterActor(payload, actorId);
 };
 
 /** Mapa `giraId:integranteId` → id_instr override (solo filas con override explícito). */

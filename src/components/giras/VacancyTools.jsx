@@ -11,6 +11,7 @@ import {
 import SearchableSelect from "../ui/SearchableSelect";
 import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 import { crearVacante } from "../../services/giraService";
+import { useAuth } from "../../context/AuthContext";
 import {
   legalApellidoNombre,
   seatingApellidoNombre,
@@ -26,6 +27,7 @@ export const AddVacancyModal = ({
   instruments,
   giraNomenclador,
 }) => {
+  const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     rol: "",
@@ -61,6 +63,7 @@ export const AddVacancyModal = ({
         idInstr: formData.id_instr || null,
         genero: formData.genero || null,
         nomenclador: giraNomenclador || null,
+        actorId: user?.id ?? null,
       });
       if (!result.ok) throw new Error(result.error);
       onRefresh();
@@ -191,6 +194,7 @@ export const SwapVacancyModal = ({
   onDelete,
   ausenteIds,
 }) => {
+  const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [searching, setSearching] = useState(false);
   const [candidates, setCandidates] = useState([]);
@@ -251,6 +255,7 @@ export const SwapVacancyModal = ({
         p_id_gira: giraId,
         p_id_placeholder: placeholder.id,
         p_id_real: parseInt(selectedRealId, 10),
+        p_actor: user?.id ?? null,
       });
 
       if (error) throw error;

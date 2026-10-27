@@ -32,8 +32,9 @@ import {
   refreshOrganicoProgramas,
   touchOrganicoConvocado,
 } from "../../services/organicoConvocadoService";
-import { getProgramStyle } from "../../utils/giraUtils";
+import { getProgramStyle, stampRosterActor } from "../../utils/giraUtils";
 import { crearVacante } from "../../services/giraService";
+import { useAuth } from "../../context/AuthContext";
 import DateInput from "../../components/ui/DateInput";
 import WorkForm from "../Repertoire/WorkForm";
 import NotificationQueuePanel from "../../components/giras/NotificationQueuePanel";
@@ -574,6 +575,7 @@ function ProgramWorksTable({
 }
 
 export default function InstrumentationAudit({ supabase }) {
+  const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const [loading, setLoading] = useState(false);
   const [programs, setPrograms] = useState([]);
@@ -1023,12 +1025,15 @@ export default function InstrumentationAudit({ supabase }) {
         musician.mail;
 
       const { error } = await supabase.from("giras_integrantes").upsert(
-        {
-          id_gira: giraId,
-          id_integrante: musician.id,
-          estado: "ausente",
-          rol: musician.rol_gira || "musico",
-        },
+        stampRosterActor(
+          {
+            id_gira: giraId,
+            id_integrante: musician.id,
+            estado: "ausente",
+            rol: musician.rol_gira || "musico",
+          },
+          user?.id,
+        ),
         { onConflict: "id_gira, id_integrante" },
       );
       if (error) {
@@ -1067,7 +1072,7 @@ export default function InstrumentationAudit({ supabase }) {
       }
       await fetchProgramsData();
     },
-    [supabase, fetchProgramsData, notifGiraContext],
+    [supabase, fetchProgramsData, notifGiraContext, user?.id],
   );
 
   const handleGenerateAutoVacancies = useCallback(
@@ -1134,6 +1139,7 @@ export default function InstrumentationAudit({ supabase }) {
               idInstr: idInstr || null,
               genero: null,
               nomenclador: nomenclador,
+              actorId: user?.id,
             });
             if (!result.ok) throw new Error(result.error);
             created += 1;
@@ -1164,7 +1170,7 @@ export default function InstrumentationAudit({ supabase }) {
         setGeneratingVacForId(null);
       }
     },
-    [supabase, instrumentsCatalog, fetchProgramsData],
+    [supabase, instrumentsCatalog, fetchProgramsData, user?.id],
   );
 
   const programTypeSelectOptions = useMemo(

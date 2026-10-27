@@ -37,7 +37,7 @@ import MusicianForm from "../Musicians/MusicianForm";
 import SearchableSelect from "../../components/ui/SearchableSelect";
 import PersonSelectWithCreate from "../../components/filters/PersonSelectWithCreate";
 import LocationSelectWithCreate from "../../components/forms/LocationSelectWithCreate";
-import { getProgramStyle } from "../../utils/giraUtils";
+import { getProgramStyle, stampRosterActor } from "../../utils/giraUtils";
 import { syncSingleSegmentDates } from "../../services/giraSegmentosService";
 import { touchOrganicoConvocado } from "../../services/organicoConvocadoService";
 import GiraTramosEditor from "./GiraTramosEditor";
@@ -45,6 +45,7 @@ import { useGiraSegmentos } from "../../hooks/useGiraSegmentos";
 import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 import { matchesMultiTokenSearch } from "../../utils/sanitize";
 import { useAuth } from "../../context/AuthContext";
+import { bajaGirasIntegrantes } from "../../services/giraRosterAudit";
 import {
   EVENT_CREATION_SOURCES,
   withConcertCreationMeta,
@@ -488,6 +489,7 @@ export default function GiraForm({
   onFocusSectionConsumed,
 }) {
   const { confirm, dialog } = useConfirmDialog();
+  const { user } = useAuth();
   const [isCreatingDetailed, setIsCreatingDetailed] = useState(false);
   const [tempName, setTempName] = useState({ nombre: "", apellido: "" });
   const [fieldStatuses, setFieldStatuses] = useState({});
@@ -919,12 +921,15 @@ export default function GiraForm({
       setGlobalSaving(true);
       try {
         const { error } = await supabase.from("giras_integrantes").insert([
-          {
-            id_gira: giraId,
-            id_integrante: idInt,
-            rol: staffRole,
-            estado: "confirmado",
-          },
+          stampRosterActor(
+            {
+              id_gira: giraId,
+              id_integrante: idInt,
+              rol: staffRole,
+              estado: "confirmado",
+            },
+            user?.id,
+          ),
         ]);
         if (error) throw error;
         touchOrganicoConvocado(supabase, giraId).catch((err) => {
@@ -949,13 +954,12 @@ export default function GiraForm({
       setSyncStatus("saving");
       setGlobalSaving(true);
       try {
-        const { error } = await supabase
-          .from("giras_integrantes")
-          .delete()
-          .eq("id_gira", giraId)
-          .eq("id_integrante", staffToRemove.id_integrante)
-          .eq("rol", staffToRemove.rol);
-        if (error) throw error;
+        await bajaGirasIntegrantes(supabase, {
+          idGira: giraId,
+          actorId: user?.id,
+          integranteIds: [staffToRemove.id_integrante],
+          roles: [staffToRemove.rol],
+        });
         touchOrganicoConvocado(supabase, giraId).catch((err) => {
           console.warn("organico_convocado:", err?.message || err);
         });
@@ -984,12 +988,15 @@ export default function GiraForm({
       setGlobalSaving(true);
       try {
         const { error } = await supabase.from("giras_integrantes").insert([
-          {
-            id_gira: giraId,
-            id_integrante: newMusician.id,
-            rol: staffRole,
-            estado: "confirmado",
-          },
+          stampRosterActor(
+            {
+              id_gira: giraId,
+              id_integrante: newMusician.id,
+              rol: staffRole,
+              estado: "confirmado",
+            },
+            user?.id,
+          ),
         ]);
         if (error) throw error;
         touchOrganicoConvocado(supabase, giraId).catch((err) => {

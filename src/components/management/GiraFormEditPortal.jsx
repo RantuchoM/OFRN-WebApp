@@ -4,6 +4,9 @@ import { toast } from "sonner";
 import { IconLoader } from "../ui/Icons";
 import GiraForm from "../../views/Giras/GiraForm";
 import { touchOrganicoConvocado } from "../../services/organicoConvocadoService";
+import { stampRosterActor } from "../../utils/giraUtils";
+import { bajaGirasIntegrantes } from "../../services/giraRosterAudit";
+import { useAuth } from "../../context/AuthContext";
 
 /**
  * Portal z-[100] que carga una gira y monta GiraForm (misma UX que Giras).
@@ -23,6 +26,7 @@ export default function GiraFormEditPortal({
   const [selectedLocations, setSelectedLocations] = useState(() => new Set());
   const [selectedSources, setSelectedSources] = useState([]);
   const [selectedStaff, setSelectedStaff] = useState([]);
+  const { user } = useAuth();
 
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
@@ -207,20 +211,37 @@ export default function GiraFormEditPortal({
         );
       }
 
-      await supabase
+      if (selectedStaff.length > 0) {
+        await supabase.from("giras_integrantes").upsert(
+          selectedStaff.map((s) =>
+            stampRosterActor(
+              {
+                id_gira: giraId,
+                id_integrante: s.id_integrante,
+                rol: s.rol,
+              },
+              user?.id,
+            ),
+          ),
+          { onConflict: "id_gira,id_integrante" },
+        );
+      }
+      const { data: staffRows } = await supabase
         .from("giras_integrantes")
-        .delete()
+        .select("id_integrante, rol")
         .eq("id_gira", giraId)
         .in("rol", ["director", "solista"]);
-      if (selectedStaff.length > 0) {
-        await supabase.from("giras_integrantes").insert(
-          selectedStaff.map((s) => ({
-            id_gira: giraId,
-            id_integrante: s.id_integrante,
-            rol: s.rol,
-            estado: "confirmado",
-          })),
-        );
+      const keepStaff = new Set(selectedStaff.map((s) => String(s.id_integrante)));
+      const staffToDrop = (staffRows || [])
+        .map((row) => row.id_integrante)
+        .filter((id) => !keepStaff.has(String(id)));
+      if (staffToDrop.length > 0) {
+        await bajaGirasIntegrantes(supabase, {
+          idGira: giraId,
+          actorId: user?.id,
+          integranteIds: staffToDrop,
+          roles: ["director", "solista"],
+        });
       }
 
       touchOrganicoConvocado(supabase, giraId).catch(() => {});

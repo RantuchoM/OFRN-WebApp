@@ -3,7 +3,7 @@
 ## 1. Reglas de Negocio: Persistencia
 
 - **Estado 'Ausente'**: Nunca se elimina el registro de `giras_integrantes` al cambiar estados. Se usa `estado = 'ausente'` o `estado = 'confirmado'`.
-- **Eliminación manual**: Solo el botón de la papelera (Trash) en músicos adicionales/vacantes puede ejecutar un `DELETE` en `giras_integrantes`.
+- **Eliminación manual**: Solo el botón de la papelera (Trash) en músicos adicionales/vacantes saca la fila de `giras_integrantes`, vía `baja_giras_integrantes` (queda en `giras_integrantes_historial` con autor y motivo). La papelera de vacante sigue en `eliminar_vacante`.
 
 ## 2. Buscador de Integrantes
 

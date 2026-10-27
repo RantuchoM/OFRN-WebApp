@@ -23,6 +23,7 @@ import {
   IconBell,
   IconTag,
   IconUpload,
+  IconHistory,
 } from "../../components/ui/Icons";
 import { useGiraRoster } from "../../hooks/useGiraRosterQuery";
 import {
@@ -39,7 +40,9 @@ import {
   resolveTourRoleOverride,
   buildGiraIntegranteUpsert,
   applyEffectiveGiraInstrument,
+  stampRosterActor,
 } from "../../utils/giraUtils";
+import { bajaGirasIntegrantes } from "../../services/giraRosterAudit";
 import { buildAusenteMailNotification, buildBajaGiraMailNotification, buildExclusionEnsambleMailNotification, buildExclusionFamiliaMailNotification, buildInclusionFamiliaMailNotification, buildPresenteMailNotification } from "../../utils/rosterBajaMotivos";
 import {
   integranteActiveOnProgramRange,
@@ -56,6 +59,7 @@ import RosterMotivoModal from "../../components/giras/RosterMotivoModal";
 import RosterBajaModal from "../../components/giras/RosterBajaModal";
 import RosterGroupsModal from "../../components/giras/RosterGroupsModal";
 import RosterBulkImportModal from "../../components/giras/RosterBulkImportModal";
+import RosterHistorialModal from "../../components/giras/RosterHistorialModal";
 import NotificationQueuePanel from "../../components/giras/NotificationQueuePanel";
 import DataIntegrityIndicator, {
   ROSTER_DOC_FIELDS,
@@ -522,6 +526,10 @@ export default function GiraRoster({
 }) {
   const { confirm, dialog } = useConfirmDialog();
   const { user } = useAuth();
+  const actorId = user?.id ?? null;
+  const [rosterHistorial, setRosterHistorial] = useState([]);
+  const [historialOpen, setHistorialOpen] = useState(false);
+  const [historialIntegranteId, setHistorialIntegranteId] = useState(null);
   const {
     roster: rawRoster,
     loading: hookLoading,
@@ -552,6 +560,33 @@ export default function GiraRoster({
     setNotificacionesHabilitadas(gira?.notificaciones_habilitadas !== false);
     setLocalNotificacionInicialEnviada(gira?.notificacion_inicial_enviada === true);
   }, [gira?.id, gira?.notificaciones_habilitadas, gira?.notificacion_inicial_enviada]);
+
+  useEffect(() => {
+    if (!supabase || !gira?.id) {
+      setRosterHistorial([]);
+      return undefined;
+    }
+    let cancelled = false;
+    supabase
+      .from("giras_integrantes_historial")
+      .select(
+        "id, id_integrante, accion, actor_nombre, actor_apellido, integrante_nombre, integrante_apellido, estado, rol, motivo, created_at",
+      )
+      .eq("id_gira", gira.id)
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (error) {
+          console.warn("historial roster:", error.message);
+          return;
+        }
+        setRosterHistorial(data || []);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase, gira?.id, rawRoster]);
 
   const linkRepertorio = useMemo(
     () =>
@@ -1379,7 +1414,12 @@ export default function GiraRoster({
 
     setLoadingAction(true);
     try {
-      const result = await deleteVacancyFromGira(supabase, gira.id, vacancy.id);
+      const result = await deleteVacancyFromGira(
+        supabase,
+        gira.id,
+        vacancy.id,
+        actorId,
+      );
       if (!result.ok) throw new Error(result.error);
 
       if (swapTarget?.id === vacancy.id) setSwapTarget(null);
@@ -1414,12 +1454,15 @@ export default function GiraRoster({
 
       const rolAlta = detailedCreateRoleId || DEFAULT_ROL_ID;
       const { error } = await supabase.from("giras_integrantes").insert([
-        {
-          id_gira: gira.id,
-          id_integrante: idLink,
-          rol: rolAlta,
-          estado: "confirmado",
-        },
+        stampRosterActor(
+          {
+            id_gira: gira.id,
+            id_integrante: idLink,
+            rol: rolAlta,
+            estado: "confirmado",
+          },
+          actorId,
+        ),
       ]);
 
       if (error) {
@@ -1512,7 +1555,7 @@ export default function GiraRoster({
     });
 
     await supabase.from("giras_integrantes").upsert(
-      buildGiraIntegranteUpsert(gira.id, musician, { rol: newRole }),
+      buildGiraIntegranteUpsert(gira.id, musician, { rol: newRole }, actorId),
       { onConflict: "id_gira, id_integrante" },
     );
     refreshRoster();
@@ -1538,11 +1581,16 @@ export default function GiraRoster({
     );
 
     await supabase.from("giras_integrantes").upsert(
-      buildGiraIntegranteUpsert(gira.id, musician, {
-        id_instr: overrideId,
-        rol: musician.rol_gira,
-        estado: musician.estado_gira,
-      }),
+      buildGiraIntegranteUpsert(
+        gira.id,
+        musician,
+        {
+          id_instr: overrideId,
+          rol: musician.rol_gira,
+          estado: musician.estado_gira,
+        },
+        actorId,
+      ),
       { onConflict: "id_gira, id_integrante" },
     );
     refreshRoster();
@@ -1720,7 +1768,12 @@ export default function GiraRoster({
 
     for (const { member } of toKeepAsManual) {
       await supabase.from("giras_integrantes").upsert(
-        buildGiraIntegranteUpsert(gira.id, member, { estado: "confirmado" }),
+        buildGiraIntegranteUpsert(
+          gira.id,
+          member,
+          { estado: "confirmado" },
+          actorId,
+        ),
         { onConflict: "id_gira, id_integrante" },
       );
     }
@@ -1733,11 +1786,12 @@ export default function GiraRoster({
     );
 
     for (const { member } of toDesconvocate.filter((a) => a.isAlreadyManual)) {
-      await supabase
-        .from("giras_integrantes")
-        .delete()
-        .eq("id_integrante", member.id)
-        .eq("id_gira", gira.id);
+      await bajaGirasIntegrantes(supabase, {
+        idGira: gira.id,
+        actorId,
+        integranteIds: [member.id],
+        motivo: bajaMotivoText,
+      });
     }
 
     const shouldNotifyBaja =
@@ -1891,12 +1945,17 @@ export default function GiraRoster({
       return false;
     }
     const rolEfectivo = resolveTourRoleOverride(rol, musicianData);
-    const { error } = await supabase.from("giras_integrantes").insert({
-      id_gira: gira.id,
-      id_integrante: idLink,
-      estado: "confirmado",
-      rol: rolEfectivo,
-    });
+    const { error } = await supabase.from("giras_integrantes").insert(
+      stampRosterActor(
+        {
+          id_gira: gira.id,
+          id_integrante: idLink,
+          estado: "confirmado",
+          rol: rolEfectivo,
+        },
+        actorId,
+      ),
+    );
     if (error) {
       if (isUniqueViolation(error)) {
         toast.info("Esta persona ya está convocada en esta gira.");
@@ -2045,13 +2104,18 @@ export default function GiraRoster({
 
     if (action === "presente") {
       await supabase.from("giras_integrantes").upsert(
-        buildGiraIntegranteUpsert(gira.id, musician, {
-          estado: "confirmado",
-          abona_reemplazo: false,
-          abona_licencia: false,
-          motivo_estado: null,
-          motivo_estado_actualizado_at: null,
-        }),
+        buildGiraIntegranteUpsert(
+          gira.id,
+          musician,
+          {
+            estado: "confirmado",
+            abona_reemplazo: false,
+            abona_licencia: false,
+            motivo_estado: null,
+            motivo_estado_actualizado_at: null,
+          },
+          actorId,
+        ),
         { onConflict: "id_gira, id_integrante" },
       );
       if (shouldNotifyMusician) {
@@ -2073,12 +2137,17 @@ export default function GiraRoster({
 
     if (action === "ausente") {
       await supabase.from("giras_integrantes").upsert(
-        buildGiraIntegranteUpsert(gira.id, musician, {
-          estado: "ausente",
-          abona_reemplazo: Boolean(abonaReemplazo),
-          abona_licencia: Boolean(abonaLicencia) && !abonaReemplazo,
-          ...motivoPayload,
-        }),
+        buildGiraIntegranteUpsert(
+          gira.id,
+          musician,
+          {
+            estado: "ausente",
+            abona_reemplazo: Boolean(abonaReemplazo),
+            abona_licencia: Boolean(abonaLicencia) && !abonaReemplazo,
+            ...motivoPayload,
+          },
+          actorId,
+        ),
         { onConflict: "id_gira, id_integrante" },
       );
       if (shouldNotifyMusician) {
@@ -2112,20 +2181,26 @@ export default function GiraRoster({
       }
       if (abonaReemplazo || abonaLicencia) {
         await supabase.from("giras_integrantes").upsert(
-          buildGiraIntegranteUpsert(gira.id, musician, {
-            estado: "ausente",
-            abona_reemplazo: Boolean(abonaReemplazo),
-            abona_licencia: Boolean(abonaLicencia) && !abonaReemplazo,
-            ...motivoPayload,
-          }),
+          buildGiraIntegranteUpsert(
+            gira.id,
+            musician,
+            {
+              estado: "ausente",
+              abona_reemplazo: Boolean(abonaReemplazo),
+              abona_licencia: Boolean(abonaLicencia) && !abonaReemplazo,
+              ...motivoPayload,
+            },
+            actorId,
+          ),
           { onConflict: "id_gira, id_integrante" },
         );
       } else {
-        await supabase
-          .from("giras_integrantes")
-          .delete()
-          .eq("id_integrante", musician.id)
-          .eq("id_gira", gira.id);
+        await bajaGirasIntegrantes(supabase, {
+          idGira: gira.id,
+          actorId,
+          integranteIds: [musician.id],
+          motivo: motivoText,
+        });
       }
     }
     setPendingBaja(null);
@@ -2143,11 +2218,16 @@ export default function GiraRoster({
       ),
     );
     const { error } = await supabase.from("giras_integrantes").upsert(
-      buildGiraIntegranteUpsert(gira.id, musician, {
-        estado: "ausente",
-        abona_reemplazo: next,
-        abona_licencia: false,
-      }),
+      buildGiraIntegranteUpsert(
+        gira.id,
+        musician,
+        {
+          estado: "ausente",
+          abona_reemplazo: next,
+          abona_licencia: false,
+        },
+        actorId,
+      ),
       { onConflict: "id_gira, id_integrante" },
     );
     if (error) {
@@ -2183,11 +2263,16 @@ export default function GiraRoster({
       ),
     );
     const { error } = await supabase.from("giras_integrantes").upsert(
-      buildGiraIntegranteUpsert(gira.id, musician, {
-        estado: "ausente",
-        abona_licencia: next,
-        abona_reemplazo: false,
-      }),
+      buildGiraIntegranteUpsert(
+        gira.id,
+        musician,
+        {
+          estado: "ausente",
+          abona_licencia: next,
+          abona_reemplazo: false,
+        },
+        actorId,
+      ),
       { onConflict: "id_gira, id_integrante" },
     );
     if (error) {
@@ -3461,6 +3546,18 @@ export default function GiraRoster({
           </div>
 
           <div className="shrink-0 flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => {
+                setHistorialIntegranteId(null);
+                setHistorialOpen(true);
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 border rounded-lg text-xs font-bold bg-white text-slate-600 hover:bg-slate-50 border-slate-200"
+              title="Altas, bajas y cambios de presencia"
+            >
+              <IconHistory size={12} />
+              <span className="hidden sm:inline">Historial</span>
+            </button>
             {isEditor && (
               <button
                 type="button"
@@ -3842,6 +3939,10 @@ export default function GiraRoster({
                       onOpenMotivoModal={(musician) =>
                         setMotivoModalMusician(musician)
                       }
+                      onOpenHistorial={(musician) => {
+                        setHistorialIntegranteId(musician.id);
+                        setHistorialOpen(true);
+                      }}
                     />
                   </React.Fragment>
                 );
@@ -3865,6 +3966,19 @@ export default function GiraRoster({
       </div>
 
       {/* --- MODALES --- */}
+      <RosterHistorialModal
+        open={historialOpen}
+        events={rosterHistorial}
+        integranteId={historialIntegranteId}
+        personLabel={
+          historialIntegranteId == null
+            ? ""
+            : seatingApellidoNombre(
+                localRoster.find((m) => m.id === historialIntegranteId) || {},
+              )
+        }
+        onClose={() => setHistorialOpen(false)}
+      />
       <RosterMotivoModal
         musician={motivoModalMusician}
         isEditor={isEditor}

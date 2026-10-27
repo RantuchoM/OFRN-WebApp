@@ -13,7 +13,9 @@ import { DIET_OPTIONS } from "../../utils/dietOptions";
 import {
   DEFAULT_ROL_ID,
   inferDefaultTourRole,
+  stampRosterActor,
 } from "../../utils/giraUtils";
+import { useAuth } from "../../context/AuthContext";
 import { seatingApellidoNombre } from "../../utils/integranteDisplayName";
 import { integranteIdForDb, integranteKey } from "../../utils/integranteIds";
 import {
@@ -44,6 +46,7 @@ export default function RosterBulkImportModal({
   onEnqueueNotifications,
   onDone,
 }) {
+  const { user } = useAuth();
   const fileInputRef = useRef(null);
   const [instruments, setInstruments] = useState([]);
   const [loadingLists, setLoadingLists] = useState(false);
@@ -241,12 +244,17 @@ export default function RosterBulkImportModal({
 
           const { error: linkErr } = await supabase
             .from("giras_integrantes")
-            .insert({
-              id_gira: giraId,
-              id_integrante: idLink,
-              estado: "confirmado",
-              rol,
-            });
+            .insert(
+              stampRosterActor(
+                {
+                  id_gira: giraId,
+                  id_integrante: idLink,
+                  estado: "confirmado",
+                  rol,
+                },
+                user?.id,
+              ),
+            );
 
           if (linkErr) {
             if (isUniqueViolation(linkErr)) {

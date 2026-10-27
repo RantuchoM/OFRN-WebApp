@@ -43,3 +43,11 @@ Al agregar o convocar (auto-roster, alta individual, ficha nueva en gira): `infe
 
 ## 5. Consumo en Servicios
 - La función `resolveGiraRosterIds` en `giraService.js` es la implementación de referencia para esta lógica.
+
+## 6. Alta, autor e historial
+
+- Cada fila de `giras_integrantes` guarda `created_at` (alta de esa fila) y `creado_por` (integrante que la dio de alta). Ediciones de rol, instrumento o motivo no pisan esos campos.
+- El roster muestra la fecha bajo el nombre solo si la persona está en `giras_integrantes` (`Alta 15 jun 2026, 20:53`). Quien entra solo por ensamble o familia no tiene esa fecha. El botón **Historial** lista la gira; el renglón abre el historial de esa persona.
+- `giras_integrantes_historial` registra `alta`, `baja`, `ausente` y `presente`, con actor y motivo. Las filas anteriores a este registro tienen alta con la fecha original y autor vacío.
+- Las bajas del cliente pasan por `baja_giras_integrantes` (`p_actor`, motivo). Vacantes (`crear_vacante`, `materializar_reemplazo`, `eliminar_vacante`) reciben `p_actor`. Asignar titular sobre la fila de la vacante deja una baja de la plaza y un alta del titular, y `created_at` pasa a ser esa asignación.
+- La app no usa `auth.uid()`. El actor es el integrante de la sesión (`creado_por` / `movido_por`, o `app.gira_actor_id` dentro de la RPC).

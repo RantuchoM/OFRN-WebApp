@@ -11,7 +11,9 @@ import {
   IconChevronDown,
   IconUser,
 } from "../../components/ui/Icons";
-import { formatRolGiraLabel, getProgramStyle } from "../../utils/giraUtils";
+import { formatRolGiraLabel, getProgramStyle, stampRosterActor } from "../../utils/giraUtils";
+import { bajaGirasIntegrantes } from "../../services/giraRosterAudit";
+import { useAuth } from "../../context/AuthContext";
 import NotificationQueuePanel from "../../components/giras/NotificationQueuePanel";
 import { toast } from "sonner";
 import { touchOrganicoConvocado } from "../../services/organicoConvocadoService";
@@ -103,6 +105,7 @@ const MultiFilterDropdown = ({ label, options, selected, onChange }) => {
 };
 
 export default function MusicianTourManager({ supabase, musician }) {
+  const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [giras, setGiras] = useState([]);
   const [overrides, setOverrides] = useState({});
@@ -400,11 +403,11 @@ export default function MusicianTourManager({ supabase, musician }) {
 
     try {
       if (action === "DELETE") {
-        await supabase
-          .from("giras_integrantes")
-          .delete()
-          .eq("id_gira", giraId)
-          .eq("id_integrante", musician.id);
+        await bajaGirasIntegrantes(supabase, {
+          idGira: giraId,
+          actorId: user?.id,
+          integranteIds: [musician.id],
+        });
         const newOverrides = { ...overrides };
         delete newOverrides[giraId];
         setOverrides(newOverrides);
@@ -428,21 +431,24 @@ export default function MusicianTourManager({ supabase, musician }) {
         const targetStatus = action === "SET_PRESENT" ? "confirmado" : "ausente";
         const currentRol = currentOverride?.rol || "musico";
 
-        const payload = {
-          ...(existingId ? { id: existingId } : {}),
-          id_gira: giraId,
-          id_integrante: musician.id,
-          estado: targetStatus,
-          rol: currentRol,
-          abona_reemplazo:
-            targetStatus === "ausente"
-              ? Boolean(currentOverride?.abona_reemplazo)
-              : false,
-          abona_licencia:
-            targetStatus === "ausente"
-              ? Boolean(currentOverride?.abona_licencia)
-              : false,
-        };
+        const payload = stampRosterActor(
+          {
+            ...(existingId ? { id: existingId } : {}),
+            id_gira: giraId,
+            id_integrante: musician.id,
+            estado: targetStatus,
+            rol: currentRol,
+            abona_reemplazo:
+              targetStatus === "ausente"
+                ? Boolean(currentOverride?.abona_reemplazo)
+                : false,
+            abona_licencia:
+              targetStatus === "ausente"
+                ? Boolean(currentOverride?.abona_licencia)
+                : false,
+          },
+          user?.id,
+        );
 
         const { data: savedData, error } = await supabase
           .from("giras_integrantes")
@@ -494,13 +500,13 @@ export default function MusicianTourManager({ supabase, musician }) {
 
     setUpdatingRole(giraId);
     try {
-        const payload = { 
+        const payload = stampRosterActor({ 
             ...(existingId ? { id: existingId } : {}), 
             id_gira: giraId, 
             id_integrante: musician.id, 
             estado: currentStatus, 
             rol: newRole 
-        };
+        }, user?.id);
         const { data: savedData, error } = await supabase.from("giras_integrantes").upsert(payload).select().single();
         if(error) throw error;
 
