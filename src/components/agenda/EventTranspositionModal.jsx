@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   parseISO,
@@ -24,6 +24,14 @@ import {
   isConcertHistoryEvent,
   concertCreationFields,
 } from "../../utils/eventCreationLog";
+import {
+  buildOriginTypeCategories,
+  defaultSelectedTypeIds,
+  filterOriginEventsByType,
+  normalizeTypeFilterId,
+  pruneSelectedEventIds,
+  visibleEventIdSet,
+} from "../../utils/eventTranspositionSelection";
 
 function computeSafeDate(iso) {
   try {
@@ -75,6 +83,7 @@ export default function EventTranspositionModal({
   const [selectedTypeIds, setSelectedTypeIds] = useState([]);
   const [selectedEventIds, setSelectedEventIds] = useState(() => new Set());
   const [removeSimilarEvents, setRemoveSimilarEvents] = useState(true);
+  const selectionOriginRef = useRef(null);
   const { user } = useAuth();
 
   // Cargar programas candidatos (otras giras).
@@ -172,6 +181,7 @@ export default function EventTranspositionModal({
   // Reset básico al abrir/cerrar
   useEffect(() => {
     if (!isOpen) {
+      selectionOriginRef.current = null;
       setSelectedOriginId(null);
       setOriginProgram(null);
       setOriginEvents([]);
@@ -196,18 +206,16 @@ export default function EventTranspositionModal({
         const events = await getEventsByGira(supabase, selectedOriginId);
         if (isCancelled) return;
 
-        setOriginEvents(events || []);
-        setSelectedEventIds(new Set((events || []).map((e) => e.id)));
+        const loaded = events || [];
+        setOriginEvents(loaded);
 
-        // Inicializar filtros de tipo con todos los tipos presentes
-        const typeIds = Array.from(
-          new Set(
-            (events || [])
-              .map((e) => e.id_tipo_evento)
-              .filter((id) => id != null),
-          ),
-        );
-        setSelectedTypeIds(typeIds);
+        // Nueva gira origen: ningún evento tildado. Los tipos quedan visibles
+        // para elegir; un evento sin tipo no cuenta como Concierto.
+        if (selectionOriginRef.current !== selectedOriginId) {
+          selectionOriginRef.current = selectedOriginId;
+          setSelectedEventIds(new Set());
+          setSelectedTypeIds(defaultSelectedTypeIds(loaded));
+        }
       } catch (err) {
         console.error(
           "[EventTranspositionModal] Error fetching eventos origen:",
@@ -252,90 +260,51 @@ export default function EventTranspositionModal({
     }
   }, [isOpen, giraDestino, originProgram, hasCustomDelta]);
 
-  const categoriesTree = useMemo(() => {
-    const categoriesMap = new Map();
-    originEvents.forEach((e) => {
-      if (!e.tipos_evento) return;
-      const typeId = e.id_tipo_evento;
-      if (typeId == null) return;
-      const typeName = e.tipos_evento.nombre || `Tipo ${typeId}`;
-      const typeColor = e.tipos_evento.color || "#6366f1";
-      const cat = e.tipos_evento.categorias_tipos_eventos;
-      const catId = cat?.id ?? 0;
-      const catName = cat?.nombre || "Sin categoría";
-      if (!categoriesMap.has(catId)) {
-        categoriesMap.set(catId, {
-          id: catId,
-          nombre: catName,
-          tipos: [],
-        });
-      }
-      const bucket = categoriesMap.get(catId);
-      if (!bucket.tipos.some((t) => t.id === typeId)) {
-        bucket.tipos.push({
-          id: typeId,
-          nombre: typeName,
-          color: typeColor,
-        });
-      }
-    });
-    const arr = Array.from(categoriesMap.values());
-    arr.forEach((cat) =>
-      cat.tipos.sort((a, b) => a.nombre.localeCompare(b.nombre, "es")),
-    );
-    return arr.sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
-  }, [originEvents]);
+  const categoriesTree = useMemo(
+    () => buildOriginTypeCategories(originEvents),
+    [originEvents],
+  );
 
-  const filteredOriginEvents = useMemo(() => {
-    if (!originEvents || originEvents.length === 0) return [];
-    if (!selectedTypeIds || selectedTypeIds.length === 0) return originEvents;
-    const allowed = new Set(selectedTypeIds);
-    return originEvents.filter((e) =>
-      e.id_tipo_evento != null ? allowed.has(e.id_tipo_evento) : true,
-    );
-  }, [originEvents, selectedTypeIds]);
+  const filteredOriginEvents = useMemo(
+    () => filterOriginEventsByType(originEvents, selectedTypeIds),
+    [originEvents, selectedTypeIds],
+  );
 
   // Los checkboxes solo existen para eventos visibles por filtro de tipo; los IDs
   // seleccionados deben mantenerse alineados para no importar tipos ocultos.
+  // Una selección de tipos vacía no vuelve a mostrar todo.
   useEffect(() => {
     if (!isOpen || !originEvents.length) return;
-    const visible = new Set(
-      (() => {
-        if (!selectedTypeIds || selectedTypeIds.length === 0) {
-          return originEvents.map((e) => e.id);
-        }
-        const allowed = new Set(selectedTypeIds);
-        return originEvents
-          .filter((e) =>
-            e.id_tipo_evento != null ? allowed.has(e.id_tipo_evento) : true,
-          )
-          .map((e) => e.id);
-      })(),
-    );
+    const visible = visibleEventIdSet(originEvents, selectedTypeIds);
     setSelectedEventIds((prev) => {
-      const next = new Set();
-      prev.forEach((id) => {
-        if (visible.has(id)) next.add(id);
-      });
+      const next = pruneSelectedEventIds(prev, visible);
       if (next.size === prev.size) return prev;
       return next;
     });
   }, [isOpen, originEvents, selectedTypeIds]);
 
   const toggleType = (id) => {
+    const key = normalizeTypeFilterId(id);
+    if (key == null) return;
     setSelectedTypeIds((prev) => {
-      if (!prev || prev.length === 0) return [id];
-      if (prev.includes(id)) return prev.filter((x) => x !== id);
-      return [...prev, id];
+      const current = (prev || [])
+        .map(normalizeTypeFilterId)
+        .filter((value) => value != null);
+      if (current.includes(key)) return current.filter((value) => value !== key);
+      return [...current, key];
     });
   };
 
   const toggleCategory = (catId) => {
     const cat = categoriesTree.find((c) => c.id === catId);
     if (!cat) return;
-    const typeIds = cat.tipos.map((t) => t.id);
+    const typeIds = cat.tipos
+      .map((t) => normalizeTypeFilterId(t.id))
+      .filter((id) => id != null);
     setSelectedTypeIds((prev) => {
-      const current = new Set(prev || []);
+      const current = new Set(
+        (prev || []).map(normalizeTypeFilterId).filter((id) => id != null),
+      );
       const allSelected = typeIds.every((id) => current.has(id));
       if (allSelected) {
         typeIds.forEach((id) => current.delete(id));
@@ -565,10 +534,7 @@ export default function EventTranspositionModal({
     return set;
   }, [currentEvents]);
 
-  const countSelected = useMemo(
-    () => selectedEventIds.size,
-    [selectedEventIds],
-  );
+  const countSelected = selectedImportEvents.length;
 
   const handleToggleEvent = (eventId) => {
     setSelectedEventIds((prev) => {
@@ -599,7 +565,7 @@ export default function EventTranspositionModal({
       toast.error("Seleccioná primero una gira origen con eventos.");
       return;
     }
-    if (selectedEventIds.size === 0) {
+    if (selectedImportEvents.length === 0) {
       toast.error("Seleccioná al menos un evento a importar.");
       return;
     }
@@ -788,7 +754,13 @@ export default function EventTranspositionModal({
               <SearchableSelect
                 options={programOptions}
                 value={selectedOriginId}
-                onChange={(id) => setSelectedOriginId(id)}
+                onChange={(id) => {
+                  selectionOriginRef.current = null;
+                  setSelectedOriginId(id);
+                  setOriginEvents([]);
+                  setSelectedEventIds(new Set());
+                  setSelectedTypeIds([]);
+                }}
                 placeholder={
                   loadingPrograms
                     ? "Cargando giras..."
@@ -1022,8 +994,9 @@ export default function EventTranspositionModal({
               <p className="text-[11px] text-slate-500 flex items-start gap-1">
                 <IconAlertTriangle size={12} className="mt-0.5 text-amber-500" />
                 <span>
-                  Solo se importarán los eventos marcados. Los eventos actuales
-                  de la gira destino se muestran a la derecha como referencia.
+                  Los eventos de la gira origen llegan destildados: solo se
+                  importan los que marques. Los de la gira destino se muestran
+                  a la derecha como referencia.
                   {removeSimilarEvents
                     ? " Los equivalentes se actualizarán sin cambiar su ID ni sus vínculos."
                     : " No se reemplazará ningún evento existente."}
@@ -1207,7 +1180,7 @@ export default function EventTranspositionModal({
                 saving ||
                 loadingEvents ||
                 !selectedOriginId ||
-                selectedEventIds.size === 0
+                selectedImportEvents.length === 0
               }
               className="px-4 py-1.5 rounded-full text-xs font-bold inline-flex items-center gap-2 bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed shadow-sm"
             >

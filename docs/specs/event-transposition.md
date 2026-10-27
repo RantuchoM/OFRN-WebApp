@@ -42,6 +42,10 @@ Permitir a los editores importar cronogramas completos de giras pasadas hacia la
     - El evento equivalente se actualiza en el lugar, conservando su `id` y, por lo tanto, sus reglas logísticas, asistencias y demás relaciones.
     - Los eventos importados sin equivalente se crean como filas nuevas. Los eventos destino de tipos reemplazados que queden sin equivalente se mueven a la papelera.
   - Filtros por tipo de evento (checklist basada en `tipos_evento` de los eventos origen).
+    - Arrancan activos los tipos reales de la gira origen. El usuario los destilda para esconderlos.
+    - **Selección vacía = ningún tipo.** Destildar el último tipo (o toda la categoría, aunque sea Conciertos) no vuelve a incluir el listado completo.
+    - El id de tipo se compara normalizado (`Number`), así un bigint string `"1"` y el número `1` son el mismo Concierto.
+    - Eventos con `id_tipo_evento` nulo no heredan ningún tipo. Van al filtro **Sin tipo** (visible si hay alguno, eventos igual destildados). Un texto «Concierto» sin tipo no entra al tildar o destildar el tipo Concierto.
 - **Columna Derecha (Vista previa)**  
   - Contenedor con scroll que reutiliza la estética de `UnifiedAgenda`:
     - Se muestran:
@@ -49,7 +53,7 @@ Permitir a los editores importar cronogramas completos de giras pasadas hacia la
       - Eventos "propuestos" a importar desde la gira origen.
   - **Eventos propuestos**:
     - Cada evento tiene:
-      - Un checkbox de selección (por defecto `checked = true`).
+      - Un checkbox de selección (por defecto `checked = false`). Al cargar la gira origen no hay eventos tildados: se importan solo los que el usuario marque. «Todos» / «Ninguno» siguen disponibles sobre los eventos visibles.
       - La fecha original y la `Nueva Fecha` calculada con el delta.
       - Un borde punteado o badge tipo **“A importar”** para diferenciarlos visualmente.
   - **Mezcla de líneas de tiempo**  
@@ -71,7 +75,7 @@ Permitir a los editores importar cronogramas completos de giras pasadas hacia la
 - Las actualizaciones copian fecha, horas, técnica, descripción, convocados, tipo, locación y estado de venue. Conservan el transporte de la gira destino; una fila nueva nunca copia `id_gira_transporte` desde la gira origen.
 - Si una actualización o inserción falla, el flujo restaura tanto los eventos actualizados como los que acababa de mover a la papelera antes de informar el error.
 - **Reglas de inserción**:
-  - Solo se insertan los eventos cuyo checkbox permanezca seleccionado.
+  - Solo se insertan los eventos cuyo checkbox permanezca seleccionado **y** cuyo tipo siga en el filtro. Un concierto destildado, o un tipo Concierto destildado, no se inserta ni dispara el reemplazo de conciertos en la gira destino.
   - Cada evento insertado debe tener:
     - `id_gira = giraDestino.id`.
     - `fecha = NuevaFecha` calculada con el delta.
