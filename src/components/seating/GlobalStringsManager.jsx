@@ -10,6 +10,7 @@ import {
   findCuerdasConfigOwnerForBlock,
   claimCuerdasBloqueOneToOne,
 } from "../../utils/seatingCuerdasConfig";
+import { appendFuncionGiraTag } from "../../utils/funcionGira";
 import {
   IconLayers,
   IconLoader,
@@ -1969,7 +1970,14 @@ export default function GlobalStringsManager({
                               <div className={`py-0.5 border ${vacancyBorder(b.left)} bg-slate-50 text-center`}>
                                 <span className="truncate block">
                                   {b.left
-                                    ? `${b.left.integrantes?.apellido}, ${b.left.integrantes?.nombre}`
+                                    ? appendFuncionGiraTag(
+                                        `${b.left.integrantes?.apellido}, ${b.left.integrantes?.nombre}`,
+                                        roster.find(
+                                          (m) =>
+                                            String(m.id) ===
+                                            String(b.left.id_musico),
+                                        ),
+                                      )
                                     : "Vacío"}
                                 </span>
                               </div>
@@ -1977,7 +1985,14 @@ export default function GlobalStringsManager({
                               <div className={`py-0.5 border ${vacancyBorder(b.right)} bg-slate-50 text-center`}>
                                 <span className="truncate block">
                                   {b.right
-                                    ? `${b.right.integrantes?.apellido}, ${b.right.integrantes?.nombre}`
+                                    ? appendFuncionGiraTag(
+                                        `${b.right.integrantes?.apellido}, ${b.right.integrantes?.nombre}`,
+                                        roster.find(
+                                          (m) =>
+                                            String(m.id) ===
+                                            String(b.right.id_musico),
+                                        ),
+                                      )
                                     : "Vacío"}
                                 </span>
                               </div>
@@ -1990,7 +2005,14 @@ export default function GlobalStringsManager({
                               >
                                 <span className="truncate block">
                                   {d.left
-                                    ? `${d.left.integrantes?.apellido}, ${d.left.integrantes?.nombre}`
+                                    ? appendFuncionGiraTag(
+                                        `${d.left.integrantes?.apellido}, ${d.left.integrantes?.nombre}`,
+                                        roster.find(
+                                          (m) =>
+                                            String(m.id) ===
+                                            String(d.left.id_musico),
+                                        ),
+                                      )
                                     : "Vacío"}
                                 </span>
                               </div>
@@ -2003,7 +2025,14 @@ export default function GlobalStringsManager({
                               >
                                 <span className="truncate block">
                                   {d.right
-                                    ? `${d.right.integrantes?.apellido}, ${d.right.integrantes?.nombre}`
+                                    ? appendFuncionGiraTag(
+                                        `${d.right.integrantes?.apellido}, ${d.right.integrantes?.nombre}`,
+                                        roster.find(
+                                          (m) =>
+                                            String(m.id) ===
+                                            String(d.right.id_musico),
+                                        ),
+                                      )
                                     : "Vacío"}
                                 </span>
                               </div>
@@ -2289,10 +2318,14 @@ export default function GlobalStringsManager({
                   }`}
                 >
                   <div className="truncate pointer-events-none text-slate-700">
-                    {m.apellido}, {m.nombre}
-                    {m.instrumentos?.instrumento
-                      ? ` (${m.instrumentos.instrumento})`
-                      : ""}
+                    {appendFuncionGiraTag(
+                      `${m.apellido}, ${m.nombre}${
+                        m.instrumentos?.instrumento
+                          ? ` (${m.instrumentos.instrumento})`
+                          : ""
+                      }`,
+                      m,
+                    )}
                   </div>
                 </div>
               ))}
@@ -2428,7 +2461,13 @@ export default function GlobalStringsManager({
                             <div className="flex-1 min-w-0 pointer-events-none">
                               <span className="truncate block font-medium">
                                 {item
-                                  ? `${item.integrantes?.apellido}, ${item.integrantes?.nombre}`
+                                  ? appendFuncionGiraTag(
+                                      `${item.integrantes?.apellido}, ${item.integrantes?.nombre}`,
+                                      roster.find(
+                                        (m) =>
+                                          String(m.id) === String(item.id_musico),
+                                      ),
+                                    )
                                   : "Vacío"}
                               </span>
                               {item?._suggestionType === "provisional" && (

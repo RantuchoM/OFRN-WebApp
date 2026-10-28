@@ -60,6 +60,7 @@ import {
 import OmitPartsModal from "../../components/seating/OmitPartsModal";
 import ParticellaExportBusyOverlay from "../../components/seating/ParticellaExportBusyOverlay";
 import PartNameLabel from "../../components/seating/PartNameLabel";
+import FuncionGiraInline from "../../components/giras/FuncionGiraInline";
 import { toast } from "sonner";
 import { exportSeatingToExcel } from "../../utils/seatingExcelExporter";
 import {
@@ -712,6 +713,15 @@ const MobileSeatingTable = ({
                                       ? "Hueco"
                                       : `${item.integrantes?.apellido}, ${item.integrantes?.nombre?.charAt(0)}.`}
                                   </span>
+                                  {!isPlaceholder && (
+                                    <FuncionGiraInline
+                                      person={filteredRoster?.find(
+                                        (r) =>
+                                          String(r.id) === String(musicianId),
+                                      )}
+                                      className="mt-0.5 w-fit"
+                                    />
+                                  )}
                                   <span className="text-[8px] text-slate-400 mt-0.5">
                                     Atril {atril} · {ladoLabel}
                                   </span>
@@ -857,6 +867,7 @@ const MobileSeatingTable = ({
                       >
                         {m.apellido}, {m.nombre?.charAt(0)}.
                       </span>
+                      <FuncionGiraInline person={m} className="mt-0.5 w-fit" />
                       <span className="text-[8px] text-slate-400 truncate mt-0.5">
                         {m.instrumentos?.instrumento}
                       </span>
@@ -4022,6 +4033,12 @@ export default function ProgramSeating({
                                     {item.integrantes?.apellido},{" "}
                                     {item.integrantes?.nombre?.charAt(0)}.
                                   </span>
+                                  <FuncionGiraInline
+                                    person={filteredRoster?.find(
+                                      (r) => String(r.id) === String(musicianId),
+                                    )}
+                                    className="mt-0.5 w-fit"
+                                  />
                                   <span className="text-slate-400 text-[8px] shrink-0">
                                     Atril {standNum}
                                   </span>
@@ -4174,6 +4191,7 @@ export default function ProgramSeating({
                               >
                                 {m.apellido}, {m.nombre}
                               </span>
+                              <FuncionGiraInline person={m} className="mt-0.5 w-fit" />
                               <span className="text-[9px] text-slate-400 truncate">
                                 {m.instrumentos?.instrumento}{" "}
                                 {m.rol_gira && m.rol_gira !== "musico" && (

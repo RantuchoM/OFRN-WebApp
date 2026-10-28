@@ -23,6 +23,7 @@ import {
 } from "../../components/ui/Icons";
 import TimeInput from "../../components/ui/TimeInput";
 import FoodMatrix from "../../components/logistics/FoodMatrix";
+import { isFuncionPasante } from "../../utils/funcionGira";
 import {
   ROLES_PRODUCCION,
   normalize,
@@ -747,13 +748,15 @@ const GROUP_DEFS = [
     id: "GRP:NO_LOCALES",
     label: "Solo alojados",
     color: "bg-purple-100 text-purple-700",
-    filter: (p) => !p.is_local && p.estado_gira === "confirmado",
+    filter: (p) =>
+      !isFuncionPasante(p) && !p.is_local && p.estado_gira === "confirmado",
   },
   {
     id: "GRP:LOCALES",
     label: "Locales",
     color: "bg-orange-100 text-orange-700",
-    filter: (p) => p.is_local && p.estado_gira === "confirmado",
+    filter: (p) =>
+      !isFuncionPasante(p) && p.is_local && p.estado_gira === "confirmado",
   },
   {
     id: "GRP:PRODUCCION",

@@ -26,12 +26,23 @@ Al agregar o convocar (auto-roster, alta individual, ficha nueva en gira): `infe
 - Solo músico → `musico` / default de instrumento.
 - `musico` persistido se interpreta como default automático (`resolveTourRoleOverride`); `solista` / `produccion` / etc. se respetan.
 
+### 3.2 Función de convocatoria (`giras_integrantes.funcion`)
+
+Aparte de `rol`. Valores: `reemplazo`, `refuerzo`, `pasante`, o null. Solo se puede elegir si la persona **no es Estable** y el rol efectivo es **`musico`**. Son excluyentes.
+
+- **Reemplazo:** `id_cubre_a` obligatorio (integrante ausente de la misma gira). Fila celeste y tag «Reemplazo de {apellido}».
+- **Refuerzo:** tag y fila violeta. No apunta a un ausente.
+- **Pasante:** tag y fila verde. En logística no entra al cálculo automático de hotel ni de transporte (solo alcance Persona, asignación manual). En comidas solo matchea `GRP:TUTTI`.
+- **Indiv:** no se persiste. Con rol `musico`, sin función y con fila en `giras_integrantes` (convocado de a uno, no solo por ensamble o familia), la nómina conserva el color de fila de hoy y muestra el tag Indiv. Quien entra solo por ensamble o familia no lleva esa tercera línea. Otros roles tampoco.
+- El tag está en la tercera línea de la columna Rol / Instr. Tocarlo (o el nombre del rol, si no es músico) abre el modal de rol. Las opciones Indiv, Reemplazo, Refuerzo y Pasante usan el color de la función (gris, celeste, violeta, verde) en ese modal, en Convocar y al asignar titular de una vacante. Al salir de `musico` o si la persona es Estable, `funcion` e `id_cubre_a` quedan nulos.
+- Convocar abre un modal: Individual (tildes, búsqueda por nombre o instrumento) y Grupal (ensambles, familias, exclusión).
+
 ## 4. Vacantes (integrantes simulados)
 
 - Las vacantes son filas en `integrantes` con `es_simulacion = true` y `condicion = 'Refuerzo'`, vinculadas a la gira vía `giras_integrantes` (`rol = 'musico'`, `estado = 'confirmado'`). El ID lo asigna la BD (IDENTITY). El rótulo de plaza va en `integrantes.apellido`.
-- **Apariencia seating / cuerdas:** el nombre sigue siendo el rótulo actual (`{apellido}, {nombre}` → p. ej. `{etiqueta}, Vacante`). En Seating (atriles de cuerdas, filas de vientos) y en Configuración/Disposición de Cuerdas (pool, celdas de atril, preview de reordenar) las plazas ocupadas por vacante llevan borde ámbar `border-amber-400` (mismo token que Nómina `border-l-amber-400` / badge VACANTE `border-amber-200`). No cambia RPCs ni asignación.
+- **Apariencia seating / cuerdas:** el nombre sigue siendo el rótulo actual (`{apellido}, {nombre}` → p. ej. `{etiqueta}, Vacante`). En Seating (atriles de cuerdas, filas de vientos) y en Configuración/Disposición de Cuerdas (pool, celdas de atril, preview de reordenar) las plazas ocupadas por vacante llevan borde ámbar `border-amber-400` (mismo token que Nómina `border-l-amber-400` / badge VACANTE `border-amber-200`). Reemplazo, Refuerzo y Pasante se identifican junto al nombre (y en reportes PDF/Excel de seating). Indiv no se imprime ahí. No cambia RPCs ni asignación.
 - **Crear** (`crear_vacante`, transaccional): modal "Nueva vacante" (`AddVacancyModal`) o "Vacantes auto" en Auditoría de instrumentación. Inserta integrante + `giras_integrantes` en una sola transacción. Auto: no duplica la misma etiqueta/instrumento ya presente; género NULL (no F fijo); salta Tim y **no inventa cuerdas** (01–04). Las vacantes de cuerda ya creadas sí se listan en la fila Vacantes (columna Str). Pueden entrar a un **grupo de la gira** (`giras_grupos_integrantes`) como cualquier convocado (reservan el slot).
-- **Asignar titular** (`materializar_reemplazo`): modal "Asignar titular" (`SwapVacancyModal`). Transfiere en la misma transacción: nómina, reglas `target_ids`, transporte actual (`id_integrante` + `target_ids`), admisión/rutas, RSVP comidas legacy, viáticos, seating (`id_musicos_asignados` y `seating_contenedores_items`), check-in/asistencia, accesos, exclusiones hotel y **grupos**.
+- **Asignar titular** (`materializar_reemplazo`): modal "Asignar titular" (`SwapVacancyModal`). Transfiere en la misma transacción: nómina, reglas `target_ids`, transporte actual (`id_integrante` + `target_ids`), admisión/rutas, RSVP comidas legacy, viáticos, seating (`id_musicos_asignados` y `seating_contenedores_items`), check-in/asistencia, accesos, exclusiones hotel y **grupos**. Si el titular no es Estable, el modal permite Reemplazo (con ausente), Refuerzo o Pasante; después de la RPC se guarda `funcion` / `id_cubre_a` en la fila del titular.
   - Si el titular ya está en la gira como **ausente**: se **bloquea** (no se vuelca logística).
   - Si ya está confirmado: se borra la fila de la vacante en `giras_integrantes` y se transfiere la logística a la fila existente.
   - Si no está: se reemplaza `id_integrante` en la fila de la vacante y `estado = 'confirmado'`.
@@ -47,14 +58,15 @@ Al agregar o convocar (auto-roster, alta individual, ficha nueva en gira): `infe
 ## 6. Alta, autor e historial
 
 - Cada fila de `giras_integrantes` guarda `created_at` (alta de esa fila) y `creado_por` (integrante que la dio de alta). Ediciones de rol, instrumento o motivo no pisan esos campos.
-- El roster muestra la fecha bajo el nombre solo si la persona está en `giras_integrantes` (`Alta 15 jun 2026, 20:53`). Quien entra solo por ensamble o familia no tiene esa fecha. El botón **Historial** lista la gira; el renglón abre el historial de esa persona.
+- El historial de altas, bajas, ausencias y vueltas a presente de una persona está en el modal de motivo (stick-it ámbar de la fila), solo si está en `giras_integrantes`. No se muestra la fecha de alta bajo el nombre ni un botón de historial en el encabezado. Quien entra solo por ensamble o familia no tiene stick ni historial en la fila.
 - `giras_integrantes_historial` registra `alta`, `baja`, `ausente` y `presente`, con actor y motivo. Las filas anteriores a este registro tienen alta con la fecha original y autor vacío.
 - Las bajas del cliente pasan por `baja_giras_integrantes` (`p_actor`, motivo). Vacantes (`crear_vacante`, `materializar_reemplazo`, `eliminar_vacante`) reciben `p_actor`. Asignar titular sobre la fila de la vacante deja una baja de la plaza y un alta del titular, y `created_at` pasa a ser esa asignación.
 - La app no usa `auth.uid()`. El actor es el integrante de la sesión (`creado_por` / `movido_por`, o `app.gira_actor_id` dentro de la RPC).
 
 ## 7. Embeds PostgREST (`giras_integrantes` ↔ `integrantes`)
-- Hay **tres** FKs a `integrantes`: `id_integrante`, `creado_por`, `movido_por`. Un embed bare `integrantes(...)` dispara `PGRST201`.
+- Hay **cuatro** FKs a `integrantes`: `id_integrante`, `creado_por`, `movido_por`, `id_cubre_a`. Un embed bare `integrantes(...)` dispara `PGRST201`.
 - Para la persona de la fila: `integrantes!giras_integrantes_id_integrante_fkey(...)` (la clave JSON sigue siendo `integrantes`).
 - Para el autor del alta: `creado_por_ref:integrantes!giras_integrantes_creado_por_fkey(...)`.
+- Para a quién cubre un reemplazo: `cubre_a:integrantes!giras_integrantes_id_cubre_a_fkey(...)`.
 - Deep-link / listado: `GIRAS_LIST_SELECT` en `useGirasList.js` (también `EnsembleCoordinatorView`, `GiraFormEditPortal`).
 - `useGiraRosterQuery` usa `EMPTY_ROSTER` / `EMPTY_SOURCES` estables (no `?? []` inline) para no re-disparar efectos de sync/historial en cada render.

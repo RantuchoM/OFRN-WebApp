@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { IconX } from "../ui/Icons";
 import { seatingApellidoNombre } from "../../utils/integranteDisplayName";
+import { RosterHistorialList } from "./RosterHistorialModal";
 
 function formatMotivoTs(iso) {
   if (!iso) return null;
@@ -18,6 +19,7 @@ function formatMotivoTs(iso) {
 export default function RosterMotivoModal({
   musician,
   isEditor,
+  events = [],
   onClose,
   onSave,
 }) {
@@ -46,6 +48,9 @@ export default function RosterMotivoModal({
   };
 
   const tsLabel = formatMotivoTs(musician.motivo_estado_actualizado_at);
+  const personEvents = events.filter(
+    (event) => String(event.id_integrante) === String(musician.id),
+  );
 
   return createPortal(
     <div
@@ -58,8 +63,8 @@ export default function RosterMotivoModal({
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-hidden animate-in zoom-in-95 duration-150">
-        <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-slate-100 bg-amber-50/80">
+      <div className="w-full max-w-md max-h-[90vh] flex flex-col rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-hidden animate-in zoom-in-95 duration-150">
+        <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-slate-100 bg-amber-50/80 shrink-0">
           <div className="min-w-0">
             <h2
               id="roster-motivo-title"
@@ -81,7 +86,7 @@ export default function RosterMotivoModal({
           </button>
         </div>
 
-        <div className="p-4 space-y-3">
+        <div className="p-4 space-y-3 overflow-y-auto">
           <p className="text-[11px] text-slate-500 leading-snug">
             Nota interna sobre la convocatoria manual o el marcado como ausente
             (visible solo en gestión de gira).
@@ -95,17 +100,26 @@ export default function RosterMotivoModal({
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             disabled={!isEditor}
-            rows={5}
+            rows={4}
             placeholder={
               isEditor
                 ? "Ej.: reemplazo último momento, enfermedad, conflicto de fechas…"
                 : ""
             }
-            className="w-full text-sm rounded-xl border border-slate-200 px-3 py-2 text-slate-800 placeholder:text-slate-400 focus:ring-2 focus:ring-amber-400/40 focus:border-amber-300 outline-none resize-y min-h-[100px] disabled:bg-slate-50 disabled:text-slate-600"
+            className="w-full text-sm rounded-xl border border-slate-200 px-3 py-2 text-slate-800 placeholder:text-slate-400 focus:ring-2 focus:ring-amber-400/40 focus:border-amber-300 outline-none resize-y min-h-[88px] disabled:bg-slate-50 disabled:text-slate-600"
           />
+          <div className="border-t border-slate-100 pt-3">
+            <h3 className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
+              Altas y bajas
+            </h3>
+            <p className="text-[10px] text-slate-400 mt-0.5 mb-2">
+              Altas, bajas, ausencias y vueltas a presente de esta persona.
+            </p>
+            <RosterHistorialList events={personEvents} />
+          </div>
         </div>
 
-        <div className="px-4 py-3 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
+        <div className="px-4 py-3 bg-slate-50 border-t border-slate-100 flex justify-end gap-2 shrink-0">
           <button
             type="button"
             onClick={onClose}

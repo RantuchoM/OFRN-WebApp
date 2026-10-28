@@ -17,6 +17,7 @@ import {
   mapRosterForSeating,
   seatingApellidoNombre,
 } from "./integranteDisplayName";
+import { appendFuncionGiraTag } from "./funcionGira";
 
 // Identifica si un instrumento es cuerda (códigos tal cual en BD; sin forzar "1"→"01")
 const isStringInstrument = (id) =>
@@ -35,7 +36,7 @@ const getComposerName = (obra) => {
   return "Autor Desconocido";
 };
 
-const appendDispositionTable = (doc, containers, validItems, startY, title) => {
+const appendDispositionTable = (doc, containers, validItems, startY, title, roster) => {
   if (title) {
     doc.setFontSize(10);
     doc.setFont("helvetica", "bold");
@@ -59,7 +60,12 @@ const appendDispositionTable = (doc, containers, validItems, startY, title) => {
         );
         const item = groupItems[i];
         if (!item?.integrantes) return "";
-        const label = seatingApellidoNombre(item.integrantes);
+        const label = appendFuncionGiraTag(
+          seatingApellidoNombre(item.integrantes),
+          (roster || []).find(
+            (m) => integranteKey(m.id) === integranteKey(item.id_musico),
+          ) || item.integrantes,
+        );
         return label ? `${label}.` : "";
       }),
     );
@@ -143,6 +149,7 @@ export const generateSeatingPdf = async (supabase, gira, localRepertorio, roster
         validItems,
         cursorY,
         title,
+        roster,
       );
       cursorY += 6;
     }
@@ -192,7 +199,7 @@ export const generateSeatingPdf = async (supabase, gira, localRepertorio, roster
     const tableHeaders = [["Músico", ...obrasList.map(o => `${truncate(cleanHTML(o.composer), 10)}\n${truncate(cleanHTML(o.title), 12)}`)]];
 
     const tableBody = otherMusicians.map((m) => {
-      const row = [seatingApellidoNombre(m)];
+      const row = [appendFuncionGiraTag(seatingApellidoNombre(m), m)];
       obrasList.forEach((o) => {
         // Buscar asignación
         const mid = integranteKey(m.id_integrante ?? m.id);

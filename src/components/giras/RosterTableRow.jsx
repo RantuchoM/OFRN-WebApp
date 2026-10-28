@@ -14,7 +14,11 @@ import {
 import WhatsAppLink from "../ui/WhatsAppLink";
 import { seatingApellidoNombre } from "../../utils/integranteDisplayName";
 import { formatRolGiraLabel } from "../../utils/giraUtils";
-import { formatRosterStamp } from "../../utils/rosterHistorial";
+import {
+  funcionGiraTagClass,
+  isRolMusico,
+  rosterFuncionTag,
+} from "../../utils/funcionGira";
 import {
   getMissingDocLabels,
   ROSTER_DOC_FIELDS,
@@ -102,11 +106,10 @@ export default function RosterTableRow({
   isLicenciaFlashing = false,
   visibleColumns,
   isEditor,
-  rolesList,
   instrumentsList = [],
   defaultRolId,
   onToggleSelection,
-  onChangeRole,
+  onOpenRol,
   onChangeInstrument,
   onEdit,
   onSwap,
@@ -117,14 +120,11 @@ export default function RosterTableRow({
   pendingBajaForRow,
   onCopyLink,
   onOpenMotivoModal,
-  onOpenHistorial,
   grupoTags = [],
   onRemoveFromGrupo,
 }) {
   const showMotivoStick =
-    Boolean(m.en_giras_integrantes) &&
-    !pendingBajaForRow &&
-    (isEditor || !!(m.motivo_estado && String(m.motivo_estado).trim()));
+    Boolean(m.en_giras_integrantes) && !pendingBajaForRow;
 
   const motivoStick = showMotivoStick ? (
     <button
@@ -142,9 +142,9 @@ export default function RosterTableRow({
       title={
         m.motivo_estado?.trim()
           ? `Motivo: ${m.motivo_estado}`
-          : "Motivo en roster (alta / ausencia)"
+          : "Motivo e historial en roster"
       }
-      aria-label="Ver o editar motivo en roster"
+      aria-label="Ver motivo e historial en roster"
     />
   ) : null;
 
@@ -153,14 +153,9 @@ export default function RosterTableRow({
     : "";
 
   const missingDocLabels = getMissingDocLabels(m, ROSTER_DOC_FIELDS);
-  const altaStamp = m.en_giras_integrantes
-    ? formatRosterStamp(m.roster_alta_at)
-    : "";
-  const altaTitle = altaStamp
-    ? m.roster_alta_por_label
-      ? `Alta ${altaStamp} · ${m.roster_alta_por_label}`
-      : `Alta ${altaStamp}`
-    : "";
+  const funcionTag = rosterFuncionTag(m);
+  const roleOpensModal =
+    isEditor && !m.es_simulacion && (!isRolMusico(m.rol_gira || defaultRolId) || !funcionTag);
 
   return (
     <tr
@@ -197,18 +192,15 @@ export default function RosterTableRow({
       <td
         className={`py-1.5 px-1 md:px-2 md:pl-3 border-r border-slate-100/50 w-[25%] md:w-28 md:max-w-[7rem] ${mutedCell}`}
       >
-        {isEditor && !m.es_simulacion ? (
-          <select
-            className="text-[10px] md:text-[11px] font-bold uppercase border-none bg-transparent outline-none cursor-pointer w-full max-w-full -ml-1 text-slate-700 truncate"
-            value={m.rol_gira || defaultRolId}
-            onChange={(e) => onChangeRole(m, e.target.value)}
+        {roleOpensModal ? (
+          <button
+            type="button"
+            onClick={() => onOpenRol?.(m)}
+            className="text-left text-[10px] md:text-[11px] font-bold uppercase border-none bg-transparent outline-none cursor-pointer w-full max-w-full text-slate-700 truncate hover:text-fixed-indigo-700"
+            title="Cambiar rol"
           >
-            {rolesList.map((r) => (
-              <option key={r.id} value={r.id}>
-                {formatRolGiraLabel(r.id)}
-              </option>
-            ))}
-          </select>
+            {formatRolGiraLabel(m.rol_gira || defaultRolId)}
+          </button>
         ) : (
           <span className="text-[10px] md:text-[11px] font-bold uppercase text-slate-600 block truncate">
             {formatRolGiraLabel(m.rol_gira || defaultRolId)}
@@ -247,6 +239,23 @@ export default function RosterTableRow({
             {m.instrumentos?.instrumento || "-"}
           </span>
         )}
+        {funcionTag &&
+          (isEditor ? (
+            <button
+              type="button"
+              onClick={() => onOpenRol?.(m)}
+              className={`mt-0.5 inline-flex max-w-full truncate px-1 py-px rounded border text-[8px] font-bold uppercase tracking-tight cursor-pointer hover:brightness-95 ${funcionGiraTagClass(funcionTag.id)}`}
+              title="Cambiar rol"
+            >
+              {funcionTag.label}
+            </button>
+          ) : (
+            <span
+              className={`mt-0.5 inline-flex max-w-full truncate px-1 py-px rounded border text-[8px] font-bold uppercase tracking-tight ${funcionGiraTagClass(funcionTag.id)}`}
+            >
+              {funcionTag.label}
+            </span>
+          ))}
       </td>
 
       {/* APELLIDO, NOMBRE + NOTA INTERNA - 30% móvil */}
@@ -297,20 +306,6 @@ export default function RosterTableRow({
                 </span>
               ))}
           </div>
-          {altaStamp && (
-            <button
-              type="button"
-              className="text-left text-[9px] md:text-[10px] font-normal text-slate-400 hover:text-indigo-600 truncate max-w-full"
-              title={altaTitle}
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                onOpenHistorial?.(m);
-              }}
-            >
-              {altaTitle}
-            </button>
-          )}
           {m.nota_interna && (
             <div className="hidden md:block group relative w-fit">
               <div className="bg-yellow-100 border border-yellow-200 text-yellow-800 text-[10px] px-2 py-0.5 rounded-sm shadow-sm flex items-center gap-1 cursor-help transform -rotate-1 hover:rotate-0 transition-transform origin-left max-w-[160px]">

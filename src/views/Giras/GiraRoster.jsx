@@ -23,7 +23,6 @@ import {
   IconBell,
   IconTag,
   IconUpload,
-  IconHistory,
 } from "../../components/ui/Icons";
 import { useGiraRoster } from "../../hooks/useGiraRosterQuery";
 import {
@@ -59,7 +58,8 @@ import RosterMotivoModal from "../../components/giras/RosterMotivoModal";
 import RosterBajaModal from "../../components/giras/RosterBajaModal";
 import RosterGroupsModal from "../../components/giras/RosterGroupsModal";
 import RosterBulkImportModal from "../../components/giras/RosterBulkImportModal";
-import RosterHistorialModal from "../../components/giras/RosterHistorialModal";
+import ConvocarModal from "../../components/giras/ConvocarModal";
+import RosterRolModal from "../../components/giras/RosterRolModal";
 import NotificationQueuePanel from "../../components/giras/NotificationQueuePanel";
 import DataIntegrityIndicator, {
   ROSTER_DOC_FIELDS,
@@ -73,7 +73,10 @@ import {
 } from "../../services/giraGruposService";
 import { toast } from "sonner";
 import { applyMultiTokenOrIlike, filterAndRankMultiTokenSearch, matchesMultiTokenSearch, scoreMultiTokenSearch } from "../../utils/sanitize";
-import PersonSelectWithCreate from "../../components/filters/PersonSelectWithCreate";
+import {
+  funcionGiraRowClass,
+  sanitizeFuncionPayload,
+} from "../../utils/funcionGira";
 import UniversalExporter from "../../components/ui/UniversalExporter";
 import InstrumentationBadges, {
   computeRequired,
@@ -528,8 +531,6 @@ export default function GiraRoster({
   const { user } = useAuth();
   const actorId = user?.id ?? null;
   const [rosterHistorial, setRosterHistorial] = useState([]);
-  const [historialOpen, setHistorialOpen] = useState(false);
-  const [historialIntegranteId, setHistorialIntegranteId] = useState(null);
   const {
     roster: rawRoster,
     loading: hookLoading,
@@ -645,9 +646,7 @@ export default function GiraRoster({
   };
 
   // UI States
-  const [addMode, setAddMode] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
-  const [searchResults, setSearchResults] = useState([]);
   const [sortBy, setSortBy] = useState(readStoredRosterSortBy);
   const [showInstrumentSeparators, setShowInstrumentSeparators] = useState(true);
   const [seatingSortCtx, setSeatingSortCtx] = useState(null);
@@ -679,10 +678,10 @@ export default function GiraRoster({
   }, [sortBy]);
 
   useEffect(() => {
-    setIndividualAddRoleId(DEFAULT_ROL_ID);
     setDetailedCreateRoleId(DEFAULT_ROL_ID);
-    setPendingIndividualAdd(null);
     setPendingDetailedLink(null);
+    setConvocarOpen(false);
+    setRolEditMusician(null);
   }, [gira?.id]);
 
   useEffect(() => {
@@ -833,20 +832,15 @@ export default function GiraRoster({
 
   const [showOrderMenu, setShowOrderMenu] = useState(false);
   const [showFilterMenu, setShowFilterMenu] = useState(false);
-  const [showSelectionMenu, setShowSelectionMenu] = useState(false);
+  const [convocarOpen, setConvocarOpen] = useState(false);
+  const [rolEditMusician, setRolEditMusician] = useState(null);
+  const [savingRol, setSavingRol] = useState(false);
   const orderMenuRef = useRef(null);
   const filterMenuRef = useRef(null);
-  const selectionMenuRef = useRef(null);
 
   // States Modales
   const [isCreatingDetailed, setIsCreatingDetailed] = useState(false);
   const [tempName, setTempName] = useState({ nombre: "", apellido: "" });
-  /** Rol revisado en el paso posterior a elegir persona (listado / invitado rápido). */
-  const [individualAddRoleId, setIndividualAddRoleId] = useState(
-    DEFAULT_ROL_ID,
-  );
-  /** Pendiente de confirmar alta individual (persona ya elegida, sin insert en gira aún). */
-  const [pendingIndividualAdd, setPendingIndividualAdd] = useState(null);
   /** Ficha nueva creada: falta elegir rol y vincular a esta gira. */
   const [pendingDetailedLink, setPendingDetailedLink] = useState(null);
   /** Rol para el paso de vincular tras ficha completa. */
@@ -1242,12 +1236,6 @@ export default function GiraRoster({
   }, [sources]);
 
   useEffect(() => {
-    if (addMode === "individual" && searchTerm.length > 0)
-      searchIndividual(searchTerm);
-    else setSearchResults([]);
-  }, [searchTerm, addMode]);
-
-  useEffect(() => {
     const handleClickOutside = (event) => {
       const inAnchoredMenu = (key) =>
         event.target instanceof Element &&
@@ -1271,13 +1259,6 @@ export default function GiraRoster({
         !inAnchoredMenu("filter")
       ) {
         setShowFilterMenu(false);
-      }
-      if (
-        selectionMenuRef.current &&
-        !selectionMenuRef.current.contains(event.target) &&
-        !inAnchoredMenu("selection")
-      ) {
-        setShowSelectionMenu(false);
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
@@ -1306,7 +1287,6 @@ export default function GiraRoster({
       nombre: parts[0] || "",
       apellido: parts.slice(1).join(" ") || "",
     });
-    setPendingIndividualAdd(null);
     setPendingDetailedLink(null);
     setDetailedCreateRoleId(DEFAULT_ROL_ID);
     setIsCreatingDetailed(true);
@@ -1548,7 +1528,6 @@ export default function GiraRoster({
     setEditingMusician(null);
     setIsCreatingDetailed(false);
     setDetailedCreateRoleId(DEFAULT_ROL_ID);
-    setPendingIndividualAdd(null);
 
     // 2. Si el formulario nos devolvió datos (porque se cerró con la X o botón Cerrar modificado)
     // actualizamos la tabla localmente sin recargar la BD.
@@ -1562,22 +1541,6 @@ export default function GiraRoster({
       );
     }
   };
-  const changeRole = async (musician, newRole) => {
-    // Optimistic: Aunque la lista es dinámica, el rol es una string (FK o texto)
-    setLocalRoster((prev) => {
-      // Re-ordenar implicaría lógica compleja optimistic, mejor solo actualizar valor
-      return prev.map((m) =>
-        m.id === musician.id ? { ...m, rol_gira: newRole } : m,
-      );
-    });
-
-    await supabase.from("giras_integrantes").upsert(
-      buildGiraIntegranteUpsert(gira.id, musician, { rol: newRole }, actorId),
-      { onConflict: "id_gira, id_integrante" },
-    );
-    refreshRoster();
-  };
-
   const changeInstrument = async (musician, newInstrId) => {
     const profileId = musician.id_instr_perfil ?? musician.id_instr ?? "";
     const normalizedNew =
@@ -1635,7 +1598,6 @@ export default function GiraRoster({
     );
     if (inserts.length > 0)
       await supabase.from("giras_fuentes").insert(inserts);
-    setAddMode(null);
     const newRoster = await refreshRoster();
     if (
       !skipNotifications &&
@@ -1880,6 +1842,53 @@ export default function GiraRoster({
     ]);
   };
 
+  const handleConvocarGroups = async (ensSet, famSet, exclSet) => {
+    setLoadingAction(true);
+    try {
+      const groupUpdate = buildGroupUpdatePayload(ensSet, famSet, exclSet);
+      setSelectedEnsembles(groupUpdate.selectedEnsembles);
+      setSelectedFamilies(groupUpdate.selectedFamilies);
+      setSelectedExclEnsembles(groupUpdate.selectedExclEnsembles);
+      if (await tryOpenGroupChangeModal(groupUpdate)) return;
+      await applyGroupUpdate(
+        groupUpdate.selectedEnsembles,
+        groupUpdate.selectedFamilies,
+        groupUpdate.selectedExclEnsembles,
+      );
+      setConvocarOpen(false);
+    } finally {
+      setLoadingAction(false);
+    }
+  };
+
+  const handleConvocarPeople = async (rows) => {
+    setLoadingAction(true);
+    try {
+      for (const row of rows) {
+        const membership = filterMembershipRowsForProgramDate(
+          row.person.integrantes_ensambles || [],
+          gira.fecha_desde,
+        );
+        const musicianData = {
+          ...row.person,
+          integrantes_ensambles: membership,
+          nombre_completo: seatingApellidoNombre(row.person),
+        };
+        const ok = await addManualMusician(
+          row.person.id,
+          musicianData,
+          true,
+          row.rol,
+          { funcion: row.funcion, id_cubre_a: row.id_cubre_a },
+        );
+        if (!ok) return;
+      }
+      setConvocarOpen(false);
+    } finally {
+      setLoadingAction(false);
+    }
+  };
+
   const handleUpdateGroups = async () => {
     setLoadingAction(true);
     try {
@@ -1955,6 +1964,7 @@ export default function GiraRoster({
     musicianData,
     sendNotification = true,
     rol = DEFAULT_ROL_ID,
+    funcionInput = null,
   ) => {
     const idLink = integranteIdForDb(musicianId);
     if (idLink == null) {
@@ -1962,6 +1972,19 @@ export default function GiraRoster({
       return false;
     }
     const rolEfectivo = resolveTourRoleOverride(rol, musicianData);
+    const funcionPayload = sanitizeFuncionPayload(
+      musicianData,
+      rolEfectivo,
+      funcionInput?.funcion,
+      funcionInput?.id_cubre_a,
+    );
+    if (
+      funcionPayload.funcion === "reemplazo" &&
+      funcionPayload.id_cubre_a == null
+    ) {
+      toast.error("Reemplazo: elegí a quién cubre.");
+      return false;
+    }
     const { error } = await supabase.from("giras_integrantes").insert(
       stampRosterActor(
         {
@@ -1969,6 +1992,8 @@ export default function GiraRoster({
           id_integrante: idLink,
           estado: "confirmado",
           rol: rolEfectivo,
+          funcion: funcionPayload.funcion,
+          id_cubre_a: funcionPayload.id_cubre_a,
         },
         actorId,
       ),
@@ -1977,7 +2002,6 @@ export default function GiraRoster({
       if (isUniqueViolation(error)) {
         toast.info("Esta persona ya está convocada en esta gira.");
         setSearchTerm("");
-        setSearchResults([]);
         await refreshRoster();
         scrollToIntegranteInTable(idLink);
         return true;
@@ -2012,12 +2036,57 @@ export default function GiraRoster({
       ]);
     }
     setSearchTerm("");
-    setSearchResults([]);
     refreshRoster();
     return true;
   };
 
-  // --- Baja con modal (ausente o desconvocar): no reordenar ni notificar hasta confirmar ---
+  const saveRolFuncion = async (musician, { rol, funcion, id_cubre_a }) => {
+    const payload = sanitizeFuncionPayload(
+      musician,
+      rol,
+      funcion,
+      id_cubre_a,
+    );
+    if (payload.funcion === "reemplazo" && payload.id_cubre_a == null) {
+      toast.error("Reemplazo: elegí a quién cubre.");
+      return;
+    }
+    setSavingRol(true);
+    setLocalRoster((prev) =>
+      prev.map((m) =>
+        m.id === musician.id
+          ? {
+              ...m,
+              rol_gira: rol,
+              funcion_gira: payload.funcion,
+              id_cubre_a: payload.id_cubre_a,
+            }
+          : m,
+      ),
+    );
+    const { error } = await supabase.from("giras_integrantes").upsert(
+      buildGiraIntegranteUpsert(
+        gira.id,
+        musician,
+        {
+          rol,
+          funcion: payload.funcion,
+          id_cubre_a: payload.id_cubre_a,
+          estado: musician.estado_gira || "confirmado",
+        },
+        actorId,
+      ),
+      { onConflict: "id_gira, id_integrante" },
+    );
+    setSavingRol(false);
+    if (error) {
+      toast.error("No se pudo guardar el rol: " + error.message);
+      refreshRoster();
+      return;
+    }
+    setRolEditMusician(null);
+    refreshRoster();
+  };
   const requestBaja = (musician, action) => {
     if (pendingBaja) return;
     setPendingBaja({
@@ -2487,46 +2556,6 @@ export default function GiraRoster({
     );
   };
 
-  const searchIndividual = async (term) => {
-    const cleanTerm = term.trim();
-    if (!cleanTerm) {
-      setSearchResults([]);
-      return;
-    }
-    let query = supabase
-      .from("integrantes")
-      .select(
-        "id, nombre, apellido, nombre_preferencia, apellido_preferencia, mail, instrumentos(instrumento), cuil",
-      );
-    query = applyMultiTokenOrIlike(
-      query,
-      ["nombre", "apellido", "nombre_preferencia", "apellido_preferencia"],
-      cleanTerm,
-    );
-    const { data } = await query.limit(80);
-    const currentIds = new Set(localRoster.map((r) => integranteKey(r.id)));
-    const withFlag = filterAndRankMultiTokenSearch(
-      data || [],
-      (m) => [
-        m.nombre,
-        m.apellido,
-        m.nombre_preferencia,
-        m.apellido_preferencia,
-        [m.apellido, m.nombre].filter(Boolean).join(" "),
-        [m.nombre, m.apellido].filter(Boolean).join(" "),
-        m.mail,
-        m.cuil,
-        m.instrumentos?.instrumento,
-      ],
-      cleanTerm,
-    )
-      .slice(0, 30)
-      .map((m) => ({
-        ...m,
-        isAlreadyInTour: currentIds.has(integranteKey(m.id)),
-      }));
-    setSearchResults(withFlag);
-  };
 
   const isPlausiblyEmail = (value) =>
     /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
@@ -2722,109 +2751,6 @@ export default function GiraRoster({
 
   const currentSortLabel = sortLabelMap[sortBy] || "Rol";
 
-  const handleSelectIndividual = async (payload) => {
-    if (!payload) {
-      setPendingIndividualAdd(null);
-      return;
-    }
-    const idInt =
-      typeof payload === "object" && payload.id ? payload.id : payload;
-    if (idInt == null || idInt === "") return;
-
-    const idKey = integranteKey(idInt);
-    const already = localRoster.some((m) => integranteKey(m.id) === idKey);
-    const idForQuery = integranteIdForDb(idInt);
-    if (idForQuery == null) {
-      toast.error("ID de integrante inválido.");
-      return;
-    }
-    if (already) {
-      setPendingIndividualAdd(null);
-      scrollToIntegranteInTable(idForQuery);
-      return;
-    }
-
-    // Traer datos completos (incluyendo mail) para poder encolar notificación
-    let musicianData = {
-      id: idForQuery,
-      apellido: "",
-      nombre: "",
-      mail: null,
-    };
-
-    try {
-      const { data, error } = await supabase
-        .from("integrantes")
-        .select(
-          `*, instrumentos(instrumento, familia, rol_gira_default),
-           integrantes_ensambles(id, id_ensamble, fecha_desde, fecha_hasta, ensambles(id, ensamble))`,
-        )
-        .eq("id", idForQuery)
-        .maybeSingle();
-
-      if (!error && data) {
-        musicianData = {
-          id: data.id,
-          apellido: data.apellido || "",
-          nombre: data.nombre || "",
-          mail: data.mail || null,
-          instrumentos: data.instrumentos || null,
-          integrantes_ensambles: filterMembershipRowsForProgramDate(
-            data.integrantes_ensambles || [],
-            gira.fecha_desde,
-          ),
-          nombre_completo:
-            data.nombre_completo ||
-            seatingApellidoNombre(data),
-        };
-      } else {
-        const label =
-          typeof payload === "object" && payload.label ? payload.label : "";
-        const [apellido, nombre] = label.split(",").map((p) => p.trim());
-        musicianData = {
-          id: idForQuery,
-          apellido: apellido || "",
-          nombre: nombre || "",
-          mail: null,
-        };
-      }
-    } catch {
-      const label =
-        typeof payload === "object" && payload.label ? payload.label : "";
-      const [apellido, nombre] = label.split(",").map((p) => p.trim());
-      musicianData = {
-        id: idForQuery,
-        apellido: apellido || "",
-        nombre: nombre || "",
-        mail: null,
-      };
-    }
-
-    const label =
-      musicianData.nombre_completo ||
-      seatingApellidoNombre(musicianData);
-    setIndividualAddRoleId(inferDefaultTourRole(musicianData));
-    setPendingIndividualAdd({ idForQuery, musicianData, label });
-  };
-
-  const confirmPendingIndividualAdd = async () => {
-    if (!pendingIndividualAdd?.idForQuery) return;
-    const ok = await addManualMusician(
-      pendingIndividualAdd.idForQuery,
-      pendingIndividualAdd.musicianData,
-      true,
-      individualAddRoleId,
-    );
-    if (ok) {
-      setPendingIndividualAdd(null);
-      setIndividualAddRoleId(DEFAULT_ROL_ID);
-    }
-  };
-
-  const cancelPendingIndividualAdd = () => {
-    setPendingIndividualAdd(null);
-    setIndividualAddRoleId(DEFAULT_ROL_ID);
-  };
 
   // --- OBTENER ESTILOS DE FILA (MODIFICADO PARA DB ROLES) ---
   const getRowStyles = (m, isSelected) => {
@@ -2856,6 +2782,12 @@ export default function GiraRoster({
     if (m.es_simulacion) {
       // Vacante
       baseStyle.className += " bg-amber-100 border-l-amber-400 text-slate-800";
+      return baseStyle;
+    }
+
+    const funcionClass = funcionGiraRowClass(m);
+    if (funcionClass) {
+      baseStyle.className += funcionClass;
       return baseStyle;
     }
 
@@ -3482,99 +3414,16 @@ export default function GiraRoster({
             </RosterAnchoredMenu>
           </div>
 
-          {/* CONVOCAR (Grupos / Individual / Vacante) */}
-          <div className="relative" ref={selectionMenuRef}>
-            <button
-              type="button"
-              onClick={() => setShowSelectionMenu((v) => !v)}
-              className="flex items-center gap-1.5 px-3 py-1.5 border rounded-lg text-xs font-bold bg-white text-slate-600 hover:bg-slate-50"
-            >
-              <IconUsers size={12} />
-              <span className="hidden sm:inline">Convocar</span>
-              <IconChevronDown size={12} />
-            </button>
-            <RosterAnchoredMenu
-              open={showSelectionMenu}
-              anchorRef={selectionMenuRef}
-              menuKey="selection"
-              menuWidth={256}
-              className="p-3 space-y-2"
-            >
-                <div className="text-[10px] font-bold text-slate-500 uppercase">
-                  Modos de convocatoria
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAddMode((prev) => (prev === "groups" ? null : "groups"));
-                    setShowSelectionMenu(false);
-                  }}
-                  className={`w-full text-left px-2 py-1.5 rounded hover:bg-slate-50 flex items-center justify-between ${
-                    addMode === "groups" ? "font-bold text-fixed-indigo-700" : ""
-                  }`}
-                >
-                  <span>Grupos</span>
-                  {addMode === "groups" && (
-                    <IconArrowRight size={10} className="rotate-90" />
-                  )}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAddMode((prev) =>
-                      prev === "individual" ? null : "individual",
-                    );
-                    setShowSelectionMenu(false);
-                  }}
-                  className={`w-full text-left px-2 py-1.5 rounded hover:bg-slate-50 flex items-center justify-between ${
-                    addMode === "individual"
-                      ? "font-bold text-fixed-indigo-700"
-                      : ""
-                  }`}
-                >
-                  <span>Individual</span>
-                  {addMode === "individual" && (
-                    <IconArrowRight size={10} className="rotate-90" />
-                  )}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsBulkImportOpen(true);
-                    setShowSelectionMenu(false);
-                  }}
-                  className="w-full text-left px-2 py-1.5 rounded hover:bg-slate-50 flex items-center justify-between text-fixed-indigo-700"
-                >
-                  <span>Individual (Excel)</span>
-                  <IconUpload size={12} />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsVacancyModalOpen(true);
-                    setShowSelectionMenu(false);
-                  }}
-                  className="w-full text-left px-2 py-1.5 rounded hover:bg-slate-50 flex items-center justify-between text-amber-700"
-                >
-                  <span>Nueva vacante</span>
-                  <IconUserPlus size={12} />
-                </button>
-            </RosterAnchoredMenu>
-          </div>
+          <button
+            type="button"
+            onClick={() => setConvocarOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 border rounded-lg text-xs font-bold bg-white text-slate-600 hover:bg-slate-50"
+          >
+            <IconUsers size={12} />
+            <span className="hidden sm:inline">Convocar</span>
+          </button>
 
           <div className="shrink-0 flex items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => {
-                setHistorialIntegranteId(null);
-                setHistorialOpen(true);
-              }}
-              className="flex items-center gap-1.5 px-3 py-1.5 border rounded-lg text-xs font-bold bg-white text-slate-600 hover:bg-slate-50 border-slate-200"
-              title="Altas, bajas y cambios de presencia"
-            >
-              <IconHistory size={12} />
-              <span className="hidden sm:inline">Historial</span>
-            </button>
             {isEditor && (
               <button
                 type="button"
@@ -3693,131 +3542,6 @@ export default function GiraRoster({
           </div>
         </div>
       </div>
-
-      {/* CONTROLES AGREGAR (renderizados sólo cuando hay modo activo) */}
-      {(addMode === "groups" || addMode === "individual") && (
-        <div className="px-3 py-2 bg-slate-50/50 border-b border-slate-100 flex gap-3 items-start overflow-visible z-20">
-          {addMode === "groups" && (
-            <div className="flex gap-3 flex-wrap animate-in slide-in-from-left-2 items-start bg-white p-3 rounded border border-slate-200 shadow-sm">
-            <div className="w-40">
-              <MultiSelectDropdown
-                label="Ensambles"
-                placeholder="Seleccionar..."
-                options={ensemblesList}
-                value={Array.from(selectedEnsembles)}
-                onChange={(arr) => setSelectedEnsembles(new Set(arr))}
-              />
-            </div>
-            <div className="w-40">
-              <MultiSelectDropdown
-                label="Familias"
-                placeholder="Seleccionar..."
-                options={familiesList}
-                value={Array.from(selectedFamilies)}
-                onChange={(arr) => setSelectedFamilies(new Set(arr))}
-              />
-            </div>
-            <div className="w-40">
-              <MultiSelectDropdown
-                label="EXCLUIR Ens."
-                placeholder="Seleccionar..."
-                options={ensemblesList}
-                value={Array.from(selectedExclEnsembles)}
-                onChange={(arr) => setSelectedExclEnsembles(new Set(arr))}
-              />
-            </div>
-            <button
-              onClick={handleUpdateGroups}
-              disabled={loadingAction}
-              className="mt-5 bg-fixed-indigo-600 text-white px-3 py-2 rounded text-xs font-bold hover:bg-fixed-indigo-700 shadow-sm disabled:opacity-50 h-[38px]"
-            >
-              Actualizar
-            </button>
-            </div>
-          )}
-          {addMode === "individual" && (
-            <div className="flex flex-col gap-2 animate-in slide-in-from-left-2">
-              <div className="w-72 min-w-[12rem] max-w-full">
-                <PersonSelectWithCreate
-                  supabase={supabase}
-                  value={null}
-                  onChange={handleSelectIndividual}
-                  isMulti={false}
-                  placeholder="Buscar o crear invitado rápido..."
-                />
-              </div>
-              {pendingIndividualAdd && (
-                <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-end gap-2 p-2.5 rounded-lg border border-fixed-indigo-200 bg-fixed-indigo-50/60 max-w-xl">
-                  <p className="text-xs text-slate-800 sm:flex-1 min-w-0">
-                    <span className="font-bold text-slate-600">Convocar:</span>{" "}
-                    <span className="font-semibold text-fixed-indigo-900">
-                      {pendingIndividualAdd.label}
-                    </span>
-                  </p>
-                  <div className="flex flex-wrap items-end gap-2">
-                    <div className="w-40 sm:w-44">
-                      <label
-                        htmlFor="gira-roster-individual-rol"
-                        className="block text-[10px] font-bold uppercase tracking-wide text-slate-500 mb-0.5"
-                      >
-                        Rol en la gira
-                      </label>
-                      <select
-                        id="gira-roster-individual-rol"
-                        value={individualAddRoleId}
-                        onChange={(e) =>
-                          setIndividualAddRoleId(e.target.value)
-                        }
-                        className="w-full border border-slate-300 rounded-lg px-2 py-1.5 text-xs bg-white text-slate-800 font-semibold focus:ring-2 focus:ring-fixed-indigo-500 focus:border-fixed-indigo-500 outline-none"
-                      >
-                        {(rolesList.length > 0
-                          ? rolesList
-                          : [{ id: DEFAULT_ROL_ID }]
-                        ).map((r) => (
-                          <option key={r.id} value={r.id}>
-                            {formatRolGiraLabel(r.id)}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={confirmPendingIndividualAdd}
-                      className="px-3 py-1.5 text-xs font-bold text-white bg-fixed-indigo-600 rounded-lg hover:bg-fixed-indigo-700"
-                    >
-                      Agregar a la gira
-                    </button>
-                    <button
-                      type="button"
-                      onClick={cancelPendingIndividualAdd}
-                      className="px-3 py-1.5 text-xs font-semibold text-slate-600 border border-slate-300 rounded-lg hover:bg-slate-100"
-                    >
-                      Cancelar
-                    </button>
-                  </div>
-                </div>
-              )}
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 self-start">
-                <button
-                  type="button"
-                  onClick={handleOpenDetailedCreate}
-                  className="text-[11px] font-semibold text-fixed-indigo-600 hover:text-fixed-indigo-800 hover:underline"
-                >
-                  Nueva ficha completa…
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsBulkImportOpen(true)}
-                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-fixed-indigo-600 hover:text-fixed-indigo-800 hover:underline"
-                >
-                  <IconUpload size={12} />
-                  Carga masiva (Excel)
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
 
       {/* TABLA */}
       <div className="flex-1 overflow-y-auto overflow-x-auto p-4 z-10 min-w-0">
@@ -3939,7 +3663,7 @@ export default function GiraRoster({
                         isEditor ? handleRemoveFromGrupo : undefined
                       }
                       onToggleSelection={handleRowCheckboxClick}
-                      onChangeRole={changeRole}
+                      onOpenRol={isEditor ? setRolEditMusician : undefined}
                       onChangeInstrument={changeInstrument}
                       onEdit={setEditingMusician}
                       onSwap={setSwapTarget}
@@ -3956,10 +3680,6 @@ export default function GiraRoster({
                       onOpenMotivoModal={(musician) =>
                         setMotivoModalMusician(musician)
                       }
-                      onOpenHistorial={(musician) => {
-                        setHistorialIntegranteId(musician.id);
-                        setHistorialOpen(true);
-                      }}
                     />
                   </React.Fragment>
                 );
@@ -3983,22 +3703,10 @@ export default function GiraRoster({
       </div>
 
       {/* --- MODALES --- */}
-      <RosterHistorialModal
-        open={historialOpen}
-        events={rosterHistorial}
-        integranteId={historialIntegranteId}
-        personLabel={
-          historialIntegranteId == null
-            ? ""
-            : seatingApellidoNombre(
-                localRoster.find((m) => m.id === historialIntegranteId) || {},
-              )
-        }
-        onClose={() => setHistorialOpen(false)}
-      />
       <RosterMotivoModal
         musician={motivoModalMusician}
         isEditor={isEditor}
+        events={rosterHistorial}
         onClose={() => setMotivoModalMusician(null)}
         onSave={saveMotivoFromModal}
       />
@@ -4110,6 +3818,52 @@ export default function GiraRoster({
         onAssigned={handleVacancyAssigned}
         onDelete={isEditor ? handleDeleteVacancy : undefined}
         ausenteIds={listaAusentes.map((r) => r.id)}
+        ausentes={listaAusentes.map((r) => ({
+          id: r.id,
+          label: seatingApellidoNombre(r),
+        }))}
+      />
+      <ConvocarModal
+        isOpen={convocarOpen}
+        onClose={() => setConvocarOpen(false)}
+        supabase={supabase}
+        rosterIds={(localRoster || []).map((m) => m.id)}
+        rolesList={rolesList}
+        ensemblesList={ensemblesList}
+        familiesList={familiesList}
+        selectedEnsembles={selectedEnsembles}
+        selectedFamilies={selectedFamilies}
+        selectedExclEnsembles={selectedExclEnsembles}
+        ausentes={listaAusentes.map((r) => ({
+          id: r.id,
+          label: seatingApellidoNombre(r),
+        }))}
+        loadingAction={loadingAction}
+        onUpdateGroups={handleConvocarGroups}
+        onAddPeople={handleConvocarPeople}
+        onOpenExcel={() => {
+          setConvocarOpen(false);
+          setIsBulkImportOpen(true);
+        }}
+        onOpenVacancy={() => {
+          setConvocarOpen(false);
+          setIsVacancyModalOpen(true);
+        }}
+        onOpenDetailedCreate={() => {
+          setConvocarOpen(false);
+          handleOpenDetailedCreate();
+        }}
+      />
+      <RosterRolModal
+        musician={rolEditMusician}
+        rolesList={rolesList}
+        ausentes={listaAusentes.map((r) => ({
+          id: r.id,
+          label: seatingApellidoNombre(r),
+        }))}
+        saving={savingRol}
+        onClose={() => setRolEditMusician(null)}
+        onSave={(payload) => saveRolFuncion(rolEditMusician, payload)}
       />
 
       {localNotificacionInicialEnviada && (

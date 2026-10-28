@@ -13,6 +13,7 @@ import {
 } from "../utils/giraUtils";
 import { fetchGiraSegmentosBundle } from "../services/giraSegmentosService";
 import { resolvePersonIsLocal } from "../utils/giraTramos";
+import { cubreALabelFromRef, normalizeFuncionGira } from "../utils/funcionGira";
 
 const INTEGRANTES_SELECT_FULL = `id, nombre, apellido, nombre_preferencia, apellido_preferencia, fecha_alta, fecha_baja, condicion, telefono, mail, alimentacion, es_simulacion, id_instr,
            id_localidad, id_loc_viaticos, id_domicilio_laboral, documentacion, docred, firma, nota_interna, cargo, jornada, motivo,
@@ -85,7 +86,7 @@ export async function fetchRosterForGira(supabase, gira, options = {}) {
     const { data, error: errOverrides } = await supabase
       .from("giras_integrantes")
       .select(
-        "*, creado_por_ref:integrantes!giras_integrantes_creado_por_fkey(nombre, apellido, nombre_preferencia, apellido_preferencia)",
+        "*, creado_por_ref:integrantes!giras_integrantes_creado_por_fkey(nombre, apellido, nombre_preferencia, apellido_preferencia), cubre_a:integrantes!giras_integrantes_id_cubre_a_fkey(nombre, apellido, nombre_preferencia, apellido_preferencia)",
       )
       .eq("id_gira", gira.id);
     if (errOverrides) throw errOverrides;
@@ -115,6 +116,9 @@ export async function fetchRosterForGira(supabase, gira, options = {}) {
       abona_licencia: Boolean(o.abona_licencia),
       created_at: o.created_at ?? null,
       creado_por_ref: o.creado_por_ref ?? null,
+      funcion: normalizeFuncionGira(o.funcion),
+      id_cubre_a: o.id_cubre_a ?? null,
+      cubre_a_ref: o.cubre_a ?? null,
     };
   });
 
@@ -312,6 +316,9 @@ export async function fetchRosterForGira(supabase, gira, options = {}) {
               roster_alta_por_label: manualData.creado_por_ref
                 ? seatingApellidoNombre(manualData.creado_por_ref)
                 : "",
+              funcion_gira: manualData.funcion ?? null,
+              id_cubre_a: manualData.id_cubre_a ?? null,
+              cubre_a_label: cubreALabelFromRef(manualData.cubre_a_ref),
             }
           : {
               motivo_estado: null,
@@ -320,6 +327,9 @@ export async function fetchRosterForGira(supabase, gira, options = {}) {
               abona_licencia: false,
               roster_alta_at: null,
               roster_alta_por_label: "",
+              funcion_gira: null,
+              id_cubre_a: null,
+              cubre_a_label: "",
             }),
       });
     }

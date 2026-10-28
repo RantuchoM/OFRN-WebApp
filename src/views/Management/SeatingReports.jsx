@@ -15,6 +15,7 @@ import SeatingHistoryModal from "../../components/seating/SeatingHistoryModal";
 import { getProgramTypeColor } from "../../utils/giraUtils";
 import { generateSeatingPdf } from "../../utils/seatingPdfExporter";
 import { exportSeatingToExcel } from "../../utils/seatingExcelExporter";
+import { appendFuncionGiraTag } from "../../utils/funcionGira";
 import { fetchRosterForGira } from "../../hooks/useGiraRoster";
 import {
   SEATING_INTEGRANTES_EMBED_MIN,
@@ -264,9 +265,23 @@ export default function SeatingReports({ supabase }) {
         const presentItems = (c.items || []).filter((item) =>
           isMusicianOnConfirmedSeatingRoster(rosterKeys, item.id_musico),
         );
+        const byId = new Map(
+          (roster || []).map((m) => [String(m.id), m]),
+        );
         return {
           ...c,
-          items: presentItems,
+          items: presentItems.map((item) => {
+            const src = byId.get(String(item.id_musico));
+            if (!src || !item.integrantes) return item;
+            return {
+              ...item,
+              integrantes: {
+                ...item.integrantes,
+                funcion_gira: src.funcion_gira ?? null,
+                cubre_a_label: src.cubre_a_label || "",
+              },
+            };
+          }),
         };
       });
     }
@@ -479,9 +494,12 @@ export default function SeatingReports({ supabase }) {
               );
               const item = groupItems[r];
               if (!item?.integrantes) return "";
-              return `${item.integrantes.apellido || ""}, ${
-                item.integrantes.nombre || ""
-              }.`;
+              return appendFuncionGiraTag(
+                `${item.integrantes.apellido || ""}, ${
+                  item.integrantes.nombre || ""
+                }.`,
+                item.integrantes,
+              );
             }),
           );
         }
@@ -539,7 +557,7 @@ export default function SeatingReports({ supabase }) {
         ];
 
         const tableBody = otherMusicians.map((m) => {
-          const row = [seatingApellidoNombre(m)];
+          const row = [appendFuncionGiraTag(seatingApellidoNombre(m), m)];
           obrasList.forEach((o) => {
             const key = `M-${m.id}-${o.obra_id}`;
             const partIds = musicianAssignments[key] || [];
@@ -681,9 +699,12 @@ export default function SeatingReports({ supabase }) {
               const sorted = sortSeatingItems(c.items || []);
               const item = sorted[i];
               if (!item?.integrantes) return "";
-              return `${item.integrantes.apellido || ""}, ${
-                item.integrantes.nombre || ""
-              }.`;
+              return appendFuncionGiraTag(
+                `${item.integrantes.apellido || ""}, ${
+                  item.integrantes.nombre || ""
+                }.`,
+                item.integrantes,
+              );
             });
             const dataRow = sheet.addRow(rowValues);
             dataRow.font = { size: 10, name: "Calibri" };
@@ -740,7 +761,7 @@ export default function SeatingReports({ supabase }) {
 
           otherMusicians.forEach((m) => {
             const rowValues = [
-              seatingApellidoNombre(m),
+              appendFuncionGiraTag(seatingApellidoNombre(m), m),
               ...obrasList.map((o) => {
                 const key = `M-${m.id}-${o.obra_id}`;
                 const partIds = musicianAssignments[key] || [];
@@ -1104,7 +1125,10 @@ export default function SeatingReports({ supabase }) {
                             const integ = item?.integrantes;
                             const cell =
                               integ &&
-                              seatingApellidoNombre(integ);
+                              appendFuncionGiraTag(
+                                seatingApellidoNombre(integ),
+                                integ,
+                              );
                             return (
                               <td
                                 key={`${c.id}-${rowIdx}`}

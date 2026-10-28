@@ -16,6 +16,7 @@ import {
   mapRosterForSeating,
   seatingApellidoNombre,
 } from "./integranteDisplayName";
+import { appendFuncionGiraTag } from "./funcionGira";
 
 const isStringInstrument = (id) =>
   ["01", "02", "03", "04"].includes(String(id ?? "").trim());
@@ -169,7 +170,12 @@ export const exportSeatingToExcel = async (
           const sorted = sortSeatingItems(itemsConfirmedOnly(c.items));
           const item = sorted[i];
           if (!item?.integrantes) return "";
-          const label = seatingApellidoNombre(item.integrantes);
+          const label = appendFuncionGiraTag(
+            seatingApellidoNombre(item.integrantes),
+            (roster || []).find(
+              (m) => integranteKey(m.id) === integranteKey(item.id_musico),
+            ) || item.integrantes,
+          );
           return label ? `${label}.` : "";
         });
         const row = sheet.addRow(rowValues);
@@ -299,7 +305,7 @@ export const exportSeatingToExcel = async (
 
       otherMusicians.forEach((m, index) => {
         const rowValues = [
-          seatingApellidoNombre(m),
+          appendFuncionGiraTag(seatingApellidoNombre(m), m),
           ...obrasList.map((o) => {
             const key = `M-${m.id}-${o.obra_id}`;
             const partIds = Array.isArray(musicianAssignments?.[key])

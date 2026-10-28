@@ -3,6 +3,7 @@
 import { resolveLocalidadResidencia } from "./integranteDomicilioViaticos";
 import { integranteIdForDb, integranteKey } from "./integranteIds";
 import { isCondicionEstable } from "./vacantesLogistics";
+import { isFuncionPasante } from "./funcionGira";
 import { isProduccionParticipanteLabel } from "./participantesSort";
 import {
   isLocalAt,
@@ -520,6 +521,10 @@ export const isUserConvoked = (convocadosList, person, opts = {}) => {
 
   // Bebé en cuna (rooming): no consume → nunca convocado a comidas / eventos por tags.
   if (person.en_cuna === true || person.ocupa_cama === false) return false;
+  // Pasante: solo comidas Tutti. No entra por ID personal ni por otros grupos.
+  if (isFuncionPasante(person)) {
+    return convocadosList.some((tag) => tag === ROSTER_CATEGORIES.TUTTI);
+  }
   const personId = person.id ?? person.id_integrante;
   if (
     opts.cunaExcluidosIds?.length &&
@@ -926,6 +931,48 @@ const ruleMatchesGeoBucketCategory = (
       categoryMatches(cat, pCat, person, categoryContext),
   );
 
+const HOTEL_LOGISTICS_FIELDS = new Set([
+  "checkin",
+  "checkout",
+  "checkin_early",
+  "checkout_late",
+]);
+
+const isTransportLogisticsRule = (rule) =>
+  Boolean(
+    rule &&
+      Object.prototype.hasOwnProperty.call(rule, "id_transporte_fisico") &&
+      rule.id_transporte_fisico != null,
+  );
+
+/** Pasante: hotel y transporte solo por alcance Persona. Comidas siguen el match normal. */
+const pasanteRestrictedToPersona = (rule, options) =>
+  isTransportLogisticsRule(rule) ||
+  HOTEL_LOGISTICS_FIELDS.has(options?.field);
+
+const personaMatchStrength = (rule, person) => {
+  const S = LOGISTICS_MATCH_STRENGTH;
+  const pId = String(person.id ?? person.id_integrante);
+  const scopeNorm = normalize(rule?.alcance);
+  if (
+    scopeNorm === "persona" &&
+    ((rule.target_ids || []).map(String).includes(pId) ||
+      String(rule.id_integrante) === pId)
+  ) {
+    return S.PERSONA;
+  }
+  if (
+    scopeNorm !== "categoria" &&
+    scopeNorm !== "instrumento" &&
+    scopeNorm !== "grupo" &&
+    scopeNorm !== "ensamble" &&
+    (rule.target_ids || []).map(String).includes(pId)
+  ) {
+    return S.PERSONA;
+  }
+  return 0;
+};
+
 /** Fuerza del match para ordenar reglas. Si estado_gira === 'ausente', siempre 0. */
 export const getMatchStrength = (
   rule,
@@ -935,6 +982,9 @@ export const getMatchStrength = (
 ) => {
   if (!rule || !person) return 0;
   if (normalize(person.estado_gira) === "ausente") return 0;
+  if (isFuncionPasante(person) && pasanteRestrictedToPersona(rule, options)) {
+    return personaMatchStrength(rule, person);
+  }
 
   const S = LOGISTICS_MATCH_STRENGTH;
   const { segments, instant, field } = options;
@@ -1222,6 +1272,9 @@ export const matchesRule = (
 ) => {
   if (!rule || !person) return false;
   if (normalize(person.estado_gira) === "ausente") return false;
+  if (isFuncionPasante(person) && pasanteRestrictedToPersona(rule, options)) {
+    return personaMatchStrength(rule, person) > 0;
+  }
 
   const { segments, instant, field } = options;
   const categoryContext = { segments, instant, field };
@@ -1346,6 +1399,7 @@ export const resolveTransportAdmissionStatus = (
   );
 
   if (applicable.length === 0) {
+    if (isFuncionPasante(person)) return "none";
     return isInternalTransport ? "admitted" : "none";
   }
 

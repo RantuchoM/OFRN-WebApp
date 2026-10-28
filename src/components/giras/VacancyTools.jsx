@@ -16,6 +16,11 @@ import {
   legalApellidoNombre,
   seatingApellidoNombre,
 } from "../../utils/integranteDisplayName";
+import {
+  canChooseFuncionGira,
+  sanitizeFuncionPayload,
+} from "../../utils/funcionGira";
+import FuncionGiraChoices from "./FuncionGiraChoices";
 
 export const AddVacancyModal = ({
   isOpen,
@@ -193,12 +198,15 @@ export const SwapVacancyModal = ({
   onAssigned,
   onDelete,
   ausenteIds,
+  ausentes = [],
 }) => {
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [searching, setSearching] = useState(false);
   const [candidates, setCandidates] = useState([]);
   const [selectedRealId, setSelectedRealId] = useState(null);
+  const [funcion, setFuncion] = useState("");
+  const [idCubreA, setIdCubreA] = useState("");
   const { confirm, dialog } = useConfirmDialog();
   const ausenteSet = new Set((ausenteIds || []).map(String));
 
@@ -211,7 +219,7 @@ export const SwapVacancyModal = ({
     const { data } = await supabase
       .from("integrantes")
       .select(
-        "id, nombre, apellido, nombre_preferencia, apellido_preferencia, dni, mail, instrumentos(instrumento)",
+        "id, nombre, apellido, nombre_preferencia, apellido_preferencia, dni, mail, condicion, instrumentos(instrumento)",
       )
       .eq("es_simulacion", false)
       .order("apellido");
@@ -229,6 +237,7 @@ export const SwapVacancyModal = ({
       nombre: p.nombre,
       apellido: p.apellido,
       mail: p.mail,
+      condicion: p.condicion,
       disabled: ausenteSet.has(String(p.id)),
     }));
     setCandidates(options);
@@ -239,6 +248,22 @@ export const SwapVacancyModal = ({
     if (!selectedRealId) return;
     if (ausenteSet.has(String(selectedRealId))) {
       alert("No se puede asignar un titular marcado como ausente en esta gira.");
+      return;
+    }
+    const selectedPerson = candidates.find(
+      (c) => String(c.id) === String(selectedRealId),
+    );
+    const funcionPayload = sanitizeFuncionPayload(
+      selectedPerson,
+      "musico",
+      funcion,
+      idCubreA,
+    );
+    if (
+      funcionPayload.funcion === "reemplazo" &&
+      funcionPayload.id_cubre_a == null
+    ) {
+      alert("Reemplazo: elegí a quién cubre.");
       return;
     }
     if (
@@ -260,8 +285,20 @@ export const SwapVacancyModal = ({
 
       if (error) throw error;
 
+      const realId = parseInt(selectedRealId, 10);
+      if (funcionPayload.funcion) {
+        const { error: funcionError } = await supabase
+          .from("giras_integrantes")
+          .update({
+            funcion: funcionPayload.funcion,
+            id_cubre_a: funcionPayload.id_cubre_a,
+          })
+          .eq("id_gira", giraId)
+          .eq("id_integrante", realId);
+        if (funcionError) throw funcionError;
+      }
+
       if (onAssigned) {
-        const realId = parseInt(selectedRealId, 10);
         const selected = candidates.find((c) => c.id === realId);
         if (selected) {
           onAssigned({
@@ -292,6 +329,11 @@ export const SwapVacancyModal = ({
   };
 
   if (!isOpen || !placeholder) return null;
+
+  const selectedPerson = candidates.find(
+    (c) => String(c.id) === String(selectedRealId),
+  );
+  const showFuncion = canChooseFuncionGira(selectedPerson, "musico");
 
   const selectable = candidates.filter((c) => !c.disabled);
 
@@ -348,10 +390,45 @@ export const SwapVacancyModal = ({
               <SearchableSelect
                 options={selectable}
                 value={selectedRealId}
-                onChange={setSelectedRealId}
+                onChange={(id) => {
+                  setSelectedRealId(id);
+                  setFuncion("");
+                  setIdCubreA("");
+                }}
                 placeholder="Buscar por apellido o DNI..."
                 className="h-10 text-base"
               />
+            )}
+            {showFuncion && (
+              <div className="pt-2 space-y-2">
+                <span className="block text-[10px] font-bold uppercase text-slate-500">
+                  Función
+                </span>
+                <FuncionGiraChoices
+                  name="funcion-vacante"
+                  value={funcion}
+                  onChange={(id) => {
+                    setFuncion(id);
+                    if (id !== "reemplazo") setIdCubreA("");
+                  }}
+                />
+                {funcion === "reemplazo" && (
+                  <select
+                    value={idCubreA}
+                    onChange={(e) => setIdCubreA(e.target.value)}
+                    className="w-full border border-slate-300 rounded px-2 py-1.5 text-sm"
+                  >
+                    <option value="">Ausente…</option>
+                    {(ausentes || [])
+                      .filter((a) => String(a.id) !== String(selectedRealId))
+                      .map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.label}
+                        </option>
+                      ))}
+                  </select>
+                )}
+              </div>
             )}
           </div>
         </div>
