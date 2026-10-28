@@ -9,14 +9,28 @@ import {
   IconPlus,
   IconRefresh,
   IconChevronDown,
-  IconUser,
+  IconSearch,
 } from "../../components/ui/Icons";
-import { formatRolGiraLabel, getProgramStyle, stampRosterActor } from "../../utils/giraUtils";
+import {
+  getProgramStyle,
+  inferDefaultTourRole,
+  resolveTourRoleOverride,
+  stampRosterActor,
+} from "../../utils/giraUtils";
 import { bajaGirasIntegrantes } from "../../services/giraRosterAudit";
 import { useAuth } from "../../context/AuthContext";
 import NotificationQueuePanel from "../../components/giras/NotificationQueuePanel";
+import RosterRolModal from "../../components/giras/RosterRolModal";
+import RosterRolFuncionTags from "../../components/giras/RosterRolFuncionTags";
+import DateInput from "../../components/ui/DateInput";
 import { toast } from "sonner";
 import { touchOrganicoConvocado } from "../../services/organicoConvocadoService";
+import {
+  cubreALabelFromRef,
+  sanitizeFuncionPayload,
+} from "../../utils/funcionGira";
+import { seatingApellidoNombre } from "../../utils/integranteDisplayName";
+import { normalizeForSearch, splitSearchTokens } from "../../utils/sanitize";
 
 // --- HELPERS ---
 const getMonthName = (dateString) => {
@@ -31,6 +45,29 @@ const formatDateDayMonth = (dateString) => {
   if (!dateString) return "-";
   const d = new Date(dateString);
   return `${d.getUTCDate().toString().padStart(2, '0')}/${(d.getUTCMonth() + 1).toString().padStart(2, '0')}`;
+};
+
+const isoFromDate = (date) => {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+};
+
+const yearBounds = (year) => ({
+  from: `${year}-01-01`,
+  to: `${year}-12-31`,
+});
+
+/** El programa pisa el rango si empieza antes del fin y termina después del inicio. */
+const programOverlapsRange = (program, from, to) => {
+  if (!from || !to) return true;
+  const start = program?.fecha_desde || "";
+  const end = program?.fecha_hasta || program?.fecha_desde || "";
+  if (!start) return false;
+  const a = from <= to ? from : to;
+  const b = from <= to ? to : from;
+  return start <= b && end >= a;
 };
 
 // --- COMPONENTE INTERNO: DROPDOWN MULTI-SELECCIÓN ---
@@ -114,8 +151,11 @@ export default function MusicianTourManager({ supabase, musician }) {
   const [rolesList, setRolesList] = useState([]);
   const [ensembleMap, setEnsembleMap] = useState({});
   const [processingId, setProcessingId] = useState(null);
-  const [updatingRole, setUpdatingRole] = useState(null);
+  const [savingRol, setSavingRol] = useState(false);
   const [pendingNotifications, setPendingNotifications] = useState([]);
+  const [rolModal, setRolModal] = useState(null);
+  const [ausentes, setAusentes] = useState([]);
+  const [programQuery, setProgramQuery] = useState("");
 
   const TOUR_TYPE_OPTIONS = [
     "Sinfónico",
@@ -133,15 +173,18 @@ export default function MusicianTourManager({ supabase, musician }) {
     () => new Set(DEFAULT_SELECTED_TOUR_TYPES),
   );
   const [selectedStatuses, setSelectedStatuses] = useState(new Set(["TODOS"]));
-  const [dateRange, setDateRange] = useState("FUTURE");
-  /** Solo giras en las que el músico está convocado (presente), no ausente ni fuera de roster. */
-  const [soloActivas, setSoloActivas] = useState(false);
+  const [dateFrom, setDateFrom] = useState(() => isoFromDate(new Date()));
+  const [dateTo, setDateTo] = useState(
+    () => `${new Date().getFullYear()}-12-31`,
+  );
+  /** Solo programas en los que el músico está convocado (presente). */
+  const [soloConvocadas, setSoloConvocadas] = useState(true);
 
   useEffect(() => {
     if (musician?.id) {
         fetchData();
     }
-  }, [musician?.id, dateRange]);
+  }, [musician?.id, dateFrom, dateTo]);
 
   useEffect(() => {
     if (pendingNotifications.length === 0) return;
@@ -221,7 +264,7 @@ export default function MusicianTourManager({ supabase, musician }) {
         .from("integrantes")
         .select(`
             id, condicion, fecha_alta, fecha_baja, id_instr,
-            instrumentos (familia),
+            instrumentos (familia, rol_gira_default),
             integrantes_ensambles (id, id_ensamble, fecha_desde, fecha_hasta)
         `)
         .eq("id", musician.id)
@@ -234,13 +277,16 @@ export default function MusicianTourManager({ supabase, musician }) {
       let query = supabase
         .from("programas")
         .select(
-          "id, nombre_gira, fecha_desde, fecha_hasta, tipo, estado, mes_letra, zona, nomenclador, notificaciones_habilitadas, notificacion_inicial_enviada",
+          "id, nombre_gira, subtitulo, fecha_desde, fecha_hasta, tipo, estado, mes_letra, zona, nomenclador, notificaciones_habilitadas, notificacion_inicial_enviada",
         )
-        .order("fecha_desde", { ascending: true }); 
+        .order("fecha_desde", { ascending: true });
 
-      if (dateRange === "FUTURE") {
-        const today = new Date().toISOString().split('T')[0];
-        query = query.gte("fecha_hasta", today);
+      const rangeStart = dateFrom <= dateTo ? dateFrom : dateTo;
+      const rangeEnd = dateFrom <= dateTo ? dateTo : dateFrom;
+      if (rangeStart && rangeEnd) {
+        query = query
+          .lte("fecha_desde", rangeEnd)
+          .or(`fecha_hasta.gte.${rangeStart},fecha_hasta.is.null`);
       }
 
       const { data: girasData, error: errGiras } = await query;
@@ -268,7 +314,9 @@ export default function MusicianTourManager({ supabase, musician }) {
 
       const { data: overridesData } = await supabase
         .from("giras_integrantes")
-        .select("id, id_gira, estado, rol, abona_reemplazo, abona_licencia")
+        .select(
+          "id, id_gira, estado, rol, abona_reemplazo, abona_licencia, funcion, id_cubre_a, cubre_a:integrantes!giras_integrantes_id_cubre_a_fkey(nombre, apellido, nombre_preferencia, apellido_preferencia)",
+        )
         .eq("id_integrante", musician.id)
         .in("id_gira", giraIds);
 
@@ -376,19 +424,45 @@ export default function MusicianTourManager({ supabase, musician }) {
     });
   }, [giras, overrides, sourcesMap, dbMusicianData]);
 
+  const searchTokens = useMemo(
+    () => splitSearchTokens(programQuery),
+    [programQuery],
+  );
+  const searching = searchTokens.length > 0;
+
   const filteredList = useMemo(() => {
     return processedGiras.filter((g) => {
-      if (soloActivas && g.computedStatus !== "CONVOCADO") return false;
+      if (!programOverlapsRange(g, dateFrom, dateTo)) return false;
+      if (searching) {
+        const hay = normalizeForSearch(
+          [g.nomenclador, g.mes_letra, g.nombre_gira, g.subtitulo]
+            .filter(Boolean)
+            .join(" "),
+        );
+        if (!searchTokens.every((token) => hay.includes(token))) return false;
+      } else if (soloConvocadas && g.computedStatus !== "CONVOCADO") {
+        return false;
+      }
       if (!selectedTypes.has("TODOS") && !selectedTypes.has(g.tipo))
         return false;
       if (
+        !searching &&
         !selectedStatuses.has("TODOS") &&
         !selectedStatuses.has(g.computedStatus)
       )
         return false;
       return true;
     });
-  }, [processedGiras, selectedTypes, selectedStatuses, soloActivas]);
+  }, [
+    processedGiras,
+    selectedTypes,
+    selectedStatuses,
+    soloConvocadas,
+    dateFrom,
+    dateTo,
+    searching,
+    searchTokens,
+  ]);
 
   // --- ACTIONS ---
   const handleAction = async (giraRow, action) => {
@@ -491,33 +565,157 @@ export default function MusicianTourManager({ supabase, musician }) {
     }
   };
 
-  const handleRoleChange = async (giraId, newRole) => {
+  const buildMemberForRole = (giraRow) => {
+    const ieRows = (dbMusicianData?.integrantes_ensambles || []).filter((ie) =>
+      membershipActiveOnProgramDate(ie, giraRow?.fecha_desde),
+    );
+    return {
+      id: musician.id,
+      apellido: musician.apellido,
+      nombre: musician.nombre,
+      nombre_preferencia: musician.nombre_preferencia,
+      apellido_preferencia: musician.apellido_preferencia,
+      condicion: dbMusicianData?.condicion || musician.condicion,
+      instrumentos: dbMusicianData?.instrumentos,
+      integrantes_ensambles: ieRows.map((ie) => ({
+        ensambles: { ensamble: ensembleMap[ie.id_ensamble] || "" },
+      })),
+    };
+  };
+
+  const resolvedRol = (giraRow) => {
+    const member = buildMemberForRole(giraRow);
+    const override = giraRow.override || overrides[giraRow.id];
+    if (override?.rol) return resolveTourRoleOverride(override.rol, member);
+    return inferDefaultTourRole(member);
+  };
+
+  const personForTags = (giraRow) => {
+    const override = giraRow.override;
+    const rol = resolvedRol(giraRow);
+    return {
+      ...buildMemberForRole(giraRow),
+      rol_gira: rol,
+      funcion_gira: override?.funcion || null,
+      id_cubre_a: override?.id_cubre_a ?? null,
+      cubre_a_label: cubreALabelFromRef(override?.cubre_a),
+      en_giras_integrantes: Boolean(override),
+    };
+  };
+
+  const loadAusentes = async (giraId) => {
+    const { data, error } = await supabase
+      .from("giras_integrantes")
+      .select(
+        "id_integrante, integrantes!giras_integrantes_id_integrante_fkey(id, apellido, nombre, apellido_preferencia, nombre_preferencia)",
+      )
+      .eq("id_gira", giraId)
+      .eq("estado", "ausente");
+    if (error) {
+      console.warn("ausentes:", error.message);
+      return [];
+    }
+    return (data || [])
+      .filter((row) => row.id_integrante != null && String(row.id_integrante) !== String(musician.id))
+      .map((row) => {
+        const person = Array.isArray(row.integrantes)
+          ? row.integrantes[0]
+          : row.integrantes;
+        return {
+          id: row.id_integrante,
+          label: seatingApellidoNombre(person) || `Integrante ${row.id_integrante}`,
+          person,
+        };
+      });
+  };
+
+  const openRolModal = async (giraRow, mode) => {
+    const person = personForTags(giraRow);
+    setRolModal({ gira: giraRow, mode, musician: person });
+    setAusentes([]);
+    const list = await loadAusentes(giraRow.id);
+    setAusentes(list);
+  };
+
+  const saveRolModal = async ({ rol, funcion, id_cubre_a }) => {
+    if (!rolModal?.gira || !musician?.id) return;
+    const giraRow = rolModal.gira;
+    const giraId = giraRow.id;
+    const mode = rolModal.mode;
+    const person = rolModal.musician;
+    const funcionPayload = sanitizeFuncionPayload(person, rol, funcion, id_cubre_a);
+    if (funcionPayload.funcion === "reemplazo" && funcionPayload.id_cubre_a == null) {
+      toast.error("Reemplazo: elegí a quién cubre.");
+      return;
+    }
+
     const currentOverride = overrides[giraId];
-    const existingId = currentOverride?.id;
-    const currentStatus = currentOverride?.estado || "confirmado"; 
-
-    if (currentOverride?.rol === newRole) return;
-
-    setUpdatingRole(giraId);
+    const targetStatus =
+      mode === "convocar" ? "confirmado" : currentOverride?.estado || "confirmado";
+    setSavingRol(true);
+    let queuedMail = false;
     try {
-        const payload = stampRosterActor({ 
-            ...(existingId ? { id: existingId } : {}), 
-            id_gira: giraId, 
-            id_integrante: musician.id, 
-            estado: currentStatus, 
-            rol: newRole 
-        }, user?.id);
-        const { data: savedData, error } = await supabase.from("giras_integrantes").upsert(payload).select().single();
-        if(error) throw error;
+      const payload = stampRosterActor(
+        {
+          ...(currentOverride?.id ? { id: currentOverride.id } : {}),
+          id_gira: giraId,
+          id_integrante: musician.id,
+          estado: targetStatus,
+          rol,
+          funcion: funcionPayload.funcion,
+          id_cubre_a: funcionPayload.id_cubre_a,
+          abona_reemplazo:
+            targetStatus === "ausente"
+              ? Boolean(currentOverride?.abona_reemplazo)
+              : false,
+          abona_licencia:
+            targetStatus === "ausente"
+              ? Boolean(currentOverride?.abona_licencia)
+              : false,
+        },
+        user?.id,
+      );
+      const { data: savedData, error } = await supabase
+        .from("giras_integrantes")
+        .upsert(payload)
+        .select()
+        .single();
+      if (error) throw error;
 
-        setOverrides(prev => ({ ...prev, [giraId]: savedData }));
-        touchOrganicoConvocado(supabase, giraId).catch((err) => {
-          console.warn("organico_convocado:", err?.message || err);
-        });
+      const cubrePerson =
+        ausentes.find((a) => String(a.id) === String(funcionPayload.id_cubre_a))
+          ?.person || null;
+      setOverrides((prev) => ({
+        ...prev,
+        [giraId]: {
+          ...savedData,
+          funcion: funcionPayload.funcion,
+          id_cubre_a: funcionPayload.id_cubre_a,
+          cubre_a: cubrePerson,
+        },
+      }));
+      touchOrganicoConvocado(supabase, giraId).catch((err) => {
+        console.warn("organico_convocado:", err?.message || err);
+      });
+
+      if (mode === "convocar") {
+        queuedMail =
+          enqueueConvocatoriaNotification(
+            giraRow,
+            "ALTA",
+            "Se te convoca individualmente",
+          ) || false;
+      }
+      toast.success(
+        queuedMail
+          ? "Convocatoria guardada. La notificación quedó en cola."
+          : "Rol guardado.",
+      );
+      setRolModal(null);
     } catch (err) {
-      toast.error("Error actualizando rol");
+      toast.error("Error: " + (err?.message || "no se pudo guardar el rol"));
     } finally {
-      setUpdatingRole(null);
+      setSavingRol(false);
     }
   };
 
@@ -534,29 +732,79 @@ export default function MusicianTourManager({ supabase, musician }) {
   return (
     <div className="space-y-4 animate-in fade-in h-full flex flex-col">
         {/* BARRA DE CONTROL */}
-        <div className="flex flex-wrap items-center gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200 shrink-0">
+        <div className="flex flex-col gap-2 bg-slate-50 p-3 rounded-xl border border-slate-200 shrink-0">
+            <div className="relative">
+              <IconSearch size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+              <input
+                type="search"
+                value={programQuery}
+                onChange={(e) => setProgramQuery(e.target.value)}
+                placeholder="Buscar programa (nomenclador, mes, título, subtítulo)"
+                className="w-full border border-slate-300 rounded-lg bg-white pl-8 pr-3 py-2 text-xs text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+            {searching && (
+              <p className="text-[10px] text-slate-500">
+                La búsqueda incluye convocados, ausentes y no convocados dentro del rango de fechas.
+              </p>
+            )}
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="w-36 shrink-0">
+                <DateInput label="Desde" value={dateFrom} onChange={setDateFrom} showDayName={false} />
+              </div>
+              <div className="w-36 shrink-0">
+                <DateInput label="Hasta" value={dateTo} onChange={setDateTo} showDayName={false} />
+              </div>
+              <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  const bounds = yearBounds(new Date().getFullYear());
+                  setDateFrom(bounds.from);
+                  setDateTo(bounds.to);
+                }}
+                className={`text-[10px] font-bold px-3 py-2 rounded-lg border uppercase tracking-wider transition-colors ${
+                  dateFrom === yearBounds(new Date().getFullYear()).from &&
+                  dateTo === yearBounds(new Date().getFullYear()).to
+                    ? "bg-indigo-600 text-white border-indigo-700"
+                    : "bg-white border-slate-300 text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                Todo este año
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const bounds = yearBounds(new Date().getFullYear() + 1);
+                  setDateFrom(bounds.from);
+                  setDateTo(bounds.to);
+                }}
+                className={`text-[10px] font-bold px-3 py-2 rounded-lg border uppercase tracking-wider transition-colors ${
+                  dateFrom === yearBounds(new Date().getFullYear() + 1).from &&
+                  dateTo === yearBounds(new Date().getFullYear() + 1).to
+                    ? "bg-indigo-600 text-white border-indigo-700"
+                    : "bg-white border-slate-300 text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                Año que viene
+              </button>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
             <MultiFilterDropdown label="Tipo Programa" options={typeOptions} selected={selectedTypes} onChange={setSelectedTypes} />
             <MultiFilterDropdown label="Estado" options={statusOptions} selected={selectedStatuses} onChange={setSelectedStatuses} />
             <button
               type="button"
-              onClick={() => setSoloActivas((v) => !v)}
+              onClick={() => setSoloConvocadas((v) => !v)}
               className={`text-[10px] font-bold px-3 py-2 rounded-lg border uppercase tracking-wider transition-colors ${
-                soloActivas
+                soloConvocadas
                   ? "bg-emerald-600 text-white border-emerald-700 shadow-sm"
                   : "bg-white border-slate-300 text-slate-600 hover:bg-slate-50"
               }`}
-              title="Mostrar solo giras en las que está convocado (presente)"
+              title="Mostrar solo programas en los que está convocado (presente)"
             >
-              Solo activas
+              Solo convocadas
             </button>
-            <div className="ml-auto flex items-center gap-2">
-                 <button 
-                    type="button"
-                    onClick={() => setDateRange(prev => prev === "FUTURE" ? "ALL" : "FUTURE")}
-                    className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-3 py-2 rounded-lg hover:bg-indigo-100 transition-colors uppercase tracking-wider"
-                 >
-                    {dateRange === "FUTURE" ? "Ver Historial" : "Ver Futuros"}
-                 </button>
             </div>
         </div>
 
@@ -564,7 +812,7 @@ export default function MusicianTourManager({ supabase, musician }) {
         <div className="flex-1 overflow-y-auto min-h-0 pr-2 custom-scrollbar">
             <div className="grid grid-cols-1 gap-3">
                 {filteredList.length === 0 && (
-                    <div className="text-center py-10 text-slate-400 italic">No hay giras que coincidan con los filtros.</div>
+                    <div className="text-center py-10 text-slate-400 italic">No hay programas que coincidan con los filtros.</div>
                 )}
                 {filteredList.map(gira => {
                     const isProcessing = processingId === gira.id;
@@ -589,27 +837,12 @@ export default function MusicianTourManager({ supabase, musician }) {
                         const borderDarker = borderClass.replace("200", "500").replace("border-", "border-l-");
                         cardClasses = `${bgClass} border ${borderClass} border-l-4 shadow-sm ${borderDarker}`;
                     } else {
-                        cardClasses = "bg-slate-50 border border-slate-200 border-l-4 border-l-slate-300 text-slate-500 opacity-70 grayscale-[0.3]";
+                        cardClasses = "bg-slate-50 border border-slate-200 border-l-4 border-l-slate-300 text-slate-600";
                     }
 
-                    // Lógica para color del Rol
-                    const currentRolId = gira.override?.rol || "musico";
-                    const currentRolData = rolesList.find(r => r.id === currentRolId);
-                    
-                    // Detectar si es Hex (#...) o Clase CSS
-                    let roleStyle = {};
-                    let roleClass = "text-slate-600";
-                    
-                    if (currentRolData?.color) {
-                        if (currentRolData.color.startsWith("#") || currentRolData.color.startsWith("rgb")) {
-                            roleStyle = { color: currentRolData.color };
-                            roleClass = ""; // Usamos style
-                        } else {
-                            roleClass = currentRolData.color; // Usamos clase
-                        }
-                    }
-                    
                     const monthName = getMonthName(gira.fecha_desde);
+                    const tagPerson = personForTags(gira);
+                    const notConvoked = !isConvocado && !isAusente;
 
                     return (
                         <div key={gira.id} className={`p-4 rounded-xl transition-all shadow-sm ${cardClasses} relative group`}>
@@ -624,7 +857,7 @@ export default function MusicianTourManager({ supabase, musician }) {
 
                                 {/* COLUMNA CENTRAL: DATOS */}
                                 <div className="flex-1 min-w-0">
-                                    <div className="flex items-center flex-wrap gap-2 mb-1 opacity-70">
+                                    <div className={`flex items-center flex-wrap gap-2 mb-1 ${notConvoked ? "opacity-90" : "opacity-70"}`}>
                                         {!isConvocado && !isAusente && (
                                             <span className={`text-[9px] font-black uppercase tracking-wider px-1.5 rounded border bg-white ${borderClass} ${textClass}`}>
                                                 {gira.tipo}
@@ -644,7 +877,7 @@ export default function MusicianTourManager({ supabase, musician }) {
                                         </span>
                                     </div>
 
-                                    <h4 className={`font-bold text-base truncate ${isConvocado ? 'opacity-100' : 'opacity-80'}`}>
+                                    <h4 className={`font-bold text-base truncate ${isConvocado ? "opacity-100" : "opacity-95"}`}>
                                         {gira.nombre_gira}
                                     </h4>
                                     
@@ -698,29 +931,31 @@ export default function MusicianTourManager({ supabase, musician }) {
                                       </div>
                                     )}
                                     
-                                    {/* Selector Rol */}
-                                    <div className="flex items-center gap-1 bg-white/50 px-2 py-1 rounded-lg border border-black/5 hover:border-black/10 transition-colors">
-                                        <IconUser size={12} className="opacity-40" style={roleStyle} />
-                                        <div className="relative">
-                                            {updatingRole === gira.id ? (
-                                                <IconLoader className="animate-spin opacity-50" size={12} />
-                                            ) : (
-                                                <select
-                                                    value={currentRolId}
-                                                    onChange={(e) => handleRoleChange(gira.id, e.target.value)}
-                                                    style={roleStyle}
-                                                    className={`bg-transparent text-[10px] font-black outline-none cursor-pointer hover:opacity-80 transition-all pr-4 appearance-none uppercase tracking-wide w-24 text-right truncate ${roleClass}`}
-                                                >
-                                                    {rolesList.map(role => (
-                                                        <option key={role.id} value={role.id} className="text-slate-600 font-bold">
-                                                            {formatRolGiraLabel(role.id)}
-                                                        </option>
-                                                    ))}
-                                                </select>
-                                            )}
-                                            <IconChevronDown size={10} className="absolute right-0 top-1/2 -translate-y-1/2 opacity-40 pointer-events-none" style={roleStyle} />
-                                        </div>
-                                    </div>
+                                    {notConvoked ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => openRolModal(gira, "convocar")}
+                                        disabled={isProcessing}
+                                        className="min-w-[7.5rem] px-2 py-1.5 rounded-lg border border-slate-300 bg-white text-center text-[11px] font-bold text-slate-600 hover:border-indigo-300 hover:text-indigo-700 disabled:opacity-50"
+                                        title="Elegir rol y convocar"
+                                      >
+                                        No convocado/a
+                                      </button>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        onClick={() => openRolModal(gira, "edit")}
+                                        disabled={isProcessing}
+                                        className="flex min-w-[7.5rem] items-center justify-center px-2 py-1.5 rounded-lg border border-black/5 bg-white/80 hover:border-indigo-300 disabled:opacity-50"
+                                        title="Cambiar rol y función"
+                                      >
+                                        <RosterRolFuncionTags
+                                          person={tagPerson}
+                                          rolesList={rolesList}
+                                          variant="card"
+                                        />
+                                      </button>
+                                    )}
 
                                     {/* Botones de Acción */}
                                     <div>
@@ -759,7 +994,7 @@ export default function MusicianTourManager({ supabase, musician }) {
                                         )}
 
                                         {gira.situation === "NONE" && (
-                                            <button type="button" onClick={() => handleAction(gira, "SET_PRESENT")} disabled={isProcessing} className={`${btnSolidClass} bg-indigo-600 text-white hover:bg-indigo-700`}>
+                                            <button type="button" onClick={() => openRolModal(gira, "convocar")} disabled={isProcessing} className={`${btnSolidClass} bg-indigo-600 text-white hover:bg-indigo-700`}>
                                                 {isProcessing ? <IconLoader className="animate-spin" size={14}/> : <IconPlus size={14}/>} 
                                                 <span className="hidden sm:inline">Sumar Adicional</span>
                                             </button>
@@ -772,6 +1007,17 @@ export default function MusicianTourManager({ supabase, musician }) {
                 })}
             </div>
         </div>
+
+      <RosterRolModal
+        musician={rolModal?.musician || null}
+        rolesList={rolesList}
+        ausentes={ausentes}
+        saving={savingRol}
+        title={rolModal?.mode === "convocar" ? "Convocar" : "Cambiar rol"}
+        confirmLabel={rolModal?.mode === "convocar" ? "Convocar" : "Guardar"}
+        onClose={() => setRolModal(null)}
+        onSave={saveRolModal}
+      />
 
       {pendingNotifications.length > 0 && (
         <NotificationQueuePanel

@@ -12,9 +12,10 @@ export default function FuncionGiraChoices({
   value,
   onChange,
   name = "funcion-gira",
+  className = "",
 }) {
   return (
-    <div className="flex flex-wrap gap-1.5" role="radiogroup">
+    <div className={`flex flex-wrap gap-1.5 ${className}`} role="radiogroup">
       {OPTIONS.map((opt) => {
         const selected = (value || "") === opt.id;
         return (

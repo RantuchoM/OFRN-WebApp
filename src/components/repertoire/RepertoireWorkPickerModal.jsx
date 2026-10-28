@@ -79,6 +79,11 @@ const getComposers = (obra) =>
       ? `${obra.compositores.apellido}, ${obra.compositores.nombre}`
       : "Anónimo";
 
+const organicoOf = (obra) =>
+  String(obra?.instrumentacion || "").trim() ||
+  calculateInstrumentation(obra?.obras_particellas) ||
+  "";
+
 const getArranger = (obra) => {
   const arr = obra.obras_compositores?.find((oc) => oc.rol === "arreglador");
   return arr
@@ -597,10 +602,7 @@ export default function RepertoireWorkPickerModal({
             const isSelected = selectedSet.has(Number(w.id));
             const { borderClass, cardBorderClass } =
               getObraEstadoMobileCardStyles(w.estado);
-                    const instr =
-                      w.instrumentacion ||
-                      calculateInstrumentation(w.obras_particellas) ||
-                      "-";
+                    const instr = organicoOf(w) || "-";
             return (
               <div
                 key={w.id}
@@ -706,7 +708,7 @@ export default function RepertoireWorkPickerModal({
               <th className="p-2">Obra</th>
               <th className="p-2">Arreglador</th>
               <th className="p-2 text-center">Duración</th>
-              <th className="p-2 text-center">Instr.</th>
+              <th className="p-2 text-center">Orgánico</th>
               <th className="p-2 text-center">Año</th>
               <th className="p-2 text-center">Drive</th>
               <th className="p-2 text-center">Notas</th>
@@ -716,6 +718,7 @@ export default function RepertoireWorkPickerModal({
           <tbody className="divide-y divide-slate-50">
             {filteredLibrary.map((w) => {
               const isSelected = selectedSet.has(Number(w.id));
+              const organico = organicoOf(w);
               return (
                 <tr
                   key={w.id}
@@ -742,8 +745,16 @@ export default function RepertoireWorkPickerModal({
                         ))}
                     </div>
                   </td>
-                  <td className="p-2 text-slate-800 truncate">
-                    <RichTextPreview content={w.titulo} />
+                  <td className="p-2 text-slate-800 min-w-0">
+                    <div className="truncate">
+                      <RichTextPreview content={w.titulo} />
+                    </div>
+                    <div
+                      className="mt-0.5 truncate font-mono text-[10px] leading-tight text-slate-500"
+                      title={organico || undefined}
+                    >
+                      {organico || "—"}
+                    </div>
                   </td>
                   <td className="p-2 text-slate-500 truncate max-w-0">
                     {w.arreglador_full !== "-" ? w.arreglador_full : ""}
@@ -752,10 +763,8 @@ export default function RepertoireWorkPickerModal({
                     {formatSecondsToTime(w.duracion_segundos)}
                   </td>
                   <td className="p-2 text-center font-mono text-[10px] text-slate-500 bg-slate-50/50 rounded">
-                    <div className="line-clamp-3 break-all whitespace-normal">
-                      {w.instrumentacion ||
-                        calculateInstrumentation(w.obras_particellas) ||
-                        "-"}
+                    <div className="line-clamp-3 break-all whitespace-normal" title={organico || undefined}>
+                      {organico || "-"}
                     </div>
                   </td>
                   <td className="p-2 text-center text-slate-500">

@@ -977,7 +977,7 @@ function QuickWorkRow({
       setWorkDropdownPos(null);
       return undefined;
     }
-    const updatePosition = () => setWorkDropdownPos(getDropdownPosition(workInputRef, 320));
+    const updatePosition = () => setWorkDropdownPos(getDropdownPosition(workInputRef, 420));
     updatePosition();
     window.addEventListener("resize", updatePosition);
     window.addEventListener("scroll", updatePosition, true);
@@ -1571,6 +1571,10 @@ function QuickWorkRow({
                     const composerLabel = workComposer
                       ? `${workComposer.apellido}${workComposer.nombre ? `, ${workComposer.nombre}` : ""}`
                       : "";
+                    const organico =
+                      String(w.instrumentacion || "").trim() ||
+                      calculateInstrumentation(w.obras_particellas || []) ||
+                      "";
                     return (
                       <div
                         key={w.id}
@@ -1625,28 +1629,28 @@ function QuickWorkRow({
                           }}
                           className="flex-1 text-left flex flex-col gap-0.5 min-w-0"
                         >
-                          <span
-                            className="font-semibold text-[11px] text-slate-800 truncate"
-                            title={cleanTitle}
-                          >
-                            {cleanTitle}
-                          </span>
-                          <div className="flex items-center justify-between gap-2 text-[10px] text-slate-500 min-w-0">
-                            <span className="truncate">
-                              {!selectedComposer && composerLabel ? (
-                                <span className="text-slate-600">{composerLabel}</span>
-                              ) : (
-                                <span className="font-mono">
-                                  {w.instrumentacion ||
-                                    calculateInstrumentation(w.obras_particellas || []) ||
-                                    "-"}
-                                </span>
-                              )}
+                          <span className="flex items-baseline justify-between gap-2 min-w-0">
+                            <span
+                              className="font-semibold text-[11px] text-slate-800 truncate"
+                              title={cleanTitle}
+                            >
+                              {cleanTitle}
                             </span>
-                            <span className="font-mono shrink-0">
+                            <span className="font-mono shrink-0 text-[10px] text-slate-500">
                               {formatSecondsToTime(w.duracion_segundos || 0)}
                             </span>
-                          </div>
+                          </span>
+                          {!selectedComposer && composerLabel ? (
+                            <span className="truncate text-[10px] text-slate-600">
+                              {composerLabel}
+                            </span>
+                          ) : null}
+                          <span
+                            className="truncate font-mono text-[10px] text-slate-500"
+                            title={organico || undefined}
+                          >
+                            {organico || "—"}
+                          </span>
                         </button>
                       </div>
                     );

@@ -387,8 +387,12 @@ const resolveExplicitInstrument = (prefix, normalizedCatalog, fullCatalog) => {
   if (/saxo|saxof/i.test(rawL)) {
     return pickCatalog(normalizedCatalog, (i) => /saxof/i.test(i.instrumento || ""));
   }
-  // Euphonium / barítono de banda (no hay id propio en catálogo core) → Tuba
-  if (/bar[ií]tono|euphonium|bombardino/i.test(rawL)) {
+  // Euphonium / barítono de banda (no hay id propio en catálogo core) → Tuba.
+  // "Voz Barítono" es la cuerda vocal, no un bombardino.
+  if (
+    !/^(voz|voces|voice|coro)\b/i.test(rawL) &&
+    /bar[ií]tono|euphonium|bombardino/i.test(rawL)
+  ) {
     return pickCatalog(normalizedCatalog, (i) => /tuba/i.test(i.instrumento || ""));
   }
   // Corneta de banda → Trompeta

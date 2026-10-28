@@ -20,6 +20,7 @@ export default function RosterRolFuncionTags({
   person,
   rolesList,
   className = "",
+  variant = "dense",
 }) {
   if (!person) return null;
   const rolId = person.rol_gira ?? person.rol ?? person.rol_roster ?? "";
@@ -31,11 +32,16 @@ export default function RosterRolFuncionTags({
   const tint = role?.color ? hexToRgba(role.color) : null;
   if (!roleLabel && !tag) return null;
 
+  const chip =
+    variant === "card"
+      ? "inline-flex max-w-full items-center justify-center rounded border px-1.5 py-0.5 text-[10px] font-bold uppercase leading-none tracking-tight"
+      : "inline-flex max-w-full truncate items-center rounded border px-1 py-px text-[8px] font-bold uppercase leading-none tracking-tight";
+
   return (
-    <span className={`inline-flex max-w-full flex-wrap items-center gap-1 ${className}`}>
+    <span className={`inline-flex max-w-full flex-wrap items-center justify-center gap-1 ${className}`}>
       {roleLabel ? (
         <span
-          className={`inline-flex max-w-full truncate items-center rounded border px-1 py-px text-[8px] font-bold uppercase leading-none tracking-tight ${
+          className={`${chip} ${
             tint ? "" : "border-slate-300 bg-slate-100 text-slate-600"
           }`}
           style={
@@ -53,7 +59,7 @@ export default function RosterRolFuncionTags({
       ) : null}
       {tag ? (
         <span
-          className={`inline-flex max-w-full truncate items-center rounded border px-1 py-px text-[8px] font-bold uppercase leading-none tracking-tight ${funcionGiraTagClass(tag.id)}`}
+          className={`${chip} ${funcionGiraTagClass(tag.id)}`}
           title={tag.label}
         >
           {tag.label}

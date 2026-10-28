@@ -40,6 +40,8 @@ Con solo nombre y apellido el formulario permite crear la ficha. El resto de cam
 
 ## Feedback visual del botón "Crear Ficha"
 
+El botón vive en una barra fija debajo del scroll, solo mientras la ficha no tiene `id`. Con ficha ya guardada esa barra no está: **Sincronizado** queda en el encabezado y se cierra con la X.
+
 - **Cargando** (`loading === true`): texto "Creando...", opacidad reducida (`opacity-80`), `cursor-wait`.
 - **Formulario inválido** (`!isValid` y no cargando): estilo deshabilitado (`opacity-50`, `grayscale-[0.3]`, `cursor-not-allowed`). El botón sigue con `disabled={loading || !isValid}`.
 

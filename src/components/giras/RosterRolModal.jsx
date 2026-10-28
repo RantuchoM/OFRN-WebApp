@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { IconX } from "../ui/Icons";
+import { IconChevronDown, IconX } from "../ui/Icons";
 import { formatRolGiraLabel, DEFAULT_ROL_ID } from "../../utils/giraUtils";
 import {
   canChooseFuncionGira,
@@ -16,6 +16,8 @@ export default function RosterRolModal({
   onClose,
   onSave,
   saving = false,
+  title = "Cambiar rol",
+  confirmLabel = "Guardar",
 }) {
   const [rol, setRol] = useState(musician?.rol_gira || DEFAULT_ROL_ID);
   const [funcion, setFuncion] = useState(musician?.funcion_gira || "");
@@ -61,7 +63,7 @@ export default function RosterRolModal({
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-md border border-slate-200">
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
           <div>
-            <h3 className="text-sm font-bold text-slate-800">Cambiar rol</h3>
+            <h3 className="text-sm font-bold text-slate-800">{title}</h3>
             <p className="text-[11px] text-slate-500">
               {seatingApellidoNombre(musician)}
             </p>
@@ -80,19 +82,25 @@ export default function RosterRolModal({
             <span className="block text-[10px] font-bold uppercase tracking-wide text-slate-500 mb-1">
               Rol en la gira
             </span>
-            <select
-              value={rol}
-              onChange={(e) => setRol(e.target.value)}
-              className="w-full border border-slate-300 rounded-lg px-2 py-1.5 text-sm bg-white"
-            >
-              {(rolesList?.length ? rolesList : [{ id: DEFAULT_ROL_ID }]).map(
-                (r) => (
-                  <option key={r.id} value={r.id}>
-                    {formatRolGiraLabel(r.id)}
-                  </option>
-                ),
-              )}
-            </select>
+            <div className="relative">
+              <select
+                value={rol}
+                onChange={(e) => setRol(e.target.value)}
+                className="w-full border border-slate-300 rounded-lg pl-8 pr-8 py-1.5 text-sm bg-white text-center appearance-none"
+              >
+                {(rolesList?.length ? rolesList : [{ id: DEFAULT_ROL_ID }]).map(
+                  (r) => (
+                    <option key={r.id} value={r.id}>
+                      {formatRolGiraLabel(r.id)}
+                    </option>
+                  ),
+                )}
+              </select>
+              <IconChevronDown
+                size={14}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400"
+              />
+            </div>
           </label>
           {eligible && (
             <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
@@ -100,6 +108,7 @@ export default function RosterRolModal({
                 Función
               </span>
               <FuncionGiraChoices
+                className="justify-center"
                 value={funcion}
                 onChange={(id) => {
                   setFuncion(id);
@@ -142,7 +151,7 @@ export default function RosterRolModal({
             onClick={handleSave}
             className="px-3 py-1.5 text-xs font-bold text-white bg-fixed-indigo-600 rounded-lg hover:bg-fixed-indigo-700 disabled:opacity-40"
           >
-            Guardar
+            {confirmLabel}
           </button>
         </div>
       </div>

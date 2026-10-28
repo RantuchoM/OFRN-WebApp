@@ -111,12 +111,21 @@ export default function MusicianForm({
                 </select>
               </div>
             </div>
-            <button
-              onClick={() => onCancel(formData)} // CAMBIO 1: Pasar formData
-              className="bg-white/90 p-2 rounded-full text-slate-500 hover:text-red-500 shadow-sm transition-all focus:outline-none"
-            >
-              <IconX size={20} />
-            </button>
+            <div className="flex items-center gap-3 shrink-0">
+              {formData.id && (
+                <div className="flex items-center gap-2 text-[10px] font-black text-white/90 uppercase tracking-widest whitespace-nowrap">
+                  <div className="w-2 h-2 rounded-full bg-emerald-300 animate-pulse"></div>
+                  Sincronizado
+                </div>
+              )}
+              <button
+                onClick={() => onCancel(formData)}
+                className="bg-white/90 p-2 rounded-full text-slate-500 hover:text-red-500 shadow-sm transition-all focus:outline-none"
+                aria-label="Cerrar"
+              >
+                <IconX size={20} />
+              </button>
+            </div>
           </div>
         </div>
 
@@ -131,7 +140,7 @@ export default function MusicianForm({
             },
             { id: "docs", label: "Sistema", icon: <IconLink size={16} /> },
 
-            { id: "giras", label: "Giras", icon: <IconCalendar size={16} /> },
+            { id: "giras", label: "Convocatorias", icon: <IconCalendar size={16} /> },
           ].map((tab) => (
             <button
               key={tab.id}
@@ -162,45 +171,33 @@ export default function MusicianForm({
             )}
             {activeTab === "giras" && !formData.id && (
               <div className="text-center p-10 text-slate-400">
-                Debes guardar la ficha del músico antes de gestionar sus giras.
+                Debes guardar la ficha del músico antes de gestionar sus convocatorias.
               </div>
             )}
 
-            <div className="pt-8 border-t flex justify-end items-center gap-4 sticky bottom-0 bg-white pb-4 z-10 shrink-0">
-              <button
-                type="button"
-                onClick={() => onCancel(formData)} // CAMBIO 1 (Footer): Pasar formData
-                className="text-slate-400 font-bold text-xs uppercase tracking-widest hover:text-slate-600 transition-all"
-              >
-                Cerrar
-              </button>
-              {!formData.id && (
-                <button
-                  type="button"
-                  onClick={handleSubmit(handleCreateInitial)}
-                  disabled={loading || !canCreate}
-                  className={`bg-indigo-600 text-white px-12 py-4 rounded-2xl font-black text-xs uppercase tracking-[0.2em] flex items-center gap-3 transition-all
-                    ${loading ? "opacity-80 cursor-wait" : ""}
-                    ${!canCreate && !loading ? "opacity-50 grayscale-[0.3] cursor-not-allowed" : "disabled:opacity-50 disabled:cursor-not-allowed"}
-                  `}
-                >
-                  {loading ? (
-                    <IconLoader className="animate-spin" size={18} />
-                  ) : (
-                    <IconSave size={18} />
-                  )}{" "}
-                  {loading ? "Creando..." : "CREAR FICHA"}
-                </button>
-              )}
-              {formData.id && (
-                <div className="flex items-center gap-2 text-[10px] font-black text-slate-300 uppercase tracking-widest">
-                  <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></div>{" "}
-                  Sincronizado
-                </div>
-              )}
-            </div>
           </form>
         </div>
+
+        {!formData.id && (
+          <div className="shrink-0 border-t bg-white px-8 py-4 flex justify-end">
+            <button
+              type="button"
+              onClick={handleSubmit(handleCreateInitial)}
+              disabled={loading || !canCreate}
+              className={`bg-indigo-600 text-white px-12 py-4 rounded-2xl font-black text-xs uppercase tracking-[0.2em] flex items-center gap-3 transition-all
+                ${loading ? "opacity-80 cursor-wait" : ""}
+                ${!canCreate && !loading ? "opacity-50 grayscale-[0.3] cursor-not-allowed" : "disabled:opacity-50 disabled:cursor-not-allowed"}
+              `}
+            >
+              {loading ? (
+                <IconLoader className="animate-spin" size={18} />
+              ) : (
+                <IconSave size={18} />
+              )}{" "}
+              {loading ? "Creando..." : "CREAR FICHA"}
+            </button>
+          </div>
+        )}
 
         <ConfirmDialog
           isOpen={!!pendingTrash}

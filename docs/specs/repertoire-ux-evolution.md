@@ -77,6 +77,7 @@ Permitir mover obras dentro del mismo bloque y entre bloques con feedback visual
 - **Chips de un clic:** Solo cuerdas, Quinteto de maderas, Quinteto de metales, Vientos (sin cuerdas), Solo percusión
 - **Comportamiento:** al elegir un preset se aplican `stringsFilter`, `strictMode` y reglas de instrumentos; el botón Orgánico muestra el nombre del preset activo
 - **Modal Agregar Obra:** un preset o filtro de orgánico activo dispara la carga de la biblioteca (hasta ~2000 obras) sin exigir texto en compositor/obra/arreglador
+- **Orgánico en resultados (2026-10-28):** el modal muestra `obras.instrumentacion` bajo el título y en la columna Orgánico. El desplegable de la fila rápida (`QuickWorkRow`) muestra el mismo texto junto al compositor y la duración, también cuando la búsqueda es solo por título.
 - **Panel de filtro:** altura limitada al viewport (abre arriba del botón si no hay espacio abajo); cuerpo con scroll y footer fijo (Limpiar / Filtrar siempre visible)
 - **Orgánico indeterminado:** si una obra no tiene orgánico claro (vacío, texto vago o sin notación parseable), **no se excluye** por el filtro de orgánico (`workMatchesInstrumentationFilter` en `instrumentation.js`; aplica en picker y `RepertoireView`).
 - **Vista móvil del picker (2026-06-22):** tarjetas compactas al estilo `RepertoireManager`. Filtros arriba, **una línea por filtro** (etiqueta a la izquierda, campo/desplegable a la derecha): Compositor, Obra, Arreglador, Orgánico.
