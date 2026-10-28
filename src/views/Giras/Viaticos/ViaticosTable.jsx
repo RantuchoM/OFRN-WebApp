@@ -14,7 +14,7 @@ import SeguimientoColorSelect, {
 } from "../../../components/viaticos/SeguimientoColorSelect";
 import "./ViaticosSheet.css";
 import { seatingApellidoNombre } from "../../../utils/integranteDisplayName";
-import { formatRolGiraLabel } from "../../../utils/giraUtils";
+import RosterRolFuncionTags from "../../../components/giras/RosterRolFuncionTags";
 import {
   VIATICOS_SORT_APELLIDO,
   VIATICOS_SORT_ROL,
@@ -469,6 +469,7 @@ export default function ViaticosTable({
   onFusionarTramos,
   exportRenunciaViaticos = true,
   onExportRenunciaViaticosChange,
+  rolesList = [],
 }) {
   const [showBackup, setShowBackup] = useState(false);
   const [useHistoricalLocal, setUseHistoricalLocal] = useState(useHistoricalCalc);
@@ -1028,8 +1029,11 @@ export default function ViaticosTable({
                             />
                           )}
 
-                          <div className="mt-0.5 text-[9px] text-slate-400 truncate">
-                            {formatRolGiraLabel(row.rol_roster)}
+                          <div className="mt-0.5 min-w-0">
+                            <RosterRolFuncionTags
+                              person={row}
+                              rolesList={rolesList}
+                            />
                           </div>
                         </div>
 

@@ -31,6 +31,7 @@ import {
 import RendicionForm from "./RendicionForm";
 import DestaquesLocationPanel from "./DestaquesLocationPanel";
 import ViaticosTable from "./ViaticosTable";
+import RosterRolFuncionTags from "../../../components/giras/RosterRolFuncionTags";
 import DesdoblarViaticosModal from "./DesdoblarViaticosModal";
 import { PDFDocument } from "pdf-lib";
 import { Toaster, toast } from "sonner";
@@ -96,7 +97,6 @@ import {
   MotivoLugarExportWarningTitle,
 } from "./MotivoLugarExportWarning";
 import { VIATICOS_ROOT_FOLDER_URL } from "../../../utils/driveFolders";
-import { formatRolGiraLabel } from "../../../utils/giraUtils";
 
 const uint8ArrayToBase64 = (uint8Array) => {
   let binary = "";
@@ -168,6 +168,7 @@ const MemberSearchSelect = ({
   onChange,
   placeholder,
   autoFocus = false,
+  rolesList = [],
 }) => {
   const [search, setSearch] = useState("");
   const inputRef = useRef(null);
@@ -282,13 +283,12 @@ const MemberSearchSelect = ({
                   >
                     {checked && <IconCheck size={12} className="text-white" />}
                   </div>
-                  <div className="flex flex-col min-w-0">
+                  <div className="flex min-w-0 flex-col gap-0.5">
                     <span className="truncate">{opt.label}</span>
-                    {opt.subLabel && (
-                      <span className="text-[10px] text-slate-400 font-normal">
-                        {opt.subLabel}
-                      </span>
-                    )}
+                    <RosterRolFuncionTags
+                      person={opt.person}
+                      rolesList={rolesList}
+                    />
                   </div>
                 </div>
               </div>
@@ -324,6 +324,7 @@ export default function ViaticosManager({ supabase, giraId }) {
   const pendingUpdatesRef = useRef({});
 
   const [giraData, setGiraData] = useState(null);
+  const [rolesList, setRolesList] = useState([]);
   const giraObj = useMemo(() => giraData || { id: giraId }, [giraData, giraId]);
   const {
     summary,
@@ -335,6 +336,20 @@ export default function ViaticosManager({ supabase, giraId }) {
     allEvents,
     sedeIds,
   } = useLogistics(supabase, giraObj);
+
+  useEffect(() => {
+    let cancelled = false;
+    supabase
+      .from("roles")
+      .select("id, color, orden")
+      .order("orden", { ascending: true })
+      .then(({ data }) => {
+        if (!cancelled && data) setRolesList(data);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase]);
 
   const logisticsMap = useMemo(
     () =>
@@ -651,7 +666,6 @@ export default function ViaticosManager({ supabase, giraId }) {
           p.rol_gira ||
           p.rol ||
           "Sin nombre";
-        const rol = formatRolGiraLabel(p.rol_gira || p.rol) || "";
         const instrRel = Array.isArray(p.instrumentos)
           ? p.instrumentos[0]
           : p.instrumentos;
@@ -663,8 +677,8 @@ export default function ViaticosManager({ supabase, giraId }) {
         return {
           id: p.id,
           name,
-          rol,
           instrumento,
+          person: p,
         };
       })
       .sort((a, b) => a.name.localeCompare(b.name, "es"));
@@ -693,7 +707,7 @@ export default function ViaticosManager({ supabase, giraId }) {
       .map((p) => ({
         value: p.id,
         label: seatingApellidoNombre(p),
-        subLabel: formatRolGiraLabel(p.rol_gira || p.rol) || "Sin Rol",
+        person: p,
         isIndividualPending: pendingIds.has(String(p.id)),
       }))
       .sort((a, b) => {
@@ -2317,15 +2331,21 @@ const collectTransportSupportDocs = (personData) => {
                             {individualsPendingRowsSorted.map((row) => (
                               <li
                                 key={row.id}
-                                className="flex items-baseline justify-between gap-3"
+                                className="flex flex-col gap-0.5"
                               >
                                 <span className="min-w-0 truncate">
                                   {row.name}
                                 </span>
-                                <span className="shrink-0 text-[10px] text-slate-300">
-                                  {[row.rol, row.instrumento]
-                                    .filter(Boolean)
-                                    .join(" · ") || "—"}
+                                <span className="flex min-w-0 flex-wrap items-center gap-1">
+                                  <RosterRolFuncionTags
+                                    person={row.person}
+                                    rolesList={rolesList}
+                                  />
+                                  {row.instrumento ? (
+                                    <span className="truncate text-[10px] text-slate-300">
+                                      {row.instrumento}
+                                    </span>
+                                  ) : null}
                                 </span>
                               </li>
                             ))}
@@ -2353,6 +2373,7 @@ const collectTransportSupportDocs = (personData) => {
                           onChange={setSelectedToAdd}
                           placeholder="Buscar..."
                           autoFocus
+                          rolesList={rolesList}
                         />
                         <button
                           type="button"
@@ -2475,6 +2496,7 @@ const collectTransportSupportDocs = (personData) => {
 
               <ViaticosTable
                 rows={viaticosRows}
+                rolesList={rolesList}
                 selection={selection}
                 onSelectAll={selectAll}
                 onToggleSelection={toggleSelection}
