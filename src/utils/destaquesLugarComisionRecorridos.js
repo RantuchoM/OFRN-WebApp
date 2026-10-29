@@ -210,6 +210,57 @@ export function resolveLugarComisionDestaque(
   return parsed.texto || "";
 }
 
+/** JSON de plantilla → listas de ids, una por recorrido. */
+export function parsePlantillaRecorridos(raw) {
+  let list = raw;
+  if (typeof raw === "string") {
+    try {
+      list = JSON.parse(raw);
+    } catch {
+      return [];
+    }
+  }
+  if (!Array.isArray(list)) return [];
+  return list
+    .map((r) => {
+      const ids = Array.isArray(r) ? r : r?.ids;
+      return (ids || []).map((id) => Number(id)).filter((id) => !Number.isNaN(id));
+    })
+    .filter((ids) => ids.length > 0);
+}
+
+/**
+ * Copia una plantilla al conjunto de localidades de esta gira.
+ * Mantiene el orden y permite la misma localidad en más de un recorrido.
+ * Las que no están en la gira se informan en `omittedIds`.
+ */
+export function applyPlantillaToGira(recorridosIds, presentLocalityIds) {
+  const present = new Set(
+    (presentLocalityIds || [])
+      .map((id) => Number(id))
+      .filter((id) => !Number.isNaN(id)),
+  );
+  const omitted = [];
+  const routes = [];
+  for (const ids of recorridosIds || []) {
+    const kept = [];
+    const seen = new Set();
+    for (const raw of ids || []) {
+      const id = Number(raw);
+      if (Number.isNaN(id)) continue;
+      if (!present.has(id)) {
+        omitted.push(id);
+        continue;
+      }
+      if (seen.has(id)) continue;
+      seen.add(id);
+      kept.push(id);
+    }
+    if (kept.length > 0) routes.push(kept);
+  }
+  return { routes, omittedIds: [...new Set(omitted)] };
+}
+
 /** Vista previa por localidad del panel */
 export function buildRecorridosPreview(parsed, localities, nameById = {}) {
   const serialized =

@@ -43,6 +43,7 @@ Permitir que el usuario defina un "Lugar de Comisión" específico para el proce
 - [x] La configuración se guarda en el mismo JSON de recorridos mediante `personalizados`, usando el ID numérico de localidad como clave.
 - [x] El modal se renderiza mediante React Portal en `document.body` con `z-[100]`.
 - [x] El estado editable se inicializa únicamente al abrir el modal; renders o cambios de referencia en la lista de localidades no descartan recorridos ni casos particulares aún sin guardar.
+- [x] **Plantillas estándar por zona (2026-10-29):** tabla `viaticos_recorridos_plantillas` (nombre, zona, `es_preferida`, `recorridos` como `[{ ids }]`). Como máximo una preferida por zona. Zonas sugeridas: Andina, Atlántica, Valle, y cualquier otra ya usada (p. ej. Alto Valle). Desde el modal de recorridos se puede **abrir** (editar la plantilla sobre el catálogo de `localidades`), **generar** (copiar a esta gira solo las localidades presentes, en el orden de la plantilla; los casos particulares se mantienen) y **guardar** la plantilla sin tocar las giras. «Guardar recorridos» sigue persistiendo solo `lugar_comision_destaques_exportacion`. Si la gira no tiene lugar guardado y hay preferida de su zona, el editor arranca con esa plantilla. Semilla: Andina «Viedma → Bariloche», Atlántica «Bariloche → Viedma», Alto Valle «Bolsón y Viedma» (último recorrido JSON de cada zona). Valle queda para crearla en el modal.
 
 ### Cuadro de Firmas
 

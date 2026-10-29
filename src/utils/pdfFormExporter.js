@@ -26,7 +26,11 @@ import {
   resolveCheckPatenteOficial,
   resolvePatenteOficialValue,
 } from "./transporteOficial";
-import { resolveLugarComisionPdfField } from "./viaticosExportMotivoLugar";
+import {
+  resolveLugarComisionPdfField,
+  resolveMotivoDestaqueExport,
+  resolveMotivoViaticosIndividual,
+} from "./viaticosExportMotivoLugar";
 import {
   fmtDiasPdf,
   splitSegmentosPdfFranjas,
@@ -408,7 +412,10 @@ export const exportViaticosToPDFForm = async (
           "lugar_comision",
           resolveLugarComisionPdfField(data, configData, "rendicion"),
         );
-        f("motivo", data.motivo || configData.motivo);
+        f(
+          "motivo",
+          resolveMotivoViaticosIndividual(data, configData),
+        );
         f(
           "asiento_habitual",
           data.asiento_habitual || data.ciudad_origen || ""
@@ -535,10 +542,9 @@ export const exportViaticosToPDFForm = async (
           resolveLugarComisionPdfField(data, configData, mode),
         );
         const motivoParaDoc =
-          data.motivo ||
-          (mode === "destaque" && configData.motivo_destaques_exportacion
-            ? configData.motivo_destaques_exportacion
-            : configData.motivo);
+          mode === "destaque"
+            ? resolveMotivoDestaqueExport(data, configData)
+            : resolveMotivoViaticosIndividual(data, configData);
         f("motivo", motivoParaDoc || "");
         f(
           "asiento_habitual",

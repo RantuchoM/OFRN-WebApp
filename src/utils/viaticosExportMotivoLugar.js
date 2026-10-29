@@ -23,9 +23,41 @@ export function hasText(v) {
   return trimOrEmpty(v).length > 0;
 }
 
+/** Motivo de comisión por defecto: condición estable y rol de gira Músico. */
+export const MOTIVO_DEFAULT_MUSICO_ESTABLE =
+  "Cobertura de la dotación especializada, indispensable para la correcta ejecución de los conciertos y ensayos como músico";
+
+function foldViaticosLabel(value) {
+  return String(value ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+}
+
+/** Estable + rol `musico` (también si el rol viene como etiqueta "Músico"). */
+export function isMusicoEstableViaticos(person) {
+  if (!person) return false;
+  if (foldViaticosLabel(person.condicion) !== "estable") return false;
+  const rol = foldViaticosLabel(
+    person.rol_gira || person.rol_roster || person.rol,
+  );
+  return rol === "musico";
+}
+
+export function defaultMotivoViaticosForPerson(person) {
+  return isMusicoEstableViaticos(person) ? MOTIVO_DEFAULT_MUSICO_ESTABLE : "";
+}
+
+/**
+ * Motivo individual: texto de la fila → frase de músico estable → motivo general.
+ * El motivo personal (ficha o celda) sigue ganando.
+ */
 export function resolveMotivoViaticosIndividual(row, config = {}) {
   const personal = trimOrEmpty(row?.motivo);
   if (personal) return personal;
+  const byRole = defaultMotivoViaticosForPerson(row);
+  if (byRole) return byRole;
   return trimOrEmpty(config.motivo);
 }
 
@@ -86,6 +118,8 @@ export function resolveLugarForExportRow(row, config = {}, options = {}) {
 export function resolveMotivoDestaqueExport(person, config = {}) {
   const personal = trimOrEmpty(person?.motivo);
   if (personal) return personal;
+  const byRole = defaultMotivoViaticosForPerson(person);
+  if (byRole) return byRole;
   const destaques = trimOrEmpty(config.motivo_destaques_exportacion);
   if (destaques) return destaques;
   return trimOrEmpty(config.motivo);

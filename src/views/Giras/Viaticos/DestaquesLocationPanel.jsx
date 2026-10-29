@@ -992,6 +992,7 @@ const DestaquesLocationPanel = forwardRef(function DestaquesLocationPanel({
     exportFailureLog = [],
     onClearExportFailureLog,
     giraSedeLocalidadIds = [],
+    giraZona = "",
 }, ref) {
    const [selectedGroupIds, setSelectedGroupIds] = useState([]);
     const [isExportingFirmas, setIsExportingFirmas] = useState(false);
@@ -1614,6 +1615,8 @@ const DestaquesLocationPanel = forwardRef(function DestaquesLocationPanel({
                 onClose={() => setShowRecorridosModal(false)}
                 storedValue={lugarComisionStored}
                 localities={localitiesForRecorridos}
+                supabase={supabase}
+                giraZona={giraZona}
                 onSave={(val) => onUpdateGlobalConfig("lugar_comision_destaques_exportacion", val)}
             />
         </div>

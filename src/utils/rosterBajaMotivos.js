@@ -88,3 +88,30 @@ export function buildInclusionFamiliaMailNotification({ familiaLabel }) {
     : "Se te convoca a la gira";
   return { reason, reasonFootnote: "", motivoBajaId: null };
 }
+
+export function buildInclusionEnsambleMailNotification({ ensambleLabel }) {
+  const reason = ensambleLabel
+    ? `Se te convoca con el ensamble ${ensambleLabel}`
+    : "Se te convoca a la gira";
+  return { reason, reasonFootnote: "", motivoBajaId: null };
+}
+
+export function buildInclusionGrupalMailNotification(person) {
+  const ensamble = person?.ensambleLabel || "";
+  const familia = person?.familiaLabel || "";
+  if (person?.causeKind === "mixto" && ensamble && familia) {
+    return {
+      reason: `Se te convoca con el ensamble ${ensamble} y la familia de ${familia}`,
+      reasonFootnote: "",
+      motivoBajaId: null,
+    };
+  }
+  if (person?.causeKind === "ensamble" || (ensamble && !familia)) {
+    return buildInclusionEnsambleMailNotification({
+      ensambleLabel: ensamble || person?.causeLabel,
+    });
+  }
+  return buildInclusionFamiliaMailNotification({
+    familiaLabel: familia || person?.causeLabel,
+  });
+}

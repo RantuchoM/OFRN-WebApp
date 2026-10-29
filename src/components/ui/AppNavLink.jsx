@@ -6,6 +6,10 @@ import {
   isModifiedClick,
   requestSeatingLeave,
 } from "../../utils/seatingLateMailLeaveGuard";
+import {
+  destinationLeavesRoster,
+  requestRosterMailLeave,
+} from "../../utils/rosterMailLeaveGuard";
 import { requestUnsavedLeave } from "../../utils/unsavedWork";
 
 /**
@@ -50,6 +54,21 @@ export default function AppNavLink({
         if (!requestUnsavedLeave(() => navigate(resolvedTo))) {
           e.preventDefault();
           return;
+        }
+        if (destinationLeavesRoster(location, resolvedTo)) {
+          const proceed = () => {
+            if (
+              destinationLeavesSeating(location, resolvedTo) &&
+              !requestSeatingLeave(() => navigate(resolvedTo))
+            ) {
+              return;
+            }
+            navigate(resolvedTo);
+          };
+          if (!requestRosterMailLeave(proceed)) {
+            e.preventDefault();
+            return;
+          }
         }
         if (!destinationLeavesSeating(location, resolvedTo)) return;
         if (!requestSeatingLeave(() => navigate(resolvedTo))) {

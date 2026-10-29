@@ -50,8 +50,7 @@ import {
   EVENT_CREATION_SOURCES,
   withConcertCreationMeta,
 } from "../../utils/eventCreationLog";
-
-const ZONA_PRESETS = ["Andina", "Atlántica", "Valle"];
+import { ZONA_PRESETS } from "../../utils/giraZonas";
 
 // --- COMPONENTE INTERNO: Modal de Edición de Concierto ---
 const ConcertFormModal = ({

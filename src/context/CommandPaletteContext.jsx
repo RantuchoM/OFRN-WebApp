@@ -4,6 +4,10 @@ import {
   destinationLeavesSeating,
   requestSeatingLeave,
 } from '../utils/seatingLateMailLeaveGuard';
+import {
+  destinationLeavesRoster,
+  requestRosterMailLeave,
+} from '../utils/rosterMailLeaveGuard';
 import { useAuth } from './AuthContext'; 
 import { supabase } from '../services/supabase'; 
 import { canAccessMusicTranslation } from '../constants/musicTranslationAccess';
@@ -86,13 +90,21 @@ export const CommandPaletteProvider = ({ children }) => {
   const location = useLocation();
   const navigate = useCallback(
     (to, opts) => {
-      if (!destinationLeavesSeating(location, to)) {
-        rawNavigate(to, opts);
+      const go = () => rawNavigate(to, opts);
+      const afterRoster = () => {
+        if (!destinationLeavesSeating(location, to)) {
+          go();
+          return;
+        }
+        if (requestSeatingLeave(go)) go();
+      };
+      if (
+        destinationLeavesRoster(location, to) &&
+        !requestRosterMailLeave(afterRoster)
+      ) {
         return;
       }
-      if (requestSeatingLeave(() => rawNavigate(to, opts))) {
-        rawNavigate(to, opts);
-      }
+      afterRoster();
     },
     [rawNavigate, location],
   );

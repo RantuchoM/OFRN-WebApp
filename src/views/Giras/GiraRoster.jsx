@@ -42,11 +42,13 @@ import {
   stampRosterActor,
 } from "../../utils/giraUtils";
 import { bajaGirasIntegrantes } from "../../services/giraRosterAudit";
-import { buildAusenteMailNotification, buildBajaGiraMailNotification, buildExclusionEnsambleMailNotification, buildExclusionFamiliaMailNotification, buildInclusionFamiliaMailNotification, buildPresenteMailNotification } from "../../utils/rosterBajaMotivos";
+import { buildAusenteMailNotification, buildBajaGiraMailNotification, buildExclusionEnsambleMailNotification, buildExclusionFamiliaMailNotification, buildInclusionGrupalMailNotification, buildPresenteMailNotification } from "../../utils/rosterBajaMotivos";
 import {
   integranteActiveOnProgramRange,
   filterMembershipRowsForProgramDate,
+  membershipActiveOnProgramDate,
 } from "../../utils/ensembleMembership";
+import { registerRosterMailLeaveGuard } from "../../utils/rosterMailLeaveGuard";
 import MusicianForm from "../Musicians/MusicianForm";
 import {
   AddVacancyModal,
@@ -416,6 +418,162 @@ async function fetchFamilyInclusionAffected(
       member,
       causeLabel: familia,
       causeKind: "familia",
+      isAlreadyManual: false,
+      defaultSelected: true,
+    });
+  }
+  return affected;
+}
+
+function mergeAltaAffected(...lists) {
+  const byId = new Map();
+  for (const item of lists.flat()) {
+    const id = item.member?.id;
+    if (id == null) continue;
+    const existing = byId.get(id);
+    if (!existing) {
+      byId.set(id, {
+        ...item,
+        ensambleLabel: item.causeKind === "ensamble" ? item.causeLabel : "",
+        familiaLabel: item.causeKind === "familia" ? item.causeLabel : "",
+      });
+      continue;
+    }
+    if (
+      item.causeKind === "ensamble" &&
+      item.causeLabel &&
+      !String(existing.ensambleLabel || "").includes(item.causeLabel)
+    ) {
+      existing.ensambleLabel = existing.ensambleLabel
+        ? `${existing.ensambleLabel}, ${item.causeLabel}`
+        : item.causeLabel;
+    }
+    if (
+      item.causeKind === "familia" &&
+      item.causeLabel &&
+      !String(existing.familiaLabel || "").includes(item.causeLabel)
+    ) {
+      existing.familiaLabel = existing.familiaLabel
+        ? `${existing.familiaLabel}, ${item.causeLabel}`
+        : item.causeLabel;
+    }
+    if (existing.ensambleLabel && existing.familiaLabel) {
+      existing.causeKind = "mixto";
+    }
+    existing.causeLabel = [existing.ensambleLabel, existing.familiaLabel]
+      .filter(Boolean)
+      .join(", ");
+    existing.defaultSelected =
+      existing.defaultSelected || item.defaultSelected;
+    existing.isAlreadyManual =
+      existing.isAlreadyManual || item.isAlreadyManual;
+  }
+  return [...byId.values()];
+}
+
+/** Quienes entran al roster al sumar un ensamble o al sacar su exclusión. */
+async function fetchEnsembleInclusionAffected(
+  supabase,
+  ensembleIds,
+  nextIncludedEnsembles,
+  nextExclEnsembles,
+  nextFamilies,
+  currentRoster,
+  gira,
+  ensemblesList,
+) {
+  const ids = [...toEnsembleIdSet(ensembleIds)];
+  if (ids.length === 0) return [];
+
+  const currentById = new Map(currentRoster.map((m) => [m.id, m]));
+  const { data: links, error: linksError } = await supabase
+    .from("integrantes_ensambles")
+    .select("id_integrante, id_ensamble, fecha_desde, fecha_hasta")
+    .in("id_ensamble", ids);
+  if (linksError) throw linksError;
+
+  const activeLinks = (links || []).filter((link) =>
+    membershipActiveOnProgramDate(link, gira?.fecha_desde),
+  );
+  const personIds = [
+    ...new Set(activeLinks.map((link) => link.id_integrante).filter((id) => id != null)),
+  ];
+  if (personIds.length === 0) return [];
+
+  const { data: people, error: peopleError } = await supabase
+    .from("integrantes")
+    .select(
+      `id, nombre, apellido, nombre_preferencia, apellido_preferencia, mail, condicion, es_simulacion, fecha_alta, fecha_baja,
+       instrumentos(instrumento, familia),
+       integrantes_ensambles(id, id_ensamble, fecha_desde, fecha_hasta, ensambles(id, ensamble))`,
+    )
+    .in("id", personIds);
+  if (peopleError) throw peopleError;
+
+  const linkByPerson = new Map();
+  for (const link of activeLinks) {
+    if (!linkByPerson.has(link.id_integrante)) {
+      linkByPerson.set(link.id_integrante, link);
+    }
+  }
+
+  const nextIncl = toEnsembleIdSet(nextIncludedEnsembles);
+  const nextExcl = toEnsembleIdSet(nextExclEnsembles);
+  const nextFam = toFamilySet(nextFamilies);
+  const causeIds = toEnsembleIdSet(ids);
+  const affected = [];
+  const seen = new Set();
+
+  for (const row of people || []) {
+    const link = linkByPerson.get(row.id);
+    if (!link || row.es_simulacion || seen.has(row.id)) continue;
+
+    const member = {
+      ...row,
+      nombre_completo: seatingApellidoNombre(row),
+      integrantes_ensambles: filterMembershipRowsForProgramDate(
+        row.integrantes_ensambles || [],
+        gira?.fecha_desde,
+      ),
+    };
+    if (!memberWouldStayInRoster(member, nextIncl, nextExcl, nextFam)) continue;
+    if (
+      !integranteActiveOnProgramRange(
+        row,
+        gira?.fecha_desde,
+        gira?.fecha_hasta,
+      )
+    ) {
+      continue;
+    }
+
+    const causeId =
+      memberEnsembleIds(member).find((id) => causeIds.has(id)) ??
+      normalizeEnsembleId(link.id_ensamble);
+    const causeLabel =
+      ensemblesList.find((e) => normalizeEnsembleId(e.value) === causeId)
+        ?.label || "Ensamble";
+
+    const existing = currentById.get(row.id);
+    if (existing) {
+      if (existing.estado_gira === "ausente") continue;
+      if (!existing.en_giras_integrantes) continue;
+      seen.add(row.id);
+      affected.push({
+        member: existing,
+        causeLabel,
+        causeKind: "ensamble",
+        isAlreadyManual: true,
+        defaultSelected: false,
+      });
+      continue;
+    }
+
+    seen.add(row.id);
+    affected.push({
+      member,
+      causeLabel,
+      causeKind: "ensamble",
       isAlreadyManual: false,
       defaultSelected: true,
     });
@@ -990,6 +1148,8 @@ export default function GiraRoster({
     return tokens.join(" · ");
   };
   const pendingExitAfterFlushRef = useRef(false);
+  const pendingLeaveProceedRef = useRef(null);
+  const allowRosterLeaveRef = useRef(false);
 
   const [selectedEnsembles, setSelectedEnsembles] = useState(new Set());
   const [selectedFamilies, setSelectedFamilies] = useState(new Set());
@@ -1265,14 +1425,45 @@ export default function GiraRoster({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Bloqueo de navegación: advertir al cerrar pestaña si hay mails pendientes
+  // Con mails en cola no se cierra la pestaña ni se navega hasta enviar o cancelar.
   useEffect(() => {
-    if (pendingNotifications.length === 0) return;
+    if (pendingNotifications.length === 0) {
+      allowRosterLeaveRef.current = false;
+      return undefined;
+    }
     const handleBeforeUnload = (e) => {
+      if (allowRosterLeaveRef.current) return;
       e.preventDefault();
+      e.returnValue = "";
     };
     window.addEventListener("beforeunload", handleBeforeUnload);
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [pendingNotifications.length]);
+
+  useEffect(() => {
+    if (pendingNotifications.length === 0) return undefined;
+    return registerRosterMailLeaveGuard((proceed) => {
+      pendingLeaveProceedRef.current = proceed;
+      setShowExitConfirmModal(true);
+      return false;
+    });
+  }, [pendingNotifications.length]);
+
+  useEffect(() => {
+    if (pendingNotifications.length === 0) return undefined;
+    const lockedHref = window.location.href;
+    const onPop = (event) => {
+      if (allowRosterLeaveRef.current) return;
+      event.stopImmediatePropagation();
+      window.history.pushState(null, "", lockedHref);
+      pendingLeaveProceedRef.current = () => {
+        allowRosterLeaveRef.current = true;
+        window.history.back();
+      };
+      setShowExitConfirmModal(true);
+    };
+    window.addEventListener("popstate", onPop, true);
+    return () => window.removeEventListener("popstate", onPop, true);
   }, [pendingNotifications.length]);
 
   /** 23505 = unique_violation (p. ej. ya existe id_gira + id_integrante). */
@@ -1583,6 +1774,9 @@ export default function GiraRoster({
     { skipNotifications = false } = {},
   ) => {
     setLoadingAction(true);
+    setSelectedEnsembles(toEnsembleIdSet(ensembles));
+    setSelectedFamilies(toFamilySet(families));
+    setSelectedExclEnsembles(toEnsembleIdSet(exclEnsembles));
     const prevRoster = [...localRoster];
     const prevIds = new Set(prevRoster.map((m) => m.id));
     await supabase.from("giras_fuentes").delete().eq("id_gira", gira.id);
@@ -1649,7 +1843,7 @@ export default function GiraRoster({
     ),
     prevExclEnsembles: toEnsembleIdSet(
       (sources || [])
-        .filter((s) => s.tipo === "EXCL_ENSEMBLE")
+        .filter((s) => s.tipo === "EXCL_ENSAMBLE")
         .map((s) => s.valor_id),
     ),
     prevFamilies: toFamilySet(
@@ -1684,10 +1878,21 @@ export default function GiraRoster({
     const addedFamilies = [...selectedFamilies].filter(
       (f) => !prevFamilies.has(f),
     );
-    let altaAffected = [];
+    const nextExcl = toEnsembleIdSet(selectedExclEnsembles);
+    const addedEnsembleIds = [...toEnsembleIdSet(selectedEnsembles)].filter(
+      (id) => !prevEnsembles.has(id),
+    );
+    const returnedFromExcl = [...prevExclEnsembles].filter(
+      (id) => !nextExcl.has(id),
+    );
+    const ensembleIdsForAlta = [
+      ...new Set([...addedEnsembleIds, ...returnedFromExcl]),
+    ];
+
+    let familyAlta = [];
     if (addedFamilies.length > 0) {
       try {
-        altaAffected = await fetchFamilyInclusionAffected(
+        familyAlta = await fetchFamilyInclusionAffected(
           supabase,
           addedFamilies,
           rawRoster,
@@ -1700,6 +1905,29 @@ export default function GiraRoster({
         return true;
       }
     }
+
+    let ensembleAlta = [];
+    if (ensembleIdsForAlta.length > 0) {
+      try {
+        ensembleAlta = await fetchEnsembleInclusionAffected(
+          supabase,
+          ensembleIdsForAlta,
+          selectedEnsembles,
+          selectedExclEnsembles,
+          selectedFamilies,
+          rawRoster,
+          gira,
+          ensemblesList,
+        );
+      } catch (err) {
+        toast.error(
+          "No se pudo cargar integrantes del ensamble: " + err.message,
+        );
+        return true;
+      }
+    }
+
+    const altaAffected = mergeAltaAffected(familyAlta, ensembleAlta);
 
     if (bajaAffected.length > 0) {
       if (pendingBaja) return true;
@@ -1817,14 +2045,13 @@ export default function GiraRoster({
     );
     const altaNotificationTasks = [];
     if (shouldNotifyAlta && toNotifyAlta.length) {
-      toNotifyAlta.forEach(({ member, causeLabel }) => {
+      toNotifyAlta.forEach((person) => {
+        const { member } = person;
         if (!member?.mail) return;
         const nombreCompleto =
           member.nombre_completo ||
           seatingApellidoNombre(member);
-        const mail = buildInclusionFamiliaMailNotification({
-          familiaLabel: causeLabel,
-        });
+        const mail = buildInclusionGrupalMailNotification(person);
         altaNotificationTasks.push({
           id: `alta-groups-${member.id}-${Date.now()}`,
           variant: "ALTA",
@@ -1836,19 +2063,17 @@ export default function GiraRoster({
     }
 
     await refreshRoster();
-    await sendNotificationsNow([
-      ...bajaNotificationTasks,
-      ...altaNotificationTasks,
-    ]);
+    const queued = [...bajaNotificationTasks, ...altaNotificationTasks];
+    if (queued.length > 0) {
+      setPendingNotifications((prev) => [...prev, ...queued]);
+    }
+    setConvocarOpen(false);
   };
 
   const handleConvocarGroups = async (ensSet, famSet, exclSet) => {
     setLoadingAction(true);
     try {
       const groupUpdate = buildGroupUpdatePayload(ensSet, famSet, exclSet);
-      setSelectedEnsembles(groupUpdate.selectedEnsembles);
-      setSelectedFamilies(groupUpdate.selectedFamilies);
-      setSelectedExclEnsembles(groupUpdate.selectedExclEnsembles);
       if (await tryOpenGroupChangeModal(groupUpdate)) return;
       await applyGroupUpdate(
         groupUpdate.selectedEnsembles,
@@ -1924,7 +2149,7 @@ export default function GiraRoster({
         groupUpdate.selectedEnsembles.delete(
           normalizeEnsembleId(source.valor_id),
         );
-      } else if (tipo === "EXCL_ENSEMBLE") {
+      } else if (tipo === "EXCL_ENSAMBLE") {
         groupUpdate.selectedExclEnsembles.delete(
           normalizeEnsembleId(source.valor_id),
         );
@@ -2915,6 +3140,7 @@ export default function GiraRoster({
                 return;
               }
               if (pendingNotifications.length > 0) {
+                pendingLeaveProceedRef.current = () => onBack();
                 setShowExitConfirmModal(true);
                 return;
               }
@@ -3870,12 +4096,10 @@ export default function GiraRoster({
         <NotificationQueuePanel
           ref={notificationQueueRef}
           pendingTasks={pendingNotifications}
+          paused={showExitConfirmModal}
           onFlush={() => {
             setPendingNotifications([]);
-            if (pendingExitAfterFlushRef.current) {
-              pendingExitAfterFlushRef.current = false;
-              onBack();
-            }
+            pendingExitAfterFlushRef.current = false;
           }}
           onCancelAll={() => setPendingNotifications([])}
           onRemoveTask={(id) =>
@@ -3895,7 +4119,7 @@ export default function GiraRoster({
 
       {/* Modal de confirmación al salir con notificaciones pendientes */}
       {showExitConfirmModal && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 transform transition-all border border-slate-100">
             <div className="flex items-start gap-4">
               <div className="p-3 bg-amber-100 text-amber-600 rounded-full shrink-0">
@@ -3906,17 +4130,20 @@ export default function GiraRoster({
                   Notificaciones pendientes
                 </h3>
                 <p className="text-sm text-slate-500 mt-2 leading-relaxed">
-                  Tienes notificaciones de correo pendientes.
+                  Hay correos sin enviar. No se puede salir de esta pantalla ni cerrar la pestaña hasta enviarlos o cancelarlos.
                 </p>
               </div>
             </div>
             <div className="mt-6 flex flex-col gap-2">
               <button
                 type="button"
-                onClick={() => {
-                  pendingExitAfterFlushRef.current = true;
-                  notificationQueueRef.current?.sendAllNow?.();
+                onClick={async () => {
+                  const proceed = pendingLeaveProceedRef.current;
+                  pendingLeaveProceedRef.current = null;
+                  allowRosterLeaveRef.current = true;
+                  await notificationQueueRef.current?.sendAllNow?.();
                   setShowExitConfirmModal(false);
+                  proceed?.();
                 }}
                 className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm transition-colors"
               >
@@ -3926,9 +4153,12 @@ export default function GiraRoster({
               <button
                 type="button"
                 onClick={() => {
+                  const proceed = pendingLeaveProceedRef.current;
+                  pendingLeaveProceedRef.current = null;
+                  allowRosterLeaveRef.current = true;
                   notificationQueueRef.current?.cancelAll?.();
                   setShowExitConfirmModal(false);
-                  onBack();
+                  proceed?.();
                 }}
                 className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
               >
@@ -3937,7 +4167,10 @@ export default function GiraRoster({
               </button>
               <button
                 type="button"
-                onClick={() => setShowExitConfirmModal(false)}
+                onClick={() => {
+                  pendingLeaveProceedRef.current = null;
+                  setShowExitConfirmModal(false);
+                }}
                 className="w-full px-4 py-3 text-sm font-bold text-slate-600 hover:bg-slate-50 rounded-lg transition-colors"
               >
                 Permanecer aquí

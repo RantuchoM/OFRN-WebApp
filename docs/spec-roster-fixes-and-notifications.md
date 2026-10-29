@@ -39,9 +39,9 @@ El sistema inyecta el string exacto del motivo en el campo `data.reason` del mai
 ## 6. Triggers de Notificación
 
 - **addManualMusician**: ALTA + reason "Se te convoca individualmente".
-- **handleUpdateGroups**: ALTA para nuevos (reason por ensamble o familia). Si la actualización afecta integrantes por destildar ensamble o agregar `EXCL_ENSAMBLE`, abre `RosterBajaModal` con listado y casillas por persona (ver § exclusión ensamble). Las destildadas se convierten en convocatoria manual (`giras_integrantes`) sin notificar.
+- **handleUpdateGroups / Convocar → Actualizar**: abre `RosterBajaModal` si hay baja (destildar ensamble o familia, o agregar `EXCL_ENSAMBLE`) o alta (sumar ensamble/camerata/familia, o sacar una exclusión). El texto del mail distingue ensamble y familia. Al confirmar **con notificación**, esas tareas entran en `NotificationQueuePanel` (no se envían en el acto). Con esa cola no se puede cambiar de pantalla ni cerrar la pestaña hasta Enviar o Cancelar.
 - **toggleStatus** (a Presente desde ausente): ALTA sin motivo específico o genérico.
-- **Modal de baja** (`RosterBajaModal`, ausente, desconvocar o exclusión de ensamble): motivo obligatorio (Balance Orquestal, Razones personales, Enfermedad u Otro). Opciones: Deshacer, Confirmar y notificar, Confirmar sin notificar (con confirmación extra). Al confirmar **con notificación**, el mail se envía **de inmediato** (sin pasar por la cola intermedia de `NotificationQueuePanel`). El motivo se persiste en `giras_integrantes.motivo_estado` al marcar ausente; en desconvocar o exclusión de ensamble solo viaja al mail si se notifica.
+- **Modal de baja** (`RosterBajaModal`, ausente o desconvocar): motivo obligatorio (Balance Orquestal, Razones personales, Enfermedad u Otro). Opciones: Deshacer, Confirmar y notificar, Confirmar sin notificar (con confirmación extra). Ausente y desconvocar individual se envían **de inmediato**. El cambio grupal, si se notifica, queda en la cola inferior. El motivo se persiste en `giras_integrantes.motivo_estado` al marcar ausente; en desconvocar o exclusión de ensamble solo viaja al mail si se notifica.
 
 Solo se encola cuando la gira tiene `notificacion_inicial_enviada === true`.
 
@@ -58,12 +58,14 @@ Aplica a **ensambles** y **familias** (chips del header o desplegable Convocar �
 - **Marcar manual**: `DELETE` en `giras_integrantes` → desconvocado (mail BAJA con motivo si aplica).
 - Motivos de mail: ensamble `"Se excluyó al ensamble [Nombre]. Motivo: …"`; familia `"Se excluyó la familia de [Familia]. Motivo: …"`.
 
-### Alta (agregar familia)
-- **Listado**: integrantes estables de la familia que entrarían al roster (fetch a BD).
+### Alta (agregar ensamble, camerata o familia, o sacar una exclusión)
+- **Familia**: integrantes estables de esa familia.
+- **Ensamble / camerata**: integrantes con membresía vigente en la fecha del programa que quedarían en el roster (la camerata es un ensamble: fila `ensambles_cf.id_ensamble_cf`, o nombre CF* / Jazz Band). Sacar un `EXCL_ENSAMBLE` se trata como alta de ese ensamble si la persona vuelve a entrar.
 - **Por defecto marcados**: nuevos integrantes; **sin marcar**: ya convocados manualmente.
-- **Destildar**: entran al roster por la fuente FAMILIA pero **sin** mail ALTA.
-- **Marcar manual**: se envía ALTA `"Se te convoca con la familia de [Familia]"`.
+- **Destildar**: entran por la fuente pero **sin** mail ALTA.
+- **Marcar**: mail `"Se te convoca con el ensamble [Nombre]"` o `"Se te convoca con la familia de [Familia]"`. Si entran por las dos, el texto menciona ambas.
 - Si en el mismo Actualizar hay baja y alta, primero modal de baja y luego el de alta.
+- El diff de exclusiones lee `EXCL_ENSAMBLE` (el tipo que se guarda).
 
 ## 7. NotificationQueuePanel
 

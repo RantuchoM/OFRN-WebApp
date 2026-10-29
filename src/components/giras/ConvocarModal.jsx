@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { IconUpload, IconUserPlus, IconX } from "../ui/Icons";
 import { seatingApellidoNombre } from "../../utils/integranteDisplayName";
@@ -6,6 +6,40 @@ import { formatRolGiraLabel, DEFAULT_ROL_ID } from "../../utils/giraUtils";
 import { canChooseFuncionGira } from "../../utils/funcionGira";
 import FuncionGiraChoices from "./FuncionGiraChoices";
 import { integranteKey } from "../../utils/integranteIds";
+import { isCamerataEnsambleRow } from "../../utils/convocatoriaEnsambleViews";
+
+const LIST_TONES = {
+  ensamble: {
+    box: "border-indigo-200",
+    header: "bg-indigo-50 text-indigo-800 border-indigo-200",
+    row: "hover:bg-indigo-50",
+  },
+  camerata: {
+    box: "border-fuchsia-200",
+    header: "bg-fuchsia-50 text-fuchsia-800 border-fuchsia-200",
+    row: "hover:bg-fuchsia-50",
+  },
+  familia: {
+    box: "border-emerald-200",
+    header: "bg-emerald-50 text-emerald-800 border-emerald-200",
+    row: "hover:bg-emerald-50",
+  },
+  excl: {
+    box: "border-red-200",
+    header: "bg-red-50 text-red-800 border-red-200",
+    row: "hover:bg-red-50",
+  },
+};
+
+function sortCheckedFirst(options, selected) {
+  const picked = selected || new Set();
+  return [...(options || [])].sort((a, b) => {
+    const ac = picked.has(String(a.value)) || picked.has(a.value);
+    const bc = picked.has(String(b.value)) || picked.has(b.value);
+    if (ac !== bc) return ac ? -1 : 1;
+    return String(a.label || "").localeCompare(String(b.label || ""), "es");
+  });
+}
 
 function fold(value) {
   return String(value ?? "")
@@ -14,10 +48,11 @@ function fold(value) {
     .toLowerCase();
 }
 
-function CheckList({ title, options, selected, onToggle }) {
+function CheckList({ title, options, selected, onToggle, tone = "ensamble" }) {
+  const colors = LIST_TONES[tone] || LIST_TONES.ensamble;
   return (
-    <div className="flex flex-col min-h-0 border border-slate-200 rounded-lg overflow-hidden">
-      <div className="px-2 py-1.5 bg-slate-50 text-[10px] font-bold uppercase tracking-wide text-slate-500 border-b border-slate-200">
+    <div className={`flex flex-col min-h-0 border rounded-lg overflow-hidden ${colors.box}`}>
+      <div className={`px-2 py-1.5 text-[10px] font-bold uppercase tracking-wide border-b ${colors.header}`}>
         {title}
       </div>
       <div className="overflow-y-auto max-h-64 p-1 space-y-0.5">
@@ -27,7 +62,7 @@ function CheckList({ title, options, selected, onToggle }) {
           return (
             <label
               key={key}
-              className="flex items-center gap-2 px-2 py-1 rounded hover:bg-slate-50 cursor-pointer text-xs text-slate-700"
+              className={`flex items-center gap-2 px-2 py-1 rounded cursor-pointer text-xs text-slate-700 ${colors.row}`}
             >
               <input
                 type="checkbox"
@@ -74,17 +109,56 @@ export default function ConvocarModal({
   const [query, setQuery] = useState("");
   const [picked, setPicked] = useState({});
   const [rol, setRol] = useState(DEFAULT_ROL_ID);
+  const [camerataIds, setCamerataIds] = useState(() => new Set());
+  const [frozenChecks, setFrozenChecks] = useState(null);
+  const selectedRef = useRef({});
+  selectedRef.current = {
+    selectedEnsembles,
+    selectedFamilies,
+    selectedExclEnsembles,
+  };
 
-  useEffect(() => {
-    if (!isOpen) return;
+  useLayoutEffect(() => {
+    if (!isOpen) {
+      setFrozenChecks(null);
+      return;
+    }
+    const current = selectedRef.current;
+    const nextEns = new Set([...(current.selectedEnsembles || [])].map((v) => String(v)));
+    const nextFams = new Set([...(current.selectedFamilies || [])].map((v) => String(v)));
+    const nextExcl = new Set(
+      [...(current.selectedExclEnsembles || [])].map((v) => String(v)),
+    );
     setTab("individual");
     setQuery("");
     setPicked({});
     setRol(DEFAULT_ROL_ID);
-    setEns(new Set([...(selectedEnsembles || [])].map((v) => String(v))));
-    setFams(new Set([...(selectedFamilies || [])].map((v) => String(v))));
-    setExcl(new Set([...(selectedExclEnsembles || [])].map((v) => String(v))));
-  }, [isOpen, selectedEnsembles, selectedFamilies, selectedExclEnsembles]);
+    setEns(nextEns);
+    setFams(nextFams);
+    setExcl(nextExcl);
+    setFrozenChecks({
+      ens: new Set(nextEns),
+      fam: new Set(nextFams),
+      excl: new Set(nextExcl),
+    });
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || !supabase) return undefined;
+    let cancelled = false;
+    supabase
+      .from("ensambles_cf")
+      .select("id_ensamble_cf")
+      .then(({ data, error }) => {
+        if (cancelled || error) return;
+        setCamerataIds(
+          new Set((data || []).map((row) => String(row.id_ensamble_cf))),
+        );
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, supabase]);
 
   useEffect(() => {
     if (!isOpen || !supabase) return;
@@ -136,6 +210,25 @@ export default function ConvocarModal({
     () => people.filter((p) => picked[String(p.id)]),
     [people, picked],
   );
+
+  const groupLists = useMemo(() => {
+    const isCamerata = (opt) =>
+      camerataIds.has(String(opt.value)) ||
+      isCamerataEnsambleRow({ ensamble: opt.label });
+    const cameratas = [];
+    const ensambles = [];
+    for (const opt of ensemblesList || []) {
+      if (isCamerata(opt)) cameratas.push(opt);
+      else ensambles.push(opt);
+    }
+    const tick = frozenChecks || { ens, fam: fams, excl };
+    return {
+      ensambles: sortCheckedFirst(ensambles, tick.ens),
+      cameratas: sortCheckedFirst(cameratas, tick.ens),
+      familias: sortCheckedFirst(familiesList, tick.fam),
+      excluir: sortCheckedFirst(ensemblesList, tick.excl),
+    };
+  }, [ensemblesList, familiesList, camerataIds, frozenChecks, ens, fams, excl]);
 
   const toggleSet = (setter, value) => {
     const key = String(value);
@@ -192,7 +285,7 @@ export default function ConvocarModal({
 
   return createPortal(
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col border border-slate-200">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-6xl max-h-[90vh] flex flex-col border border-slate-200">
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
           <h3 className="text-sm font-bold text-slate-800">Convocar</h3>
           <button
@@ -225,22 +318,32 @@ export default function ConvocarModal({
         </div>
         <div className="p-4 overflow-y-auto flex-1 min-h-0">
           {tab === "grupal" && (
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
               <CheckList
                 title="Ensambles"
-                options={ensemblesList}
+                tone="ensamble"
+                options={groupLists.ensambles}
+                selected={ens}
+                onToggle={(v) => toggleSet(setEns, v)}
+              />
+              <CheckList
+                title="Cameratas"
+                tone="camerata"
+                options={groupLists.cameratas}
                 selected={ens}
                 onToggle={(v) => toggleSet(setEns, v)}
               />
               <CheckList
                 title="Familias"
-                options={familiesList}
+                tone="familia"
+                options={groupLists.familias}
                 selected={fams}
                 onToggle={(v) => toggleSet(setFams, v)}
               />
               <CheckList
                 title="Excluir ensambles"
-                options={ensemblesList}
+                tone="excl"
+                options={groupLists.excluir}
                 selected={excl}
                 onToggle={(v) => toggleSet(setExcl, v)}
               />

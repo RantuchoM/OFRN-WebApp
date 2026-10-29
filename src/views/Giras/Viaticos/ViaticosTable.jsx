@@ -42,6 +42,7 @@ import {
   numberInputWheelRef,
 } from "../../../utils/blockNumberInputWheel";
 import DiasComputablesHelp from "./DiasComputablesHelp";
+import { defaultMotivoViaticosForPerson } from "../../../utils/viaticosExportMotivoLugar";
 
 // --- HELPERS DE FORMATO ---
 const formatDateShort = (dateStr) => {
@@ -133,6 +134,95 @@ function TramoEtiquetaEditor({ row, onUpdateRow, getInputClass }) {
       >
         <IconEdit size={11} />
       </button>
+    </div>
+  );
+}
+
+/**
+ * Motivo de comisión: override persistido, o la frase de músico estable en celeste.
+ * Si no hay ninguna de las dos, el placeholder muestra el motivo general de la gira.
+ */
+function MotivoCell({
+  row,
+  config,
+  expanded,
+  onExpand,
+  onCollapse,
+  onUpdateRow,
+  getInputClass,
+}) {
+  const rolDefault = defaultMotivoViaticosForPerson(row);
+  const stored = String(row.motivo || "");
+  const hasOverride = stored.trim().length > 0;
+  const isAuto = !hasOverride && Boolean(rolDefault);
+  const [draft, setDraft] = useState(null);
+  const isEditing = draft !== null;
+  const displayValue = isEditing ? draft : hasOverride ? stored : rolDefault;
+
+  const commitDraft = (raw) => {
+    const next = String(raw ?? "");
+    const nextTrim = next.trim();
+    const autoTrim = String(rolDefault || "").trim();
+    if (!nextTrim || (autoTrim && nextTrim === autoTrim)) {
+      if (hasOverride) onUpdateRow(row.id, "motivo", "");
+      return;
+    }
+    if (next !== stored) onUpdateRow(row.id, "motivo", next);
+  };
+
+  return (
+    <div className="flex flex-col gap-0.5">
+      <div className="relative min-h-[28px]">
+        <textarea
+          className={`text-xs border rounded px-1 py-1 w-full outline-none transition-all resize-y ${
+            expanded
+              ? "absolute left-0 top-0 z-30 min-h-[110px] w-[420px] bg-white shadow-xl border-indigo-400"
+              : "h-[28px] max-h-[28px] overflow-hidden focus:border-indigo-400"
+          } ${
+            hasOverride
+              ? "bg-white border-indigo-200 text-indigo-700 font-medium"
+              : isAuto
+                ? "bg-cyan-50/90 border-cyan-200 text-cyan-800"
+                : "bg-slate-50 border-slate-200 text-slate-500 italic"
+          } ${getInputClass(row.id, "motivo")}`}
+          placeholder={rolDefault || config?.motivo || "Sin motivo"}
+          value={displayValue}
+          title={
+            isAuto
+              ? "Motivo por defecto para músico estable. Editá para personalizar."
+              : hasOverride
+                ? "Motivo de comisión personalizado"
+                : undefined
+          }
+          onFocus={() => {
+            setDraft(displayValue);
+            onExpand(row.id);
+          }}
+          onBlur={() => {
+            commitDraft(draft);
+            setDraft(null);
+            onCollapse();
+          }}
+          onChange={(e) => setDraft(e.target.value)}
+        />
+      </div>
+      {hasOverride && rolDefault ? (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            title="Volver al motivo por defecto de músico estable"
+            className="inline-flex items-center justify-center rounded-full border border-slate-200/90 bg-white p-0.5 text-slate-400 shadow-sm hover:border-cyan-300 hover:text-cyan-700 hover:shadow"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setDraft(null);
+              onUpdateRow(row.id, "motivo", "");
+            }}
+          >
+            <IconRefresh size={7} />
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1105,32 +1195,15 @@ export default function ViaticosTable({
                           />
                         </td>
                         <td className={`p-2 border-r border-slate-100 ${tintClass}`}>
-                          <div className="flex flex-col">
-                            <div className="relative min-h-[28px]">
-                              <textarea
-                                // Ahora es simple: si tiene dato (copiado o editado), se ve blanco/azul.
-                                // Si está vacío (porque el usuario lo borró), se ve gris.
-                                className={`text-xs border rounded px-1 py-1 w-full outline-none transition-all resize-y ${
-                                  expandedMotivoRowId === row.id
-                                    ? "absolute left-0 top-0 z-30 min-h-[110px] w-[420px] bg-white shadow-xl border-indigo-400"
-                                    : "h-[28px] max-h-[28px] overflow-hidden focus:border-indigo-400"
-                                } ${
-                                  row.motivo
-                                    ? "bg-white border-indigo-200 text-indigo-700 font-medium"
-                                    : "bg-slate-50 border-slate-200 text-slate-500 italic"
-                                } ${getInputClass(row.id, "motivo")}`}
-                                // El placeholder solo muestra el Global como última referencia si borran todo
-                                placeholder={config?.motivo || "Sin motivo"}
-                                // Leemos directamente del row, porque el dato YA EXISTE ahí
-                                value={row.motivo || ""}
-                                onFocus={() => setExpandedMotivoRowId(row.id)}
-                                onBlur={() => setExpandedMotivoRowId(null)}
-                                onChange={(e) =>
-                                  onUpdateRow(row.id, "motivo", e.target.value)
-                                }
-                              />
-                            </div>
-                          </div>
+                          <MotivoCell
+                            row={row}
+                            config={config}
+                            expanded={expandedMotivoRowId === row.id}
+                            onExpand={setExpandedMotivoRowId}
+                            onCollapse={() => setExpandedMotivoRowId(null)}
+                            onUpdateRow={onUpdateRow}
+                            getInputClass={getInputClass}
+                          />
                         </td>
                         <td className={`p-2 border-r border-slate-100 ${tintClass}`}>
                           <LugarComisionCell

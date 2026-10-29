@@ -24,6 +24,10 @@ import {
   isSeatingSearch,
   requestSeatingLeave,
 } from "./utils/seatingLateMailLeaveGuard";
+import {
+  destinationLeavesRoster,
+  requestRosterMailLeave,
+} from "./utils/rosterMailLeaveGuard";
 import { requestUnsavedLeave } from "./utils/unsavedWork";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { getRolesDisplay } from "./utils/authRolesDisplay";
@@ -825,37 +829,47 @@ const ProtectedApp = ({ initialTab }) => {
       setIsMobileMenuOpen(false);
     };
 
-    const afterUnsaved = () => {
-      if (isSeatingSearch(searchParams)) {
-        const dest =
-          newMode === "MANAGEMENT"
-            ? "/management"
-            : (() => {
-                const newParams = new URLSearchParams(searchParams);
-                newParams.delete("vista");
-                const targetTab = modeToTab[newMode];
-                if (targetTab) newParams.set("tab", targetTab);
-                else newParams.delete("tab");
-                if (newMode === "GIRAS" && giraId) {
-                  newParams.set("giraId", giraId);
-                  if (viewParam) newParams.set("view", viewParam);
-                  if (subTabParam) newParams.set("subTab", subTabParam);
-                } else {
-                  ["giraId", "view", "subTab", "vista"].forEach((p) =>
-                    newParams.delete(p),
-                  );
-                }
-                const search = newParams.toString();
-                return { pathname: "/", search: search ? `?${search}` : "" };
-              })();
-        if (
-          destinationLeavesSeating(location, dest) &&
-          !requestSeatingLeave(apply)
-        ) {
-          return;
-        }
+    const dest =
+      newMode === "MANAGEMENT"
+        ? "/management"
+        : (() => {
+            const newParams = new URLSearchParams(searchParams);
+            newParams.delete("vista");
+            const targetTab = modeToTab[newMode];
+            if (targetTab) newParams.set("tab", targetTab);
+            else newParams.delete("tab");
+            if (newMode === "GIRAS" && giraId) {
+              newParams.set("giraId", giraId);
+              if (viewParam) newParams.set("view", viewParam);
+              if (subTabParam) newParams.set("subTab", subTabParam);
+            } else {
+              ["giraId", "view", "subTab", "vista"].forEach((p) =>
+                newParams.delete(p),
+              );
+            }
+            const search = newParams.toString();
+            return { pathname: "/", search: search ? `?${search}` : "" };
+          })();
+
+    const afterRoster = () => {
+      if (
+        isSeatingSearch(searchParams) &&
+        destinationLeavesSeating(location, dest) &&
+        !requestSeatingLeave(apply)
+      ) {
+        return;
       }
       apply();
+    };
+
+    const afterUnsaved = () => {
+      if (
+        destinationLeavesRoster(location, dest) &&
+        !requestRosterMailLeave(afterRoster)
+      ) {
+        return;
+      }
+      afterRoster();
     };
 
     if (!requestUnsavedLeave(afterUnsaved)) return;
@@ -1257,6 +1271,17 @@ const ProtectedApp = ({ initialTab }) => {
                   e.preventDefault();
                   return;
                 }
+                const goFimba = () => {
+                  if (!requestSeatingLeave(() => navigate("/fimba"))) return;
+                  navigate("/fimba");
+                };
+                if (
+                  destinationLeavesRoster(location, "/fimba") &&
+                  !requestRosterMailLeave(goFimba)
+                ) {
+                  e.preventDefault();
+                  return;
+                }
                 if (!requestSeatingLeave(() => navigate("/fimba"))) {
                   e.preventDefault();
                 }
@@ -1287,6 +1312,17 @@ const ProtectedApp = ({ initialTab }) => {
               setIsMobileMenuOpen(false);
                 if (isModifiedClick(e)) return;
                 if (!requestUnsavedLeave(() => navigate("/entradas"))) {
+                  e.preventDefault();
+                  return;
+                }
+                const goEntradas = () => {
+                  if (!requestSeatingLeave(() => navigate("/entradas"))) return;
+                  navigate("/entradas");
+                };
+                if (
+                  destinationLeavesRoster(location, "/entradas") &&
+                  !requestRosterMailLeave(goEntradas)
+                ) {
                   e.preventDefault();
                   return;
                 }

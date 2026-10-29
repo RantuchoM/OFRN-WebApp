@@ -22,6 +22,7 @@ const NotificationQueuePanel = forwardRef(function NotificationQueuePanel(
     onFlush,
     onRemoveTask,
     onCancelAll,
+    paused = false,
     supabase,
     gira,
     linkRepertorio = "",
@@ -51,10 +52,10 @@ const NotificationQueuePanel = forwardRef(function NotificationQueuePanel(
   };
 
   useEffect(() => {
-    if (pendingTasks.length === 0) {
-      setSecondsLeft(null);
+    if (pendingTasks.length === 0 || paused) {
       if (timerRef.current) clearTimeout(timerRef.current);
       if (countdownRef.current) clearInterval(countdownRef.current);
+      if (pendingTasks.length === 0) setSecondsLeft(null);
       return;
     }
 
@@ -81,7 +82,7 @@ const NotificationQueuePanel = forwardRef(function NotificationQueuePanel(
       if (timerRef.current) clearTimeout(timerRef.current);
       if (countdownRef.current) clearInterval(countdownRef.current);
     };
-  }, [pendingTasks.length, onFlush, gira?.nombre_gira, gira?.nomenclador, linkRepertorio, supabase]);
+  }, [pendingTasks.length, paused, onFlush, gira?.nombre_gira, gira?.nomenclador, linkRepertorio, supabase]);
 
   useEffect(() => {
     return () => {
@@ -94,7 +95,7 @@ const NotificationQueuePanel = forwardRef(function NotificationQueuePanel(
     if (timerRef.current) clearTimeout(timerRef.current);
     if (countdownRef.current) clearInterval(countdownRef.current);
     setSecondsLeft(0);
-    runSend();
+    return runSend();
   };
   sendNowRef.current = handleSendNow;
 
@@ -131,7 +132,11 @@ const NotificationQueuePanel = forwardRef(function NotificationQueuePanel(
         {!sending && (
           <span className="text-xs text-slate-300 flex items-center gap-1">
             <IconClock size={12} />
-            {secondsLeft != null ? `En ${secondsLeft}s` : "Enviando…"}
+            {paused
+              ? "Confirmá para salir"
+              : secondsLeft != null
+                ? `En ${secondsLeft}s`
+                : "Enviando…"}
           </span>
         )}
       </div>

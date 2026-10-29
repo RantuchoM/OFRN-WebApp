@@ -86,8 +86,12 @@ export default function RosterBajaModal({
   const causeLabels = [
     ...new Set(affectedMembers.map((r) => r.causeLabel).filter(Boolean)),
   ];
-  const hasFamilia = affectedMembers.some((a) => a.causeKind === "familia");
-  const hasEnsamble = affectedMembers.some((a) => a.causeKind === "ensamble");
+  const hasFamilia = affectedMembers.some(
+    (a) => a.causeKind === "familia" || a.causeKind === "mixto",
+  );
+  const hasEnsamble = affectedMembers.some(
+    (a) => a.causeKind === "ensamble" || a.causeKind === "mixto",
+  );
 
   const nombre = isGroupChange
     ? `${selectedCount} de ${affectedMembers.length} integrante(s)`
@@ -104,7 +108,11 @@ export default function RosterBajaModal({
   const title = isPresente
     ? "Marcar como presente"
     : isGroupAlta
-    ? "Inclusión de familia"
+    ? hasFamilia && !hasEnsamble
+      ? "Inclusión de familia"
+      : hasEnsamble && !hasFamilia
+        ? "Inclusión de ensamble"
+        : "Inclusión grupal"
     : isGroupBaja
       ? hasFamilia && !hasEnsamble
         ? "Exclusión de familia"
@@ -160,7 +168,7 @@ export default function RosterBajaModal({
 
   return createPortal(
     <div
-      className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4 z-[100]"
+      className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4 z-[120]"
       role="dialog"
       aria-modal="true"
       aria-labelledby="roster-baja-title"
@@ -240,7 +248,7 @@ export default function RosterBajaModal({
                           </span>
                           <span className="text-[10px] text-slate-500 truncate block">
                             {m.instrumentos?.instrumento || "—"}
-                            {a.causeKind === "familia" && a.causeLabel && (
+                            {a.causeLabel && (
                               <span className="ml-1.5 text-slate-600">
                                 · {a.causeLabel}
                               </span>

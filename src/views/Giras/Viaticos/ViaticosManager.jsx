@@ -90,6 +90,7 @@ import {
 import {
   collectMotivoLugarWarningsForExport,
   resolveLugarViaticosIndividual,
+  resolveMotivoDestaqueExport,
   resolveMotivoViaticosIndividual,
 } from "../../../utils/viaticosExportMotivoLugar";
 import {
@@ -1698,13 +1699,8 @@ const collectTransportSupportDocs = (personData) => {
           p.link_declaracion || p.declaracion_jurada || p.dj || "";
         const fallbackCargo = isStablePerson(p) ? "Agente administrativo" : "";
         rich.cargo = p.cargo || p.rol || fallbackCargo;
-        const motivoDestaques =
-          config.motivo_destaques_exportacion?.trim() || config.motivo || "";
         const fallbackJornada = isStablePerson(p) ? "Horas cátedra" : "";
-        rich.motivo =
-          p.motivo && p.motivo.trim() !== ""
-            ? p.motivo
-            : motivoDestaques;
+        rich.motivo = resolveMotivoDestaqueExport(p, config);
         rich.jornada = p.jornada_laboral || p.jornada || fallbackJornada;
         rich.jornada_laboral = rich.jornada;
 
@@ -2643,6 +2639,7 @@ const collectTransportSupportDocs = (personData) => {
                   .filter(Boolean)
                   .join(" — ") || "Gira"
               }
+              giraZona={giraData?.zona || ""}
               onSaveLocationConfig={updateLocationConfig}
               onUpdateGlobalConfig={updateConfig}
               feedback={feedbackMasivo}

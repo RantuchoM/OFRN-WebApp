@@ -34,6 +34,7 @@ import {
   isSeatingSearch,
   requestSeatingLeave,
 } from "../../utils/seatingLateMailLeaveGuard";
+import { requestRosterMailLeave } from "../../utils/rosterMailLeaveGuard";
 import { fetchGiraRosterCached } from "../../hooks/useGiraRosterQuery";
 import { fetchProgramsByIds, useGirasList } from "../../hooks/useGirasList";
 import { useGirasYearSummary } from "../../hooks/useGirasYearSummary";
@@ -466,19 +467,30 @@ export default function GirasView({ supabase, trigger = 0 }) {
       setSearchParams(params);
     };
 
-    if (isSeatingSearch(searchParams)) {
-      const next = new URLSearchParams();
-      next.set("tab", "giras");
-      if (newMode && newMode !== "LIST") {
-        next.set("view", newMode);
-        const gId =
-          newGiraId || giraId || (selectedGira ? selectedGira.id : null);
-        if (gId) next.set("giraId", String(gId));
-        if (newSubTab) next.set("subTab", newSubTab);
+    const leavingRoster =
+      searchParams.get("view") === "ROSTER" &&
+      (newMode !== "ROSTER" ||
+        (newGiraId != null &&
+          String(newGiraId) !== String(giraId || selectedGira?.id || "")));
+
+    const afterRoster = () => {
+      if (isSeatingSearch(searchParams)) {
+        const next = new URLSearchParams();
+        next.set("tab", "giras");
+        if (newMode && newMode !== "LIST") {
+          next.set("view", newMode);
+          const gId =
+            newGiraId || giraId || (selectedGira ? selectedGira.id : null);
+          if (gId) next.set("giraId", String(gId));
+          if (newSubTab) next.set("subTab", newSubTab);
+        }
+        if (!isSeatingSearch(next) && !requestSeatingLeave(apply)) return;
       }
-      if (!isSeatingSearch(next) && !requestSeatingLeave(apply)) return;
-    }
-    apply();
+      apply();
+    };
+
+    if (leavingRoster && !requestRosterMailLeave(afterRoster)) return;
+    afterRoster();
   };
   const isCoordinator = !isEditor && coordinatedEnsembles.size > 0;
   const [commentsState, setCommentsState] = useState(null);

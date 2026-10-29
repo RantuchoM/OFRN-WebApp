@@ -35,7 +35,8 @@ Aparte de `rol`. Valores: `reemplazo`, `refuerzo`, `pasante`, o null. Solo se pu
 - **Pasante:** tag y fila verde. En logística no entra al cálculo automático de hotel ni de transporte (solo alcance Persona, asignación manual). En comidas solo matchea `GRP:TUTTI`.
 - **Indiv:** no se persiste. Con rol `musico`, sin función y con fila en `giras_integrantes` (convocado de a uno, no solo por ensamble o familia), la nómina conserva el color de fila de hoy y muestra el tag Indiv. Quien entra solo por ensamble o familia no lleva esa tercera línea. Otros roles tampoco.
 - El tag está en la tercera línea de la columna Rol / Instr. Tocarlo (o el nombre del rol, si no es músico) abre el modal de rol. Las opciones Indiv, Reemplazo, Refuerzo y Pasante usan el color de la función (gris, celeste, violeta, verde) en ese modal, en Convocar y al asignar titular de una vacante. Al salir de `musico` o si la persona es Estable, `funcion` e `id_cubre_a` quedan nulos.
-- Convocar abre un modal: Individual (tildes, búsqueda por nombre o instrumento) y Grupal (ensambles, familias, exclusión).
+- Convocar abre un modal: Individual (tildes, búsqueda por nombre o instrumento) y Grupal en cuatro listas: Ensambles, Cameratas (fila en `ensambles_cf` como `id_ensamble_cf`, o nombre con prefijo CF / Jazz Band), Familias y Excluir ensambles. Al abrir, lo tildado queda arriba. Camerata no es un tipo de fuente nuevo: sigue en `ENSAMBLE` / `EXCL_ENSAMBLE`.
+- Actualizar propone el mail de baja (destildar ensamble o familia, o excluir) y el de alta (sumar ensamble, camerata o familia, o sacar una exclusión). El texto distingue ensamble y familia. Si se confirma notificar, los mails quedan en el panel inferior. Con esa cola abierta no se puede cambiar de pantalla ni cerrar la pestaña hasta Enviar o Cancelar.
 
 ## 4. Vacantes (integrantes simulados)
 
