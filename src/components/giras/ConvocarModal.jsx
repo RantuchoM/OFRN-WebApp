@@ -186,7 +186,6 @@ export default function ConvocarModal({
         rol,
         funcion: picked[String(p.id)]?.funcion || "",
         id_cubre_a: picked[String(p.id)]?.id_cubre_a || null,
-        fechaDesde: giraFechaDesde,
       })),
     );
   };
