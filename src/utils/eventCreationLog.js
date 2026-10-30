@@ -199,12 +199,21 @@ export function groupEventChangeLogs(logs) {
   return groups;
 }
 
+function compareChangeLogsNewestFirst(a, b) {
+  const ta = a?.created_at ? new Date(a.created_at).getTime() : 0;
+  const tb = b?.created_at ? new Date(b.created_at).getTime() : 0;
+  if (tb !== ta) return tb - ta;
+  return (Number(b?.id) || 0) - (Number(a?.id) || 0);
+}
+
 /**
  * Reconstruye el programa (fecha + hora + locación) antes/después de cada
  * grupo de logs, yendo desde el estado actual hacia atrás.
+ * El array vuelve del cambio más reciente al más antiguo.
  */
 export function buildScheduleChangeGroups(changeLogs, event) {
-  const groups = groupEventChangeLogs(changeLogs);
+  const ordered = [...(changeLogs || [])].sort(compareChangeLogsNewestFirst);
+  const groups = groupEventChangeLogs(ordered);
   let snapshot = eventScheduleSnapshot(event);
   return groups.map((group) => {
     const after = { ...snapshot };
@@ -225,6 +234,23 @@ export function buildScheduleChangeGroups(changeLogs, event) {
     snapshot = { ...before };
     return { ...group, before, after, changed };
   });
+}
+
+/**
+ * Programa del día del alta: el «antes» del cambio más antiguo.
+ * Sin cambios posteriores, es el estado actual del evento.
+ * `groups` tiene que ser la salida de `buildScheduleChangeGroups` (más reciente primero).
+ */
+export function initialScheduleFromChangeGroups(groups, event) {
+  if (Array.isArray(groups) && groups.length > 0 && groups[groups.length - 1]?.before) {
+    return { ...groups[groups.length - 1].before };
+  }
+  return eventScheduleSnapshot(event);
+}
+
+export function scheduleSnapshotHasContent(snap) {
+  if (!snap) return false;
+  return Boolean(snap.fecha || snap.hora_inicio || snap.hora_fin || snap.locacion);
 }
 
 /**

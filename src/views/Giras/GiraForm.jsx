@@ -4,7 +4,6 @@ import React, {
   useRef,
   useMemo,
   useCallback,
-  useId,
 } from "react";
 import {
   IconPlus,
@@ -50,7 +49,7 @@ import {
   EVENT_CREATION_SOURCES,
   withConcertCreationMeta,
 } from "../../utils/eventCreationLog";
-import { ZONA_PRESETS } from "../../utils/giraZonas";
+import ZonaSelect from "../../components/forms/ZonaSelect";
 
 // --- COMPONENTE INTERNO: Modal de Edición de Concierto ---
 const ConcertFormModal = ({
@@ -499,7 +498,6 @@ export default function GiraForm({
   const [shiftLoading, setShiftLoading] = useState(false);
   const [staffRole, setStaffRole] = useState("director");
   const [syncStatus, setSyncStatus] = useState("idle"); // idle | pending | saving | saved | error
-  const zonaDatalistId = useId();
   const conciertosSectionRef = useRef(null);
   const trackedFields = useMemo(
     () => [
@@ -1320,21 +1318,14 @@ export default function GiraForm({
           <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block min-h-[16px]">
             Zona
           </label>
-          <input
-            type="text"
-            list={zonaDatalistId}
-            autoComplete="off"
-            placeholder="Andina, Atlántica, Valle u otra…"
-            className={`w-full h-[42px] border border-slate-300 p-2 rounded ${getFieldStatusClass("zona", "bg-white")}`}
+          <ZonaSelect
             value={formData.zona || ""}
-            onChange={(e) => setFormData({ ...formData, zona: e.target.value })}
-            onBlur={() => handleAutoSave("zona")}
+            onChange={(zona) => setFormData({ ...formData, zona })}
+            onCommit={(zona) => handleAutoSave("zona", zona)}
+            className="space-y-1"
+            selectClassName={`w-full h-[42px] border border-slate-300 p-2 rounded bg-white ${getFieldStatusClass("zona", "bg-white")}`}
+            inputClassName={`w-full h-[42px] border border-slate-300 p-2 rounded ${getFieldStatusClass("zona", "bg-white")}`}
           />
-          <datalist id={zonaDatalistId}>
-            {ZONA_PRESETS.map((z) => (
-              <option key={z} value={z} />
-            ))}
-          </datalist>
         </div>
         {!isNew && enableAutoSave && (
           <GiraTramosEditor

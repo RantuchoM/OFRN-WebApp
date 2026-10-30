@@ -17,6 +17,8 @@ import {
   formatLogDate,
   formatLogTime,
   formatPersonNombre,
+  initialScheduleFromChangeGroups,
+  scheduleSnapshotHasContent,
 } from "../../utils/eventCreationLog";
 
 function authorNameFrom(person) {
@@ -85,6 +87,43 @@ function ScheduleStamp({ snap, changed, side }) {
   );
 }
 
+function InitialScheduleBlock({ snap, divided = true }) {
+  if (!scheduleSnapshotHasContent(snap)) return null;
+  const date = formatLogDate(snap.fecha);
+  const time = formatLogTime(snap.hora_inicio);
+  const fin = formatLogTime(snap.hora_fin);
+  const loc = snap.locacion || "";
+  return (
+    <div
+      className={`space-y-2 ${divided ? "mt-3 pt-3 border-t border-indigo-100" : ""}`}
+    >
+      <p className="text-sm font-semibold text-slate-800 tabular-nums">
+        {[date, time].filter(Boolean).join(" ") || "—"}
+      </p>
+      <div>
+        <div className="flex items-center gap-1.5 mb-0.5">
+          <IconClock size={14} className="text-indigo-500 shrink-0" />
+          <span className="text-xs font-bold uppercase tracking-wide text-indigo-600">
+            Hasta
+          </span>
+        </div>
+        <p className="text-sm font-medium text-slate-700 tabular-nums">
+          {fin || "—"}
+        </p>
+      </div>
+      <div>
+        <div className="flex items-center gap-1.5 mb-0.5">
+          <IconMapPin size={14} className="text-indigo-500 shrink-0" />
+          <span className="text-xs font-bold uppercase tracking-wide text-indigo-600">
+            Locación
+          </span>
+        </div>
+        <p className="text-sm font-medium text-slate-700">{loc || "—"}</p>
+      </div>
+    </div>
+  );
+}
+
 function SideRow({ before, after, changed }) {
   return (
     <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-1">
@@ -135,9 +174,17 @@ export default function EventHistoryModal({
     () => logs.filter((log) => log.campo !== "created"),
     [logs],
   );
-  const changeGroups = useMemo(
+  const changeGroupsNewestFirst = useMemo(
     () => buildScheduleChangeGroups(changeLogs, eventMeta),
     [changeLogs, eventMeta],
+  );
+  const changeGroups = useMemo(
+    () => [...changeGroupsNewestFirst].reverse(),
+    [changeGroupsNewestFirst],
+  );
+  const initialSchedule = useMemo(
+    () => initialScheduleFromChangeGroups(changeGroupsNewestFirst, eventMeta),
+    [changeGroupsNewestFirst, eventMeta],
   );
 
   const createdMeta = useMemo(() => {
@@ -157,8 +204,9 @@ export default function EventHistoryModal({
   const createdSummary = createdMeta.line;
   const createdAuthor = createdMeta.name;
   const createdSource = createdMeta.source;
+  const showInitialSchedule = scheduleSnapshotHasContent(initialSchedule);
   const hasCreatedCard = Boolean(
-    createdSummary || createdAuthor || createdSource,
+    createdSummary || createdAuthor || createdSource || showInitialSchedule,
   );
 
   const zClass = nested ? "z-[110]" : "z-[100]";
@@ -205,9 +253,11 @@ export default function EventHistoryModal({
                   <span className="text-xs font-bold uppercase tracking-wide text-indigo-600 block mb-1">
                     Creado
                   </span>
-                  <p className="text-sm font-medium text-slate-800">
-                    {createdSummary}
-                  </p>
+                  {createdSummary ? (
+                    <p className="text-sm font-medium text-slate-800">
+                      {createdSummary}
+                    </p>
+                  ) : null}
                   {createdAuthor || createdSource ? (
                     <p className="mt-1.5 flex items-center gap-1.5 text-xs text-indigo-700">
                       {createdAuthor ? (
@@ -220,6 +270,10 @@ export default function EventHistoryModal({
                       </span>
                     </p>
                   ) : null}
+                  <InitialScheduleBlock
+                    snap={initialSchedule}
+                    divided={Boolean(createdSummary || createdAuthor || createdSource)}
+                  />
                 </div>
               ) : null}
 

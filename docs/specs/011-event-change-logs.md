@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS public.eventos_logs (
 - **Archivo**: `src/services/giraService.js`  
 - **Función**: `getEventHistory(supabase, eventId)` — logs + estado actual (`fecha`, `hora_inicio`, `hora_fin`, `id_locacion`, `locaciones.nombre`) + meta de alta (`created_at`, `created_by`, `creation_source`, join a integrante).  
 - **Función**: `getEventLogs(supabase, eventId)` — lista de logs (compat).  
-- Helper de payload: `src/utils/eventCreationLog.js` (`withConcertCreationMeta`, `concertCreationFields`, `buildScheduleChangeGroups`).
+- Helper de payload: `src/utils/eventCreationLog.js` (`withConcertCreationMeta`, `concertCreationFields`, `buildScheduleChangeGroups`, `initialScheduleFromChangeGroups`). `buildScheduleChangeGroups` ordena los logs del más reciente al más antiguo antes de reconstruir antes/después.
 
 ### Rutas de INSERT que setean `created_by` / `creation_source`
 - Agenda / EventForm / duplicar: `agenda`.
@@ -61,7 +61,7 @@ CREATE TABLE IF NOT EXISTS public.eventos_logs (
 - **Componente**: `src/components/giras/EventHistoryModal.jsx`  
 - **Render**: React Portal (`createPortal(..., document.body)`). Overlay `z-[100]` (anidado sobre EventForm: `z-[110]`).  
 - **Props**: `supabase`, `eventId`, `eventLabel`, `event` (meta opcional), `nested`, `onClose`.  
-- **Comportamiento**: Al montar, `getEventHistory`. Tarjeta **Creado** arriba (fecha/hora en **dd/mm/yyyy**, persona si hay, etiqueta de fuente en español). Debajo, cambios agrupados por `created_at`. Cada cambio muestra la **fecha+hora completa del concierto** en esa versión (`dd/mm/yyyy HH:MM`), no un campo aislado; se resalta solo lo que cambió (p. ej. misma fecha y hora nueva en verde). Locación y hora de fin van en filas aparte si cambiaron. Conciertos viejos: fecha de alta desde `eventos.created_at`; quién/fuente vacíos.
+- **Comportamiento**: Al montar, `getEventHistory`. Tarjeta **Creado** arriba: cuándo se dio de alta (fecha/hora en **dd/mm/yyyy**, persona si hay, etiqueta de fuente en español) y el **programa del primer día** (fecha, hora de inicio, hasta y locación tal como quedaron al crear). Ese estado se reconstruye caminando los logs desde el evento actual hacia atrás (`initialScheduleFromChangeGroups`); si no hubo cambios, es el estado actual. Debajo, los cambios en **orden cronológico** (el más antiguo primero). Cada cambio muestra la **fecha+hora completa del concierto** en esa versión (`dd/mm/yyyy HH:MM`), no un campo aislado; se resalta solo lo que cambió (p. ej. misma fecha y hora nueva en verde). Locación y hora de fin van en filas aparte si cambiaron. Conciertos viejos: fecha de alta desde `eventos.created_at`; quién/fuente vacíos.
 - **Fechas**: `formatLogDate` / `formatDateTimeEs` (`eventCreationLog.js`). ISO `YYYY-MM-DD` → `dd/mm/yyyy` (sin parsear UTC). Horas `20:00:00` → `20:00`. Timestamps (`created_at`) con hora local es-AR.
 - **Autor**: se muestra el **nombre** del integrante (`formatPersonNombre`) solo si `eventos_logs.created_by` (join `integrantes`) o, en la tarjeta Creado, `eventos.created_by`. Si no hay dato, no se inventa. Los logs de UPDATE **no** graban autor (el trigger no tiene integrante de sesión en la intranet); los logs `created` sí, cuando el alta guardó `created_by`.
 
@@ -84,7 +84,7 @@ CREATE TABLE IF NOT EXISTS public.eventos_logs (
 - **Ventana futura (2026-09-23):** production `main` no tenía el paginado ni el refetch por Desde/Hasta (WIP local). La query pagina de a 1000 filas y el “hasta” es `max(filtro Hasta, hoy + monthsLimit)` en `yyyy-MM-dd`. Cambiar Desde/Hasta o «Cargar más meses» re-consulta. El roster de gira no se embebe en cada evento. Spec: `ajustes_interfaz_y_roles.md` §14.
 
 ## Estado del módulo
-**Activo.** Columnas de alta, trigger de INSERT, trigger UPDATE con locación (`20260923163000`), `getEventHistory` con snapshot actual, modal con fecha+hora completa Antes/Después (dd/mm/yyyy) y locación si cambió. En agenda: solo ícono de historial (sin línea «Creado el…» en la tarjeta). Caché agenda `v11`.
+**Activo.** Columnas de alta, trigger de INSERT, trigger UPDATE con locación (`20260923163000`), `getEventHistory` con snapshot actual, modal con el programa inicial en la tarjeta Creado y los cambios en orden cronológico (fecha+hora completa Antes/Después, dd/mm/yyyy, locación si cambió). En agenda: solo ícono de historial (sin línea «Creado el…» en la tarjeta). Caché agenda `v11`.
 
 ## Deuda
 - `merge_integrantes` aún no remapea `eventos.created_by` ni `eventos_logs.created_by`.

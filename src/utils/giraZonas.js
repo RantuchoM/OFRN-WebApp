@@ -1,5 +1,5 @@
-/** Zonas que el formulario de gira ya ofrece. Se puede usar cualquier otro texto. */
-export const ZONA_PRESETS = ["Andina", "Atlántica", "Valle"];
+/** Opciones fijas del desplegable de zona. Cualquier otra se escribe en «Otro...». */
+export const ZONA_PRESETS = ["Atlántica", "Andina", "Valle"];
 
 export function normalizeZonaKey(value) {
   return String(value || "")

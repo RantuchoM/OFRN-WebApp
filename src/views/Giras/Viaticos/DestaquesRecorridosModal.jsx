@@ -21,6 +21,7 @@ import {
   serializeRecorridos,
 } from "../../../utils/destaquesLugarComisionRecorridos";
 import { canonicalZona, ZONA_PRESETS, zonasMatch } from "../../../utils/giraZonas";
+import ZonaSelect from "../../../components/forms/ZonaSelect";
 import {
   deleteRecorridosPlantilla,
   listRecorridosPlantillas,
@@ -200,6 +201,43 @@ function RecorridoEditor({
   );
 }
 
+function PlantillaRutaDetalle({ recorridos, names, presentIds }) {
+  const present = new Set(presentIds.map((id) => String(id)));
+  if (!recorridos.length) {
+    return <p className="text-[11px] text-slate-400 italic">Sin localidades.</p>;
+  }
+  return (
+    <div className="mt-1.5 space-y-0.5">
+      {recorridos.map((ids, routeIndex) => (
+        <p key={routeIndex} className="text-[11px] leading-snug">
+          {recorridos.length > 1 ? (
+            <span className="font-bold text-indigo-400 mr-1">R{routeIndex + 1}</span>
+          ) : null}
+          {ids.length === 0 ? (
+            <span className="text-slate-400 italic">vacío</span>
+          ) : (
+            ids.map((id, index) => {
+              const name = names[id] || names[String(id)] || `#${id}`;
+              const enGira = present.has(String(id));
+              return (
+                <span key={`${id}-${index}`}>
+                  {index > 0 ? <span className="text-slate-300"> → </span> : null}
+                  <span
+                    className={enGira ? "text-slate-700" : "text-slate-400"}
+                    title={enGira ? undefined : "No está en esta gira"}
+                  >
+                    {name}
+                  </span>
+                </span>
+              );
+            })
+          )}
+        </p>
+      ))}
+    </div>
+  );
+}
+
 function emptyEditor(zona) {
   return {
     id: null,
@@ -230,6 +268,7 @@ export default function DestaquesRecorridosModal({
   const [loadingPlantillas, setLoadingPlantillas] = useState(false);
   const [plantillasError, setPlantillasError] = useState("");
   const [zonaFiltro, setZonaFiltro] = useState("");
+  const [plantillasAbiertas, setPlantillasAbiertas] = useState(false);
   const [editor, setEditor] = useState(null);
   const [editorDirty, setEditorDirty] = useState(false);
   const [savingPlantilla, setSavingPlantilla] = useState(false);
@@ -353,8 +392,10 @@ export default function DestaquesRecorridosModal({
 
     const parsed = parseLugarComisionStored(storedValue);
     const hasRoutes = parsed.tipo === "recorridos" && parsed.recorridos.length > 0;
+    const tieneTextoPlano = parsed.tipo === "plano" && !!String(parsed.texto || "").trim();
     hadStoredRecorridosRef.current = hasRoutes;
-    storedIsEmptyRef.current = parsed.tipo === "plano" && !String(parsed.texto || "").trim();
+    storedIsEmptyRef.current = !hasRoutes && !tieneTextoPlano;
+    setPlantillasAbiertas(!hasRoutes && !tieneTextoPlano);
     if (hasRoutes) {
       setRecorrido1(parsed.recorridos[0] || []);
       setRecorrido2(parsed.recorridos[1] || []);
@@ -427,7 +468,7 @@ export default function DestaquesRecorridosModal({
       !autoAppliedRef.current;
     if (!silent && hasDraft && !untouchedAutofill) {
       const ok = window.confirm(
-        `Generar «${label}» reemplaza el recorrido de esta gira en el editor. Los casos particulares se mantienen.`,
+        `Aplicar «${label}» reemplaza el recorrido de esta gira en el editor. Los casos particulares se mantienen.`,
       );
       if (!ok) return false;
     }
@@ -630,7 +671,7 @@ export default function DestaquesRecorridosModal({
       return;
     }
     if (!zona) {
-      setPlantillasError("Elegí una zona (Andina, Atlántica, Valle u otra).");
+      setPlantillasError("Elegí Atlántica, Andina, Valle, o escribí la zona en Otro...");
       return;
     }
     if (recorridosIds.length === 0) {
@@ -758,24 +799,39 @@ export default function DestaquesRecorridosModal({
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-          <section className="rounded-lg border border-indigo-100 bg-indigo-50/40 p-3 space-y-3">
-            <div className="flex flex-wrap items-start justify-between gap-2">
-              <div>
-                <h4 className="text-xs font-bold text-indigo-900 uppercase">
-                  Plantillas estándar
-                </h4>
-                <p className="text-[11px] text-slate-600 mt-0.5">
-                  Elegí la preferida de cada zona. Generar la copia a esta gira; editar
-                  la plantilla no cambia las giras ya guardadas.
-                  {giraZona ? ` Esta gira es ${canonicalZona(giraZona, knownZonas)}.` : ""}
-                </p>
-              </div>
-              {loadingPlantillas && (
-                <span className="inline-flex items-center gap-1 text-[11px] text-slate-500">
+          <section className="rounded-lg border border-indigo-100 bg-indigo-50/40">
+            <button
+              type="button"
+              onClick={() => setPlantillasAbiertas((open) => !open)}
+              className="w-full flex items-center justify-between gap-2 px-3 py-2.5 text-left"
+              aria-expanded={plantillasAbiertas}
+            >
+              <span className="inline-flex items-center gap-2 text-xs font-bold text-indigo-900 uppercase">
+                <IconChevronDown
+                  size={14}
+                  className={`transition-transform ${plantillasAbiertas ? "rotate-180" : ""}`}
+                />
+                Plantillas
+              </span>
+              {loadingPlantillas ? (
+                <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-500 normal-case">
                   <IconLoader size={12} className="animate-spin" /> Cargando
                 </span>
+              ) : (
+                <span className="text-[11px] font-medium text-slate-500 normal-case">
+                  {plantillas.length}
+                </span>
               )}
-            </div>
+            </button>
+
+            {plantillasAbiertas && (
+            <div className="px-3 pb-3 space-y-3">
+            <p className="text-[11px] text-slate-600">
+              Elegí la preferida de cada zona. Aplicar copia la plantilla a esta gira; editar
+              la plantilla no cambia las giras ya guardadas. En gris, localidades que esta
+              gira no tiene.
+              {giraZona ? ` Esta gira es ${canonicalZona(giraZona, knownZonas)}.` : ""}
+            </p>
 
             <div className="flex flex-wrap gap-1">
               <button
@@ -852,14 +908,11 @@ export default function DestaquesRecorridosModal({
                           {plantilla.es_preferida ? "Preferida" : "Hacer preferida"}
                         </button>
                         <div className="min-w-0 flex-1">
-                          <p className="text-xs font-bold text-slate-800 truncate">
+                          <p className="text-xs font-bold text-slate-800">
                             {plantilla.nombre}
                             <span className="ml-1 font-medium text-slate-400">
                               {plantilla.zona}
                             </span>
-                          </p>
-                          <p className="text-[10px] text-slate-500 truncate">
-                            {formatRecorridosSummary(parsed, allNames)}
                           </p>
                         </div>
                         <button
@@ -872,16 +925,21 @@ export default function DestaquesRecorridosModal({
                           }
                           className="px-2 py-1 rounded text-[10px] font-bold bg-indigo-600 text-white hover:bg-indigo-700"
                         >
-                          Generar
+                          Aplicar
                         </button>
                         <button
                           type="button"
                           onClick={() => abrirPlantilla(plantilla)}
                           className="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-bold border border-slate-200 text-slate-700 hover:bg-slate-50"
                         >
-                          <IconEdit size={12} /> Abrir
+                          <IconEdit size={12} /> Editar
                         </button>
                       </div>
+                      <PlantillaRutaDetalle
+                        recorridos={parsed.recorridos}
+                        names={allNames}
+                        presentIds={localities.map((loc) => loc.id)}
+                      />
                     </li>
                   );
                 })}
@@ -937,19 +995,12 @@ export default function DestaquesRecorridosModal({
                   </label>
                   <label className="block text-[10px] font-bold text-slate-500 uppercase">
                     Zona
-                    <input
-                      type="text"
-                      list="recorridos-plantilla-zonas"
+                    <ZonaSelect
                       value={editor.zona}
-                      onChange={(e) => patchEditor({ zona: e.target.value })}
-                      className="mt-1 w-full text-xs font-medium text-slate-800 border border-slate-200 rounded px-2 py-1"
-                      placeholder="Andina, Atlántica, Valle u otra"
+                      onChange={(zona) => patchEditor({ zona })}
+                      className="mt-1 space-y-1"
+                      selectClassName="w-full text-xs font-medium text-slate-800 border border-slate-200 rounded px-2 py-1 bg-white"
                     />
-                    <datalist id="recorridos-plantilla-zonas">
-                      {zonaChips.map((zona) => (
-                        <option key={zona} value={zona} />
-                      ))}
-                    </datalist>
                   </label>
                 </div>
                 <label className="flex items-center gap-2 text-xs text-slate-700">
@@ -1038,7 +1089,7 @@ export default function DestaquesRecorridosModal({
                     }
                     className="px-3 py-1.5 text-[11px] font-bold text-indigo-800 border border-indigo-200 rounded-lg hover:bg-indigo-50"
                   >
-                    Generar en esta gira
+                    Aplicar en esta gira
                   </button>
                   {editor.id && (
                     <button
@@ -1058,6 +1109,8 @@ export default function DestaquesRecorridosModal({
               <p className="text-[11px] text-red-700 bg-red-50 border border-red-100 rounded px-2 py-1">
                 {plantillasError}
               </p>
+            )}
+            </div>
             )}
           </section>
 
