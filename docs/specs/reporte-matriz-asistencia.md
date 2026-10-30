@@ -20,7 +20,10 @@ Visualizar en un cuadro de doble entrada la participación de integrantes en los
    - Checkboxes por `tipo_programa` (Sinfónico, Cámara, etc.).
 3. **Barra de controles de la matriz (encabezado):**
    - Toggle: "Agrupar por ensambles".
-   - Toggle: "Mostrar histórico" (`IconHistory`) — incluye programas anteriores del mismo año calendario; por defecto solo muestra programas con fecha >= hoy.
+   - **Filtro de fechas** (`DateInput`, Desde / Hasta) sobre `programas.fecha_desde`.
+     - Por defecto: Desde = hoy, Hasta = **31/12 del año en curso**. No entran programas que empiezan después de ese corte (p. ej. el año siguiente) ni anteriores a hoy.
+     - El usuario puede cambiar ambas fechas. Vaciar un extremo quita ese tope.
+   - Toggle: **"Todo el año"** (`IconHistory`) — pone Desde en **01/01 del año en curso** (Hasta no se toca; sigue en 31/12 salvo que el usuario lo haya cambiado). Destildar vuelve Desde a hoy. Queda tildado cuando Desde es el 01/01 de ese año.
 4. **Matriz de Datos:**
    - **Eje Y (Filas):** Nombre y Apellido del integrante.
      - Subtexto: Instrumento y Ensamble (tamaño pequeño).
@@ -58,7 +61,7 @@ No se requieren tablas nuevas; se sugiere una vista para optimizar la carga de l
 | Documentación en `/docs/specs/reporte-matriz-asistencia.md` | Completado |
 | Vista `src/views/Giras/AsistenciaMatrixReport.jsx` | Completado |
 | Árbol Ensamble > Integrantes con checkboxes (nodo e hojas) | Completado |
-| Filtros por tipo de programa (`programas.tipo`) y toggle de programas pasados del año en curso | Completado |
+| Filtros por tipo de programa (`programas.tipo`), rango Desde/Hasta (corte por defecto 31/12 del año en curso) y toggle «Todo el año» (desde 01/01) | Completado |
 | Matriz: filas con nombre, subtexto instrumento + ensambles, orden por `id_instr` | Completado |
 | Matriz: columnas por programa, orden `fecha_desde` ascendente, cabecera `nomenclador` + `mes_letra` | Completado |
 | Popover en cabecera (mini GiraCard + convocatorias + enlace repertorio `?tab=giras&view=REPERTOIRE&giraId=`) | Completado |

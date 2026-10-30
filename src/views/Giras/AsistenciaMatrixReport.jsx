@@ -9,7 +9,7 @@ import React, {
 } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
-import { format, parseISO, startOfDay } from "date-fns";
+import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
 import {
   fetchAsistenciaMatrixBaseData,
@@ -35,6 +35,7 @@ import {
   getProgramStyle,
 } from "../../utils/giraUtils";
 import { integranteKey } from "../../utils/integranteIds";
+import DateInput from "../../components/ui/DateInput";
 import {
   IconChevronDown,
   IconDownload,
@@ -118,27 +119,37 @@ function buildConvocatoriaChips(girasFuentes = [], ensambleMap) {
   return { inclusions, exclusions };
 }
 
-function startOfToday() {
-  return startOfDay(new Date());
+function isoDay(value) {
+  if (value == null || value === "") return "";
+  const match = String(value).trim().match(/^(\d{4}-\d{2}-\d{2})/);
+  return match ? match[1] : "";
 }
 
-function filterProgramasForMatrix(programas, { selectedTypes, showPastInYear }) {
-  const today = startOfToday();
-  const currentYear = today.getFullYear();
+/** Cortes del filtro de Convocatorias para el año calendario en curso. */
+export function convocatoriaYearDateBounds(now = new Date()) {
+  const year = now.getFullYear();
+  return {
+    year,
+    today: format(now, "yyyy-MM-dd"),
+    yearStart: `${year}-01-01`,
+    yearEnd: `${year}-12-31`,
+  };
+}
+
+function filterProgramasForMatrix(
+  programas,
+  { selectedTypes, fechaDesde, fechaHasta },
+) {
+  const from = isoDay(fechaDesde);
+  const to = isoDay(fechaHasta);
   return programas.filter((p) => {
     const tipo = p.tipo;
     if (!tipo || !selectedTypes.has(tipo)) return false;
-    if (!p.fecha_desde) return false;
-    let fd;
-    try {
-      fd = startOfDay(parseISO(p.fecha_desde));
-    } catch {
-      return false;
-    }
-    if (fd >= today) return true;
-    if (showPastInYear && fd < today && fd.getFullYear() === currentYear)
-      return true;
-    return false;
+    const fd = isoDay(p.fecha_desde);
+    if (!fd) return false;
+    if (from && fd < from) return false;
+    if (to && fd > to) return false;
+    return true;
   });
 }
 
@@ -407,7 +418,12 @@ export default function AsistenciaMatrixReport({ supabase }) {
   const [selectedTypes, setSelectedTypes] = useState(
     () => new Set(["Sinfónico", "Camerata Filarmónica"]),
   );
-  const [showPastInYear, setShowPastInYear] = useState(false);
+  const [fechaDesde, setFechaDesde] = useState(
+    () => convocatoriaYearDateBounds().today,
+  );
+  const [fechaHasta, setFechaHasta] = useState(
+    () => convocatoriaYearDateBounds().yearEnd,
+  );
   const [groupByEnsambles, setGroupByEnsambles] = useState(false);
   const [selectedIntegranteIdsByMode, setSelectedIntegranteIdsByMode] = useState(
     createEmptySelectionByMode,
@@ -530,13 +546,28 @@ export default function AsistenciaMatrixReport({ supabase }) {
     );
   }, [integrantes, memberships]);
 
+  const yearBounds = useMemo(() => convocatoriaYearDateBounds(), []);
+  const todoElAno = fechaDesde === yearBounds.yearStart;
+
+  const handleTodoElAnoChange = useCallback(
+    (checked) => {
+      setFechaDesde(checked ? yearBounds.yearStart : yearBounds.today);
+    },
+    [yearBounds.today, yearBounds.yearStart],
+  );
+
+  const handleFechaDesdeChange = useCallback((value) => {
+    setFechaDesde(value || "");
+  }, []);
+
   const filteredProgramas = useMemo(
     () =>
       filterProgramasForMatrix(programas, {
         selectedTypes,
-        showPastInYear,
+        fechaDesde,
+        fechaHasta,
       }),
-    [programas, selectedTypes, showPastInYear],
+    [programas, selectedTypes, fechaDesde, fechaHasta],
   );
 
   useEffect(() => {
@@ -1146,18 +1177,36 @@ export default function AsistenciaMatrixReport({ supabase }) {
                 />
                 Agrupar por ensambles
               </label>
+              <div className="flex flex-wrap items-end gap-2">
+                <div className="w-[8.75rem]">
+                  <DateInput
+                    label="Desde"
+                    value={fechaDesde}
+                    onChange={handleFechaDesdeChange}
+                    showDayName={false}
+                  />
+                </div>
+                <div className="w-[8.75rem]">
+                  <DateInput
+                    label="Hasta"
+                    value={fechaHasta}
+                    onChange={(value) => setFechaHasta(value || "")}
+                    showDayName={false}
+                  />
+                </div>
+              </div>
               <label
                 className="flex cursor-pointer items-center gap-2 text-xs text-slate-600 dark:text-slate-300"
-                title="Incluir programas anteriores del mismo año calendario"
+                title={`Mostrar programas desde el 01/01/${yearBounds.year}`}
               >
                 <input
                   type="checkbox"
-                  checked={showPastInYear}
-                  onChange={(e) => setShowPastInYear(e.target.checked)}
+                  checked={todoElAno}
+                  onChange={(e) => handleTodoElAnoChange(e.target.checked)}
                   className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
                 />
                 <IconHistory size={14} className="shrink-0 text-slate-500 dark:text-slate-400" />
-                Mostrar histórico
+                Todo el año
               </label>
             </div>
             <div className="flex flex-wrap items-center gap-1.5">
