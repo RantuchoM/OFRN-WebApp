@@ -3,9 +3,11 @@
  * Run: node scripts/verify-fresh-start.mjs
  */
 import {
+  FRESH_OPEN_KEY,
   FRESH_START_LOG_KEY,
   FRESH_START_MAX_ATTEMPTS,
   FRESH_START_STORAGE_KEY,
+  activateLatestServiceWorker,
   freshStartDestination,
   freshStartStatusBusy,
   freshStartStatusLabel,
@@ -125,6 +127,7 @@ assert(freshStartDestination("?next=/%2e%2e/secreto") === "/", "rechaza ..");
   assert(!storage.dump()["ofrn:pwa-reload-guard"], "limpia el tope de recargas");
   assert(!storage.dump()[FRESH_START_STORAGE_KEY], "limpia el paso");
   assert(!storage.dump()[FRESH_START_LOG_KEY], "al abrir la app no deja el historial");
+  assert(storage.dump()[FRESH_OPEN_KEY] === "1", "marca la entrada para no mostrar Actualizar");
   assert(
     status.codes.join(",") === "check,caches,open",
     "avisa revisar, borrar y abrir",
@@ -241,6 +244,40 @@ assert(freshStartDestination("?next=/%2e%2e/secreto") === "/", "rechaza ..");
   });
   assert(plan === "clear-then-redirect" && replaced, "si la limpieza cuelga, igual abre /");
   assert(status.codes.at(-1) === "openTimeout", "avisa que el borrado tardó");
+}
+
+{
+  let skipped = 0;
+  const sw = {
+    controller: null,
+    addEventListener(type, fn) {
+      if (type === "controllerchange") this.onControl = fn;
+    },
+    async register(url) {
+      sw.registered = url;
+      const installing = {
+        state: "installing",
+        postMessage(msg) {
+          skipped += 1;
+          sw.skip = msg?.type;
+        },
+        addEventListener(type, fn) {
+          if (type !== "statechange") return;
+          queueMicrotask(() => {
+            installing.state = "activated";
+            sw.controller = { scriptURL: url };
+            fn();
+            sw.onControl?.();
+          });
+        },
+      };
+      return { installing, waiting: null, active: null };
+    },
+  };
+  const ok = await activateLatestServiceWorker({ serviceWorker: sw }, 1000);
+  assert(ok === true, "el SW nuevo queda en control");
+  assert(sw.registered === "/sw.js", "registra el SW del servidor");
+  assert(skipped >= 1 && sw.skip === "SKIP_WAITING", "le pide que no espere");
 }
 
 const html = renderFreshStartHtml();
