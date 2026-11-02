@@ -5,9 +5,10 @@
 import {
   FRESH_START_LOG_KEY,
   FRESH_START_MAX_ATTEMPTS,
-  FRESH_START_STATUS_TEXT,
   FRESH_START_STORAGE_KEY,
   freshStartDestination,
+  freshStartStatusBusy,
+  freshStartStatusLabel,
   planFreshStart,
   readFreshStartLog,
   runFreshStart,
@@ -245,7 +246,17 @@ assert(freshStartDestination("?next=/%2e%2e/secreto") === "/", "rechaza ..");
 const html = renderFreshStartHtml();
 assert(html.includes('id="msg"'), "la página muestra el estado");
 assert(html.includes('id="done"'), "la página lista los pasos ya hechos");
-assert(html.includes(FRESH_START_STATUS_TEXT.release), "el texto de soltar la versión viaja en la página");
+assert(html.includes('id="spin"'), "hay un giro mientras trabaja");
+assert(freshStartStatusBusy("release") === true, "soltar la versión se muestra en curso");
+assert(freshStartStatusBusy("open") === false, "abrir la app ya no gira");
+assert(
+  html.includes(freshStartStatusLabel("release", "now")),
+  "el texto de soltar la versión viaja en la página",
+);
+assert(
+  freshStartStatusLabel("release", "done") === "Solté la versión vieja",
+  "lo ya hecho se dice en pasado",
+);
 assert(html.includes(FRESH_START_STORAGE_KEY), "el script inline lleva la lógica");
 assert(html.includes("unregister"), "el script desregistra");
 assert(!html.includes("localStorage"), "no borra la sesión");

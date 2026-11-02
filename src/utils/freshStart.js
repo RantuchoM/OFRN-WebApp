@@ -8,18 +8,45 @@ export const FRESH_START_LOG_KEY = "ofrn:cache-reset-log";
 /** Recargas de esta misma página mientras el SW viejo sigue en control. */
 export const FRESH_START_MAX_ATTEMPTS = 2;
 
-/** Textos que la página muestra, en el orden en que pueden ocurrir. */
+/** now: lo que está pasando. done: cómo queda en la lista de arriba. */
 export const FRESH_START_STATUS_TEXT = {
-  check: "Revisando si esta pestaña tiene una versión guardada.",
-  release: "Soltando esa versión.",
-  reload: "Volviendo a abrir esta página para confirmar que la soltó.",
-  caches: "Borrando los archivos guardados de la app.",
-  open: "Abriendo la app.",
-  openTimeout: "El borrado está tardando. Abro la app igual.",
-  openError: "No se pudo terminar el borrado. Abro la app igual.",
-  stuck: "No se pudo soltar la versión guardada. Cerrá todas las pestañas de la app y volvé a abrir este enlace.",
-  error: "No se pudo limpiar. Volvé a abrir esta página.",
+  check: {
+    now: "Estoy viendo si en esta pestaña quedó una versión vieja",
+    done: "Revisé si había una versión vieja",
+  },
+  release: {
+    now: "La encontré. La estoy soltando para poder empezar de cero",
+    done: "Solté la versión vieja",
+  },
+  reload: {
+    now: "Ya la solté. Vuelvo a entrar para confirmar que no sigue ahí",
+    done: "Confirmé que la versión vieja ya no está",
+  },
+  caches: {
+    now: "Estoy borrando lo que el navegador tenía guardado",
+    done: "Borré lo que el navegador tenía guardado",
+  },
+  open: { now: "Listo. Te abro la app." },
+  openTimeout: { now: "Está tardando un poco. Igual te abro la app." },
+  openError: { now: "No llegué a borrar todo. Igual te abro la app." },
+  stuck: {
+    now: "No pude soltar la versión vieja. Cerrá las otras pestañas de la app y abrí de nuevo este enlace.",
+  },
+  error: { now: "Algo no salió. Volvé a abrir esta página." },
 };
+
+const FRESH_START_BUSY = new Set(["check", "release", "reload", "caches"]);
+
+export function freshStartStatusLabel(code, phase = "now") {
+  const row = FRESH_START_STATUS_TEXT[code];
+  if (!row) return "";
+  if (phase === "done") return row.done || row.now || "";
+  return row.now || "";
+}
+
+export function freshStartStatusBusy(code) {
+  return FRESH_START_BUSY.has(code);
+}
 
 const SHELL_SESSION_KEYS = [
   "ofrn:pwa-reload-guard",
@@ -153,6 +180,8 @@ export async function clearAppShellCaches(env = {}, { deleteCaches = true } = {}
  * @param {Storage} [env.sessionStorage]
  * @param {{ search?: string, replace?: Function, reload?: Function }} [env.location]
  * @param {number} [env.timeoutMs]
+ * @param {number} [env.minStepMs] tiempo mínimo del paso en curso, para que se pueda leer
+ * @param {number} [env.closingMs] pausa del aviso final antes de irse
  * @param {(code: string, log: string[]) => void} [env.onStatus]
  */
 export async function runFreshStart(env = {}) {
@@ -191,11 +220,16 @@ export async function runFreshStart(env = {}) {
   }
 
   const timeoutMs = env.timeoutMs ?? 8000;
+  const minStepMs = env.minStepMs ?? 0;
+  const closingMs = env.closingMs ?? 0;
+  const started = Date.now();
   let timer;
   let outcome = "timeout";
   const timeout = new Promise((resolve) => {
     timer = setTimeout(resolve, timeoutMs);
   });
+
+  const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
   try {
     await Promise.race([
@@ -211,10 +245,13 @@ export async function runFreshStart(env = {}) {
     ]);
   } finally {
     clearTimeout(timer);
+    const rest = minStepMs - (Date.now() - started);
+    if (rest > 0) await pause(rest);
     if (plan === "unregister-then-reload") report(env, "reload");
     else if (outcome === "ok") report(env, "open");
     else if (outcome === "error") report(env, "openError");
     else report(env, "openTimeout");
+    if (closingMs > 0) await pause(closingMs);
     leave();
   }
   return plan;
