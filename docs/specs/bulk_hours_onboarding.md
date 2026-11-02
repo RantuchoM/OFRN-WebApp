@@ -7,9 +7,10 @@ Permitir a los administradores dar de alta masivamente a integrantes con condici
 1. **Filtro maestro**: integrar solo personas con `condicion = 'Estable'`.
 2. **Exclusion**: quitar del listado cualquier ID que ya tenga al menos una fila en `horas_catedra`.
 3. **Accion UX**:
-   - Boton en el dashboard de horas: `Incorporar Estables`.
-   - Lista con checkboxes para seleccion multiple.
-   - Formulario unico de conceptos (Basico, Ensayos, Ensamble, etc.).
+    - Boton en el dashboard de horas: `Incorporar Estables`.
+    - Lista con checkboxes para seleccion multiple.
+    - Formulario unico de conceptos (Basico, Ensayos, Ensamble, etc.).
+    - Origen por defecto: `EDUCACION` (tambien en el modal de novedad individual al crear).
 4. **Persistencia**: realizar un `insert` por cada integrante seleccionado en la tabla `horas_catedra` con los mismos valores de horas y fechas.
 
 ## Consideraciones Tecnicas

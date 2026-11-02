@@ -21,7 +21,7 @@ const CONCEPTOS = [
 ];
 
 const initialForm = () => ({
-  origen: "CULTURA",
+  origen: "EDUCACION",
   mes_inicio: new Date().getMonth() + 1,
   anio_inicio: new Date().getFullYear(),
   mes_fin: "",

@@ -100,7 +100,7 @@ export default function NovedadModal({ isOpen, onClose, supabase, musician, allM
   const [deleteGuardLoading, setDeleteGuardLoading] = useState(false);
   const [deleteGuardError, setDeleteGuardError] = useState(null);
   const [form, setForm] = useState({
-    origen: "CULTURA",
+    origen: "EDUCACION",
     mes_inicio: new Date().getMonth() + 1,
     anio_inicio: new Date().getFullYear(),
     mes_fin: "",
@@ -131,6 +131,7 @@ export default function NovedadModal({ isOpen, onClose, supabase, musician, allM
         // Reset a modo "Nueva Novedad" (salvo preset de baja desde el dashboard)
         setForm(prev => ({
             ...prev,
+            origen: "EDUCACION",
             mes_inicio: new Date().getMonth() + 1,
             anio_inicio: new Date().getFullYear(),
             observaciones: "",
@@ -144,7 +145,7 @@ export default function NovedadModal({ isOpen, onClose, supabase, musician, allM
     setActiveRecord(null);
     setMode("ABSOLUTE");
     setForm({
-      origen: novedadPreset.origen || "CULTURA",
+      origen: novedadPreset.origen || "EDUCACION",
       mes_inicio: novedadPreset.mes_inicio ?? new Date().getMonth() + 1,
       anio_inicio: novedadPreset.anio_inicio ?? new Date().getFullYear(),
       mes_fin: "",
