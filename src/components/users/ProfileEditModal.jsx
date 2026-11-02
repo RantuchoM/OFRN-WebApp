@@ -26,7 +26,6 @@
   import SearchableSelect from "../ui/SearchableSelect";
   import { useConfirmDialog } from "../../hooks/useConfirmDialog";
   import {
-    CANONICAL_STANDARD_DIET,
     DIET_OPTIONS,
     canonicalizeMealDiet,
     dietSelectValue,
@@ -143,7 +142,7 @@
       link_cbu_img: "",
       link_cuil: "",
       last_verified_at: null,
-      alimentacion: CANONICAL_STANDARD_DIET,
+      alimentacion: "",
       nombre_preferencia: "",
       apellido_preferencia: "",
     });
@@ -425,7 +424,9 @@
           ...formData,
           nombre_preferencia: (formData.nombre_preferencia || "").trim() || null,
           apellido_preferencia: (formData.apellido_preferencia || "").trim() || null,
-          alimentacion: canonicalizeMealDiet(formData.alimentacion) || null,
+          alimentacion: (formData.alimentacion || "").trim()
+            ? canonicalizeMealDiet(formData.alimentacion)
+            : null,
           last_modified_at: now,
           last_verified_at: now,
         };
@@ -809,6 +810,7 @@
                     }
                     className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all"
                   >
+                    <option value="">— Sin cargar —</option>
                     {DIET_OPTIONS.map((opcion) => (
                       <option key={opcion} value={opcion}>
                         {opcion}
@@ -816,7 +818,8 @@
                     ))}
                   </select>
                   <p className="text-[10px] text-slate-400 ml-1">
-                    Si lo cambiás, producción recibe un aviso por mail.
+                    Vacío = aún no indicado. Si lo cambiás, producción recibe un
+                    aviso por mail.
                   </p>
                 </div>
 

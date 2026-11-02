@@ -274,6 +274,7 @@ export default function MusicianPersonalSection() {
                 onChange={(e) => updateField("alimentacion", e.target.value)}
                 className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
               >
+                <option value="">— Sin cargar —</option>
                 {DIET_OPTIONS.map((opcion) => (
                   <option key={opcion} value={opcion}>
                     {opcion}
@@ -281,8 +282,9 @@ export default function MusicianPersonalSection() {
                 ))}
               </select>
               <p className="text-[10px] text-slate-400 mt-1">
-                Edición interna. El aviso a producción solo se envía si el
-                músico lo cambia en Mi Perfil.
+                Vacío = aún no consultado. Elegí Estándar solo si lo confirmamos.
+                El aviso a producción solo se envía si el músico lo cambia en Mi
+                Perfil.
               </p>
             </div>
           </div>

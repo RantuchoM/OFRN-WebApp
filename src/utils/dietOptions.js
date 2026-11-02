@@ -43,8 +43,13 @@ export function canonicalizeMealDiet(value) {
   return trimmed || CANONICAL_STANDARD_DIET;
 }
 
-/** Valor de select: aliases históricos → Estándar. */
+/**
+ * Valor de select en ficha/perfil.
+ * null/vacío se mantiene vacío («sin cargar»); no forzar Estándar.
+ * Aliases históricos (General) → Estándar.
+ */
 export function dietSelectValue(value) {
+  if (value == null || !String(value).trim()) return "";
   return canonicalizeMealDiet(value);
 }
 

@@ -83,9 +83,26 @@ export function normalizeInstrumentLabel(rawName) {
   if (/\b[oó]rgano\b|\borgan\b/i.test(name) && !/orchestra/i.test(name))
     return "Órgano";
   if (/\btenor\b/i.test(name) && !/\bsax/i.test(name)) return "Voz";
-  if (/\bsaxo\s*tenor\b|\btenor\s*sax/i.test(name)) return "Saxo Tenor";
-  if (/\bsaxo\s*alto\b|\balto\s*sax/i.test(name)) return "Saxo Alto";
+  if (
+    /\bsaxo(?:f[oó]?n)?\s*bar[ií]tono\b|\bbaritone\s*sax|\bsaxofon\s*baritono\b/i.test(
+      name,
+    )
+  )
+    return "Saxo Barítono";
+  if (/\bsaxo(?:f[oó]n)?\s*tenor\s*1\b|\btenor\s*sax\s*1\b/i.test(name))
+    return "Saxo Tenor 1";
+  if (/\bsaxo(?:f[oó]n)?\s*tenor\b|\btenor\s*sax/i.test(name)) return "Saxo Tenor";
+  if (/\bsaxo(?:f[oó]n)?\s*alto\s*2\b|\balto\s*sax\s*2\b/i.test(name))
+    return "Saxo Alto 2";
+  if (/\bsaxo(?:f[oó]n)?\s*alto\s*1\b|\balto\s*sax\s*1\b/i.test(name))
+    return "Saxo Alto 1";
+  if (/\bsaxo(?:f[oó]n)?\s*alto\b|\balto\s*sax/i.test(name)) return "Saxo Alto";
+  if (/\bsaxo(?:f[oó]n)?\s*soprano\b|\bsoprano\s*sax/i.test(name))
+    return "Saxo Soprano";
   if (/\bsaxo|\bsaxof/i.test(name)) return "Saxofón";
+  if (/\beufonio\s*2\b|\beuphonium\s*2\b/i.test(name)) return "Eufonio 2";
+  if (/\beufonio\s*1\b|\beuphonium\s*1\b/i.test(name)) return "Eufonio 1";
+  if (/\beufonio\b|\beuphonium\b/i.test(name)) return "Eufonio";
   if (/\bbater[ií]a\b|\bdrum\s*set\b/i.test(name)) return "Perc Batería";
   if (/\bkeyboard\b|\bcembalo\b|\bclave\b|\bharpsichord\b|\bklavier\b/i.test(name))
     return "Piano";
@@ -273,20 +290,24 @@ export function normalizeInstrumentLabel(rawName) {
   if (/\bclarinete\s+c\b|\bclarinet\s+(?:in\s+)?c\b|\bclarinete\s+en\s+do\b/i.test(name))
     return "Clarinete C";
   if (
-    /\bclarinete\s+(en\s+)?sib\s*2\b|\bclarinete\s+bb\s*2\b|\bclarinete\s*2\b|\bcl\s*2\b|\bclarinet\s*2\b/i.test(
+    /\bclarinete\s+(?:en\s+)?(?:sib|bb)\s*3\b|\bclarinet\s+(?:en\s+)?bb\s*3\b|\bclarinete\s*3\b/i.test(
+      name,
+    )
+  )
+    return "Clarinete Bb 3";
+  if (
+    /\bclarinete\s+(?:en\s+)?(?:sib|bb)\s*2\b|\bclarinete\s*2\b|\bcl\s*2\b|\bclarinet\s*2\b/i.test(
       name,
     )
   )
     return "Clarinete Bb 2";
   if (
-    /\bclarinete\s+(en\s+)?sib\s*1\b|\bclarinete\s+bb\s*1\b|\bclarinete\s*1\b|\bcl\s*1\b|\bclarinet\s*1\b/i.test(
+    /\bclarinete\s+(?:en\s+)?(?:sib|bb)\s*1\b|\bclarinete\s*1\b|\bcl\s*1\b|\bclarinet\s*1\b/i.test(
       name,
     )
   )
     return "Clarinete Bb 1";
-  if (/\bclarinete\s+bb\s*3\b|\bclarinet\s+bb\s*3\b|\bclarinete\s*3\b/i.test(name))
-    return "Clarinete Bb 3";
-  if (/\bclarinete\s+(en\s+)?sib\b|\bclarinete\s+bb\b|\bclarinet\b|\bclarinete\b/i.test(name))
+  if (/\bclarinete\s+(?:en\s+)?(?:sib|bb)\b|\bclarinet\b|\bclarinete\b/i.test(name))
     return "Clarinete Bb";
   if (/\bfagot\s+solo\b|\bbassoon\s+solo\b/i.test(name)) return "Fagot Solo";
   if (/\bfagot\s*2\b|\bbassoon\s*2\b/i.test(name)) return "Fagot 2";
@@ -302,11 +323,33 @@ export function normalizeInstrumentLabel(rawName) {
     return "Corno C 1";
   if (/\bcorno\s*c\b|\bhorn\s+(?:in\s+)?c\b|\bcorno\s+en\s+do\b/i.test(name))
     return "Corno C";
-  if (/\bcorno\s*f\s*4\b|\bhorn\s*4\b|\bcorno\s*4\b/i.test(name)) return "Corno F 4";
-  if (/\bcorno\s*f\s*3\b|\bhorn\s*3\b|\bcorno\s*3\b/i.test(name)) return "Corno F 3";
-  if (/\bcorno\s*f\s*2\b|\bhorn\s*2\b|\bcorno\s*2\b|\bcorno\s+en\s+f(?:a)?\s*2\b/i.test(name))
+  if (
+    /\bcorno\s*(?:f\s*)?1y2\b|\bcorno\s*1\s*y\s*2\b|\bhorn\s*1y2\b|\bcorno\s*1[\s-]?y?\s*2\b/i.test(
+      name,
+    )
+  )
+    return "Corno F 1y2";
+  if (
+    /\bcorno\s*(?:f\s*)?3y4\b|\bcorno\s*3\s*y\s*4\b|\bhorn\s*3y4\b|\bcorno\s*3[\s-]?y?\s*4\b/i.test(
+      name,
+    )
+  )
+    return "Corno F 3y4";
+  if (
+    /\bcorno\s*(?:f\s*|en\s+f(?:a)?\s*)?4\b|\bhorn\s*4\b/i.test(name)
+  )
+    return "Corno F 4";
+  if (
+    /\bcorno\s*(?:f\s*|en\s+f(?:a)?\s*)?3\b|\bhorn\s*3\b/i.test(name)
+  )
+    return "Corno F 3";
+  if (
+    /\bcorno\s*(?:f\s*|en\s+f(?:a)?\s*)?2\b|\bhorn\s*2\b/i.test(name)
+  )
     return "Corno F 2";
-  if (/\bcorno\s*f\s*1\b|\bhorn\s*1\b|\bcorno\s*1\b|\bcorno\s+en\s+f(?:a)?\s*1\b/i.test(name))
+  if (
+    /\bcorno\s*(?:f\s*|en\s+f(?:a)?\s*)?1\b|\bhorn\s*1\b/i.test(name)
+  )
     return "Corno F 1";
   if (/\bcorno\s+en\s+fa\b|\bhorns?\b|\bcornos?\b|\bcorno\b/i.test(name))
     return "Corno F";
@@ -324,14 +367,30 @@ export function normalizeInstrumentLabel(rawName) {
     return "Trompeta A 1";
   if (/\btrompeta\s+a\b|\btrumpet\s+a\b/i.test(name)) return "Trompeta A";
   if (
-    /\btrompeta\s+bb\s*2\b|\btrompeta\s+sib\s*2\b|\btrumpet\s+bb\s*2\b/i.test(name)
+    /\btrompeta\s+(?:en\s+)?(?:bb|sib)\s*3\b|\btrumpet\s+(?:en\s+)?bb\s*3\b/i.test(
+      name,
+    )
+  )
+    return "Trompeta Bb 3";
+  if (
+    /\btrompeta\s+(?:en\s+)?(?:bb|sib)\s*4\b|\btrumpet\s+(?:en\s+)?bb\s*4\b/i.test(
+      name,
+    )
+  )
+    return "Trompeta Bb 4";
+  if (
+    /\btrompeta\s+(?:en\s+)?(?:bb|sib)\s*2\b|\btrumpet\s+(?:en\s+)?bb\s*2\b/i.test(
+      name,
+    )
   )
     return "Trompeta Bb 2";
   if (
-    /\btrompeta\s+bb\s*1\b|\btrompeta\s+sib\s*1\b|\btrumpet\s+bb\s*1\b/i.test(name)
+    /\btrompeta\s+(?:en\s+)?(?:bb|sib)\s*1\b|\btrumpet\s+(?:en\s+)?bb\s*1\b/i.test(
+      name,
+    )
   )
     return "Trompeta Bb 1";
-  if (/\btrompeta\s+bb\b|\btrompeta\s+sib\b|\btrumpet\s+bb\b/i.test(name))
+  if (/\btrompeta\s+(?:en\s+)?(?:bb|sib)\b|\btrumpet\s+(?:en\s+)?bb\b/i.test(name))
     return "Trompeta Bb";
   if (
     /\btrompeta\s+c\s*2\b|\btrumpet\s+(?:in\s+)?c\s*2\b|\btrompeta\s+en\s+do\s*2\b/i.test(
@@ -377,20 +436,19 @@ export function normalizeInstrumentLabel(rawName) {
   if (/\btam[- ]?tam\b|\bgong\b/i.test(name)) return "Perc Gong";
   if (/\bcymbals?\b|\bplatillos?\b|\bpiatti\b/i.test(name)) return "Perc Platillo";
   if (/\btubular\s+bells\b|\bcampanas\b/i.test(name)) return "Perc Campanas";
-  if (
-    /\bpercusi[oó]n\s*(?:ii|2)\b|\bpercussion\s*(?:ii|2)\b|\bperc\s*(?:ii|2)\b/i.test(
-      name,
-    )
-  )
-    return "Perc Percusión 2";
-  if (
-    /\bpercusi[oó]n\s*(?:i|1)\b|\bpercussion\s*(?:i|1)\b|\bperc\s*(?:i|1)\b/i.test(
-      name,
-    )
-  )
-    return "Perc Percusión 1";
-  if (/\bpercussion\b|\bpercusión\b|\bpercusi[oó]n\b|\bperc\s*\d\b|\bperc\b/i.test(name))
+  {
+    const percNum = name.match(
+      /\bpercusi[oó]n\s*(\d{1,2})\b|\bpercussion\s*(\d{1,2})\b|\bperc\s*(\d{1,2})\b/i,
+    );
+    if (percNum) {
+      const n = percNum[1] || percNum[2] || percNum[3];
+      return `Perc Percusión ${n}`;
+    }
+  }
+  if (/\bpercussion\b|\bpercusión\b|\bpercusi[oó]n\b|\bperc\b/i.test(name))
     return "Perc Percusión";
+  if (/\bbells\b|\bcampanas?\b/i.test(name) && /\bperc\b/i.test(name))
+    return "Perc Campanas";
   if (/\bharp\b|\barpa\s*2\b/i.test(name)) return "Arpa 2";
   if (/\bharp\b|\barpa\s*1\b|\barpa\b/i.test(name)) return "Arpa";
   if (/\bbandone[oó]n\b|\bbandoneon\b|\bband\s*\d*\b/i.test(name))

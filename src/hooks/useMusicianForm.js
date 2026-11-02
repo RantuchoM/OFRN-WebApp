@@ -60,6 +60,8 @@ function getDefaultValues(musician = {}) {
     ...musician,
     fecha_alta: musician?.fecha_alta || "",
     fecha_baja: musician?.fecha_baja || "",
+    // null/undefined en BD = sin cargar (no forzar Estándar en el select).
+    alimentacion: musician?.alimentacion ?? "",
     id_localidad: musician?.id_localidad ?? null,
     id_loc_viaticos: musician?.id_loc_viaticos ?? null,
     id_domicilio_laboral: musician?.id_domicilio_laboral ?? null,

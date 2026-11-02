@@ -36,7 +36,7 @@ import {
   getIntegranteDeleteBlockers,
 } from "../../services/mergeIntegrantes";
 import { isProtectedIntegrante } from "../../utils/protectedIntegrantes";
-import { DIET_OPTIONS } from "../../utils/dietOptions";
+import { canonicalizeMealDiet, DIET_OPTIONS } from "../../utils/dietOptions";
 import {
   membershipActiveOnProgramDate,
   toIsoDateString,
@@ -76,7 +76,10 @@ const MASS_EDIT_FIELDS = [
     key: "alimentacion",
     label: "Dieta / Alimentación",
     type: "select",
-    options: DIET_OPTIONS.map((c) => ({ value: c, label: c })),
+    options: [
+      { value: "", label: "— Sin cargar —" },
+      ...DIET_OPTIONS.map((c) => ({ value: c, label: c })),
+    ],
   },
   { key: "cargo", label: "Cargo / Función", type: "text" },
   { key: "jornada", label: "Jornada", type: "text" },
@@ -1424,6 +1427,13 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
     toast.promise(
       (async () => {
         let updatePayload = { [field]: value === "" ? null : value };
+        if (field === "alimentacion") {
+          updatePayload = {
+            alimentacion: (value || "").trim()
+              ? canonicalizeMealDiet(value)
+              : null,
+          };
+        }
         if (field === "id_instr") updatePayload = { id_instr: value || null };
         if (field === "id_localidad")
           updatePayload = { id_localidad: value ? parseInt(value) : null };

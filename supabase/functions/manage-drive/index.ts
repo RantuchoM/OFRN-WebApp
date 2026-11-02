@@ -3231,23 +3231,25 @@ serve(async (req) => {
       }
 
       try {
-        const res = await drive.files.list({
-          q: `'${folderId}' in parents and trashed = false`,
-          fields: "files(id, name, webViewLink, mimeType, shortcutDetails)",
-          pageSize: 100,
-          orderBy: "name",
-          supportsAllDrives: true,
-          includeItemsFromAllDrives: true,
-        });
-
-        // console.log(
-        //   `DEBUG [Edge]: Google API respondió. Archivos encontrados (nivel 1): ${
-        //     res.data.files?.length || 0
-        //   }`,
-        // );
+        const allFiles: any[] = [];
+        let pageToken: string | undefined;
+        do {
+          const res = await drive.files.list({
+            q: `'${folderId}' in parents and trashed = false`,
+            fields:
+              "nextPageToken, files(id, name, webViewLink, mimeType, shortcutDetails)",
+            pageSize: 100,
+            orderBy: "name",
+            supportsAllDrives: true,
+            includeItemsFromAllDrives: true,
+            pageToken,
+          });
+          allFiles.push(...(res.data.files || []));
+          pageToken = res.data.nextPageToken || undefined;
+        } while (pageToken);
 
         return new Response(
-          JSON.stringify({ success: true, files: res.data.files || [] }),
+          JSON.stringify({ success: true, files: allFiles }),
           {
             headers: {
               ...corsHeaders,

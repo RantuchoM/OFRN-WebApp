@@ -11,8 +11,7 @@ export const TRANSPORT_DOC_FIELDS = [
 
 /**
  * Campos alineados a la plantilla de carga masiva del roster
- * (sin Apellido/Nombre). Tras migración, alimentación vacía/null no debería existir;
- * si falta, se marca.
+ * (sin Apellido/Nombre). Alimentación null/vacía = aún no consultada; se marca.
  */
 export const ROSTER_DOC_FIELDS = [
   { key: "genero", label: "Género" },

@@ -1365,6 +1365,21 @@ Previos: Beni Mora **#3677**, Prometheus OV **#3678**.
 
 **No en IMSLP (restante):** Guarnieri *Tres danzas*.
 
+### Completado (2026-10-30) — Archivo-para-organizar → Para acomodar
+
+Lote desde `H:\Mi unidad\Archivo - para organizar` (copia + rename canónico; **sin** `copiar_carpeta_a_archivo`). Bandas GEREZ incluidas.
+
+**Omitidos (duplicado ya en Archivo/BD):** Falla *Homenajes* (#3529, 31 PDFs), Back to the Future, Avatar banda, Indiana Jones, Take Five, Chicago, Sabre Dance, Jurassic Park Williams/Lema/Sweeney, Misión Imposible Lema (#3603), Across the Stars, Huayno del Diablo.
+
+**Cargadas a Para acomodar (34 carpetas):** Queen-Ribero Compilado; Hook Neverland; Jurassic Mundo Perdido; Jurassic Highlights (Custer); Misión Imposible Custer; Macondo/Leon Bambuco/Rozo Obertura+Intermezzo/Maculelê/Pollera Colora [banda]; Vieuxtemps I + Saint-Saëns II–III; Phantom Menace; Hirdaith; Strauss Don Juan; Orff O Fortuna; Espel (Otra Latitud, Vidala, Salir al Ruedo, Fabi); Retamosa (Años de Soledad, El día…, Reminiscencia, Toda Mi Vida, Concertango I/III); Nicoletti (Qhapaqkunap, Bishmaia, Lonquen); El Secreto (La Cancha, La Duda, Retiro Obelisco); Vientos de Agua.
+
+Scripts: `archivoParaOrganizarCatalog.mjs`, `process-archivo-para-organizar-local.mjs`, `generate-archivo-para-organizar-sync.mjs`. Seed: `supabase/seed_archivo_para_organizar_sync.sql` (usuario ejecuta en Supabase). Mejoras matcher: Clarinete/Trompeta `en Bb N`, Corno `1 y 2`→`1y2`, Percusión N, Saxo Alto/Barítono, mojibake ó.
+
+- [x] Copia+rename local 34 obras en Para acomodar
+- [x] Seed linked ejecutado (`seed_archivo_para_organizar_sync.sql`) → obras **#3707–#3740**
+- [x] Paginación en `manage-drive` `list_folder_files` (antes tope 100; Para acomodar ~146)
+- [x] Patch urls Drive (`patch_archivo_para_organizar_drive_urls.sql`) — 34/34 con carpeta propia
+
 ### Completado (2026-10-27) — Leng *La muerte de Alsino*
 
 RAR `Downloads/Leng-La muerte de Alsino.rar` → carpeta canónica Para acomodar (26 PDFs ya separados; sin split IMSLP). Seed linked `seed_leng_alsino_sync.sql`.

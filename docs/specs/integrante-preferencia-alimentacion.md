@@ -18,7 +18,7 @@ Tabla: `public.integrantes`
 |---|---|
 | `nombre` / `apellido` | Nombre legal. Exportaciones de documentación (CNRT, formularios de viáticos, padrón con DNI). |
 | `nombre_preferencia` / `apellido_preferencia` | Opcionales. Si hay valor, reemplazan el legal en la interfaz. Cada campo se aplica por separado. |
-| `alimentacion` | Editable desde Mi Perfil. Backfill histórico null/vacío/`General` → `Estándar` (`20261017140000_…`); luego nullable otra vez (`20261017143000_…`). Si no se carga queda `null`; Comidas trata null/General/Estándar como Estándar; el indicador de `GiraRoster` avisa si está vacío. |
+| `alimentacion` | Editable desde Mi Perfil. Backfill histórico null/vacío/`General` → `Estándar` (`20261017140000_…`); luego nullable otra vez (`20261017143000_…`). **Alta/edición:** por defecto `null` («— Sin cargar —»); no se preselecciona Estándar. Elegir Estándar confirma que se consultó. Comidas trata null/General/Estándar como Estándar; el indicador de `GiraRoster` avisa si está vacío. |
 
 Cada campo de preferencia se aplica por separado: se puede cambiar solo el nombre, solo el apellido, o ambos.
 
@@ -37,9 +37,14 @@ Fuente: `src/utils/dietOptions.js`. `DIET_OPTIONS` lista **Estándar** (ya no «
 No abreviar con `substring(0,4)` (colisionaba GENE vs ESTÁ vs SIN). `dietsDiffer` trata vacío/General/Estándar como iguales (no dispara mail).
 
 ## UI
+### Select de alimentación (admin y perfil)
+- Placeholder `— Sin cargar —` (`value=""` → BD `null`). `dietSelectValue` **no** convierte vacío a Estándar (sí mapea `General` → Estándar).
+- Alta de persona (`useMusicianForm` / `MusicianForm` desde roster o Personas): `alimentacion` arranca vacío y se guarda `null` hasta elegir una opción.
+- Edición inline en Personas: vacío → `null`; valor no vacío → canónico (`canonicalizeMealDiet`).
+
 ### Mi Perfil (`ProfileEditModal`) — flujo del músico
 - Se abre desde el avatar / nombre en el header (`App.jsx` → `setProfileModalOpen`).
-- Select de alimentación (`DIET_OPTIONS`) + nombre/apellido de preferencia.
+- Select de alimentación (placeholder + `DIET_OPTIONS`) + nombre/apellido de preferencia.
 - El título junto al avatar usa `seatingNombre` / `seatingApellido`: si hay preferencia cargada, muestra esa; si no, el nombre legal. Se actualiza con lo que está en el formulario (lo guardado al abrir, y lo que se está editando).
 - El aviso «Salir sin guardar» usa `overlayClassName: z-[10050]` para quedar por encima del portal del perfil (`z-[9999]`).
 - **Único lugar que dispara el mail:** al guardar, si cambió `alimentacion`, se invoca `notifyAlimentacionChange` → `filarmonica.scrn@gmail.com`.
@@ -47,8 +52,9 @@ No abreviar con `substring(0,4)` (colisionaba GENE vs ESTÁ vs SIN). `dietsDiffe
 
 ### Ficha de músico admin (`MusicianForm` / `MusicianPersonalSection`)
 - Mismos campos (preferencia + alimentación) para que administración pueda cargarlos.
-- Autosave (`updateField` → `saveFieldToDb`).
+- Autosave (`updateField` → `saveFieldToDb`); alimentación vacía → `null`.
 - **No** llama a `notifyAlimentacionChange`. Un cambio de dieta desde acá no avisa a producción.
+- [x] Default vacío en alta (no Estándar automático en el select).
 
 ## Dónde se muestra
 Helper: `src/utils/integranteDisplayName.js` (`seatingNombre`, `seatingApellido`, `seatingApellidoNombre`, `seatingApellidoInicial`).
