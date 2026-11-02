@@ -26,11 +26,23 @@ Permitir a los administradores dar de alta masivamente a integrantes con condici
   - Accion recomendada: **Cargar novedad de baja (0 hs)** — abre el modal de novedad prellenado.
   - Accion destructiva: **Eliminar igualmente (irreversible)** — solo para errores de carga.
 - Aviso persistente en el panel de historial del dashboard y en el lateral del modal de novedad.
+- Boton **Novedad** arriba del listado del historial (debajo del aviso), no en el pie.
 - Componente: `src/components/musicians/HorasDeleteGuardModal.jsx`.
 
-## Legajo al guardar una novedad
-- Alta de legajo (estable + `fecha_alta`) solo si el combinado del mes pasa de 0 hs a más de 0 y la fila guardada tiene horas. Confirmar 0 hs en un origen que ya estaba en 0 no es alta.
-- `fecha_baja` solo si, después de guardar, Cultura y Educación quedan en 0 tanto en ese mes como en su última asignación. Si queda una hora vigente en cualquiera de los dos, no se carga la baja.
+## Legajo al guardar una novedad (Horas → ficha)
+- Alta de legajo (estable + `fecha_alta` día 1 del mes de la novedad) solo si el combinado del mes pasa de 0 hs a más de 0 y la fila guardada tiene horas. Confirmar 0 hs en un origen que ya estaba en 0 no es alta. Toggle en `NovedadModal`.
+- `fecha_baja` (último día del mes de la novedad; Estable → Contratado) solo si, después de guardar, Cultura y Educación quedan en 0 tanto en ese mes como en su última asignación. Si queda una hora vigente en cualquiera de los dos, no se carga la baja.
+
+## Ficha → novedad 0 (baja de legajo)
+- En `MusicianDocsSection` / `BajaDateModal` (pestaña **Legajo**), al **Cargar baja**:
+  - Checkbox por defecto on: “Poner horas cátedra en 0 (novedad)”.
+  - Selector mes/año de vigencia, **default = mes siguiente a la fecha de baja** (editable). Al cambiar Hoy vs fecha personalizada se recalcula el default.
+  - Si está activo: inserta una fila a 0 hs por cada origen (`CULTURA` / `EDUCACION`) con horas vigentes en ese mes (`insertBajaHorasNovedadesZero` en `src/utils/horasBajaFromFicha.js`). No inserta orígenes ya en 0.
+  - Requiere `formData.id` (ficha ya guardada).
+
+## Ficha → horas en Legajo
+- [x] La pestaña del formulario se llama **Legajo** (antes “Sistema”).
+- [x] En Legajo, sección **Horas cátedra**: totales vigentes Cultura/Educación, listado de historial y botones para **Cargar novedad** / **Editar** (abre `NovedadModal` anclado al integrante de la ficha).
 
 ## Mes de baja en la nomina
 - Si un integrante pasa de tener horas el mes anterior a **0 hs** el mes seleccionado, sigue listado ese mes (`hasNews`), con celdas en **0**, etiqueta **Baja** y resaltado cyan.

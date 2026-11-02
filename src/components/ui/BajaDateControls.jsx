@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import DateInput from "./DateInput";
 import { IconLoader } from "./Icons";
@@ -65,10 +65,14 @@ export function BajaDateModal({
   children,
   onClose,
   onConfirm,
+  /** Fecha efectiva en preview (Hoy o personalizada) para precalcular mes de novedad, etc. */
+  onEffectiveDateChange,
 }) {
   const hoy = getTodayDateStringLocal();
   const [showCustom, setShowCustom] = useState(false);
   const [customDate, setCustomDate] = useState(hoy);
+  const onEffectiveDateChangeRef = useRef(onEffectiveDateChange);
+  onEffectiveDateChangeRef.current = onEffectiveDateChange;
 
   useEffect(() => {
     if (isOpen) {
@@ -76,6 +80,13 @@ export function BajaDateModal({
       setCustomDate(hoy);
     }
   }, [isOpen, hoy]);
+
+  const effectiveDate = showCustom ? customDate : hoy;
+
+  useEffect(() => {
+    if (!isOpen) return;
+    onEffectiveDateChangeRef.current?.(effectiveDate || hoy);
+  }, [isOpen, effectiveDate, hoy]);
 
   if (!isOpen) return null;
 

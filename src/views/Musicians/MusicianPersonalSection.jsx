@@ -205,6 +205,50 @@ export default function MusicianPersonalSection() {
             </div>
           </div>
 
+          {/* Identidad documental */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div>
+              <label className={labelClass}>DNI</label>
+              <input
+                type="text"
+                className={getInputStatusClass("dni")}
+                value={formData.dni || ""}
+                onChange={(e) => updateField("dni", e.target.value)}
+              />
+              {errors.dni && (
+                <span className="text-red-500 text-[10px]">{errors.dni.message}</span>
+              )}
+            </div>
+            <div>
+              <label className={labelClass}>CUIL</label>
+              <input
+                type="text"
+                className={getInputStatusClass("cuil")}
+                value={formData.cuil || ""}
+                onChange={(e) => updateField("cuil", e.target.value)}
+              />
+              {errors.cuil && (
+                <span className="text-red-500 text-[10px]">{errors.cuil.message}</span>
+              )}
+            </div>
+            <div>
+              <label className={labelClass}>Nacionalidad</label>
+              <input
+                type="text"
+                className={getInputStatusClass("nacionalidad")}
+                value={formData.nacionalidad || ""}
+                onChange={(e) => updateField("nacionalidad", e.target.value)}
+              />
+            </div>
+            <div>
+              <DateInput
+                label="Nacimiento"
+                value={formData.fecha_nac || ""}
+                onChange={(val) => updateField("fecha_nac", val)}
+              />
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
               <label className={labelClass}>Email Personal</label>
@@ -359,9 +403,9 @@ export default function MusicianPersonalSection() {
         </div>
       </div>
 
-      {/* --- CAMPOS ADICIONALES --- */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-        <div>
+      {/* --- INSTRUMENTO Y ENSAMBLES --- */}
+      <div className="space-y-4">
+        <div className="max-w-md">
           <label className={labelClass}>Instrumento</label>
           <SearchableSelect
             options={catalogoInstrumentos.map((i) => ({
@@ -377,7 +421,7 @@ export default function MusicianPersonalSection() {
             <span className="text-red-500 text-[10px]">{errors.id_instr.message}</span>
           )}
         </div>
-        <div className="md:col-span-2 space-y-3">
+        <div className="space-y-3">
           <EnsembleMembershipEditor
             rows={ensembleRowsActive}
             ensemblesOptions={ensemblesOptions}
@@ -418,52 +462,6 @@ export default function MusicianPersonalSection() {
             </div>
           )}
         </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-6">
-        <div>
-          <label className={labelClass}>DNI</label>
-          <input
-            type="text"
-            className={getInputStatusClass("dni")}
-            value={formData.dni || ""}
-            onChange={(e) => updateField("dni", e.target.value)}
-          />
-          {errors.dni && (
-            <span className="text-red-500 text-[10px]">{errors.dni.message}</span>
-          )}
-        </div>
-        <div>
-          <label className={labelClass}>CUIL</label>
-          <input
-            type="text"
-            className={getInputStatusClass("cuil")}
-            value={formData.cuil || ""}
-            onChange={(e) => updateField("cuil", e.target.value)}
-          />
-          {errors.cuil && (
-            <span className="text-red-500 text-[10px]">{errors.cuil.message}</span>
-          )}
-        </div>
-        <div>
-          <label className={labelClass}>Nacionalidad</label>
-          <input
-            type="text"
-            className={getInputStatusClass("nacionalidad")}
-            value={formData.nacionalidad || ""}
-            onChange={(e) =>
-              updateField("nacionalidad", e.target.value)
-            }
-          />
-        </div>
-      </div>
-
-      <div className="mt-6 max-w-xl">
-        <DateInput
-          label="Nacimiento"
-          value={formData.fecha_nac || ""}
-          onChange={(val) => updateField("fecha_nac", val)}
-        />
       </div>
 
     </div>

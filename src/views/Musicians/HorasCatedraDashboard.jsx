@@ -815,14 +815,21 @@ export default function HorasCatedraDashboard({ supabase }) {
 
             {selectedMusician && (
                 <div className="w-full lg:w-96 lg:shrink-0 max-h-[min(420px,50vh)] lg:max-h-none bg-white border-t lg:border-t-0 lg:border-l border-slate-200 shadow-xl flex flex-col animate-in slide-in-from-right duration-300 z-20">
-                    <div className="p-4 border-b bg-slate-50 flex justify-between items-center shrink-0">
-                        <div>
+                    <div className="p-4 border-b bg-slate-50 flex justify-between items-start shrink-0 gap-2">
+                        <div className="min-w-0 flex-1">
                             <h4 className="font-black text-slate-700 text-sm">Historial</h4>
                             <p className="text-xs text-slate-500 truncate max-w-[min(16rem,70vw)]">{selectedMusician.apellido}, {selectedMusician.nombre}</p>
                             <p className="text-[10px] text-slate-400 mt-1">Cada registro: Word y Drive.</p>
                             <p className="text-[10px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5 mt-2 leading-snug">
                               Para <strong>dar de baja</strong> horas, usá <strong>Novedad</strong> con 0 hs desde el mes correspondiente. No elimines el historial.
                             </p>
+                            <button
+                              type="button"
+                              onClick={() => { setRecordToEdit(null); setNovedadPreset(null); setModalOpen(true); }}
+                              className="mt-3 w-full py-2.5 rounded-xl bg-slate-900 text-white text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 hover:bg-slate-800 transition-all"
+                            >
+                              <IconPlus size={14} /> Novedad
+                            </button>
                         </div>
                         <button type="button" onClick={() => setSelectedMusician(null)} aria-label="Cerrar historial"><IconX className="text-slate-400 hover:text-red-500" /></button>
                     </div>
@@ -863,11 +870,6 @@ export default function HorasCatedraDashboard({ supabase }) {
                             </div>
                         ))}
                         {selectedHistory.length === 0 && <p className="text-center text-xs text-slate-400 italic">Sin registros históricos.</p>}
-                    </div>
-                    <div className="p-4 border-t bg-slate-50 shrink-0">
-                        <button onClick={() => { setRecordToEdit(null); setModalOpen(true); }} className="w-full py-3 rounded-xl bg-slate-900 text-white text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 hover:bg-slate-800 transition-all">
-                            <IconPlus size={14} /> Novedad
-                        </button>
                     </div>
                 </div>
             )}

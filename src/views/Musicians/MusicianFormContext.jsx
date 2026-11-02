@@ -2,7 +2,7 @@ import { createContext, useContext } from "react";
 
 /**
  * Contexto con el retorno del hook useMusicianForm para que las secciones
- * del formulario (Personal, Documentación, Sistema, Acceso, Giras) accedan
+ * del formulario (Personal, Documentación, Legajo, Acceso, Giras) accedan
  * a formData, handlers y estado sin recibir decenas de props.
  */
 export const MusicianFormContext = createContext(null);

@@ -12,7 +12,6 @@ import {
   IconSave,
   IconX,
   IconLoader,
-  IconLink,
   IconUser,
   IconId,
   IconPlus,
@@ -21,6 +20,7 @@ import {
   IconInfo,
   IconScissor,
   IconCalendar,
+  IconBriefcase,
 } from "../../components/ui/Icons";
 import ConfirmDialog from "../../components/ui/ConfirmDialog";
 
@@ -138,7 +138,7 @@ export default function MusicianForm({
               label: "Documentación",
               icon: <IconUpload size={16} />,
             },
-            { id: "docs", label: "Sistema", icon: <IconLink size={16} /> },
+            { id: "docs", label: "Legajo", icon: <IconBriefcase size={16} /> },
 
             { id: "giras", label: "Convocatorias", icon: <IconCalendar size={16} /> },
           ].map((tab) => (
