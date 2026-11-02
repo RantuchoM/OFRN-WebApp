@@ -3,9 +3,20 @@ import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 import fs from "fs";
 import path from "path";
+import { renderFreshStartHtml } from "./src/utils/freshStartPage.js";
 
 // Solución para __dirname en módulos ES
 const __dirname = path.resolve();
+
+/** /refrescar.html no pasa por el fallback SPA: borra SW + caché y abre de cero. */
+function serveFreshStart(req, res, next) {
+  const url = req.url?.split("?")[0];
+  if (url !== "/refrescar.html") return next();
+  res.statusCode = 200;
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.setHeader("Cache-Control", "no-cache, must-revalidate");
+  res.end(renderFreshStartHtml());
+}
 
 /** Identificador de build embebido en el cliente y servido en /version.json para detectar despliegues nuevos. */
 export default defineConfig(({ command }) => {
@@ -113,6 +124,7 @@ export default defineConfig(({ command }) => {
         return html.replace("<div id=\"root\"></div>", `<div id="root"></div>${mainChunkRecoveryScript}`);
       },
       configureServer(server) {
+        server.middlewares.use(serveFreshStart);
         server.middlewares.use((req, res, next) => {
           const url = req.url?.split("?")[0];
           if (url !== "/version.json") return next();
@@ -121,11 +133,19 @@ export default defineConfig(({ command }) => {
           res.end(versionPayload);
         });
       },
+      configurePreviewServer(server) {
+        server.middlewares.use(serveFreshStart);
+      },
       generateBundle() {
         this.emitFile({
           type: "asset",
           fileName: "version.json",
           source: versionPayload,
+        });
+        this.emitFile({
+          type: "asset",
+          fileName: "refrescar.html",
+          source: renderFreshStartHtml(),
         });
       },
     };
@@ -141,7 +161,7 @@ export default defineConfig(({ command }) => {
       includeAssets: ["favicon.svg", "apple-touch-icon.png", "pwa-192x192.png", "pwa-512x512.png", "pwa-512x512-maskable.png"],
       workbox: {
         maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,
-        globIgnores: ["**/ffmpeg/**"],
+        globIgnores: ["**/ffmpeg/**", "**/refrescar.html"],
         cleanupOutdatedCaches: true,
         clientsClaim: true,
         skipWaiting: false,
@@ -152,6 +172,7 @@ export default defineConfig(({ command }) => {
           /^\/assets\//,
           /^\/sw\.js$/,
           /^\/workbox-/,
+          /^\/refrescar\.html$/,
           /\.[a-zA-Z0-9]+$/,
         ],
         // Push + local inicio/salida ensayo + notificationclick

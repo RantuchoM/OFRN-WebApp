@@ -1,0 +1,258 @@
+/**
+ * Rescate /refrescar.html: plan, destino, limpieza y HTML inline.
+ * Run: node scripts/verify-fresh-start.mjs
+ */
+import {
+  FRESH_START_LOG_KEY,
+  FRESH_START_MAX_ATTEMPTS,
+  FRESH_START_STATUS_TEXT,
+  FRESH_START_STORAGE_KEY,
+  freshStartDestination,
+  planFreshStart,
+  readFreshStartLog,
+  runFreshStart,
+} from "../src/utils/freshStart.js";
+import { renderFreshStartHtml } from "../src/utils/freshStartPage.js";
+
+function assert(cond, msg) {
+  if (!cond) {
+    console.error("FAIL:", msg);
+    process.exitCode = 1;
+  } else {
+    console.log("ok:", msg);
+  }
+}
+
+function memoryStorage(initial = {}) {
+  const data = { ...initial };
+  return {
+    getItem: (key) => (Object.prototype.hasOwnProperty.call(data, key) ? data[key] : null),
+    setItem: (key, value) => {
+      data[key] = String(value);
+    },
+    removeItem: (key) => {
+      delete data[key];
+    },
+    dump: () => data,
+  };
+}
+
+function swWith(regs, { controller = null } = {}) {
+  return {
+    controller,
+    getRegistrations: async () => regs,
+  };
+}
+
+function registration() {
+  return {
+    unregister: async () => {
+      registration.calls += 1;
+      return true;
+    },
+  };
+}
+registration.calls = 0;
+
+function watchStatus() {
+  const codes = [];
+  return {
+    codes,
+    onStatus(code) {
+      codes.push(code);
+    },
+  };
+}
+
+function cacheBox(keys = ["precache"]) {
+  const deleted = [];
+  return {
+    deleted,
+    keys: async () => keys,
+    delete: async (key) => {
+      deleted.push(key);
+      return true;
+    },
+  };
+}
+
+assert(planFreshStart({ controlled: false, step: 0 }) === "clear-then-redirect", "sin SW: limpiar y entrar");
+assert(planFreshStart({ controlled: true, step: 0 }) === "unregister-then-reload", "con SW: soltar y recargar");
+assert(
+  planFreshStart({ controlled: true, step: FRESH_START_MAX_ATTEMPTS }) === "stuck",
+  "con SW tras el tope: no seguir",
+);
+
+assert(freshStartDestination("") === "/", "sin next va a /");
+assert(freshStartDestination("?next=/entradas") === "/entradas", "next interno");
+assert(
+  freshStartDestination("?next=" + encodeURIComponent("/entradas?view=mis-reservas")) ===
+    "/entradas?view=mis-reservas",
+  "next con query",
+);
+assert(freshStartDestination("?next=https://evil.test/x") === "/", "rechaza absoluta");
+assert(freshStartDestination("?next=//evil.test") === "/", "rechaza protocol-relative");
+assert(freshStartDestination("?next=/refrescar.html") === "/", "no vuelve a la misma página");
+assert(freshStartDestination("?next=/%2e%2e/secreto") === "/", "rechaza ..");
+
+{
+  registration.calls = 0;
+  const caches = cacheBox();
+  const storage = memoryStorage({ "ofrn:pwa-reload-guard": "1" });
+  const status = watchStatus();
+  let replaced = "";
+  const plan = await runFreshStart({
+    serviceWorker: swWith([registration()], { controller: null }),
+    cacheStorage: caches,
+    sessionStorage: storage,
+    onStatus: status.onStatus,
+    location: {
+      search: "?next=/entradas",
+      replace: (url) => {
+        replaced = url;
+      },
+      reload() {
+        throw new Error("no reload");
+      },
+    },
+    timeoutMs: 1000,
+  });
+  assert(plan === "clear-then-redirect", "run sin controlador");
+  assert(replaced === "/entradas", "redirige al next");
+  assert(registration.calls === 1, "desregistra igual");
+  assert(caches.deleted.includes("precache"), "borra Cache Storage");
+  assert(!storage.dump()["ofrn:pwa-reload-guard"], "limpia el tope de recargas");
+  assert(!storage.dump()[FRESH_START_STORAGE_KEY], "limpia el paso");
+  assert(!storage.dump()[FRESH_START_LOG_KEY], "al abrir la app no deja el historial");
+  assert(
+    status.codes.join(",") === "check,caches,open",
+    "avisa revisar, borrar y abrir",
+  );
+}
+
+{
+  registration.calls = 0;
+  const caches = cacheBox();
+  const storage = memoryStorage();
+  const status = watchStatus();
+  let reloaded = 0;
+  const plan = await runFreshStart({
+    serviceWorker: swWith([registration()], { controller: {} }),
+    cacheStorage: caches,
+    sessionStorage: storage,
+    onStatus: status.onStatus,
+    location: {
+      search: "",
+      replace() {
+        throw new Error("no replace mientras controla");
+      },
+      reload() {
+        reloaded += 1;
+      },
+    },
+    timeoutMs: 1000,
+  });
+  assert(plan === "unregister-then-reload", "run con controlador");
+  assert(reloaded === 1, "se recarga a sí misma");
+  assert(registration.calls === 1, "desregistra antes de recargar");
+  assert(caches.deleted.length === 0, "no borra la caché mientras el SW controla");
+  assert(storage.dump()[FRESH_START_STORAGE_KEY] === "1", "cuenta el intento");
+  assert(
+    status.codes.join(",") === "check,release,reload",
+    "avisa revisar, soltar y confirmar",
+  );
+  assert(
+    readFreshStartLog(storage).join(",") === "check,release,reload",
+    "el historial sobrevive para la recarga",
+  );
+
+  const status2 = watchStatus();
+  const caches2 = cacheBox(["precache"]);
+  let replaced = "";
+  const plan2 = await runFreshStart({
+    serviceWorker: swWith([registration()], { controller: null }),
+    cacheStorage: caches2,
+    sessionStorage: storage,
+    onStatus: status2.onStatus,
+    location: {
+      search: "",
+      replace: (url) => {
+        replaced = url;
+      },
+      reload() {
+        throw new Error("no reload");
+      },
+    },
+    timeoutMs: 1000,
+  });
+  assert(plan2 === "clear-then-redirect" && replaced === "/", "segunda carga abre /");
+  assert(status2.codes.join(",") === "caches,open", "no repite los pasos ya hechos");
+  assert(caches2.deleted.includes("precache"), "en la segunda carga borra la caché");
+}
+
+{
+  registration.calls = 0;
+  const caches = cacheBox();
+  let replaced = 0;
+  let reloaded = 0;
+  const status = watchStatus();
+  const plan = await runFreshStart({
+    serviceWorker: swWith([registration()], { controller: {} }),
+    cacheStorage: caches,
+    sessionStorage: memoryStorage({ [FRESH_START_STORAGE_KEY]: String(FRESH_START_MAX_ATTEMPTS) }),
+    onStatus: status.onStatus,
+    location: {
+      search: "",
+      replace() {
+        replaced += 1;
+      },
+      reload() {
+        reloaded += 1;
+      },
+    },
+    timeoutMs: 200,
+  });
+  assert(plan === "stuck", "tope con SW todavía en control");
+  assert(replaced === 0 && reloaded === 0, "no navega si sigue trabado");
+  assert(caches.deleted.length === 0 && registration.calls === 0, "no deja / sin shell");
+  assert(status.codes.join(",") === "check,stuck", "avisa que no pudo soltarla");
+}
+
+{
+  let replaced = false;
+  const status = watchStatus();
+  const plan = await runFreshStart({
+    serviceWorker: {
+      controller: null,
+      getRegistrations: () => new Promise(() => {}),
+    },
+    cacheStorage: { keys: () => new Promise(() => {}) },
+    sessionStorage: memoryStorage(),
+    onStatus: status.onStatus,
+    location: {
+      search: "",
+      replace() {
+        replaced = true;
+      },
+      reload() {},
+    },
+    timeoutMs: 40,
+  });
+  assert(plan === "clear-then-redirect" && replaced, "si la limpieza cuelga, igual abre /");
+  assert(status.codes.at(-1) === "openTimeout", "avisa que el borrado tardó");
+}
+
+const html = renderFreshStartHtml();
+assert(html.includes('id="msg"'), "la página muestra el estado");
+assert(html.includes('id="done"'), "la página lista los pasos ya hechos");
+assert(html.includes(FRESH_START_STATUS_TEXT.release), "el texto de soltar la versión viaja en la página");
+assert(html.includes(FRESH_START_STORAGE_KEY), "el script inline lleva la lógica");
+assert(html.includes("unregister"), "el script desregistra");
+assert(!html.includes("localStorage"), "no borra la sesión");
+assert(!/<\/script>/i.test(html.slice(html.indexOf("<script>") + 8, html.lastIndexOf("</script>"))), "el bundle no cierra el script");
+
+if (process.exitCode) {
+  console.error("verify-fresh-start: falló");
+  process.exit(process.exitCode);
+}
+console.log("verify-fresh-start: ok");
