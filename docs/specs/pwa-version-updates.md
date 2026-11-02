@@ -24,6 +24,7 @@ El control **«Actualizar versión»** (banner) a menudo **no hacía nada en el 
 | `/transporte-scrn` | Al cargar (o al detectar build nuevo con la pestaña abierta), si hay versión nueva se dispara el **mismo** `beginApplyUpdate` / `applyPwaUpdate` del botón, sin esperar el click. El botón queda para reintentar, con estética SCRN (borde `#c5d0dc`, azul `#0054a6`, `IconRefresh`, `scrn-btn-primary`). Viáticos y rendiciones no usan este banner. Anti-bucle: sello `sessionStorage` `ofrn:transporte-auto-apply-at` (60 s, se limpia al salir de la ruta o cuando el build coincide) más el tope de 2 recargas en 15 s. No se hace unregister si la versión ya está al día. |
 | `vite:preloadError` | Overlay «Hay una versión nueva. Recargando…» + reload (tope anti-bucle) |
 | Entry `/assets/index-*.js` 404/MIME tras deploy | Rewrite Vercel solo si `Accept` incluye `text/html`; SW `navigateFallbackDenylist` incluye `/assets/`; script inline en `index.html` recarga una vez |
+| Pantalla trabada (shell viejo) | Abrir `/refrescar.html` (opcional `?next=/ruta`). Muestra cada paso (revisar, soltar la versión, confirmar, borrar archivos, abrir). Desregistra el SW, borra Cache Storage y entra de cero. No toca `localStorage` ni IndexedDB. |
 
 ### Ruta de apply (un tap)
 Implementada en `src/utils/pwaApplyUpdate.js`, usada por `ReloadPrompt`:
@@ -51,8 +52,10 @@ Detección de build: `VITE_APP_BUILD_ID` embebido + poll de `/version.json` (foc
 - `src/utils/unsavedWork.js`
 - `src/main.jsx` (`vite:preloadError`)
 - `vite.config.js` (`appVersionPlugin`, PWA `skipWaiting: false`)
-- `vercel.json` (headers `version.json`, `index.html`, `assets` immutable)
+- `src/utils/freshStart.js` (`/refrescar.html`)
+- `vercel.json` (headers `version.json`, `index.html`, `refrescar.html`, `assets` immutable)
 - `scripts/verify-pwa-apply-update.mjs`
+- `scripts/verify-fresh-start.mjs`
 
 ## Nota operativa (deploys)
 - Preferir deploys cuando el staff no esté en picos de edición masiva; igual ya no se fuerza mid-form.
@@ -61,6 +64,7 @@ Detección de build: `VITE_APP_BUILD_ID` embebido + poll de `/version.json` (foc
 - `/version.json` tiene `max-age=60` (no `no-store`) para recortar Edge Requests; el poll idle es 15 min y no corre con la pestaña oculta.
 - Tras cambiar iconos/manifest PWA en Android, el usuario puede necesitar reinstalar el acceso directo (ver `pwa-android-icons.md`).
 - El last resort (unregister + borrar caches) deja la app sin SW hasta la próxima carga; es intencional para desatascar un precache viejo.
+- Quien queda en pantalla en blanco puede abrir `https://ofrn-web-app.vercel.app/refrescar.html`. Esa página no entra al precache (`globIgnores`) y el `navigateFallbackDenylist` la deja pasar a la red (también por la extensión `.html`, así que un SW ya instalado desde junio 2026 también la pide al servidor). Con un SW en control, primero lo desregistra y se recarga a sí misma; recién sin controlador borra Cache Storage y va a `/` (o a `?next=`, solo path interno). La página va diciendo el paso en curso y deja arriba los ya hechos; ese historial vive en `sessionStorage` para sobrevivir la recarga intermedia. Si el borrado pasa de 8 s, avisa y abre igual. No se borra la caché mientras el SW sigue en control: el fallback de `/` dejaría la navegación rota. Tope: 2 recargas; si sigue en control, pide cerrar las pestañas y reabrir el enlace. Sesión y borradores (`localStorage` / IndexedDB) quedan.
 
 ## Dev local (`npm run dev`)
 - `ReloadPrompt` **no corre** en DEV (`import.meta.env.DEV`): el poll de `/version.json` + auto-reload al navegar era un falso positivo cuando Vite reiniciaba con un `APP_BUILD_ID` nuevo (`Date.now()`).
@@ -68,6 +72,7 @@ Detección de build: `VITE_APP_BUILD_ID` embebido + poll de `/version.json` (foc
 - `vite:preloadError` hard-reload y el script inline de recovery del entry **solo aplican fuera de DEV**.
 - Remounts “tipo restart” por HMR: ver Fast Refresh (no mezclar helpers no-componente en el mismo `.jsx` que UI); `AuthProvider` hidrata sesión desde `localStorage` sin desmontar el árbol.
 - El flujo de apply se verifica con `node scripts/verify-pwa-apply-update.mjs` (SW de producción no corre en `vite` serve).
+- La página de rescate se verifica con `node scripts/verify-fresh-start.mjs`. En `vite` serve y en el build responde `GET /refrescar.html`.
 
 ## Estado
 - [x] Sin auto-reload mid-sesión en staff
@@ -82,3 +87,4 @@ Detección de build: `VITE_APP_BUILD_ID` embebido + poll de `/version.json` (foc
 - [x] Un tap en «Actualizar versión» espera waiting + skipWaiting + controllerchange (o last resort); toast si falla
 - [x] **Viáticos y rendiciones manuales (2026-09-25):** `/viaticos-manual` y `/rendiciones-manual` actualizan en silencio al detectar versión nueva (`isSilentVersionUpdateRoute`), igual que `/entradas`. El formulario vive en `localStorage`, así que la recarga no descarta lo ya escrito. El staff sigue con banner.
 - [x] **Transporte SCRN (2026-10-01):** `/transporte-scrn` auto-aplica la versión nueva al entrar (`isTransporteScrnRoute`), con el mismo apply del botón y banner restilado. En `npm run dev` no hay banner ni reload: se llama `applyPwaUpdate({ allowNuke: false, reload: () => false })` una vez por entrada para no disparar el falso positivo de `version.json`.
+- [x] **Rescate por URL (2026-11-02):** `/refrescar.html` desregistra el service worker, borra Cache Storage y abre `/` de cero. No precacheada; `Cache-Control: no-cache`. No borra sesión ni borradores.
