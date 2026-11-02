@@ -1,10 +1,12 @@
-import { unregisterAndClearCaches } from "./pwaApplyUpdate.js";
+import { PWA_SKIP_WAITING_TYPE, unregisterAndClearCaches } from "./pwaApplyUpdate.js";
 
 /** Página de rescate. El SW ya instalado no la precachea ni la usa como fallback. */
 export const FRESH_START_PATH = "/refrescar.html";
 export const FRESH_START_STORAGE_KEY = "ofrn:cache-reset";
 /** Pasos ya anunciados. Sobrevive la recarga intermedia de esta misma página. */
 export const FRESH_START_LOG_KEY = "ofrn:cache-reset-log";
+/** La app que se abre después no debe mostrar «Actualizar versión» por un version.json viejo. */
+export const FRESH_OPEN_KEY = "ofrn:fresh-open";
 /** Recargas de esta misma página mientras el SW viejo sigue en control. */
 export const FRESH_START_MAX_ATTEMPTS = 2;
 
@@ -46,6 +48,75 @@ export function freshStartStatusLabel(code, phase = "now") {
 
 export function freshStartStatusBusy(code) {
   return FRESH_START_BUSY.has(code);
+}
+
+function markFreshOpen(storage) {
+  try {
+    storage?.setItem(FRESH_OPEN_KEY, "1");
+  } catch {
+    /* ignore */
+  }
+}
+
+export function takeFreshOpenMark(storage) {
+  try {
+    const on = storage?.getItem(FRESH_OPEN_KEY) === "1";
+    if (on) storage.removeItem(FRESH_OPEN_KEY);
+    return on;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Instala el service worker que está en el servidor y lo pone en control,
+ * para que `/` salga de esa versión y no quede otro esperando.
+ */
+export async function activateLatestServiceWorker(env, timeoutMs = 4000) {
+  const sw = env?.serviceWorker;
+  if (!sw || typeof sw.register !== "function") return false;
+  let registration;
+  try {
+    registration = await sw.register("/sw.js", { scope: "/" });
+  } catch {
+    return false;
+  }
+  const skip = (worker) => {
+    if (!worker || typeof worker.postMessage !== "function") return;
+    try {
+      worker.postMessage({ type: PWA_SKIP_WAITING_TYPE });
+    } catch {
+      /* ignore */
+    }
+  };
+  skip(registration?.waiting);
+  skip(registration?.installing);
+  if (sw.controller) return true;
+
+  await new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    };
+    try {
+      sw.addEventListener?.("controllerchange", finish);
+    } catch {
+      /* ignore */
+    }
+    const installing = registration?.installing;
+    if (installing?.addEventListener) {
+      installing.addEventListener("statechange", () => {
+        if (installing.state === "installed" || installing.state === "activated") {
+          skip(registration.waiting || installing);
+          if (sw.controller || installing.state === "activated") finish();
+        }
+      });
+    }
+    setTimeout(finish, timeoutMs);
+  });
+  return Boolean(sw.controller);
 }
 
 const SHELL_SESSION_KEYS = [
@@ -209,6 +280,7 @@ export async function runFreshStart(env = {}) {
       return;
     }
     removeStep(storage);
+    markFreshOpen(storage);
     location?.replace?.(dest);
   };
 
@@ -247,6 +319,9 @@ export async function runFreshStart(env = {}) {
     clearTimeout(timer);
     const rest = minStepMs - (Date.now() - started);
     if (rest > 0) await pause(rest);
+    if (plan === "clear-then-redirect") {
+      await activateLatestServiceWorker(env);
+    }
     if (plan === "unregister-then-reload") report(env, "reload");
     else if (outcome === "ok") report(env, "open");
     else if (outcome === "error") report(env, "openError");

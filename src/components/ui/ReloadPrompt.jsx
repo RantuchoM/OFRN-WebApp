@@ -10,6 +10,7 @@ import {
   resolveServiceWorkerRegistration,
 } from "../../utils/pwaApplyUpdate";
 import { hasUnsavedWork } from "../../utils/unsavedWork";
+import { FRESH_OPEN_KEY } from "../../utils/freshStart.js";
 
 /** Idle poll: 15 min, and only while the tab is visible. Focus / visibility / navegación siguen chequeando al toque. */
 const VERSION_POLL_MS = 15 * 60 * 1000;
@@ -90,11 +91,21 @@ function isDocumentVisible() {
   return typeof document === "undefined" || document.visibilityState === "visible";
 }
 
-async function fetchRemoteBuildId() {
+function readFreshOpen() {
   try {
-    // Sin cache-buster ni no-store: el browser puede respetar max-age de /version.json
-    // y no generar un Edge Request en Vercel en cada navegación/foco.
-    const res = await fetch("/version.json");
+    const on = sessionStorage.getItem(FRESH_OPEN_KEY) === "1";
+    if (on) sessionStorage.removeItem(FRESH_OPEN_KEY);
+    return on;
+  } catch {
+    return false;
+  }
+}
+
+async function fetchRemoteBuildId({ reload = false } = {}) {
+  try {
+    // Sin cache-buster en el poll habitual: el browser respeta max-age de /version.json.
+    // Tras /refrescar.html se revalida una vez, porque ese archivo puede seguir 60 s con el build viejo.
+    const res = await fetch("/version.json", reload ? { cache: "reload" } : undefined);
     if (!res.ok) return null;
     const data = await res.json();
     return data?.buildId ?? null;
@@ -245,6 +256,8 @@ function ReloadPromptProd() {
   const [bannerDismissed, setBannerDismissed] = useState(false);
   /** Build remoto distinto del embebido (sin depender solo del SW). */
   const [buildOutdated, setBuildOutdated] = useState(false);
+  /** Entrada desde /refrescar.html: la página ya es la versión nueva. */
+  const [openedFresh, setOpenedFresh] = useState(readFreshOpen);
 
   const resetApplyUi = useCallback(() => {
     reloadPendingRef.current = false;
@@ -339,8 +352,12 @@ function ReloadPromptProd() {
     );
     if (registration) swRegistrationRef.current = registration;
     registration?.update();
-    if (!LOCAL_BUILD_ID) return;
-    const remote = await fetchRemoteBuildId();
+    if (!LOCAL_BUILD_ID) {
+      if (openedFresh) setOpenedFresh(false);
+      return;
+    }
+    const remote = await fetchRemoteBuildId({ reload: openedFresh });
+    if (openedFresh) setOpenedFresh(false);
     if (!remote) return;
     if (remote === LOCAL_BUILD_ID) {
       clearReloadGuards();
@@ -349,7 +366,7 @@ function ReloadPromptProd() {
       return;
     }
     setBuildOutdated(true);
-  }, []);
+  }, [openedFresh]);
 
   // Al cambiar de ruta: si hay update pendiente y no hay dirty → aplicar.
   // Si hay dirty → dejar el banner (no interrumpir edición).
@@ -358,6 +375,7 @@ function ReloadPromptProd() {
     pathnameRef.current = pathname;
     void checkForNewVersion();
 
+    if (openedFresh) return;
     if (prevPath === pathname) return;
     if (silentVersionUpdate) return;
     if (!needRefresh && !buildOutdated) return;
@@ -374,6 +392,7 @@ function ReloadPromptProd() {
     needRefresh,
     buildOutdated,
     beginApplyUpdate,
+    openedFresh,
   ]);
 
   // Salir de Transporte libera el sello: la próxima entrada puede auto-aplicar de nuevo.
@@ -386,6 +405,7 @@ function ReloadPromptProd() {
   // Rutas silenciosas: auto-aplicar sin banner.
   // Transporte: mismo apply que el botón, una vez por entrada, si hay versión nueva.
   useEffect(() => {
+    if (openedFresh) return;
     if (!needRefresh && !buildOutdated) {
       setBannerDismissed(false);
       return;
@@ -408,7 +428,7 @@ function ReloadPromptProd() {
     transporteAutoFiredRef.current = true;
     markTransporteAutoStamp();
     beginApplyUpdate();
-  }, [silentVersionUpdate, isTransporte, needRefresh, buildOutdated, beginApplyUpdate]);
+  }, [silentVersionUpdate, isTransporte, needRefresh, buildOutdated, beginApplyUpdate, openedFresh]);
 
   useEffect(() => {
     if (!LOCAL_BUILD_ID) return undefined;
@@ -476,7 +496,11 @@ function ReloadPromptProd() {
   }, [silentVersionUpdate]);
 
   const showBanner =
-    updateAvailable && !silentVersionUpdate && !isRestarting && !bannerDismissed;
+    updateAvailable &&
+    !openedFresh &&
+    !silentVersionUpdate &&
+    !isRestarting &&
+    !bannerDismissed;
 
   const bannerSubtitle = hasUnsavedWork()
     ? "Hay cambios sin guardar: guardá o descartá antes de actualizar."
