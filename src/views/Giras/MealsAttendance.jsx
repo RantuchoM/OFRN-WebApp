@@ -14,6 +14,7 @@ import DateInput from "../../components/ui/DateInput";
 import TimeInput from "../../components/ui/TimeInput";
 import MultiSelectDropdown from "../../components/ui/MultiSelectDropdown";
 import MealOrchestraOnlyFilterChip from "../../components/logistics/MealOrchestraOnlyFilterChip";
+import MissingAlimentacionIndicator from "../../components/logistics/MissingAlimentacionIndicator";
 import { format, parseISO, isAfter, formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
 import { toast } from "sonner";
@@ -807,6 +808,7 @@ export default function MealsAttendance({
             </div>
 
             <div className="flex items-center gap-2">
+              <MissingAlimentacionIndicator roster={enrichedRoster} />
               <select
                 value={filterResponse}
                 onChange={(e) => setFilterResponse(e.target.value)}

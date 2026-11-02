@@ -171,9 +171,13 @@ Tres bloques: 1) giras Sinfónico/CF; 2) programas tipo Ensamble (Jazz Band si a
 
 **Join de conciertos al programa Ensamble:** `eventos.id_gira` y `eventos_programas_asociados` (`eventAssociatedProgramaIds`). Los conciertos VS son eventos de gira (`id_tipo_evento = 1`); **no** exigen fila en `eventos_ensambles`. Esa tabla queda para ensayos independientes (tipo 13) y para conciertos sueltos (sin programa propio de tipo Ensamble). Si el informe pedía `eventos_ensambles` para anidar, los VS salían solo como título.
 
+### Coordinación — Informe de ensamble 2026
+
+Botón **Informe 2026** en Coordinación (pestañas Lista / Calendario), junto a «Reporte ensayos». Componente `InformeEnsambleCoordinacion.jsx`. Rango fijo `2026-01-01`–`2026-12-31`. Solo los ensambles que gestiona el usuario (`ensambles_coordinadores` o todos si admin), filtrados con `listEnsamblesForServiciosReport` (regionales; sin Prueba / CF / Jazz Band). Un solo ensamble abre el modal al toque; varios muestran un menú. Reutiliza `EnsambleServiciosModal` + `fetchEnsambleServiciosBundle` / `buildEnsambleServiciosReport` (mismo informe que Prestaciones). El coordinador puede marcar ensayos en conflicto (**Se ensayó igual** / **No se ensayó** / **Otro día** / **Deshacer**); al cambiar se refresca el impacto de conflicto de la agenda (`handleEnsayoConflictoChanged`).
+
 ### Acciones en un ensayo en conflicto
 
-Staff (admin/editor, misma pantalla Prestaciones). En el modal de conflictos y en el informe de ensamble:
+Staff (admin/editor en Prestaciones) y coordinadores (informe 2026 en Coordinación). En el modal de conflictos y en el informe de ensamble:
 
 | Acción | Persistencia | Efecto |
 |--------|--------------|--------|
@@ -188,7 +192,7 @@ Confirmaciones Portal `z-[110]` sobre el modal `z-[100]`. No hay tabla extra: un
 
 | Pieza | Ruta |
 |-------|------|
-| UI | `ServiciosCantidadReport.jsx`, `EnsayosConflictoModal.jsx`, `EnsambleServiciosModal.jsx`, `ConflictoEnsayoActions.jsx`; agenda: `EnsayoImpactTags.jsx` / `EnsayoConflictoTag.jsx` / `EnsayoTuttiMinusTag.jsx`; Coordinación: `EnsembleCoordinatorView.jsx`, `EnsembleCalendar.jsx`, `EventQuickView.jsx` |
+| UI | `ServiciosCantidadReport.jsx`, `EnsayosConflictoModal.jsx`, `EnsambleServiciosModal.jsx`, `ConflictoEnsayoActions.jsx`; agenda: `EnsayoImpactTags.jsx` / `EnsayoConflictoTag.jsx` / `EnsayoTuttiMinusTag.jsx`; Coordinación: `EnsembleCoordinatorView.jsx`, `InformeEnsambleCoordinacion.jsx`, `EnsembleCalendar.jsx`, `EventQuickView.jsx` |
 | Cálculo | `serviciosCantidad.js`, `serviciosPcv.js` (giras fuera/casa + PCV), `serviciosEnsayosConflicto.js`, `serviciosEnsambleReport.js`, `serviciosConflictoActions.js`, `viaticosDiasComputables.js` |
 | Hook agenda/coordinación | `src/hooks/useEnsayosConflictoImpact.js` (`fetchConflictoAgendaContext`, Tutti-N serial) |
 | Fetch período / Excel / PDF listado-detalle | `src/services/serviciosCantidadService.js` |
@@ -229,6 +233,7 @@ Confirmaciones Portal `z-[110]` sobre el modal `z-[100]`. No hay tabla extra: un
 | Paginación PostgREST `.range` en eventos | Completado |
 | Modal Ensayos en conflicto | Completado |
 | Informe de un ensamble (giras / programas / ensayos+conflicto) | Completado |
+| Coordinación: Informe 2026 (ver/editar conflictos por ensamble gestionado) | Completado (2026-11-02) |
 | PDF informe de ensamble (portrait, jerarquía HTML, Helvetica) | Completado (2026-09-26) |
 | Familia/CF persistidos (`id_familia`, `ensambles_cf` N:N) en Ensambles | Completado |
 | Acciones de ensayo en conflicto (borrar / se ensayó / otro día) | Completado |

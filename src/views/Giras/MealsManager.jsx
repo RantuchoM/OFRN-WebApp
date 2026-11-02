@@ -23,6 +23,7 @@ import {
 } from "../../components/ui/Icons";
 import TimeInput from "../../components/ui/TimeInput";
 import FoodMatrix from "../../components/logistics/FoodMatrix";
+import MissingAlimentacionIndicator from "../../components/logistics/MissingAlimentacionIndicator";
 import { isFuncionPasante } from "../../utils/funcionGira";
 import {
   ROLES_PRODUCCION,
@@ -2642,7 +2643,7 @@ export default function MealsManager({
       toast.info("No hay vacantes de Almuerzo, Merienda o Cena para crear.");
       return;
     }
-    setCreateAllMealDraft(emptyCreateAllMealDraft());
+    setCreateAllMealDraft(buildCreateAllMealDraft(createAllTempMealRows));
   };
 
   /**
@@ -3882,10 +3883,12 @@ export default function MealsManager({
                 : ""}
             </button>
           )}
+          <MissingAlimentacionIndicator roster={roster} />
           <FoodMatrix roster={roster} />
           {loading && <IconLoader className="animate-spin text-orange-500" />}
         </div>
         <div className="md:hidden flex items-center gap-2 relative flex-wrap justify-end">
+          <MissingAlimentacionIndicator roster={roster} />
           <button
             type="button"
             onClick={() => setMealTypesEditorOpen(true)}

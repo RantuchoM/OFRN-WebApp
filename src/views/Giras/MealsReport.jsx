@@ -12,6 +12,7 @@ import {
 } from "../../components/ui/Icons";
 import MultiSelectDropdown from "../../components/ui/MultiSelectDropdown";
 import MealOrchestraOnlyFilterChip from "../../components/logistics/MealOrchestraOnlyFilterChip";
+import MissingAlimentacionIndicator from "../../components/logistics/MissingAlimentacionIndicator";
 import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
 import { handlePrintExport } from "../../utils/PrintWrapper";
@@ -1212,6 +1213,7 @@ export default function MealsReport({
         </div>
 
         <div className="flex items-center gap-2 ml-auto shrink-0">
+          <MissingAlimentacionIndicator roster={enrichedRoster} />
           {fimbaMode && (
             <button
               type="button"

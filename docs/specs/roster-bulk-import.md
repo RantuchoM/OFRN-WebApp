@@ -7,6 +7,9 @@ Permitir dar de alta varias personas desde un Excel en el roster de gira: planti
 - [x] Utilidad `src/utils/rosterBulkImport.js` (plantilla ExcelJS + parse/validación).
 - [x] Modal `src/components/giras/RosterBulkImportModal.jsx` (portal `z-[100]`).
 - [x] Entrada en `GiraRoster` modo Individual: **Carga masiva (Excel)**.
+- [x] Preview editable antes de importar (campos cargados y faltantes).
+- [x] Columnas **Nota interna** y **Localidad** (residencia = `id_localidad`, no viáticos).
+- [x] Alimentación vacía → `null` en DB (`alimentacionForDb`).
 
 ## Decisiones de producto
 - Condición de alta: **`Invitado`** (igual que Crear Invitado Rápido).
@@ -14,6 +17,7 @@ Permitir dar de alta varias personas desde un Excel en el roster de gira: planti
 - Rol en gira: `inferDefaultTourRole` por instrumento; si no hay, `DEFAULT_ROL_ID` (`musico`).
 - No se editan fichas existentes desde el Excel.
 - No hay columna de condición/rol en la plantilla.
+- Tras parsear el archivo, la tabla de preview es **editable**: se pueden corregir errores y completar datos faltantes (incluida nota interna y localidad de residencia) antes de Importar. `revalidateRosterImportRows` recalcula OK/errores (DNI duplicado en archivo / padrón).
 
 ## Columnas del Excel
 
@@ -27,8 +31,10 @@ Permitir dar de alta varias personas desde un Excel en el roster de gira: planti
 | CUIL | `cuil` | Opcional |
 | Teléfono | `telefono` | |
 | Mail | `mail` | |
-| Alimentación | `alimentacion` | Dropdown: `DIET_OPTIONS` (`src/utils/dietOptions.js`) |
+| Alimentación | `alimentacion` | Dropdown: `DIET_OPTIONS` (`src/utils/dietOptions.js`). Vacío → **null** |
 | Instrumento | `id_instr` | Dropdown: nombres de `instrumentos`; se resuelve a id |
+
+**Solo en el preview editable** (no van en la plantilla Excel/Sheets): `nota_interna` (texto libre) y `id_localidad` (residencia; no `id_loc_viaticos`). Si un archivo viejo trae esas columnas, el parser las acepta.
 
 ## Indicador de datos faltantes (Roster)
 - En `GiraRoster`, mismo patrón visual que Transportes (`DataIntegrityIndicator`).
@@ -41,7 +47,7 @@ Permitir dar de alta varias personas desde un Excel en el roster de gira: planti
 - Migración `20261017140000_…`: backfill histórico null/vacío/`General` → `Estándar`.
 - Migración `20261017143000_…`: vuelve a permitir `null` (sin DEFAULT).
 - Si no se carga en alta/Excel/ficha → `null`; Comidas sigue tratando null como Estándar; el indicador de Roster/fila marca «Alimentación» faltante.
-
+- Helper `alimentacionForDb`: string vacío / blank → `null` (no forzar Estándar).
 
 ## Plantilla
 - Hoja `Personas` + hoja oculta `_listas` (dietas A, instrumentos B, género C).
@@ -51,24 +57,24 @@ Permitir dar de alta varias personas desde un Excel en el roster de gira: planti
 ## Flujo UI
 1. Convocar → **Individual (Excel)** (acceso directo), o Individual → **Carga masiva (Excel)**.
 2. Plantilla: **Descargar Excel** (dinámica) y/o **Plantilla Google Sheets** (`/copy`).
-3. Subir `.xlsx` / `.xls` / `.csv` → preview (válidas / errores).
-4. Importar solo filas OK → toast resumen (creados / sumados / ya en gira / error).
-5. Notificaciones ALTA en cola solo si ya hubo convocatoria inicial, notificaciones habilitadas y hay mail (mismo gate que alta manual).
+3. Subir `.xlsx` / `.xls` / `.csv` → preview editable (válidas / errores).
+4. Corregir / completar celdas en la tabla (inputs + selects / `SearchableSelect` para instrumento y localidad).
+5. Importar solo filas OK → toast resumen (creados / sumados / ya en gira / error).
+6. Notificaciones ALTA en cola solo si ya hubo convocatoria inicial, notificaciones habilitadas y hay mail (mismo gate que alta manual).
 
 ## Plantilla Google Sheets (`/copy`)
-1. Crear un Sheet maestro con las mismas columnas que `ROSTER_IMPORT_HEADERS` (fila 1).
-2. Hoja auxiliar (p. ej. `_listas`) con Género / Alimentación / Instrumentos; validación de datos tipo lista en las columnas correspondientes (se puede copiar desde el Excel generado por la app).
-3. Compartir el maestro como **Cualquiera con el enlace: Lector**.
-4. En `.env` / Vercel:
-   `VITE_ROSTER_BULK_SHEETS_COPY_URL=https://docs.google.com/spreadsheets/d/<ID>/copy`
-   (también acepta un URL `/edit`; el front lo normaliza a `/copy`).
-5. Uso: el botón abre «Hacer una copia» → el usuario completa su copia → **Archivo → Descargar → Microsoft Excel (.xlsx)** → Subir archivo en el modal.
-6. Mantener la lista de instrumentos del Sheet a mano cuando cambie el catálogo (el Excel descargable siempre sale al día).
+- Sheet maestro: [OFRN - Plantilla carga masiva roster](https://docs.google.com/spreadsheets/d/1Ij9g_RGVLLJ5_m0IwMcgRVb0mzxJVlHE-ROMPgUa1QM/edit) (`1Ij9g_RGVLLJ5_m0IwMcgRVb0mzxJVlHE-ROMPgUa1QM`).
+- Default en código: `ROSTER_BULK_SHEETS_DEFAULT_COPY_URL` → `…/copy` (override con `VITE_ROSTER_BULK_SHEETS_COPY_URL` en `.env` / Vercel; el front normaliza `/edit` → `/copy`).
+- Compartido como **Cualquiera con el vínculo: Lector** (link público de `/copy`).
+- UI modal: **Abrir plantilla Sheets** (`window.open` `/copy`) + **Copiar link** (`clipboard` del mismo URL).
+- Fila 1 = `ROSTER_IMPORT_HEADERS` (mismas 10 columnas que el Excel). Hoja `_listas` + validación (Género / Alimentación / Instrumento / fecha). El Excel descargable de la app sigue siendo la fuente al día de instrumentos.
+- Uso: Abrir / pegar link → «Hacer una copia» → completar → **Archivo → Descargar → Microsoft Excel (.xlsx)** → Subir archivo en el modal.
 
 ## Plantilla (detalle)
 - Hoja `_listas` con `state: "hidden"` (no visible al abrir; se puede mostrar con «Mostrar» en Excel).
 - Columna Género: lista `M` / `F` / `-`.
 - Columna Fecha de nacimiento: `numFmt dd/mm/yyyy` + `dataValidation` tipo `date` (1900–2100, blank permitido).
+- Nota interna y Localidad: solo en el editor de preview del modal.
 
 ## Archivos
 - `src/utils/rosterBulkImport.js`

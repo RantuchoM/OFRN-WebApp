@@ -2464,6 +2464,64 @@ export default function RepertoireManager({
     return inserted;
   };
 
+  /** Alta en lote desde el picker multi-select (un solo insert + refresh). */
+  const addWorksToBlock = async (workIds, targetRepertorioId = null) => {
+    const repId = targetRepertorioId || activeRepertorioId;
+    const ids = [
+      ...new Set(
+        (workIds || [])
+          .map((id) => Number(id))
+          .filter((id) => Number.isFinite(id) && id > 0),
+      ),
+    ];
+    if (!repId || ids.length === 0) return [];
+
+    const currentRep = repertorios.find((r) => r.id === repId);
+    const existingIds = new Set(
+      (currentRep?.repertorio_obras || [])
+        .map((o) => Number(o.id_obra))
+        .filter((id) => Number.isFinite(id)),
+    );
+    const toInsert = ids.filter((id) => !existingIds.has(id));
+    if (toInsert.length === 0) {
+      if (isAddModalOpen && !targetRepertorioId) {
+        setIsAddModalOpen(false);
+        fetchFullRepertoire();
+      }
+      return [];
+    }
+
+    const maxOrder =
+      currentRep?.repertorio_obras?.reduce(
+        (max, o) => (o.orden > max ? o.orden : max),
+        0,
+      ) || 0;
+    const blockInDefinition = isBlockInDefinitionMode(currentRep);
+    const rows = toInsert.map((id_obra, index) => ({
+      id_repertorio: repId,
+      id_obra,
+      orden: maxOrder + 1 + index,
+      ...(blockInDefinition ? { en_definicion: true } : {}),
+    }));
+
+    const { data: insertedRows, error } = await supabase
+      .from("repertorio_obras")
+      .insert(rows)
+      .select();
+
+    if (error) {
+      console.error("Error añadiendo obras al bloque:", error);
+      throw error;
+    }
+
+    if (isAddModalOpen && !targetRepertorioId) {
+      setIsAddModalOpen(false);
+      fetchFullRepertoire();
+    }
+    autoSyncDrive();
+    return insertedRows || [];
+  };
+
   /** Inserta una obra en el bloque inmediatamente debajo de una fila existente (p. ej. nuevo arreglo). */
   const addWorkToBlockAfter = async (
     workId,
@@ -4612,6 +4670,8 @@ export default function RepertoireManager({
             setShowReservaPanel(false);
           }}
           mode="select"
+          multiSelect
+          onSelectWorks={(workIds) => addWorksToBlock(workIds)}
           onSelectWork={(workId) => addWorkToBlock(workId)}
           showCreateRequest
           onCreateRequest={() => {

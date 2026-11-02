@@ -12,6 +12,7 @@ const XLSX = XLSXNS.default || XLSXNS;
 
 export const GENERO_OPTIONS = ["M", "F", "-"];
 
+/** Columnas de la plantilla Excel / Sheets (Nota interna y Localidad van en el preview). */
 export const ROSTER_IMPORT_HEADERS = [
   "Apellido",
   "Nombre",
@@ -45,17 +46,38 @@ const HEADER_ALIASES = {
   alimentación: "alimentacion",
   dieta: "alimentacion",
   instrumento: "instrumento",
+  "nota interna": "nota_interna",
+  nota_interna: "nota_interna",
+  notas: "nota_interna",
+  observaciones: "nota_interna",
+  localidad: "localidad",
+  "localidad de residencia": "localidad",
+  residencia: "localidad",
+  ciudad: "localidad",
 };
+
+/** null si vacío; no forzar Estándar en alta. */
+export function alimentacionForDb(value) {
+  const trimmed = String(value ?? "").trim();
+  return trimmed || null;
+}
 
 const TEMPLATE_DATA_ROWS = 200;
 const TEMPLATE_FILE_NAME = "Plantilla_carga_masiva_roster.xlsx";
 
 /**
  * Enlace «Hacer una copia» de la plantilla maestra en Google Sheets.
- * Configurar en `.env`: VITE_ROSTER_BULK_SHEETS_COPY_URL=https://docs.google.com/spreadsheets/d/<ID>/copy
+ * Override opcional: VITE_ROSTER_BULK_SHEETS_COPY_URL en `.env` / Vercel.
+ * Default: Sheet «OFRN - Plantilla carga masiva roster» (cuenta Archivo/Martín).
+ * Debe estar compartido como «Cualquiera con el enlace: Lector».
  */
+export const ROSTER_BULK_SHEETS_DEFAULT_COPY_URL =
+  "https://docs.google.com/spreadsheets/d/1Ij9g_RGVLLJ5_m0IwMcgRVb0mzxJVlHE-ROMPgUa1QM/copy";
+
 export const ROSTER_BULK_SHEETS_COPY_URL = String(
-  import.meta.env?.VITE_ROSTER_BULK_SHEETS_COPY_URL || "",
+  import.meta.env?.VITE_ROSTER_BULK_SHEETS_COPY_URL ||
+    ROSTER_BULK_SHEETS_DEFAULT_COPY_URL ||
+    "",
 ).trim();
 
 /** Normaliza un URL de Sheet (edit/view) al endpoint /copy. */
@@ -245,6 +267,234 @@ export function buildInstrumentLookup(instruments) {
 }
 
 /**
+ * Construye mapa nombre→localidad (fold key). Residencia (`id_localidad`), no viáticos.
+ * @param {Array<{ id: string|number, localidad?: string }>} localities
+ */
+export function buildLocalidadLookup(localities) {
+  const map = new Map();
+  for (const row of localities || []) {
+    const name = String(row?.localidad || "").trim();
+    if (!name) continue;
+    map.set(foldKey(name), {
+      id: row.id,
+      localidad: name,
+    });
+  }
+  return map;
+}
+
+function findLookupById(lookupMap, id) {
+  if (id == null || id === "" || !lookupMap?.size) return null;
+  const want = String(id);
+  for (const hit of lookupMap.values()) {
+    if (String(hit.id) === want) return hit;
+  }
+  return null;
+}
+
+/**
+ * @param {string} raw
+ * @param {Map<string, { id: string|number, localidad: string }>} localitiesByName
+ */
+export function resolveImportLocalidad(raw, localitiesByName) {
+  const trimmed = String(raw || "").trim();
+  if (!trimmed) {
+    return { id_localidad: null, localidad: null };
+  }
+  const hit = localitiesByName?.get(foldKey(trimmed));
+  if (!hit) {
+    return {
+      id_localidad: null,
+      localidad: null,
+      error: `Localidad «${trimmed}» no encontrada`,
+    };
+  }
+  return {
+    id_localidad: hit.id,
+    localidad: hit.localidad,
+  };
+}
+
+/**
+ * Valida/normaliza una fila (parse Excel o edición en preview).
+ * No chequea DNI duplicado en archivo ni padrón (eso va en `revalidateRosterImportRows`).
+ *
+ * @param {object} partial
+ * @param {{ instrumentsByName?: Map, dietOptions?: string[], localitiesByName?: Map, excelRow?: number }} opts
+ */
+export function buildValidatedImportRow(partial = {}, opts = {}) {
+  const {
+    instrumentsByName = new Map(),
+    dietOptions = DIET_OPTIONS,
+    localitiesByName = new Map(),
+    excelRow = partial.excelRow ?? null,
+  } = opts;
+
+  const errors = [];
+  const warnings = [];
+
+  const apellido = String(partial.apellido || "").trim();
+  const nombre = String(partial.nombre || "").trim();
+  if (!apellido) errors.push("Apellido obligatorio");
+  if (!nombre) errors.push("Nombre obligatorio");
+
+  let fecha_nac = null;
+  const fechaRaw = partial.fecha_nac;
+  if (fechaRaw !== "" && fechaRaw != null) {
+    fecha_nac = parseImportDate(fechaRaw);
+    if (!fecha_nac) {
+      errors.push(
+        `Fecha de nacimiento inválida («${cellToText(fechaRaw)}»)`,
+      );
+    }
+  }
+
+  const generoRes = resolveImportGenero(partial.genero);
+  if (generoRes.error) errors.push(generoRes.error);
+
+  const dni = cellToText(partial.dni).replace(/\s+/g, "");
+  const cuil = cellToText(partial.cuil).replace(/\s+/g, "");
+  const telefono = cellToText(partial.telefono);
+  const mail = cellToText(partial.mail);
+  const nota_interna = cellToText(partial.nota_interna) || null;
+
+  const dietRes = resolveImportDiet(partial.alimentacion, dietOptions);
+  if (dietRes.error) errors.push(dietRes.error);
+
+  let id_instr = null;
+  let instrumento = null;
+  let rol_gira_default = null;
+  if (partial.id_instr != null && String(partial.id_instr).trim() !== "") {
+    const idHit = findLookupById(instrumentsByName, partial.id_instr);
+    if (idHit) {
+      id_instr = idHit.id;
+      instrumento = idHit.instrumento;
+      rol_gira_default = idHit.rol_gira_default ?? null;
+    } else if (partial.instrumento) {
+      const byName = resolveImportInstrument(
+        partial.instrumento,
+        instrumentsByName,
+      );
+      if (byName.error) errors.push(byName.error);
+      id_instr = byName.id_instr;
+      instrumento = byName.instrumento;
+      rol_gira_default = byName.rol_gira_default;
+    } else if (instrumentsByName?.size) {
+      errors.push("Instrumento no válido");
+    } else {
+      id_instr = partial.id_instr;
+      instrumento = partial.instrumento || null;
+      rol_gira_default = partial.rol_gira_default ?? null;
+    }
+  } else if (partial.instrumento) {
+    const instrRes = resolveImportInstrument(
+      partial.instrumento,
+      instrumentsByName,
+    );
+    if (instrRes.error) errors.push(instrRes.error);
+    id_instr = instrRes.id_instr;
+    instrumento = instrRes.instrumento;
+    rol_gira_default = instrRes.rol_gira_default;
+  }
+
+  let id_localidad = null;
+  let localidad = null;
+  if (
+    partial.id_localidad != null &&
+    String(partial.id_localidad).trim() !== ""
+  ) {
+    const locHit = findLookupById(localitiesByName, partial.id_localidad);
+    if (locHit) {
+      id_localidad = locHit.id;
+      localidad = locHit.localidad;
+    } else if (partial.localidad) {
+      const byName = resolveImportLocalidad(
+        partial.localidad,
+        localitiesByName,
+      );
+      if (byName.error) errors.push(byName.error);
+      id_localidad = byName.id_localidad;
+      localidad = byName.localidad;
+    } else if (localitiesByName?.size) {
+      errors.push("Localidad no válida");
+    } else {
+      id_localidad = partial.id_localidad;
+      localidad = partial.localidad || null;
+    }
+  } else if (partial.localidad) {
+    const locRes = resolveImportLocalidad(
+      partial.localidad,
+      localitiesByName,
+    );
+    if (locRes.error) errors.push(locRes.error);
+    id_localidad = locRes.id_localidad;
+    localidad = locRes.localidad;
+  }
+
+  return {
+    excelRow,
+    apellido,
+    nombre,
+    genero: generoRes.value,
+    fecha_nac,
+    dni: dni || null,
+    cuil: cuil || null,
+    telefono: telefono || null,
+    mail: mail || null,
+    alimentacion: dietRes.value,
+    id_instr,
+    instrumento,
+    rol_gira_default,
+    nota_interna,
+    id_localidad,
+    localidad,
+    errors,
+    warnings,
+    ok: errors.length === 0,
+  };
+}
+
+/**
+ * Revalida todas las filas tras edición en preview (errores de campo + DNI dup + padrón).
+ * @param {Array<object>} rows
+ * @param {{ instrumentsByName?: Map, dietOptions?: string[], localitiesByName?: Map, existingDniFolded?: Set<string> }} opts
+ */
+export function revalidateRosterImportRows(rows, opts = {}) {
+  const {
+    instrumentsByName,
+    dietOptions,
+    localitiesByName,
+    existingDniFolded,
+  } = opts;
+
+  const rebuilt = (rows || []).map((row) =>
+    buildValidatedImportRow(row, {
+      instrumentsByName,
+      dietOptions,
+      localitiesByName,
+      excelRow: row.excelRow,
+    }),
+  );
+
+  const dniSeen = new Map();
+  const withFileDupes = rebuilt.map((row) => {
+    if (!row.dni) return row;
+    const dniKey = foldKey(row.dni);
+    const errors = [...(row.errors || [])];
+    if (dniSeen.has(dniKey)) {
+      errors.push(
+        `DNI duplicado en el archivo (también en fila ${dniSeen.get(dniKey)})`,
+      );
+      return { ...row, errors, ok: false };
+    }
+    dniSeen.set(dniKey, row.excelRow);
+    return row;
+  });
+
+  return applyExistingDniErrors(withFileDupes, existingDniFolded);
+}
+
+/**
  * Plantilla Excel con dropdowns (hoja oculta de listas).
  * @param {{ dietOptions?: string[], instrumentNames?: string[] }} opts
  */
@@ -332,7 +582,7 @@ export async function buildRosterImportTemplate({
     error: "Elegí M, F o -",
   });
 
-  // Alimentación = I, Instrumento = J (tras agregar CUIL)
+  // Alimentación = I, Instrumento = J (Nota interna / Localidad: solo preview)
   sheet.dataValidations.add(`I2:I${lastDataRow}`, {
     type: "list",
     allowBlank: true,
@@ -368,12 +618,13 @@ function mapHeader(raw) {
 
 /**
  * @param {File|ArrayBuffer|Uint8Array} file
- * @param {{ instrumentsByName?: Map, dietOptions?: string[] }} opts
+ * @param {{ instrumentsByName?: Map, dietOptions?: string[], localitiesByName?: Map }} opts
  */
 export async function parseRosterImportFile(file, opts = {}) {
   const {
     instrumentsByName = new Map(),
     dietOptions = DIET_OPTIONS,
+    localitiesByName = new Map(),
   } = opts;
 
   const buffer =
@@ -421,8 +672,7 @@ export async function parseRosterImportFile(file, opts = {}) {
   }
 
   /** @type {Array<object>} */
-  const rows = [];
-  const dniSeen = new Map();
+  const partialRows = [];
 
   for (let i = 1; i < matrix.length; i++) {
     const line = matrix[i] || [];
@@ -437,70 +687,28 @@ export async function parseRosterImportFile(file, opts = {}) {
     const nombre = cellToText(get("nombre"));
     if (!apellido && !nombre) continue;
 
-    const errors = [];
-    const warnings = [];
-
-    if (!apellido) errors.push("Apellido obligatorio");
-    if (!nombre) errors.push("Nombre obligatorio");
-
-    const fechaRaw = get("fecha_nac");
-    let fecha_nac = null;
-    if (fechaRaw !== "" && fechaRaw != null) {
-      fecha_nac = parseImportDate(fechaRaw);
-      if (!fecha_nac) {
-        errors.push(
-          `Fecha de nacimiento inválida («${cellToText(fechaRaw)}»)`,
-        );
-      }
-    }
-
-    const generoRes = resolveImportGenero(get("genero"));
-    if (generoRes.error) errors.push(generoRes.error);
-
-    const dni = cellToText(get("dni")).replace(/\s+/g, "");
-    const cuil = cellToText(get("cuil")).replace(/\s+/g, "");
-    const telefono = cellToText(get("telefono"));
-    const mail = cellToText(get("mail"));
-
-    const dietRes = resolveImportDiet(get("alimentacion"), dietOptions);
-    if (dietRes.error) errors.push(dietRes.error);
-
-    const instrRes = resolveImportInstrument(
-      get("instrumento"),
-      instrumentsByName,
-    );
-    if (instrRes.error) errors.push(instrRes.error);
-
-    if (dni) {
-      const dniKey = foldKey(dni);
-      if (dniSeen.has(dniKey)) {
-        errors.push(
-          `DNI duplicado en el archivo (también en fila ${dniSeen.get(dniKey)})`,
-        );
-      } else {
-        dniSeen.set(dniKey, excelRow);
-      }
-    }
-
-    rows.push({
+    partialRows.push({
       excelRow,
       apellido,
       nombre,
-      genero: generoRes.value,
-      fecha_nac,
-      dni: dni || null,
-      cuil: cuil || null,
-      telefono: telefono || null,
-      mail: mail || null,
-      alimentacion: dietRes.value,
-      id_instr: instrRes.id_instr,
-      instrumento: instrRes.instrumento,
-      rol_gira_default: instrRes.rol_gira_default,
-      errors,
-      warnings,
-      ok: errors.length === 0,
+      genero: get("genero"),
+      fecha_nac: get("fecha_nac"),
+      dni: get("dni"),
+      cuil: get("cuil"),
+      telefono: get("telefono"),
+      mail: get("mail"),
+      alimentacion: get("alimentacion"),
+      instrumento: get("instrumento"),
+      nota_interna: get("nota_interna"),
+      localidad: get("localidad"),
     });
   }
+
+  const rows = revalidateRosterImportRows(partialRows, {
+    instrumentsByName,
+    dietOptions,
+    localitiesByName,
+  });
 
   const validCount = rows.filter((r) => r.ok).length;
   const errorCount = rows.length - validCount;

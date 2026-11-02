@@ -107,7 +107,7 @@ const COLUMN_TO_FILTER_INSTR = {
 
 /**
  * Filtros por defecto para buscar obras que no superen el orgánico convocado en la gira.
- * Usa operador `lte` por familia; cuerdas: "without" si no hay convocados de arco.
+ * Usa operador `lte` por familia; cuerdas: "with" si hay arcos convocados, "without" si no.
  */
 export function buildMaxInstrumentationFilterDefaults(convokedMap = {}) {
   const rules = [];
@@ -123,7 +123,7 @@ export function buildMaxInstrumentationFilterDefaults(convokedMap = {}) {
   const percCount = Number(convokedMap.Perc) || 0;
   rules.push(makeRule("perc", "lte", percCount));
 
-  const stringsFilter = (Number(convokedMap.Str) || 0) > 0 ? "all" : "without";
+  const stringsFilter = (Number(convokedMap.Str) || 0) > 0 ? "with" : "without";
 
   return { rules, stringsFilter, strictMode: false };
 };

@@ -3,18 +3,23 @@ import { createPortal } from "react-dom";
 import {
   IconAlertCircle,
   IconCheck,
+  IconChevronDown,
   IconDrive,
   IconFilter,
   IconLoader,
   IconPlus,
   IconSearch,
   IconX,
+  IconYoutube,
 } from "../ui/Icons";
 import InstrumentationFilterModal from "./InstrumentationFilterModal";
 import OrganicoVientosAddField from "./OrganicoVientosAddField";
 import { fetchRosterForGira } from "../../hooks/useGiraRoster";
 import { formatSecondsToTime } from "../../utils/time";
-import { matchesMultiTokenSearch } from "../../utils/sanitize";
+import {
+  applyMultiTokenOrIlike,
+  matchesMultiTokenSearch,
+} from "../../utils/sanitize";
 import {
   calculateInstrumentation,
   computeInstrumentationConvokedFromRoster,
@@ -30,6 +35,8 @@ import {
 } from "../../utils/obraEstadoStyles";
 
 const LIBRARY_PAGE_SIZE = 80;
+const COMPOSER_LOOKUP_LIMIT = 80;
+const COMPOSER_OBRA_LINK_LIMIT = 2000;
 
 const normalizeSearchText = (value) =>
   String(value || "")
@@ -37,6 +44,40 @@ const normalizeSearchText = (value) =>
     .replace(/\s+/g, " ")
     .trim()
     .toLowerCase();
+
+/** IDs de `compositores` que matchean apellido/nombre (tokens AND). */
+async function resolveComposerIds(supabase, searchQuery) {
+  let q = supabase.from("compositores").select("id");
+  q = applyMultiTokenOrIlike(q, ["apellido", "nombre"], searchQuery);
+  const { data, error } = await q.limit(COMPOSER_LOOKUP_LIMIT);
+  if (error) throw error;
+  return (data || []).map((c) => c.id).filter((id) => id != null);
+}
+
+/**
+ * Obras ligadas a esos compositores.
+ * `roles`: null = cualquier rol; "compositor" incluye rol nulo; "arreglador" estricto.
+ */
+async function resolveObraIdsByPerson(supabase, personIds, roles) {
+  if (!personIds.length) return [];
+  let q = supabase
+    .from("obras_compositores")
+    .select("id_obra")
+    .in("id_compositor", personIds)
+    .limit(COMPOSER_OBRA_LINK_LIMIT);
+  if (roles === "compositor") {
+    q = q.or("rol.eq.compositor,rol.is.null");
+  } else if (roles === "arreglador") {
+    q = q.eq("rol", "arreglador");
+  }
+  const { data, error } = await q;
+  if (error) throw error;
+  return [
+    ...new Set(
+      (data || []).map((r) => r.id_obra).filter((id) => id != null),
+    ),
+  ];
+}
 
 const sanitizePreviewHtml = (content) => {
   let html = String(content || "");
@@ -130,7 +171,8 @@ const MultiLineTitle = ({ content }) => {
 
 /**
  * Modal reutilizable «Buscar / Agregar obra» con filtros de catálogo.
- * mode: select → una obra y callback; toggle → marcar/desmarcar (opciones placeholder).
+ * mode: select → elegir obra(s); toggle → marcar/desmarcar (opciones placeholder).
+ * multiSelect (solo select): acumula obras y confirma con «Agregar (n)».
  */
 export default function RepertoireWorkPickerModal({
   supabase,
@@ -138,8 +180,10 @@ export default function RepertoireWorkPickerModal({
   programId = null,
   applyGiraInstrumentationDefaults = true,
   mode = "select",
+  multiSelect = false,
   selectedWorkIds = [],
   onSelectWork,
+  onSelectWorks,
   onToggleWork,
   title = "Buscar Obra",
   accent = "indigo",
@@ -170,10 +214,23 @@ export default function RepertoireWorkPickerModal({
   const [observacionesPreviewWork, setObservacionesPreviewWork] = useState(null);
   const [togglingId, setTogglingId] = useState(null);
   const [giraInstrHint, setGiraInstrHint] = useState(null);
+  const [sortConfig, setSortConfig] = useState({
+    key: "titulo",
+    direction: "asc",
+  });
+  const [pendingIds, setPendingIds] = useState([]);
+  const [pendingById, setPendingById] = useState(() => new Map());
+  const [confirmingAdd, setConfirmingAdd] = useState(false);
+
+  const isMultiSelect = mode === "select" && multiSelect;
 
   const selectedSet = useMemo(
     () => new Set((selectedWorkIds || []).map((id) => Number(id))),
     [selectedWorkIds],
+  );
+  const pendingSet = useMemo(
+    () => new Set(pendingIds.map((id) => Number(id))),
+    [pendingIds],
   );
 
   const accentPrimary =
@@ -235,48 +292,109 @@ export default function RepertoireWorkPickerModal({
       setLibraryError(null);
       const composerFilter = normalizeSearchText(debouncedFilters.compositor);
       const arrangerFilter = normalizeSearchText(debouncedFilters.arreglador);
-      const useBroadFetch =
-        composerFilter.length >= 2 ||
-        arrangerFilter.length >= 2 ||
-        hasActiveInstrFilter;
+      const tituloFilter = normalizeSearchText(debouncedFilters.titulo);
       const from = page * LIBRARY_PAGE_SIZE;
       const to = from + LIBRARY_PAGE_SIZE - 1;
-      let query = supabase
-        .from("obras")
-        .select(
-          `*, obras_compositores (rol, compositores (apellido, nombre)), obras_palabras_clave (palabras_clave (tag)), obras_particellas (nombre_archivo, nota_organico, es_solista, instrumentos (instrumento, abreviatura))`,
-        )
-        .order("titulo");
 
-      if (useBroadFetch) {
-        query = query.range(0, 1999);
-      } else {
-        query = query.range(from, to);
-      }
+      try {
+        // Compositor/arreglador: resolver en DB (antes se filtraba en cliente
+        // sobre las primeras ~2000 obras por título y faltaban coincidencias).
+        let personObraIds = null;
+        if (composerFilter.length >= 2) {
+          const ids = await resolveComposerIds(
+            supabase,
+            debouncedFilters.compositor,
+          );
+          const obraIds = await resolveObraIdsByPerson(
+            supabase,
+            ids,
+            "compositor",
+          );
+          personObraIds = obraIds;
+        }
+        if (arrangerFilter.length >= 2) {
+          const ids = await resolveComposerIds(
+            supabase,
+            debouncedFilters.arreglador,
+          );
+          const obraIds = await resolveObraIdsByPerson(
+            supabase,
+            ids,
+            "arreglador",
+          );
+          personObraIds =
+            personObraIds == null
+              ? obraIds
+              : personObraIds.filter((id) => obraIds.includes(id));
+        }
 
-      const tituloFilter = normalizeSearchText(debouncedFilters.titulo);
-      if (tituloFilter.length >= 2) {
-        query = query.ilike("titulo", `%${debouncedFilters.titulo.trim()}%`);
-      }
+        if (personObraIds != null && personObraIds.length === 0) {
+          setWorksLibrary([]);
+          setLibraryPage(page);
+          setLibraryHasMore(false);
+          setLoadingLibrary(false);
+          return;
+        }
 
-      const { data, error } = await query;
-      if (error) {
-        setLibraryError(error.message || "No se pudo cargar la biblioteca.");
+        // Orgánico activo sin persona: ventana amplia + filtro cliente.
+        // Con persona: el `.in(id)` ya acota; traemos el set completo.
+        const useBroadFetch =
+          personObraIds == null && hasActiveInstrFilter;
+        const fetchAllPersonMatches = personObraIds != null;
+
+        let query = supabase
+          .from("obras")
+          .select(
+            `*, obras_compositores (rol, compositores (apellido, nombre)), obras_palabras_clave (palabras_clave (tag)), obras_particellas (nombre_archivo, nota_organico, es_solista, instrumentos (instrumento, abreviatura))`,
+          )
+          .order("titulo");
+
+        if (personObraIds != null) {
+          query = query.in("id", personObraIds);
+        }
+
+        if (tituloFilter.length >= 2) {
+          query = query.ilike("titulo", `%${debouncedFilters.titulo.trim()}%`);
+        }
+
+        if (useBroadFetch) {
+          query = query.range(0, 1999);
+        } else if (fetchAllPersonMatches) {
+          query = query.limit(
+            Math.min(personObraIds.length, COMPOSER_OBRA_LINK_LIMIT),
+          );
+        } else {
+          query = query.range(from, to);
+        }
+
+        const { data, error } = await query;
+        if (error) {
+          setLibraryError(error.message || "No se pudo cargar la biblioteca.");
+          setLoadingLibrary(false);
+          return;
+        }
+        const mapped = (data || []).map((w) => ({
+          ...w,
+          compositor_full: getComposers(w),
+          arreglador_full: getArranger(w),
+          titulo_plain: normalizeSearchText(w.titulo),
+          compositor_plain: normalizeSearchText(getComposers(w)),
+          arreglador_plain: normalizeSearchText(getArranger(w)),
+        }));
+        setWorksLibrary((prev) => (append ? [...prev, ...mapped] : mapped));
+        setLibraryPage(page);
+        setLibraryHasMore(
+          !useBroadFetch &&
+            !fetchAllPersonMatches &&
+            mapped.length === LIBRARY_PAGE_SIZE,
+        );
         setLoadingLibrary(false);
-        return;
+      } catch (e) {
+        setLibraryError(
+          e?.message || "No se pudo cargar la biblioteca.",
+        );
+        setLoadingLibrary(false);
       }
-      const mapped = (data || []).map((w) => ({
-        ...w,
-        compositor_full: getComposers(w),
-        arreglador_full: getArranger(w),
-        titulo_plain: normalizeSearchText(w.titulo),
-        compositor_plain: normalizeSearchText(getComposers(w)),
-        arreglador_plain: normalizeSearchText(getArranger(w)),
-      }));
-      setWorksLibrary((prev) => (append ? [...prev, ...mapped] : mapped));
-      setLibraryPage(page);
-      setLibraryHasMore(!useBroadFetch && mapped.length === LIBRARY_PAGE_SIZE);
-      setLoadingLibrary(false);
     },
     [supabase, debouncedFilters, hasActiveInstrFilter],
   );
@@ -303,56 +421,182 @@ export default function RepertoireWorkPickerModal({
     fetchLibrary({ page: 0, append: false });
   }, [shouldFetchLibrary, debouncedFilters, fetchLibrary]);
 
-  const filteredLibrary = useMemo(
-    () =>
-      worksLibrary.filter((w) => {
-        if (
-          debouncedFilters.titulo &&
-          !matchesMultiTokenSearch(
-            [w.titulo_plain, w.titulo],
-            debouncedFilters.titulo,
-          )
-        ) {
-          return false;
-        }
-        if (
-          debouncedFilters.compositor &&
-          !matchesMultiTokenSearch(
-            [w.compositor_plain, w.compositor_full],
-            debouncedFilters.compositor,
-          )
-        ) {
-          return false;
-        }
-        if (
-          debouncedFilters.arreglador &&
-          !matchesMultiTokenSearch(
-            [w.arreglador_plain, w.arreglador_full],
-            debouncedFilters.arreglador,
-          )
-        ) {
-          return false;
-        }
+  const handleSort = (key) => {
+    setSortConfig((prev) => ({
+      key,
+      direction:
+        prev.key === key && prev.direction === "asc" ? "desc" : "asc",
+    }));
+  };
 
+  const SortIcon = ({ column }) => {
+    const accentSort =
+      accent === "violet" ? "text-violet-600" : "text-indigo-600";
+    if (sortConfig.key !== column) {
+      return (
+        <IconChevronDown
+          size={12}
+          className="text-slate-300 opacity-0 group-hover:opacity-50 transition-opacity ml-0.5 shrink-0"
+        />
+      );
+    }
+    return (
+      <IconChevronDown
+        size={12}
+        className={`${accentSort} transition-transform ml-0.5 shrink-0 ${
+          sortConfig.direction === "desc" ? "rotate-180" : ""
+        }`}
+      />
+    );
+  };
+
+  const sortHeaderClass = (align = "left") =>
+    `p-2 cursor-pointer select-none group hover:text-slate-800 ${
+      align === "center"
+        ? "text-center"
+        : align === "right"
+          ? "text-right"
+          : ""
+    }`;
+
+  const filteredLibrary = useMemo(() => {
+    const filtered = worksLibrary.filter((w) => {
+      if (
+        debouncedFilters.titulo &&
+        !matchesMultiTokenSearch(
+          [w.titulo_plain, w.titulo],
+          debouncedFilters.titulo,
+        )
+      ) {
+        return false;
+      }
+      if (
+        debouncedFilters.compositor &&
+        !matchesMultiTokenSearch(
+          [w.compositor_plain, w.compositor_full],
+          debouncedFilters.compositor,
+        )
+      ) {
+        return false;
+      }
+      if (
+        debouncedFilters.arreglador &&
+        !matchesMultiTokenSearch(
+          [w.arreglador_plain, w.arreglador_full],
+          debouncedFilters.arreglador,
+        )
+      ) {
+        return false;
+      }
+
+      if (
+        instrFilters.length > 0 ||
+        stringsFilter !== "all" ||
+        strictMode
+      ) {
         if (
-          instrFilters.length > 0 ||
-          stringsFilter !== "all" ||
-          strictMode
+          !workMatchesInstrumentationFilter(w, {
+            instrFilters,
+            stringsFilter,
+            strictMode,
+          })
         ) {
-          if (
-            !workMatchesInstrumentationFilter(w, {
-              instrFilters,
-              stringsFilter,
-              strictMode,
-            })
-          ) {
-            return false;
-          }
+          return false;
         }
-        return true;
-      }),
-    [worksLibrary, debouncedFilters, instrFilters, stringsFilter, strictMode],
-  );
+      }
+      return true;
+    });
+
+    const sortValue = (w) => {
+      switch (sortConfig.key) {
+        case "compositor_full":
+          return w.compositor_plain || w.compositor_full || "";
+        case "titulo":
+          return w.titulo_plain || "";
+        case "arreglador_full": {
+          const arr = w.arreglador_plain || w.arreglador_full || "";
+          return arr === "-" ? "" : arr;
+        }
+        case "duracion_segundos":
+          return Number(w.duracion_segundos) || 0;
+        case "organico":
+          return organicoOf(w).toLowerCase();
+        case "anio_composicion":
+          return Number(w.anio_composicion) || 0;
+        case "link_drive":
+          return w.link_drive ? 1 : 0;
+        case "link_youtube":
+          return w.link_youtube ? 1 : 0;
+        case "observaciones":
+          return normalizeSearchText(w.observaciones) ? 1 : 0;
+        default:
+          return w.titulo_plain || "";
+      }
+    };
+
+    return filtered.slice().sort((a, b) => {
+      let valA = sortValue(a);
+      let valB = sortValue(b);
+      let primary = 0;
+      if (typeof valA === "string" && typeof valB === "string") {
+        primary = valA.localeCompare(valB, "es", { sensitivity: "base" });
+        primary = sortConfig.direction === "asc" ? primary : -primary;
+      } else if (valA < valB) {
+        primary = sortConfig.direction === "asc" ? -1 : 1;
+      } else if (valA > valB) {
+        primary = sortConfig.direction === "asc" ? 1 : -1;
+      }
+      if (primary !== 0) return primary;
+      if (sortConfig.key === "titulo") return 0;
+      return (a.titulo_plain || "").localeCompare(b.titulo_plain || "", "es", {
+        sensitivity: "base",
+      });
+    });
+  }, [
+    worksLibrary,
+    debouncedFilters,
+    instrFilters,
+    stringsFilter,
+    strictMode,
+    sortConfig,
+  ]);
+
+  const togglePendingWork = (workId, work) => {
+    const id = Number(workId);
+    if (!Number.isFinite(id)) return;
+    setPendingIds((prev) => {
+      if (prev.some((x) => Number(x) === id)) {
+        return prev.filter((x) => Number(x) !== id);
+      }
+      return [...prev, id];
+    });
+    setPendingById((prev) => {
+      const next = new Map(prev);
+      if (next.has(id)) next.delete(id);
+      else next.set(id, work);
+      return next;
+    });
+  };
+
+  const handleConfirmMultiSelect = async () => {
+    if (!pendingIds.length || confirmingAdd) return;
+    setConfirmingAdd(true);
+    try {
+      const works = pendingIds
+        .map((id) => pendingById.get(Number(id)))
+        .filter(Boolean);
+      if (onSelectWorks) {
+        await onSelectWorks(pendingIds, works);
+      } else {
+        for (const id of pendingIds) {
+          await onSelectWork?.(id, pendingById.get(Number(id)));
+        }
+      }
+      onClose?.();
+    } finally {
+      setConfirmingAdd(false);
+    }
+  };
 
   const handleRowAction = async (workId, work) => {
     if (mode === "toggle") {
@@ -364,11 +608,17 @@ export default function RepertoireWorkPickerModal({
       }
       return;
     }
+    if (isMultiSelect) {
+      togglePendingWork(workId, work);
+      return;
+    }
     onSelectWork?.(workId, work);
   };
 
   const renderActionButton = (w) => {
-    const isSelected = selectedSet.has(Number(w.id));
+    const id = Number(w.id);
+    const isSelected = selectedSet.has(id);
+    const isPending = pendingSet.has(id);
     const busy = togglingId === w.id;
     if (mode === "toggle") {
       return (
@@ -391,6 +641,29 @@ export default function RepertoireWorkPickerModal({
           ) : (
             <>
               <IconPlus size={12} /> Agregar
+            </>
+          )}
+        </button>
+      );
+    }
+    if (isMultiSelect) {
+      return (
+        <button
+          type="button"
+          onClick={() => handleRowAction(w.id, w)}
+          className={`px-2 py-1 rounded font-bold shadow-sm transition-colors text-[10px] min-h-9 flex items-center gap-1 ${
+            isPending
+              ? `${accent === "violet" ? "bg-violet-700 text-white hover:bg-violet-800" : "bg-fixed-indigo-600 text-white hover:bg-fixed-indigo-700"}`
+              : `bg-white border ${accent === "violet" ? "border-violet-200 text-violet-700 hover:bg-violet-50" : "border-fixed-indigo-200 text-fixed-indigo-600 hover:bg-fixed-indigo-600 hover:text-white"}`
+          }`}
+        >
+          {isPending ? (
+            <>
+              <IconCheck size={12} /> Elegida
+            </>
+          ) : (
+            <>
+              <IconPlus size={12} /> Elegir
             </>
           )}
         </button>
@@ -600,6 +873,7 @@ export default function RepertoireWorkPickerModal({
         <div className="md:hidden bg-slate-50 p-2 space-y-1">
           {filteredLibrary.map((w) => {
             const isSelected = selectedSet.has(Number(w.id));
+            const isPending = pendingSet.has(Number(w.id));
             const { borderClass, cardBorderClass } =
               getObraEstadoMobileCardStyles(w.estado);
                     const instr = organicoOf(w) || "-";
@@ -607,7 +881,10 @@ export default function RepertoireWorkPickerModal({
               <div
                 key={w.id}
                 className={`rounded-lg border shadow-sm p-2 relative overflow-hidden ${cardBorderClass} ${
-                  mode === "toggle" && isSelected ? accentRowSelected : ""
+                  (mode === "toggle" && isSelected) ||
+                  (isMultiSelect && isPending)
+                    ? accentRowSelected
+                    : ""
                 }`}
               >
                 <div
@@ -669,6 +946,18 @@ export default function RepertoireWorkPickerModal({
                           <IconDrive size={14} />
                         </a>
                       ) : null}
+                      {w.link_youtube ? (
+                        <a
+                          href={w.link_youtube}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-red-600 inline-flex rounded-full bg-red-50 p-0.5"
+                          aria-label="Abrir audio / video"
+                          title="Audio / Video"
+                        >
+                          <IconYoutube size={14} />
+                        </a>
+                      ) : null}
                       {normalizeSearchText(w.observaciones) ? (
                         <button
                           type="button"
@@ -692,37 +981,117 @@ export default function RepertoireWorkPickerModal({
         </div>
         <table className="hidden md:table w-full max-w-full table-fixed text-left text-xs [&_td]:overflow-hidden">
           <colgroup>
+            <col style={{ width: "15%" }} />
+            <col style={{ width: "20%" }} />
+            <col style={{ width: "11%" }} />
+            <col style={{ width: "7%" }} />
             <col style={{ width: "16%" }} />
-            <col style={{ width: "22%" }} />
-            <col style={{ width: "12%" }} />
-            <col style={{ width: "8%" }} />
-            <col style={{ width: "18%" }} />
-            <col style={{ width: "6%" }} />
             <col style={{ width: "5%" }} />
             <col style={{ width: "5%" }} />
-            <col style={{ width: "8%" }} />
+            <col style={{ width: "5%" }} />
+            <col style={{ width: "5%" }} />
+            <col style={{ width: "11%" }} />
           </colgroup>
           <thead className="bg-slate-50 text-slate-500 uppercase sticky top-0 font-bold shadow-sm">
             <tr>
-              <th className="p-2 text-center">Compositor</th>
-              <th className="p-2">Obra</th>
-              <th className="p-2">Arreglador</th>
-              <th className="p-2 text-center">Duración</th>
-              <th className="p-2 text-center">Orgánico</th>
-              <th className="p-2 text-center">Año</th>
-              <th className="p-2 text-center">Drive</th>
-              <th className="p-2 text-center">Notas</th>
+              <th
+                className={sortHeaderClass("center")}
+                onClick={() => handleSort("compositor_full")}
+                title="Ordenar por compositor"
+              >
+                <span className="inline-flex items-center justify-center">
+                  Compositor <SortIcon column="compositor_full" />
+                </span>
+              </th>
+              <th
+                className={sortHeaderClass("left")}
+                onClick={() => handleSort("titulo")}
+                title="Ordenar por obra"
+              >
+                <span className="inline-flex items-center">
+                  Obra <SortIcon column="titulo" />
+                </span>
+              </th>
+              <th
+                className={sortHeaderClass("left")}
+                onClick={() => handleSort("arreglador_full")}
+                title="Ordenar por arreglador"
+              >
+                <span className="inline-flex items-center">
+                  Arreglador <SortIcon column="arreglador_full" />
+                </span>
+              </th>
+              <th
+                className={sortHeaderClass("center")}
+                onClick={() => handleSort("duracion_segundos")}
+                title="Ordenar por duración"
+              >
+                <span className="inline-flex items-center justify-center">
+                  Duración <SortIcon column="duracion_segundos" />
+                </span>
+              </th>
+              <th
+                className={sortHeaderClass("center")}
+                onClick={() => handleSort("organico")}
+                title="Ordenar por orgánico"
+              >
+                <span className="inline-flex items-center justify-center">
+                  Orgánico <SortIcon column="organico" />
+                </span>
+              </th>
+              <th
+                className={sortHeaderClass("center")}
+                onClick={() => handleSort("anio_composicion")}
+                title="Ordenar por año"
+              >
+                <span className="inline-flex items-center justify-center">
+                  Año <SortIcon column="anio_composicion" />
+                </span>
+              </th>
+              <th
+                className={sortHeaderClass("center")}
+                onClick={() => handleSort("link_drive")}
+                title="Ordenar por Drive"
+              >
+                <span className="inline-flex items-center justify-center">
+                  Drive <SortIcon column="link_drive" />
+                </span>
+              </th>
+              <th
+                className={sortHeaderClass("center")}
+                onClick={() => handleSort("link_youtube")}
+                title="Ordenar por audio / video"
+              >
+                <span className="inline-flex items-center justify-center">
+                  Audio <SortIcon column="link_youtube" />
+                </span>
+              </th>
+              <th
+                className={sortHeaderClass("center")}
+                onClick={() => handleSort("observaciones")}
+                title="Ordenar por notas"
+              >
+                <span className="inline-flex items-center justify-center">
+                  Notas <SortIcon column="observaciones" />
+                </span>
+              </th>
               <th className="p-2 text-right" />
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-50">
             {filteredLibrary.map((w) => {
               const isSelected = selectedSet.has(Number(w.id));
+              const isPending = pendingSet.has(Number(w.id));
               const organico = organicoOf(w);
               return (
                 <tr
                   key={w.id}
-                  className={`group ${getObraEstadoPickerRowClass(w.estado)} ${mode === "toggle" && isSelected ? accentRowSelected : ""}`}
+                  className={`group ${getObraEstadoPickerRowClass(w.estado)} ${
+                    (mode === "toggle" && isSelected) ||
+                    (isMultiSelect && isPending)
+                      ? accentRowSelected
+                      : ""
+                  }`}
                 >
                   <td className="p-2 text-center text-slate-600">
                     <div className="truncate" title={w.compositor_full}>
@@ -779,6 +1148,21 @@ export default function RepertoireWorkPickerModal({
                         className="text-blue-600 inline-block p-1 bg-blue-50 rounded-full"
                       >
                         <IconDrive size={14} />
+                      </a>
+                    ) : (
+                      <span className="text-slate-200">-</span>
+                    )}
+                  </td>
+                  <td className="p-2 text-center">
+                    {w.link_youtube ? (
+                      <a
+                        href={w.link_youtube}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-red-600 inline-block p-1 bg-red-50 rounded-full"
+                        title="Audio / Video"
+                      >
+                        <IconYoutube size={14} />
                       </a>
                     ) : (
                       <span className="text-slate-200">-</span>
@@ -997,6 +1381,29 @@ export default function RepertoireWorkPickerModal({
                 className="px-3 py-1.5 rounded text-xs font-medium text-slate-600 border border-slate-200 bg-white hover:bg-slate-100"
               >
                 Listo
+              </button>
+            </div>
+          )}
+
+          {isMultiSelect && (
+            <div className="p-2.5 border-t bg-slate-50 shrink-0 flex justify-between items-center gap-3">
+              <span className="text-[11px] text-slate-500">
+                {pendingIds.length > 0
+                  ? `${pendingIds.length} obra${pendingIds.length !== 1 ? "s" : ""} seleccionada${pendingIds.length !== 1 ? "s" : ""}`
+                  : "Elegí una o más obras"}
+              </span>
+              <button
+                type="button"
+                disabled={pendingIds.length === 0 || confirmingAdd}
+                onClick={handleConfirmMultiSelect}
+                className={`${accentPrimary} text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed shadow-sm`}
+              >
+                {confirmingAdd ? (
+                  <IconLoader size={14} className="animate-spin" />
+                ) : (
+                  <IconPlus size={14} />
+                )}
+                Agregar ({pendingIds.length})
               </button>
             </div>
           )}

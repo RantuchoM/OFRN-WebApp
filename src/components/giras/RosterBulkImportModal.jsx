@@ -3,13 +3,15 @@ import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import {
   IconCheck,
+  IconCopy,
   IconDownload,
   IconExternalLink,
   IconLoader,
   IconUpload,
   IconX,
 } from "../ui/Icons";
-import { DIET_OPTIONS } from "../../utils/dietOptions";
+import SearchableSelect from "../ui/SearchableSelect";
+import { DIET_OPTIONS, dietSelectValue } from "../../utils/dietOptions";
 import {
   DEFAULT_ROL_ID,
   inferDefaultTourRole,
@@ -19,14 +21,21 @@ import { useAuth } from "../../context/AuthContext";
 import { seatingApellidoNombre } from "../../utils/integranteDisplayName";
 import { integranteIdForDb, integranteKey } from "../../utils/integranteIds";
 import {
+  alimentacionForDb,
   applyExistingDniErrors,
   buildInstrumentLookup,
+  buildLocalidadLookup,
   buildRosterImportTemplate,
   foldDniKey,
+  GENERO_OPTIONS,
   parseRosterImportFile,
+  revalidateRosterImportRows,
   ROSTER_BULK_SHEETS_COPY_URL,
   toGoogleSheetsCopyUrl,
 } from "../../utils/rosterBulkImport";
+
+const CELL_INPUT =
+  "w-full min-w-[5.5rem] border border-slate-200 rounded px-1.5 py-1 text-[11px] bg-white focus:ring-1 focus:ring-indigo-300 focus:border-indigo-400 outline-none disabled:opacity-50";
 
 function isUniqueViolation(err) {
   return err?.code === "23505" || /duplicate|unique/i.test(err?.message || "");
@@ -49,6 +58,7 @@ export default function RosterBulkImportModal({
   const { user } = useAuth();
   const fileInputRef = useRef(null);
   const [instruments, setInstruments] = useState([]);
+  const [localities, setLocalities] = useState([]);
   const [loadingLists, setLoadingLists] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [parsing, setParsing] = useState(false);
@@ -56,10 +66,16 @@ export default function RosterBulkImportModal({
   const [parseError, setParseError] = useState(null);
   const [rows, setRows] = useState([]);
   const [fileName, setFileName] = useState("");
+  const [existingDniFolded, setExistingDniFolded] = useState(() => new Set());
 
   const instrumentsByName = useMemo(
     () => buildInstrumentLookup(instruments),
     [instruments],
+  );
+
+  const localitiesByName = useMemo(
+    () => buildLocalidadLookup(localities),
+    [localities],
   );
 
   const instrumentNames = useMemo(
@@ -70,8 +86,36 @@ export default function RosterBulkImportModal({
     [instruments],
   );
 
+  const instrumentOptions = useMemo(
+    () =>
+      instruments.map((r) => ({
+        id: r.id,
+        label: r.instrumento || String(r.id),
+      })),
+    [instruments],
+  );
+
+  const localityOptions = useMemo(
+    () =>
+      localities.map((r) => ({
+        id: r.id,
+        label: r.localidad || String(r.id),
+      })),
+    [localities],
+  );
+
   const validRows = useMemo(() => rows.filter((r) => r.ok), [rows]);
   const errorRows = useMemo(() => rows.filter((r) => !r.ok), [rows]);
+
+  const validationCtx = useMemo(
+    () => ({
+      instrumentsByName,
+      dietOptions: DIET_OPTIONS,
+      localitiesByName,
+      existingDniFolded,
+    }),
+    [instrumentsByName, localitiesByName, existingDniFolded],
+  );
 
   useEffect(() => {
     if (!isOpen || !supabase) return;
@@ -80,18 +124,32 @@ export default function RosterBulkImportModal({
     setParseError(null);
     setRows([]);
     setFileName("");
+    setExistingDniFolded(new Set());
     (async () => {
-      const { data, error } = await supabase
-        .from("instrumentos")
-        .select("id, instrumento, rol_gira_default")
-        .order("instrumento", { ascending: true });
+      const [instrRes, locRes] = await Promise.all([
+        supabase
+          .from("instrumentos")
+          .select("id, instrumento, rol_gira_default")
+          .order("instrumento", { ascending: true }),
+        supabase
+          .from("localidades")
+          .select("id, localidad")
+          .order("localidad", { ascending: true }),
+      ]);
       if (cancelled) return;
-      if (error) {
-        console.error(error);
+      if (instrRes.error) {
+        console.error(instrRes.error);
         toast.error("No se pudieron cargar los instrumentos");
         setInstruments([]);
       } else {
-        setInstruments(data || []);
+        setInstruments(instrRes.data || []);
+      }
+      if (locRes.error) {
+        console.error(locRes.error);
+        toast.error("No se pudieron cargar las localidades");
+        setLocalities([]);
+      } else {
+        setLocalities(locRes.data || []);
       }
       setLoadingLists(false);
     })();
@@ -122,12 +180,24 @@ export default function RosterBulkImportModal({
 
   const handleOpenSheetsTemplate = () => {
     if (!sheetsCopyUrl) {
-      toast.error(
-        "Falta configurar VITE_ROSTER_BULK_SHEETS_COPY_URL con el enlace de la plantilla.",
-      );
+      toast.error("No hay URL de plantilla Google Sheets configurada.");
       return;
     }
     window.open(sheetsCopyUrl, "_blank", "noopener,noreferrer");
+  };
+
+  const handleCopySheetsLink = async () => {
+    if (!sheetsCopyUrl) {
+      toast.error("No hay URL de plantilla Google Sheets configurada.");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(sheetsCopyUrl);
+      toast.success("Link de copia de plantilla copiado");
+    } catch (err) {
+      console.error(err);
+      toast.error("No se pudo copiar el link");
+    }
   };
 
   const handleFile = async (file) => {
@@ -139,10 +209,12 @@ export default function RosterBulkImportModal({
       const parsed = await parseRosterImportFile(file, {
         instrumentsByName,
         dietOptions: DIET_OPTIONS,
+        localitiesByName,
       });
       if (parsed.parseError) {
         setParseError(parsed.parseError);
         setRows([]);
+        setExistingDniFolded(new Set());
         return;
       }
 
@@ -152,6 +224,7 @@ export default function RosterBulkImportModal({
         .filter(Boolean)
         .map((d) => String(d).trim());
 
+      let existingSet = new Set();
       if (dnis.length > 0 && supabase) {
         const { data: existing, error } = await supabase
           .from("integrantes")
@@ -160,7 +233,7 @@ export default function RosterBulkImportModal({
         if (error) {
           console.warn("Chequeo DNI:", error.message);
         } else {
-          const existingSet = new Set(
+          existingSet = new Set(
             (existing || [])
               .map((r) => foldDniKey(r.dni))
               .filter(Boolean),
@@ -169,6 +242,7 @@ export default function RosterBulkImportModal({
         }
       }
 
+      setExistingDniFolded(existingSet);
       setRows(nextRows);
       if (nextRows.length === 0) {
         setParseError("No hay filas con datos para importar.");
@@ -177,10 +251,20 @@ export default function RosterBulkImportModal({
       console.error(err);
       setParseError("No se pudo leer el Excel: " + (err.message || err));
       setRows([]);
+      setExistingDniFolded(new Set());
     } finally {
       setParsing(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
+  };
+
+  const patchRow = (excelRow, patch) => {
+    setRows((prev) => {
+      const next = prev.map((r) =>
+        r.excelRow === excelRow ? { ...r, ...patch } : r,
+      );
+      return revalidateRosterImportRows(next, validationCtx);
+    });
   };
 
   const handleImport = async () => {
@@ -207,8 +291,10 @@ export default function RosterBulkImportModal({
             cuil: row.cuil || null,
             telefono: row.telefono || null,
             mail: row.mail || null,
-            alimentacion: row.alimentacion || null,
+            alimentacion: alimentacionForDb(row.alimentacion),
             id_instr: row.id_instr || null,
+            nota_interna: row.nota_interna || null,
+            id_localidad: row.id_localidad || null,
           };
 
           const { data: createdPerson, error: insertErr } = await supabase
@@ -311,9 +397,11 @@ export default function RosterBulkImportModal({
     }
   };
 
+  const busy = importing || parsing;
+
   return createPortal(
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-3">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-6xl max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95">
         <div className="px-4 py-3 border-b border-slate-100 bg-slate-50 flex items-center justify-between shrink-0">
           <div>
             <h3 className="text-sm font-bold text-slate-800">
@@ -354,13 +442,27 @@ export default function RosterBulkImportModal({
               disabled={!sheetsCopyUrl}
               title={
                 sheetsCopyUrl
-                  ? "Abrir plantilla en Google Sheets (crear una copia)"
-                  : "Configurá VITE_ROSTER_BULK_SHEETS_COPY_URL"
+                  ? "Abrir «Hacer una copia» de la plantilla en Google Sheets"
+                  : "Falta URL de plantilla Google Sheets"
               }
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <IconExternalLink size={14} />
-              Plantilla Google Sheets
+              Abrir plantilla Sheets
+            </button>
+            <button
+              type="button"
+              onClick={handleCopySheetsLink}
+              disabled={!sheetsCopyUrl}
+              title={
+                sheetsCopyUrl
+                  ? "Copiar link público de copia de plantilla"
+                  : "Falta URL de plantilla Google Sheets"
+              }
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg border border-emerald-300 bg-white text-emerald-800 hover:bg-emerald-50 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <IconCopy size={14} />
+              Copiar link
             </button>
             <button
               type="button"
@@ -390,10 +492,18 @@ export default function RosterBulkImportModal({
           </div>
 
           <p className="text-[11px] text-slate-500 leading-relaxed">
-            Columnas: Apellido, Nombre, Género (M/F/-), Fecha de nacimiento,
-            DNI, CUIL, Teléfono, Mail, Alimentación (lista), Instrumento
-            (lista). Apellido y Nombre son obligatorios. Con Google Sheets:
-            hacé una copia → completá →{" "}
+            Columnas del archivo: Apellido, Nombre, Género (M/F/-), Fecha de
+            nacimiento, DNI, CUIL, Teléfono, Mail, Alimentación (lista),
+            Instrumento (lista). Apellido y Nombre son obligatorios. Tras
+            subir, en la tabla podés corregir datos y completar{" "}
+            <span className="font-semibold">Nota interna</span> y{" "}
+            <span className="font-semibold">Localidad</span> (residencia).
+            Alimentación vacía se guarda como{" "}
+            <span className="font-semibold">null</span>. Sheets:{" "}
+            <span className="font-semibold">Abrir plantilla</span> hace una
+            copia pública, o{" "}
+            <span className="font-semibold">Copiar link</span> para
+            compartirlo → completá →{" "}
             <span className="font-semibold">Archivo → Descargar → .xlsx</span>{" "}
             → Subir archivo. Las filas válidas se crean como{" "}
             <span className="font-semibold">Invitado</span> y se suman a la
@@ -415,47 +525,218 @@ export default function RosterBulkImportModal({
                 <span className="text-red-600">
                   {errorRows.length} con error
                 </span>
+                <span className="text-slate-500 font-normal">
+                  Editá las celdas antes de importar
+                </span>
               </div>
 
-              <div className="border border-slate-200 rounded-lg overflow-hidden max-h-64 overflow-y-auto">
-                <table className="w-full text-left text-[11px]">
-                  <thead className="bg-slate-50 sticky top-0 text-slate-500 uppercase font-bold">
+              <div className="border border-slate-200 rounded-lg overflow-auto max-h-[min(28rem,50vh)]">
+                <table className="w-full text-left text-[11px] min-w-[1100px]">
+                  <thead className="bg-slate-50 sticky top-0 z-10 text-slate-500 uppercase font-bold">
                     <tr>
-                      <th className="px-2 py-1.5 w-10">Fila</th>
-                      <th className="px-2 py-1.5">Persona</th>
-                      <th className="px-2 py-1.5">Instr.</th>
-                      <th className="px-2 py-1.5">Estado</th>
+                      <th className="px-1.5 py-1.5 w-10">Fila</th>
+                      <th className="px-1.5 py-1.5 min-w-[6rem]">Apellido</th>
+                      <th className="px-1.5 py-1.5 min-w-[6rem]">Nombre</th>
+                      <th className="px-1.5 py-1.5 w-14">Gén.</th>
+                      <th className="px-1.5 py-1.5 min-w-[8rem]">F. nac.</th>
+                      <th className="px-1.5 py-1.5 min-w-[5.5rem]">DNI</th>
+                      <th className="px-1.5 py-1.5 min-w-[5.5rem]">CUIL</th>
+                      <th className="px-1.5 py-1.5 min-w-[6rem]">Tel.</th>
+                      <th className="px-1.5 py-1.5 min-w-[8rem]">Mail</th>
+                      <th className="px-1.5 py-1.5 min-w-[7rem]">Alim.</th>
+                      <th className="px-1.5 py-1.5 min-w-[8rem]">Instr.</th>
+                      <th className="px-1.5 py-1.5 min-w-[8rem]">Nota int.</th>
+                      <th className="px-1.5 py-1.5 min-w-[9rem]">Localidad</th>
+                      <th className="px-1.5 py-1.5 min-w-[8rem]">Estado</th>
                     </tr>
                   </thead>
                   <tbody>
                     {rows.map((r) => (
                       <tr
                         key={r.excelRow}
-                        className={`border-t border-slate-100 ${
+                        className={`border-t border-slate-100 align-top ${
                           r.ok ? "bg-white" : "bg-red-50/60"
                         }`}
                       >
-                        <td className="px-2 py-1.5 tabular-nums text-slate-500">
+                        <td className="px-1.5 py-1 tabular-nums text-slate-500">
                           {r.excelRow}
                         </td>
-                        <td className="px-2 py-1.5 font-medium text-slate-800">
-                          {r.apellido}, {r.nombre}
-                          {r.dni ? (
-                            <span className="block text-slate-400 font-normal">
-                              DNI {r.dni}
-                            </span>
-                          ) : null}
+                        <td className="px-1.5 py-1">
+                          <input
+                            className={CELL_INPUT}
+                            value={r.apellido || ""}
+                            disabled={busy}
+                            onChange={(e) =>
+                              patchRow(r.excelRow, {
+                                apellido: e.target.value,
+                              })
+                            }
+                          />
                         </td>
-                        <td className="px-2 py-1.5 text-slate-600">
-                          {r.instrumento || "—"}
+                        <td className="px-1.5 py-1">
+                          <input
+                            className={CELL_INPUT}
+                            value={r.nombre || ""}
+                            disabled={busy}
+                            onChange={(e) =>
+                              patchRow(r.excelRow, {
+                                nombre: e.target.value,
+                              })
+                            }
+                          />
                         </td>
-                        <td className="px-2 py-1.5">
+                        <td className="px-1.5 py-1">
+                          <select
+                            className={CELL_INPUT}
+                            value={r.genero || ""}
+                            disabled={busy}
+                            onChange={(e) =>
+                              patchRow(r.excelRow, {
+                                genero: e.target.value || null,
+                              })
+                            }
+                          >
+                            <option value="">—</option>
+                            {GENERO_OPTIONS.map((g) => (
+                              <option key={g} value={g}>
+                                {g}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className="px-1.5 py-1">
+                          <input
+                            type="date"
+                            className={CELL_INPUT}
+                            value={r.fecha_nac || ""}
+                            disabled={busy}
+                            onChange={(e) =>
+                              patchRow(r.excelRow, {
+                                fecha_nac: e.target.value || null,
+                              })
+                            }
+                          />
+                        </td>
+                        <td className="px-1.5 py-1">
+                          <input
+                            className={CELL_INPUT}
+                            value={r.dni || ""}
+                            disabled={busy}
+                            onChange={(e) =>
+                              patchRow(r.excelRow, { dni: e.target.value })
+                            }
+                          />
+                        </td>
+                        <td className="px-1.5 py-1">
+                          <input
+                            className={CELL_INPUT}
+                            value={r.cuil || ""}
+                            disabled={busy}
+                            onChange={(e) =>
+                              patchRow(r.excelRow, { cuil: e.target.value })
+                            }
+                          />
+                        </td>
+                        <td className="px-1.5 py-1">
+                          <input
+                            className={CELL_INPUT}
+                            value={r.telefono || ""}
+                            disabled={busy}
+                            onChange={(e) =>
+                              patchRow(r.excelRow, {
+                                telefono: e.target.value,
+                              })
+                            }
+                          />
+                        </td>
+                        <td className="px-1.5 py-1">
+                          <input
+                            type="email"
+                            className={CELL_INPUT}
+                            value={r.mail || ""}
+                            disabled={busy}
+                            onChange={(e) =>
+                              patchRow(r.excelRow, { mail: e.target.value })
+                            }
+                          />
+                        </td>
+                        <td className="px-1.5 py-1">
+                          <select
+                            className={CELL_INPUT}
+                            value={dietSelectValue(r.alimentacion)}
+                            disabled={busy}
+                            onChange={(e) =>
+                              patchRow(r.excelRow, {
+                                alimentacion: e.target.value || null,
+                              })
+                            }
+                          >
+                            <option value="">— Sin cargar —</option>
+                            {DIET_OPTIONS.map((opt) => (
+                              <option key={opt} value={opt}>
+                                {opt}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className="px-1.5 py-1 min-w-[9rem]">
+                          <SearchableSelect
+                            options={instrumentOptions}
+                            value={r.id_instr}
+                            onChange={(id) => {
+                              const hit = instruments.find(
+                                (x) => String(x.id) === String(id),
+                              );
+                              patchRow(r.excelRow, {
+                                id_instr: id || null,
+                                instrumento: hit?.instrumento || null,
+                                rol_gira_default:
+                                  hit?.rol_gira_default ?? null,
+                              });
+                            }}
+                            placeholder="—"
+                            className="text-[11px]"
+                            dropdownMinWidth={220}
+                          />
+                        </td>
+                        <td className="px-1.5 py-1">
+                          <input
+                            className={CELL_INPUT}
+                            value={r.nota_interna || ""}
+                            disabled={busy}
+                            placeholder="Nota..."
+                            onChange={(e) =>
+                              patchRow(r.excelRow, {
+                                nota_interna: e.target.value,
+                              })
+                            }
+                          />
+                        </td>
+                        <td className="px-1.5 py-1 min-w-[10rem]">
+                          <SearchableSelect
+                            options={localityOptions}
+                            value={r.id_localidad}
+                            onChange={(id) => {
+                              const hit = localities.find(
+                                (x) => String(x.id) === String(id),
+                              );
+                              patchRow(r.excelRow, {
+                                id_localidad: id || null,
+                                localidad: hit?.localidad || null,
+                              });
+                            }}
+                            placeholder="Residencia…"
+                            className="text-[11px]"
+                            dropdownMinWidth={220}
+                          />
+                        </td>
+                        <td className="px-1.5 py-1">
                           {r.ok ? (
                             <span className="text-emerald-700 font-semibold">
                               OK
                             </span>
                           ) : (
-                            <span className="text-red-700">
+                            <span className="text-red-700 leading-snug">
                               {(r.errors || []).join("; ")}
                             </span>
                           )}

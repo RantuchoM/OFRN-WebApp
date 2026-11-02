@@ -33,6 +33,11 @@ export function isStandardOfrnDiet(value) {
   return STANDARD_DIET_KEYS.has(foldDietKey(value));
 }
 
+/** null/vacío en ficha = aún no consultado (distinto de Estándar confirmado). */
+export function isAlimentacionUnset(value) {
+  return !String(value ?? "").trim();
+}
+
 /**
  * Bucket de conteo/columna para comidas OFRN.
  * Vacío / General / Estándar → Estándar. Regular (FIMBA) queda Regular.

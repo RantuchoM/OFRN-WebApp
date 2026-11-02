@@ -28,7 +28,7 @@ Fuente: `src/utils/dietOptions.js`. `DIET_OPTIONS` lista **Estándar** (ya no «
 
 | Valor en ficha (`integrantes.alimentacion`) | Columna / tooltip | Cabecera corta |
 |---|---|---|
-| vacío / `General` / `Estándar` | **Estándar** (una sola columna) | Estándar |
+| vacío / `null` / `General` / `Estándar` | **Estándar** (una sola columna) | Estándar |
 | Sin Lactosa | Sin Lactosa | **s/Lact.** |
 | Sin Sal | Sin Sal | **s/sal** |
 | Sin TACC (FIMBA `sin_tacc`) | Sin TACC | **s/TACC** |
@@ -55,6 +55,11 @@ No abreviar con `substring(0,4)` (colisionaba GENE vs ESTÁ vs SIN). `dietsDiffe
 - Autosave (`updateField` → `saveFieldToDb`); alimentación vacía → `null`.
 - **No** llama a `notifyAlimentacionChange`. Un cambio de dieta desde acá no avisa a producción.
 - [x] Default vacío en alta (no Estándar automático en el select).
+
+### Alertas en vistas de comidas
+- [x] `MissingAlimentacionIndicator` (triángulo ámbar) en Agenda/Menú (`MealsManager`, junto a FoodMatrix), Asistencia y Reporte (junto a exportaciones).
+- Muestra cuántos y quiénes tienen `alimentacion` null/vacío (excluye vacantes y ausentes/baja).
+- El conteo de dietas sigue fusionando null → Estándar; el aviso solo marca «aún no consultado».
 
 ## Dónde se muestra
 Helper: `src/utils/integranteDisplayName.js` (`seatingNombre`, `seatingApellido`, `seatingApellidoNombre`, `seatingApellidoInicial`).

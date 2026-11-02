@@ -45,6 +45,7 @@ import {
   IconDownload,
 } from "../../components/ui/Icons";
 import EnsayosPorProgramaReportModal from "./EnsayosPorProgramaReportModal";
+import InformeEnsambleCoordinacion from "./InformeEnsambleCoordinacion";
 import ManualTrigger from "../../components/manual/ManualTrigger";
 import GiraForm from "../Giras/GiraForm";
 import IndependentRehearsalForm from "./IndependentRehearsalForm";
@@ -4032,6 +4033,11 @@ export default function EnsembleCoordinatorView({ supabase }) {
 
         {(activeTab === "ensayos" || activeTab === "calendario") && (
           <div className="mb-0.5 md:mb-1 flex shrink-0 items-center justify-end gap-1 md:gap-2">
+            <InformeEnsambleCoordinacion
+              supabase={supabase}
+              ensembles={myEnsembles}
+              onConflictoChanged={handleEnsayoConflictoChanged}
+            />
             <button
               type="button"
               onClick={() => setIsEnsayosReportModalOpen(true)}
