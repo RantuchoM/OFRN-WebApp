@@ -293,16 +293,16 @@ export default function EntradasAyudaConsultasPanel({
                           : "border-slate-200 bg-white"
                   }`}
                 >
-                  <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start">
-                    <label className="flex min-w-0 w-full flex-1 cursor-pointer items-start gap-2.5">
+                  <div className="flex w-full min-w-0 flex-col gap-3 lg:flex-row lg:items-start">
+                    <label className="grid w-full min-w-0 cursor-pointer grid-cols-[1.25rem_minmax(0,1fr)] items-start gap-x-2.5 lg:flex-1">
                       <input
                         type="checkbox"
-                        className="mt-0.5 h-4 w-4 shrink-0"
+                        className="mt-0.5 h-4 w-4"
                         checked={checked}
                         disabled={loteBusy}
                         onChange={() => toggleOne(row.id)}
                       />
-                      <div className="min-w-0 flex-1 space-y-1">
+                      <div className="min-w-0 space-y-1">
                         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                           <span className={`break-words text-sm font-bold ${ui.textStrong}`}>{row.nombre}</span>
                           {dupSize > 1 ? (
@@ -358,15 +358,15 @@ export default function EntradasAyudaConsultasPanel({
                         ) : null}
                         <p className={`text-[11px] ${ui.textMuted}`}>{formatWhen(row.created_at)}</p>
                         {row.comentarios ? (
-                          <p className={`break-words pt-1 text-xs leading-relaxed ${ui.textBody}`}>{row.comentarios}</p>
+                          <p className={`w-full min-w-0 whitespace-pre-wrap break-words pt-1 text-xs leading-relaxed ${ui.textBody}`}>{row.comentarios}</p>
                         ) : null}
                       </div>
                     </label>
-                    <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-44 sm:shrink-0 sm:flex-col">
+                    <div className="grid w-full grid-cols-2 gap-2 lg:w-44 lg:shrink-0 lg:grid-cols-1">
                       {vigentePreferida && onVincularVigente ? (
                         <button
                           type="button"
-                          className={`${ui.btnPrimary} col-span-2 !w-full whitespace-normal px-3 py-2 text-center text-xs leading-tight sm:col-span-1`}
+                          className={`${ui.btnPrimary} col-span-2 !w-full whitespace-normal px-3 py-2 text-center text-xs leading-tight`}
                           disabled={loteBusy || busyId != null}
                           title={vigentePreferida.label || vigentePreferida.codigo || "Entrada vigente"}
                           onClick={() => onVincularVigente(row, vigentePreferida)}
