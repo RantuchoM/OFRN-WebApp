@@ -171,12 +171,56 @@ export async function reenviarEntradasAyudaReserva({ email, reservaId }) {
   });
 }
 
+async function enrichAyudaConsultaResolvedBy(row) {
+  if (!row || typeof row !== "object") return row;
+  const resolvedBy = row.resolved_by;
+  if (!resolvedBy) return { ...row, resolved_by_label: null };
+  try {
+    const { data, error } = await supabaseEntradasPublic.rpc("entrada_usuario_display_short", {
+      p_user_id: resolvedBy,
+    });
+    if (error) return { ...row, resolved_by_label: null };
+    const label = String(data || "").trim();
+    return { ...row, resolved_by_label: label || null };
+  } catch {
+    return { ...row, resolved_by_label: null };
+  }
+}
+
+async function enrichAyudaConsultasResolvedBy(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  const ids = [...new Set(list.map((r) => r?.resolved_by).filter(Boolean).map(String))];
+  if (!ids.length) {
+    return list.map((r) => ({ ...r, resolved_by_label: null }));
+  }
+  const labelById = new Map();
+  await Promise.all(
+    ids.map(async (id) => {
+      try {
+        const { data, error } = await supabaseEntradasPublic.rpc("entrada_usuario_display_short", {
+          p_user_id: id,
+        });
+        if (!error) {
+          const label = String(data || "").trim();
+          if (label) labelById.set(id, label);
+        }
+      } catch {
+        /* sin etiqueta */
+      }
+    }),
+  );
+  return list.map((r) => ({
+    ...r,
+    resolved_by_label: r?.resolved_by ? (labelById.get(String(r.resolved_by)) || null) : null,
+  }));
+}
+
 export async function listEntradasAyudaConsultas(estado = "pendiente") {
   const { data, error } = await supabaseEntradasPublic.rpc("entrada_ayuda_listar", {
     p_estado: estado,
   });
   if (error) throw error;
-  return data || [];
+  return enrichAyudaConsultasResolvedBy(data || []);
 }
 
 export async function getEntradaAyudaConsulta(id) {
@@ -184,7 +228,7 @@ export async function getEntradaAyudaConsulta(id) {
     p_id: id,
   });
   if (error) throw error;
-  return data || null;
+  return enrichAyudaConsultaResolvedBy(data || null);
 }
 
 export async function marcarEntradaAyudaResuelta(id, reservaId = null) {
@@ -193,7 +237,7 @@ export async function marcarEntradaAyudaResuelta(id, reservaId = null) {
     p_reserva_id: reservaId != null ? Number(reservaId) : null,
   });
   if (error) throw error;
-  return data;
+  return enrichAyudaConsultaResolvedBy(data);
 }
 
 /** Asegura pdf_share_token para link público de PDF (WhatsApp). */

@@ -4909,6 +4909,11 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
                   ? ` · ${new Date(ayudaConsulta.resolved_at).toLocaleString("es-AR")}`
                   : ""}
               </p>
+              {ayudaConsulta.resolved_by_label ? (
+                <p className={`text-xs font-semibold ${ui.textSoft}`}>
+                  Resuelta por {ayudaConsulta.resolved_by_label}
+                </p>
+              ) : null}
               <div className="flex flex-wrap items-center gap-2">
                 <p className={ui.textMuted}>
                   No hace falta volver a reservar. Podés avisar por mail o WhatsApp.

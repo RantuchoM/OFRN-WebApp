@@ -401,6 +401,18 @@ export default function EntradasAyudaConsultasPanel({
                               Resuelta
                             </span>
                           ) : null}
+                          {esResueltas && row.resolved_by_label ? (
+                            <span
+                              className={`inline-flex shrink-0 whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10px] font-bold tracking-wide ${
+                                isDark
+                                  ? "bg-slate-700 text-slate-100"
+                                  : "bg-slate-200 text-slate-800"
+                              }`}
+                              title="Quién resolvió la consulta"
+                            >
+                              Por {row.resolved_by_label}
+                            </span>
+                          ) : null}
                           {dupSize > 1 ? (
                             <span
                               className={`inline-flex shrink-0 whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
@@ -455,7 +467,9 @@ export default function EntradasAyudaConsultasPanel({
                         ) : null}
                         <p className={`text-[11px] ${ui.textMuted}`}>
                           {esResueltas
-                            ? `Resuelta ${formatWhen(row.resolved_at || row.created_at)}`
+                            ? `Resuelta ${formatWhen(row.resolved_at || row.created_at)}${
+                              row.resolved_by_label ? ` · ${row.resolved_by_label}` : ""
+                            }`
                             : formatWhen(row.created_at)}
                         </p>
                         {row.comentarios ? (
