@@ -513,17 +513,7 @@ async function signInAfterEntradasAuthPayload(data, app = "entradas") {
   const fields = pickEntradasAuthSessionFields(data);
   const authClient = entradasAuthClient(app);
 
-  if (fields.token_hash) {
-    const types = ["email", "magiclink", "recovery"];
-    for (const type of types) {
-      const { error: otpError } = await authClient.auth.verifyOtp({
-        token_hash: fields.token_hash,
-        type,
-      });
-      if (!otpError) return data;
-    }
-  }
-
+  // Broker password primero: evita hasta 3 verifyOtp fallidos (path de «Sacar entradas»).
   if (fields.email && fields.password) {
     const { error: signInError } = await authClient.auth.signInWithPassword({
       email: fields.email,
@@ -532,6 +522,17 @@ async function signInAfterEntradasAuthPayload(data, app = "entradas") {
     if (!signInError) return data;
     if (!fields.token_hash) {
       throw new Error(formatEntradasAuthError(signInError, { action: "password" }));
+    }
+  }
+
+  if (fields.token_hash) {
+    const types = ["email", "magiclink", "recovery"];
+    for (const type of types) {
+      const { error: otpError } = await authClient.auth.verifyOtp({
+        token_hash: fields.token_hash,
+        type,
+      });
+      if (!otpError) return data;
     }
   }
 

@@ -32,29 +32,21 @@ export async function lookupOfrnIntegranteForEntradas(
   const normalized = normalizeEmail(email);
   if (!normalized) return null;
   const select = "nombre, apellido, mail, email_acceso, clave_acceso";
-  const { data: byMail, error: mailErr } = await admin
+  const q = normalized.replace(/"/g, "");
+  // Una sola ida a DB (eq sobre mails normalizados + ilike por casing mixto).
+  const { data, error } = await admin
     .from("integrantes")
     .select(select)
-    .ilike("mail", normalized)
-    .limit(5);
-  if (mailErr) {
-    console.error("[ofrnEntradasPassword] integrantes.mail:", mailErr.message);
+    .or(
+      `mail.eq."${q}",email_acceso.eq."${q}",mail.ilike."${q}",email_acceso.ilike."${q}"`,
+    )
+    .limit(8);
+  if (error) {
+    console.error("[ofrnEntradasPassword] integrantes lookup:", error.message);
+    return null;
   }
-  const rows = Array.isArray(byMail) ? byMail : [];
-  const withClave = rows.find((r) => String(r?.clave_acceso || "").trim().length > 0);
-  if (withClave) return withClave;
-  if (rows[0]) return rows[0];
-
-  const { data: byAcceso, error: accesoErr } = await admin
-    .from("integrantes")
-    .select(select)
-    .ilike("email_acceso", normalized)
-    .limit(5);
-  if (accesoErr) {
-    console.error("[ofrnEntradasPassword] integrantes.email_acceso:", accesoErr.message);
-  }
-  const accesoRows = Array.isArray(byAcceso) ? byAcceso : [];
-  return accesoRows.find((r) => String(r?.clave_acceso || "").trim().length > 0) || accesoRows[0] || null;
+  const rows = Array.isArray(data) ? data : [];
+  return rows.find((r) => String(r?.clave_acceso || "").trim().length > 0) || rows[0] || null;
 }
 
 export async function verifyOfrnIntegranteCredentials(

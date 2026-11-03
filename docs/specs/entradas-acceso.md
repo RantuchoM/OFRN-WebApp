@@ -18,7 +18,8 @@ SCRN y Viáticos Manual siguen con código de 8 dígitos + enlace (misma edge fu
 
 1. Sin sesión: **Sacar entradas** / **Gestionar mis entradas**. Debajo, el catálogo de conciertos con reservas abiertas.
 2. **Sacar entradas** → mail → sesión inmediata (`start_ticket_by_email` → `status: session`).
-   - Perfil mínimo si hace falta. Mail nuevo: `email_verified_at = null` y nombre/apellido placeholder (`—`) → el cliente **pide nombre y apellido** antes del catálogo.
+   - Perfil mínimo si hace falta. Mail nuevo: `email_verified_at = null` y nombre/apellido placeholder (`—`) → el cliente pide datos iniciales («No encontramos tu mail…») con opción de volver atrás y corregir el mail.
+   - Performance sacar: sesión vía broker password (sin `generateLink`), lookups `eq` + índices; bootstrap OFRN diferido.
    - OTP de verificación: paso posterior (banner / perfil / antes de reservar), no bloquea sacar una vez cargados los datos.
 3. Con mail no verificado:
    - Banner sticky **Verificar mail**.

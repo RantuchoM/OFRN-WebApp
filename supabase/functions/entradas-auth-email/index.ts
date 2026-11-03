@@ -321,18 +321,32 @@ async function completeEmailAuth(
   return { email, password: signInPassword };
 }
 
+type EnsuredAuthUser = {
+  userId: string;
+  auth_password_plain: string;
+};
+
 /** Crea el usuario Auth si no existe, sin rotar una contraseña que el usuario ya definió. */
-async function ensureAuthUserExists(admin: AdminClient, email: string): Promise<string | null> {
+async function ensureAuthUserExists(
+  admin: AdminClient,
+  email: string,
+  opts: { skipOfrnBootstrap?: boolean } = {},
+): Promise<EnsuredAuthUser | null> {
   const { data: mappedUser, error: mappedErr } = await admin
     .from("entrada_auth_email_user")
-    .select("user_id")
+    .select("user_id, auth_password_plain")
     .eq("email", email)
     .maybeSingle();
   throwDbError(mappedErr, "entrada_auth_email_user");
   if (mappedUser?.user_id) {
     const existingId = String(mappedUser.user_id);
-    await applyOfrnDefaultPassword(admin, email, existingId);
-    return existingId;
+    if (!opts.skipOfrnBootstrap) {
+      await applyOfrnDefaultPassword(admin, email, existingId);
+    }
+    return {
+      userId: existingId,
+      auth_password_plain: String(mappedUser.auth_password_plain || "").trim(),
+    };
   }
 
   const tempPassword = crypto.randomUUID().replace(/-/g, "");
@@ -365,8 +379,13 @@ async function ensureAuthUserExists(admin: AdminClient, email: string): Promise<
   if (createdOk) mapRow.auth_password_plain = tempPassword;
   const { error: mapInsertErr } = await admin.from("entrada_auth_email_user").upsert(mapRow, { onConflict: "email" });
   throwDbError(mapInsertErr, "mapear usuario");
-  await applyOfrnDefaultPassword(admin, email, userId);
-  return userId;
+  if (!opts.skipOfrnBootstrap) {
+    await applyOfrnDefaultPassword(admin, email, userId);
+  }
+  return {
+    userId,
+    auth_password_plain: String(mapRow.auth_password_plain || "").trim(),
+  };
 }
 
 /**
@@ -386,15 +405,30 @@ function extractHashedToken(linkData: unknown): string {
 async function issueSessionPayload(
   admin: AdminClient,
   email: string,
+  opts: { preferBrokerPassword?: boolean; skipOfrnBootstrap?: boolean } = {},
 ): Promise<{ email: string; token_hash?: string; password?: string }> {
-  await ensureAuthUserExists(admin, email);
+  const ensured = await ensureAuthUserExists(admin, email, {
+    skipOfrnBootstrap: opts.skipOfrnBootstrap,
+  });
+  let broker = String(ensured?.auth_password_plain || "").trim();
 
-  const { data: mapped, error: mappedErr } = await admin
-    .from("entrada_auth_email_user")
-    .select("user_id, auth_password_plain")
-    .eq("email", email)
-    .maybeSingle();
-  throwDbError(mappedErr, "entrada_auth_email_user");
+  // Sacar entradas: si ya hay broker, evitamos generateLink (GoTrue lento).
+  if (opts.preferBrokerPassword && broker) {
+    return { email, password: broker };
+  }
+
+  if (!broker) {
+    const { data: mapped, error: mappedErr } = await admin
+      .from("entrada_auth_email_user")
+      .select("auth_password_plain")
+      .eq("email", email)
+      .maybeSingle();
+    throwDbError(mappedErr, "entrada_auth_email_user");
+    broker = String(mapped?.auth_password_plain || "").trim();
+    if (opts.preferBrokerPassword && broker) {
+      return { email, password: broker };
+    }
+  }
 
   const { data: linkData, error: linkErr } = await admin.auth.admin.generateLink({
     type: "magiclink",
@@ -404,7 +438,6 @@ async function issueSessionPayload(
     console.error("[entradas-auth-email] generateLink:", formatError(linkErr));
   }
   const tokenHash = extractHashedToken(linkData);
-  const broker = String(mapped?.auth_password_plain || "").trim();
 
   if (tokenHash || broker) {
     return {
@@ -433,21 +466,14 @@ function namesFromTicketEmail(email: string): { nombre: string; apellido: string
 
 /** Mail ya usado en Entradas, o de un integrante OFRN. */
 async function isKnownTicketEmail(admin: AdminClient, email: string): Promise<boolean> {
-  const { data: usuarios, error: usuarioErr } = await admin
-    .from("entrada_usuario")
-    .select("id")
-    .ilike("email", email)
-    .limit(1);
+  // eq usa el UNIQUE index de email (O(log n)); evitar ilike que escanea.
+  const [{ data: usuarios, error: usuarioErr }, { data: mapped, error: mappedErr }] = await Promise.all([
+    admin.from("entrada_usuario").select("id").eq("email", email).limit(1),
+    admin.from("entrada_auth_email_user").select("user_id").eq("email", email).limit(1),
+  ]);
   throwDbError(usuarioErr, "buscar mail en entrada_usuario");
-  if ((usuarios || []).length > 0) return true;
-
-  const { data: mapped, error: mappedErr } = await admin
-    .from("entrada_auth_email_user")
-    .select("user_id")
-    .eq("email", email)
-    .limit(1);
   throwDbError(mappedErr, "buscar mail en entrada_auth_email_user");
-  if ((mapped || []).length > 0) return true;
+  if ((usuarios || []).length > 0 || (mapped || []).length > 0) return true;
 
   const integrante = await lookupOfrnIntegranteForEntradas(admin, email);
   return Boolean(integrante);
@@ -541,7 +567,7 @@ async function readEmailVerified(admin: AdminClient, email: string): Promise<boo
   const { data: usuarios, error } = await admin
     .from("entrada_usuario")
     .select("email_verified_at")
-    .ilike("email", email)
+    .eq("email", email)
     .limit(1);
   throwDbError(error, "leer email_verified_at");
   return Boolean(usuarios?.[0]?.email_verified_at);
@@ -704,8 +730,11 @@ serve(async (req) => {
         });
       }
 
-      // Sacar entradas: siempre abre sesión. Mail nuevo = perfil sin verificar (OTP después).
-      const authPayload = await issueSessionPayload(admin, email);
+      // Sacar entradas: sesión rápida (broker password, sin generateLink ni bootstrap OFRN).
+      const authPayload = await issueSessionPayload(admin, email, {
+        preferBrokerPassword: true,
+        skipOfrnBootstrap: true,
+      });
       let emailVerified = false;
       try {
         const profileState = await ensureTicketProfile(admin, email);

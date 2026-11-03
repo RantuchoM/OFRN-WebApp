@@ -260,7 +260,7 @@ export default function LoginEntradas({
   return (
     <div className={`${ui.page} flex flex-col items-center justify-start px-4 py-8 gap-8`}>
       <div className={`w-full max-w-md ${ui.section} p-6 sm:p-8 space-y-5 entradas-card-lift`}>
-        {onBack && !user && (
+        {onBack && (!user || needsProfile) && (
           <button
             type="button"
             onClick={onBack}
@@ -272,7 +272,7 @@ export default function LoginEntradas({
         )}
         <div className="text-center space-y-3">
           <h1 className={`${ui.title} text-2xl sm:text-3xl uppercase`}>
-            {!user && onBack ? "Gestionar mis entradas" : "Entradas"}
+            {!user && onBack && !needsProfile ? "Gestionar mis entradas" : "Entradas"}
           </h1>
           <div className={`${ui.logoWrap} mx-auto w-fit`}>
             <img
@@ -518,17 +518,19 @@ export default function LoginEntradas({
         {needsProfile && (
           <form className="space-y-3" onSubmit={saveProfile}>
             <h2 className={`text-base font-bold uppercase tracking-wide ${ui.textSoft}`}>
-              Completá tu perfil
+              Datos iniciales
             </h2>
             <p className={hintClass}>
-              Antes de sacar entradas, registrá tu nombre y apellido. El mail lo podés verificar después.
+              No encontramos tu mail{" "}
+              <span className={`break-all font-semibold ${ui.textStrong}`}>
+                {profile?.email || "—"}
+              </span>
+              , por lo que te pedimos tus datos iniciales. A continuación, podrás sacar las entradas sin
+              problemas.
             </p>
-            {profile?.email && (
-              <div className={`${ui.inset} text-base`}>
-                <p className={`text-xs font-bold uppercase tracking-wide ${ui.textSoft}`}>Mail</p>
-                <p className={`break-all font-semibold ${ui.textStrong}`}>{profile.email}</p>
-              </div>
-            )}
+            <p className={hintClass}>
+              Si te equivocaste al ingresar el mail, podés volver atrás y cargarlo de nuevo.
+            </p>
             <input
               required
               value={form.nombre}

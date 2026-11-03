@@ -220,7 +220,17 @@ export default function EntradasPage() {
           onSkipPassword={() => setPasswordPrompt(null)}
           passwordPrompt={passwordPrompt}
           bootError={bootError}
-          onBack={!session?.user && accessMode === "gestionar" ? () => setAccessMode("choice") : null}
+          onBack={
+            needsEntradasDatosBasicos(profile)
+              ? async () => {
+                  await supabaseEntradasPublic.auth.signOut();
+                  setSession(null);
+                  setProfile(null);
+                  setPasswordPrompt(null);
+                  setAccessMode("choice");
+                }
+              : (!session?.user && accessMode === "gestionar" ? () => setAccessMode("choice") : null)
+          }
         />
       </>
     );
