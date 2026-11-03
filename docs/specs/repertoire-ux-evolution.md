@@ -1473,3 +1473,10 @@ Scripts: `fetch-beethoven-op130-imslp.py`, `lib/beethovenOp130Catalog.mjs`, `pro
 Scripts: `scripts/lib/loteOrquestalesCatalog.mjs`, `scripts/process-lote-orquestales-local.mjs`, `scripts/lib/loteDeudaSeedMeta.mjs`, `scripts/generate-lote-deuda-sync.mjs`, `scripts/lib/extract_pdf_pages.py`.
 
 
+
+
+### Completado (2026-11-03) - Navidad (RAR Downloads): Dulce Navidad + El Burrito Sabanero
+- **Oh, Dulce Navidad (White Christmas), para Orquesta y Coro** - obra **3878** (Berlin; arr. Celso Torres Mora, id 507). 24 particellas (SCORE + 23). Drive `1EWlOTbIjUSpek6Awd1AJAK9plj6rDidj`. Fl. 1, Ob. 1-2 y Fg. 1-2 vienen rotuladas "Navidad Blanca" (versión previa); faltan Flauta 2, Clarinetes y voces sueltas. Distinta de obra 1165 (otro arreglo, arr. 418).
+- **El Burrito Sabanero, para Orquesta y Coro** - obra **3879** (Hugo Blanco, compositor nuevo; arr. Yimi Giraldo, id 881, Orquesta EAFIT). 27 particellas (SCORE + Coro + 25; `Partes.pdf` de 39 págs. recortado por título/instrumento). Drive `1d6g34ST_DZPjyR-9VobDxkRM6om-JMy3`.
+- **Etiqueta Navidad**: `palabras_clave` id 43 + fila en `obras_palabras_clave` (`id_obra`, `id_palabra_clave`); aplicada a 3878 y 3879 con `buildSeedSql({ tagName: "Navidad" })`.
+- RAR extraídos con `tar` (bsdtar; sin 7-Zip). Scripts: `scripts/process-navidad-rar-local.py`, `scripts/generate-navidad-rar-sync.mjs`, seed `supabase/seed_navidad_rar_sync.sql` (ya ejecutado en linked).
