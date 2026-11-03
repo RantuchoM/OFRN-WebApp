@@ -5754,8 +5754,22 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
                 {programasCatalogo.length === 0 && (
                   <p className={`text-sm ${ui.textMuted}`}>No hay conciertos publicados en las próximas dos semanas.</p>
                 )}
-                {programasCatalogo.map((programa) => (
+                {programasCatalogo.map((programa) => {
+                  const funcionesPrograma = programa.entrada_concierto || [];
+                  const todasLasFuncionesAgotadas =
+                    funcionesPrograma.length > 1
+                    && funcionesPrograma.every(
+                      (concierto) =>
+                        entradaConciertoReservasAbiertas(concierto)
+                        && conciertoSinPlazasDisponibles(concierto),
+                    );
+                  return (
                   <article key={programa.id} className={`${ui.cardInner} p-3 space-y-2`}>
+                    {todasLasFuncionesAgotadas ? (
+                      <span className={`${ui.badgeAgotadas} whitespace-normal`}>
+                        Entradas agotadas para todas las funciones
+                      </span>
+                    ) : null}
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0 flex-1">
                         {programa.localidadLabel ? (
@@ -5815,9 +5829,6 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
                             aria-current={catalogoSeleccionado ? "true" : undefined}
                           >
                             {renderCatalogReservaEnRecuadro(concierto.id, { embedded: true })}
-                            {entradasAgotadas
-                              ? renderCatalogAgotadasEnRecuadro(concierto, { embedded: true })
-                              : null}
                             <div className="flex min-w-0 flex-1 items-stretch">
                               <button
                                 type="button"
@@ -5872,7 +5883,8 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
                       })}
                     </div>
                   </article>
-                ))}
+                  );
+                })}
               </div>
 
               {conciertosFuturosRecordatorio.length > 0 && (
@@ -6203,7 +6215,12 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
                   )}
                   {reservasAbiertasSel && (
                     <div className={`entradas-catalog-control ${ui.inset}`}>
-                      <EntradasDisponibilidadBar concierto={selectedConcierto} isDark={isDark} square />
+                      <EntradasDisponibilidadBar
+                        concierto={selectedConcierto}
+                        isDark={isDark}
+                        square
+                        ocultarEtiquetaAgotadas={funcionAgotadaSel}
+                      />
                     </div>
                   )}
                   <EntradasCompartirConciertoBtn concierto={selectedConcierto} />

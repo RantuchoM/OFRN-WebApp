@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from "react";
 import EntradasDisponibilidadBar from "./EntradasDisponibilidadBar";
 import {
+  conciertoSinPlazasDisponibles,
   fetchConciertosDisponibilidad,
   listProgramasConConciertos,
-  porcentajeDisponibleConcierto,
   programasConDisponibilidad,
   todosConciertoIdsEnProgramas,
 } from "../../services/entradaService";
@@ -17,6 +17,15 @@ import {
   localidadDesdeConciertoEntrada,
 } from "../../utils/entradasConciertoEvento";
 import { formatEntradasConciertoFechaHora } from "../../utils/entradasReservaCopy";
+
+function funcionAgotada(concierto) {
+  return conciertoSinPlazasDisponibles(concierto);
+}
+
+/** Más de una función y todas sin lugar: el aviso va arriba del concierto. */
+function todasLasFuncionesAgotadas(funciones) {
+  return funciones.length > 1 && funciones.every(funcionAgotada);
+}
 
 function conciertoAunVigente(concierto, inicioDiaMs) {
   const fh = fechaHoraDesdeConciertoEntrada(concierto);
@@ -45,21 +54,30 @@ export default function EntradasLoginCatalogPreview({ ui, isDark }) {
         const dispMap = ids.length ? await fetchConciertosDisponibilidad(ids) : {};
         const withDisp = programasConDisponibilidad(programas, dispMap);
         const inicioDia = inicioDelDiaArgentinaMs();
-        const flat = [];
+        const groups = [];
         for (const programa of withDisp) {
+          const funciones = [];
           for (const concierto of programa.entrada_concierto || []) {
             if (concierto?.activo === false) continue;
             if (!entradaConciertoReservasAbiertas(concierto)) continue;
             if (!conciertoAunVigente(concierto, inicioDia)) continue;
-            flat.push({
+            funciones.push({
               ...concierto,
               programaNombre: programa.nombre || "",
               localidadLabel: localidadDesdeConciertoEntrada(concierto) || "",
             });
           }
+          if (!funciones.length) continue;
+          funciones.sort(compareConciertosPorFechaHora);
+          groups.push({
+            id: programa.id,
+            nombre: funciones[0].nombre || funciones[0].programaNombre || "Concierto",
+            localidadLabel: funciones[0].localidadLabel,
+            funciones,
+          });
         }
-        flat.sort(compareConciertosPorFechaHora);
-        if (!cancelled) setItems(flat);
+        groups.sort((a, b) => compareConciertosPorFechaHora(a.funciones[0], b.funciones[0]));
+        if (!cancelled) setItems(groups);
       } catch (loadError) {
         if (!cancelled) {
           setItems([]);
@@ -108,26 +126,48 @@ export default function EntradasLoginCatalogPreview({ ui, isDark }) {
 
       {!loading && !error && (
         <ul className="space-y-3 list-none p-0 m-0">
-          {items.map((concierto) => (
-            <li key={concierto.id} className={`${ui.section} p-4 sm:p-5 space-y-2`}>
-              {porcentajeDisponibleConcierto(concierto) === 0 ? (
-                <span className={ui.badgeAgotadas}>Entradas agotadas</span>
-              ) : null}
-              {concierto.localidadLabel ? (
-                <p className={`${ui.programaLocalidad} text-xs sm:text-sm`}>{concierto.localidadLabel}</p>
-              ) : null}
-              <p className={`text-base sm:text-lg font-bold leading-snug ${ui.textStrong}`}>
-                {concierto.nombre || concierto.programaNombre || "Concierto"}
-              </p>
-              <p className={`text-sm sm:text-base ${ui.textSoft}`}>
-                {formatEntradasConciertoFechaHora(concierto.fecha_hora)}
-              </p>
-              {concierto.lugar_nombre ? (
-                <p className={`text-sm ${ui.textMuted}`}>{concierto.lugar_nombre}</p>
-              ) : null}
-              <EntradasDisponibilidadBar concierto={concierto} isDark={isDark} className="pt-1" />
-            </li>
-          ))}
+          {items.map((grupo) => {
+            const avisoTodas = todasLasFuncionesAgotadas(grupo.funciones);
+            return (
+              <li key={grupo.id} className={`${ui.section} p-4 sm:p-5 space-y-3`}>
+                {avisoTodas ? (
+                  <span className={`${ui.badgeAgotadas} whitespace-normal`}>
+                    Entradas agotadas para todas las funciones
+                  </span>
+                ) : null}
+                {grupo.localidadLabel ? (
+                  <p className={`${ui.programaLocalidad} text-xs sm:text-sm`}>{grupo.localidadLabel}</p>
+                ) : null}
+                <p className={`text-base sm:text-lg font-bold leading-snug ${ui.textStrong}`}>
+                  {grupo.nombre}
+                </p>
+                <ul className="space-y-3 list-none p-0 m-0">
+                  {grupo.funciones.map((concierto) => {
+                    const agotada = funcionAgotada(concierto);
+                    return (
+                      <li key={concierto.id} className="space-y-2">
+                        {agotada ? (
+                          <span className={ui.badgeAgotadas}>Entradas agotadas</span>
+                        ) : null}
+                        <p className={`text-sm sm:text-base ${ui.textSoft}`}>
+                          {formatEntradasConciertoFechaHora(concierto.fecha_hora)}
+                        </p>
+                        {concierto.lugar_nombre ? (
+                          <p className={`text-sm ${ui.textMuted}`}>{concierto.lugar_nombre}</p>
+                        ) : null}
+                        <EntradasDisponibilidadBar
+                          concierto={concierto}
+                          isDark={isDark}
+                          className="pt-1"
+                          ocultarEtiquetaAgotadas={agotada}
+                        />
+                      </li>
+                    );
+                  })}
+                </ul>
+              </li>
+            );
+          })}
         </ul>
       )}
     </section>

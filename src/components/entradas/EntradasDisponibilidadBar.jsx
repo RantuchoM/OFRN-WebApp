@@ -7,6 +7,8 @@ export default function EntradasDisponibilidadBar({
   className = "",
   loading = false,
   square = false,
+  /** La pastilla de la función ya dice «Entradas agotadas». */
+  ocultarEtiquetaAgotadas = false,
 }) {
   const trackRadius = square ? "rounded-sm" : "rounded-full";
   const pct = porcentajeDisponibleConcierto(concierto);
@@ -70,7 +72,7 @@ export default function EntradasDisponibilidadBar({
           <span className="sr-only">{ocupadoPct}% reservado</span>
         )}
       </div>
-      {tone === "agotado" && (
+      {tone === "agotado" && !ocultarEtiquetaAgotadas && (
         <p className={`text-xs font-semibold ${isDark ? "text-rose-300" : "text-rose-700"}`}>
           Entradas agotadas
         </p>
