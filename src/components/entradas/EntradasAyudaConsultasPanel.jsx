@@ -51,6 +51,8 @@ export default function EntradasAyudaConsultasPanel({
   loteBusy = false,
   filtroEstado: filtroEstadoControlled = null,
   onFiltroEstadoChange = null,
+  localResueltas = null,
+  onClearLocalResueltas = null,
 }) {
   const [filtroInterno, setFiltroInterno] = useState("pendiente");
   const filtroEstado = filtroEstadoControlled ?? filtroInterno;
@@ -69,9 +71,10 @@ export default function EntradasAyudaConsultasPanel({
   const esPendientes = filtroEstado === "pendiente";
   const esResueltas = filtroEstado === "resuelta";
 
-  const load = useCallback(async () => {
+  const load = useCallback(async ({ clearLocal = false } = {}) => {
     setLoading(true);
     try {
+      if (clearLocal) onClearLocalResueltas?.();
       const data = await listEntradasAyudaConsultas(filtroEstado);
       let list = Array.isArray(data) ? data : [];
       if (filtroEstado === "resuelta") {
@@ -106,7 +109,7 @@ export default function EntradasAyudaConsultasPanel({
     } finally {
       setLoading(false);
     }
-  }, [filtroEstado, onPendientesChange, onRowsLoaded]);
+  }, [filtroEstado, onClearLocalResueltas, onPendientesChange, onRowsLoaded]);
 
   useEffect(() => {
     void load();
@@ -133,6 +136,39 @@ export default function EntradasAyudaConsultasPanel({
     };
   }, [filtroEstado, refreshKey, onPendientesChange, onRowsLoaded]);
 
+  const rowsWithLocal = useMemo(() => {
+    if (!esPendientes) return rows;
+    const map = localResueltas && typeof localResueltas === "object" ? localResueltas : {};
+    const keys = Object.keys(map);
+    if (!keys.length) return rows;
+    const byId = new Map(rows.map((r) => [String(r.id), r]));
+    const out = rows.map((row) => {
+      const patch = map[String(row.id)];
+      if (!patch) return row;
+      return {
+        ...row,
+        ...patch,
+        _row: undefined,
+        estado: patch.estado || "resuelta",
+        _localResuelta: true,
+      };
+    });
+    for (const id of keys) {
+      if (byId.has(id)) continue;
+      const patch = map[id];
+      const base = patch?._row && typeof patch._row === "object" ? patch._row : { id };
+      out.push({
+        ...base,
+        ...patch,
+        id: base.id ?? id,
+        _row: undefined,
+        estado: patch.estado || "resuelta",
+        _localResuelta: true,
+      });
+    }
+    return out;
+  }, [esPendientes, rows, localResueltas]);
+
   const rubros = useMemo(() => {
     if (!esPendientes) {
       return {
@@ -145,8 +181,15 @@ export default function EntradasAyudaConsultasPanel({
         generalesPersonas: 0,
       };
     }
-    return classifyAyudaPendientesPorRubro(rows, reservasVigentesPorEmail || {});
-  }, [esPendientes, rows, reservasVigentesPorEmail]);
+    // Clasificar solo las aún pendientes reales; las locales resueltas se anexan al rubro activo.
+    const pendingOnly = rowsWithLocal.filter((r) => !r._localResuelta);
+    return classifyAyudaPendientesPorRubro(pendingOnly, reservasVigentesPorEmail || {});
+  }, [esPendientes, rowsWithLocal, reservasVigentesPorEmail]);
+
+  const localResueltasRows = useMemo(
+    () => (esPendientes ? rowsWithLocal.filter((r) => r._localResuelta) : []),
+    [esPendientes, rowsWithLocal],
+  );
 
   const rubroCounts = useMemo(
     () => ({
@@ -169,20 +212,33 @@ export default function EntradasAyudaConsultasPanel({
 
   const visibleRows = useMemo(() => {
     if (!esPendientes) return rows;
-    if (pendienteRubro === "duplicadas") return rubros.duplicadas;
-    if (pendienteRubro === "con_entradas") return rubros.conEntradas;
-    return rubros.generales;
-  }, [esPendientes, pendienteRubro, rows, rubros]);
+    let base;
+    if (pendienteRubro === "duplicadas") base = rubros.duplicadas;
+    else if (pendienteRubro === "con_entradas") base = rubros.conEntradas;
+    else base = rubros.generales;
+    const baseIds = new Set(base.map((r) => String(r.id)));
+    const localsHere = localResueltasRows.filter((r) => {
+      const keep = r._pendienteRubro || "generales";
+      return keep === pendienteRubro && !baseIds.has(String(r.id));
+    });
+    return [...base, ...localsHere];
+  }, [esPendientes, pendienteRubro, rows, rubros, localResueltasRows]);
+
+  const actionableVisibleRows = useMemo(
+    () => visibleRows.filter((r) => !r._localResuelta),
+    [visibleRows],
+  );
 
   const selectedRows = useMemo(
-    () => visibleRows.filter((r) => selectedIds.has(String(r.id))),
-    [visibleRows, selectedIds],
+    () => actionableVisibleRows.filter((r) => selectedIds.has(String(r.id))),
+    [actionableVisibleRows, selectedIds],
   );
-  const allSelected = visibleRows.length > 0 && selectedRows.length === visibleRows.length;
+  const allSelected =
+    actionableVisibleRows.length > 0 && selectedRows.length === actionableVisibleRows.length;
   const someSelected = selectedRows.length > 0;
   const duplicateGroupSizeById = useMemo(
-    () => (esPendientes ? indexAyudaDuplicateGroupSize(rows) : new Map()),
-    [rows, esPendientes],
+    () => (esPendientes ? indexAyudaDuplicateGroupSize(rowsWithLocal) : new Map()),
+    [rowsWithLocal, esPendientes],
   );
   const duplicateGroups = useMemo(
     () => (esPendientes ? findAyudaDuplicateGroups(rubros.duplicadas) : []),
@@ -207,7 +263,7 @@ export default function EntradasAyudaConsultasPanel({
       setSelectedIds(new Set());
       return;
     }
-    setSelectedIds(new Set(visibleRows.map((r) => String(r.id))));
+    setSelectedIds(new Set(actionableVisibleRows.map((r) => String(r.id))));
   };
 
   const descartar = async (id) => {
@@ -304,7 +360,7 @@ export default function EntradasAyudaConsultasPanel({
         <h3 className={ui.sectionTitle}>Consultas de ayuda</h3>
         <button
           type="button"
-          onClick={() => void load()}
+          onClick={() => void load({ clearLocal: true })}
           disabled={loteBusy || busyId != null}
           className={`${ui.btnGhost} text-xs px-2 py-1`}
         >
@@ -340,9 +396,9 @@ export default function EntradasAyudaConsultasPanel({
               type="button"
               disabled={loteBusy || busyId != null}
               className={`${ui.btnPrimary} !w-full px-3 py-2 text-xs sm:!w-auto`}
-              onClick={() => onResolverQueEntren(visibleRows)}
+              onClick={() => onResolverQueEntren(actionableVisibleRows, "generales")}
             >
-              Resolver las que entren en cupo ({visibleRows.length})
+              Resolver las que entren en cupo ({actionableVisibleRows.length})
             </button>
           ) : null}
           {pendienteRubro === "duplicadas" && duplicatePeople > 0 && onUnificarDuplicados ? (
@@ -350,7 +406,7 @@ export default function EntradasAyudaConsultasPanel({
               type="button"
               disabled={loteBusy || busyId != null}
               className={`${ui.btnSecondary || ui.btnGhost} !w-full border border-violet-300 bg-violet-50 px-3 py-2 text-xs text-violet-900 sm:!w-auto`}
-              onClick={() => onUnificarDuplicados(visibleRows)}
+              onClick={() => onUnificarDuplicados(actionableVisibleRows, "duplicadas")}
             >
               Unificar duplicados ({duplicatePeople} persona{duplicatePeople === 1 ? "" : "s"}, {duplicateExtraCount} copia{duplicateExtraCount === 1 ? "" : "s"})
             </button>
@@ -358,11 +414,11 @@ export default function EntradasAyudaConsultasPanel({
           {pendienteRubro === "con_entradas" && onResolverConEntradas ? (
             <button
               type="button"
-              disabled={loteBusy || busyId != null}
+              disabled={loteBusy || busyId != null || !actionableVisibleRows.length}
               className={`${ui.btnPrimary} !w-full px-3 py-2 text-xs sm:!w-auto`}
-              onClick={() => onResolverConEntradas(visibleRows)}
+              onClick={() => onResolverConEntradas(actionableVisibleRows)}
             >
-              Vincular todas a entrada vigente ({visibleRows.length})
+              Vincular todas a entrada vigente ({actionableVisibleRows.length})
             </button>
           ) : null}
         </div>
@@ -396,7 +452,7 @@ export default function EntradasAyudaConsultasPanel({
               type="button"
               disabled={loteBusy || busyId != null}
               className={`${ui.btnPrimary} col-span-2 !w-full px-3 py-2 text-xs sm:col-auto sm:!w-auto sm:py-1.5`}
-              onClick={() => onAceptarLote?.(selectedRows)}
+              onClick={() => onAceptarLote?.(selectedRows, null, pendienteRubro)}
             >
               Aceptar {selectedRows.length}
             </button>
@@ -438,11 +494,13 @@ export default function EntradasAyudaConsultasPanel({
                 onChange={toggleAll}
                 disabled={loteBusy}
               />
-              Seleccionar todas ({visibleRows.length})
+              Seleccionar todas ({actionableVisibleRows.length})
             </label>
           ) : null}
           <ul className="m-0 min-w-0 list-none space-y-3 p-0">
-            {visibleRows.map((row) => {              const active = String(activeAyudaId || "") === String(row.id);
+            {visibleRows.map((row) => {
+              const localResuelta = Boolean(row._localResuelta);
+              const active = String(activeAyudaId || "") === String(row.id);
               const checked = selectedIds.has(String(row.id));
               const dupSize = duplicateGroupSizeById.get(String(row.id)) || 0;
               const emailKey = normalizeAyudaEmail(row.email);
@@ -450,6 +508,7 @@ export default function EntradasAyudaConsultasPanel({
                 ? reservasVigentesPorEmail[emailKey]
                 : [];
               const vigentePreferida = (() => {
+                if (localResuelta) return null;
                 if (!vigentes.length) return null;
                 if (row.concierto_id != null) {
                   const match = vigentes.find(
@@ -459,27 +518,33 @@ export default function EntradasAyudaConsultasPanel({
                 }
                 return vigentes[0];
               })();
+              const waReservaId = row.reserva_id || vigentePreferida?.id || null;
+              const waConciertoId = vigentePreferida?.conciertoId ?? row.concierto_id;
 
               return (
                 <li
                   key={row.id}
                   className={`min-w-0 rounded-lg border p-3 ${
-                    active
+                    localResuelta
                       ? isDark
-                        ? "border-[#1ebbf0] bg-slate-900/80"
-                        : "border-[#1ebbf0] bg-sky-50"
-                      : dupSize > 1
+                        ? "border-emerald-800 bg-emerald-950/30 opacity-90"
+                        : "border-emerald-200 bg-emerald-50/80 opacity-95"
+                      : active
                         ? isDark
-                          ? "border-violet-700 bg-violet-950/30"
-                          : "border-violet-200 bg-violet-50/80"
-                        : isDark
-                          ? "border-slate-600 bg-slate-900/40"
-                          : "border-slate-200 bg-white"
+                          ? "border-[#1ebbf0] bg-slate-900/80"
+                          : "border-[#1ebbf0] bg-sky-50"
+                        : dupSize > 1
+                          ? isDark
+                            ? "border-violet-700 bg-violet-950/30"
+                            : "border-violet-200 bg-violet-50/80"
+                          : isDark
+                            ? "border-slate-600 bg-slate-900/40"
+                            : "border-slate-200 bg-white"
                   }`}
                 >
                   <div className="flex w-full min-w-0 flex-col gap-3 lg:flex-row lg:items-start">
                     <div className="flex w-full min-w-0 items-start gap-2.5 lg:flex-1">
-                      {esPendientes ? (
+                      {esPendientes && !localResuelta ? (
                         <input
                           type="checkbox"
                           className="mt-0.5 h-4 w-4 shrink-0"
@@ -492,7 +557,7 @@ export default function EntradasAyudaConsultasPanel({
                       <div className="min-w-0 flex-1 space-y-1">
                         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                           <span className={`break-words text-sm font-bold ${ui.textStrong}`}>{row.nombre}</span>
-                          {esResueltas ? (
+                          {esResueltas || localResuelta ? (
                             <span
                               className={`inline-flex shrink-0 whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
                                 isDark
@@ -545,9 +610,9 @@ export default function EntradasAyudaConsultasPanel({
                             <EntradasAyudaWhatsAppBtn
                               telefono={row.telefono}
                               nombre={row.nombre}
-                              reservaId={row.reserva_id}
-                              concierto={conciertoDeConsulta?.(row.concierto_id)}
-                              cantidad={row.cantidad}
+                              reservaId={waReservaId}
+                              concierto={conciertoDeConsulta?.(waConciertoId)}
+                              cantidad={vigentePreferida?.cantidad ?? row.cantidad}
                               iconSize={14}
                               isDark={isDark}
                               className={
@@ -562,7 +627,9 @@ export default function EntradasAyudaConsultasPanel({
                           {row.cantidad
                             ? `${row.cantidad} entrada${Number(row.cantidad) === 1 ? "" : "s"}`
                             : "Sin cantidad"}
-                          {esResueltas && row.reserva_id ? ` · reserva #${row.reserva_id}` : ""}
+                          {(esResueltas || localResuelta) && row.reserva_id
+                            ? ` · reserva #${row.reserva_id}`
+                            : ""}
                         </p>
                         {row.funcion_label ? (
                           <p className={`break-words text-xs leading-snug ${ui.textSoft}`}>{row.funcion_label}</p>
@@ -582,13 +649,13 @@ export default function EntradasAyudaConsultasPanel({
                       </div>
                     </div>
                     <div className="grid w-full grid-cols-2 gap-2 lg:w-44 lg:shrink-0 lg:grid-cols-1">
-                      {esPendientes && vigentePreferida && onVincularVigente ? (
+                      {esPendientes && !localResuelta && vigentePreferida && onVincularVigente ? (
                         <button
                           type="button"
                           className={`${ui.btnPrimary} col-span-2 !w-full whitespace-normal px-3 py-2 text-center text-xs leading-tight`}
                           disabled={loteBusy || busyId != null}
                           title={vigentePreferida.label || vigentePreferida.codigo || "Entrada vigente"}
-                          onClick={() => onVincularVigente(row, vigentePreferida)}
+                          onClick={() => onVincularVigente(row, vigentePreferida, pendienteRubro)}
                         >
                           Usar entrada vigente
                         </button>
@@ -596,14 +663,14 @@ export default function EntradasAyudaConsultasPanel({
                       <button
                         type="button"
                         className={`${
-                          esPendientes && vigentePreferida ? ui.btnGhost : ui.btnPrimary
-                        } ${esResueltas ? "col-span-2" : ""} !w-full whitespace-normal px-3 py-2 text-center text-xs leading-tight`}
+                          esPendientes && vigentePreferida && !localResuelta ? ui.btnGhost : ui.btnPrimary
+                        } ${esResueltas || localResuelta ? "col-span-2" : ""} !w-full whitespace-normal px-3 py-2 text-center text-xs leading-tight`}
                         disabled={loteBusy}
                         onClick={() => onOpenConsulta?.(row)}
                       >
                         Abrir
                       </button>
-                      {esPendientes ? (
+                      {esPendientes && !localResuelta ? (
                         <button
                           type="button"
                           disabled={loteBusy || busyId === row.id}

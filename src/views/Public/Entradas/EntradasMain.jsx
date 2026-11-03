@@ -674,6 +674,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
   const ayudaDetalleRef = useRef(null);
   /** Lote: aceptar varias consultas con un concierto y un mensaje compartido. */
   const [ayudaLoteRows, setAyudaLoteRows] = useState(null);
+  const [ayudaLoteRubro, setAyudaLoteRubro] = useState("generales");
   const [ayudaLoteConciertoId, setAyudaLoteConciertoId] = useState("");
   const [ayudaLoteMensaje, setAyudaLoteMensaje] = useState("");
   const [ayudaLoteBusy, setAyudaLoteBusy] = useState(false);
@@ -685,6 +686,11 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
   const [cupoExcepcionModal, setCupoExcepcionModal] = useState(null);
   /** Badge: consultas de ayuda pendientes (menú Terceros). */
   const [ayudaPendientesCount, setAyudaPendientesCount] = useState(0);
+  /**
+   * Resueltas en esta visita a Terceros: quedan en Pendientes con tag hasta
+   * Actualizar / recargar. id → patch (+ _row snapshot).
+   */
+  const [ayudaLocalResueltas, setAyudaLocalResueltas] = useState(() => ({}));
   /** Oferta al entrar a Terceros: resolver las que entren en cupo. */
   const [ayudaResolverCupoOffer, setAyudaResolverCupoOffer] = useState(null);
   /** Reservas activas del mail de la consulta abierta (check_reservas). */
@@ -1225,23 +1231,52 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
     }
   }, []);
 
-  const handleVincularAyudaAReservaVigente = useCallback(async (consulta, reservaMeta) => {
+  const markAyudaResueltaLocal = useCallback((entries, pendienteRubro = "generales") => {
+    const list = (Array.isArray(entries) ? entries : [entries]).filter((e) => e?.id != null);
+    if (!list.length) return;
+    setAyudaLocalResueltas((prev) => {
+      const next = { ...prev };
+      for (const entry of list) {
+        const id = String(entry.id);
+        const prevSnap = prev[id]?._row || entry._row || null;
+        next[id] = {
+          estado: entry.estado || "resuelta",
+          reserva_id: entry.reserva_id ?? prev[id]?.reserva_id ?? null,
+          resolved_at: entry.resolved_at || new Date().toISOString(),
+          resolved_by_label: entry.resolved_by_label ?? prev[id]?.resolved_by_label ?? null,
+          _row: prevSnap || entry,
+          _localResuelta: true,
+          _pendienteRubro:
+            entry._pendienteRubro || prev[id]?._pendienteRubro || pendienteRubro || "generales",
+        };
+      }
+      return next;
+    });
+  }, []);
+
+  const handleVincularAyudaAReservaVigente = useCallback(async (
+    consulta,
+    reservaMeta,
+    pendienteRubro = "con_entradas",
+  ) => {
     if (!consulta?.id || !reservaMeta?.id) return;
     setAyudaVincularBusy(true);
     try {
       const updated = await marcarEntradaAyudaResuelta(consulta.id, reservaMeta.id);
       ayudaPendienteIdRef.current = null;
       ayudaPendienteDescartarIdsRef.current = [];
-      setAyudaConsulta({
+      const resolved = {
         ...(consulta || {}),
         ...(updated || {}),
         telefono: updated?.telefono || consulta?.telefono,
         estado: "resuelta",
         reserva_id: updated?.reserva_id || reservaMeta.id,
         resolved_at: updated?.resolved_at || new Date().toISOString(),
-      });
-      setAyudaFiltroEstado("resuelta");
-      setAyudaColaRefresh((n) => n + 1);
+        resolved_by_label: updated?.resolved_by_label || null,
+      };
+      setAyudaConsulta(resolved);
+      markAyudaResueltaLocal({ ...resolved, _row: consulta, _pendienteRubro: pendienteRubro }, pendienteRubro);
+      setAyudaPendientesCount((n) => Math.max(0, n - 1));
       toast.success(
         `Consulta vinculada a la entrada vigente (${reservaMeta.codigo || `#${reservaMeta.id}`}).`,
       );
@@ -1252,7 +1287,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
     } finally {
       setAyudaVincularBusy(false);
     }
-  }, [scrollToAyudaDetalle]);
+  }, [markAyudaResueltaLocal, scrollToAyudaDetalle]);
 
   const handleReenviarMailAyudaVigente = useCallback(async (email, reservaMeta) => {
     if (!reservaMeta?.id) return;
@@ -2732,7 +2767,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
               /* seguir */
             }
           }
-          setAyudaConsulta({
+          const resolved = {
             ...(ayudaConsulta || {}),
             ...(updated || {}),
             id: ayudaIdPendiente,
@@ -2740,9 +2775,23 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
             estado: "resuelta",
             reserva_id: updated?.reserva_id || result.reserva_id,
             resolved_at: updated?.resolved_at || new Date().toISOString(),
-          });
-          setAyudaFiltroEstado("resuelta");
-          setAyudaColaRefresh((n) => n + 1);
+            resolved_by_label: updated?.resolved_by_label || null,
+          };
+          setAyudaConsulta(resolved);
+          markAyudaResueltaLocal({
+            ...resolved,
+            _row: ayudaConsulta,
+            _pendienteRubro: "generales",
+          }, "generales");
+          for (const dupId of dupIds) {
+            markAyudaResueltaLocal({
+              id: dupId,
+              estado: "descartada",
+              _row: { id: dupId },
+              _pendienteRubro: "duplicadas",
+            }, "duplicadas");
+          }
+          setAyudaPendientesCount((n) => Math.max(0, n - 1 - descartadas));
           toast.message(
             descartadas > 0
               ? `Consulta marcada como resuelta; ${descartadas} duplicada${descartadas === 1 ? "" : "s"} descartada${descartadas === 1 ? "" : "s"}.`
@@ -2797,7 +2846,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
     await executeCreateReservaTercero();
   };
 
-  const openAyudaLote = useCallback((rows, conciertoIdPreferido = null) => {
+  const openAyudaLote = useCallback((rows, conciertoIdPreferido = null, rubro = "generales") => {
     const raw = Array.isArray(rows) ? rows.filter(Boolean) : [];
     if (!raw.length) {
       toast.error("Seleccioná al menos una consulta.");
@@ -2830,6 +2879,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
         ? ids[0]
         : String(conciertosTercerosSelect[0].id));
     setAyudaLoteRows(list);
+    setAyudaLoteRubro(rubro || (hayDuplicadosEnSeleccion ? "duplicadas" : "generales"));
     setAyudaLoteConciertoId(preferred);
     setAyudaLoteMensaje("");
     setAyudaLoteProgress("");
@@ -2876,6 +2926,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
     if (!tercerosViewActive) {
       ayudaResolverOfferShownRef.current = false;
       setAyudaResolverCupoOffer(null);
+      setAyudaLocalResueltas({});
       return undefined;
     }
     if (ayudaResolverOfferShownRef.current || ayudaIdParam) return undefined;
@@ -2956,7 +3007,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
     conciertosTercerosSelect,
   ]);
 
-  const resolverAyudaQueEntranEnCupo = useCallback(async (rowsArg = null) => {
+  const resolverAyudaQueEntranEnCupo = useCallback(async (rowsArg = null, rubro = "generales") => {
     let rows = Array.isArray(rowsArg) ? rowsArg.filter(Boolean) : null;
     if (!rows) {
       try {
@@ -2994,7 +3045,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
         `Se seleccionarán ${best.picked.length} de ${rows.length} (entran en ${best.disponibles} lugares). ${omitidas} quedan fuera por cupo.`,
       );
     }
-    openAyudaLote(best.picked, best.concierto.id);
+    openAyudaLote(best.picked, best.concierto.id, rubro);
   }, [conciertosTercerosSelect, openAyudaLote]);
 
   const resolverAyudaRubroDuplicadas = useCallback((rows) => {
@@ -3003,7 +3054,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
       toast.message("No hay consultas duplicadas.");
       return;
     }
-    openAyudaLote(list);
+    openAyudaLote(list, null, "duplicadas");
   }, [openAyudaLote]);
 
   const resolverAyudaRubroConEntradas = useCallback(async (rows, reservasMap = {}) => {
@@ -3033,13 +3084,19 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
         }
         try {
           await marcarEntradaAyudaResuelta(row.id, preferida.id);
+          markAyudaResueltaLocal({
+            id: row.id,
+            reserva_id: preferida.id,
+            estado: "resuelta",
+            _row: row,
+            _pendienteRubro: "con_entradas",
+          }, "con_entradas");
           ok += 1;
         } catch {
           fail += 1;
         }
       }
-      setAyudaColaRefresh((n) => n + 1);
-      void refreshAyudaPendientesCount();
+      if (ok) setAyudaPendientesCount((n) => Math.max(0, n - ok));
       if (ok) {
         toast.success(
           `${ok} consulta${ok === 1 ? "" : "s"} vinculada${ok === 1 ? "" : "s"} a entrada vigente.`,
@@ -3051,7 +3108,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
     } finally {
       setAyudaVincularBusy(false);
     }
-  }, [pickAyudaReservaVigentePreferida, refreshAyudaPendientesCount]);
+  }, [markAyudaResueltaLocal, pickAyudaReservaVigentePreferida]);
 
   const resolverAyudaRubroGenerales = useCallback((rows) => {
     const list = Array.isArray(rows) ? rows.filter(Boolean) : [];
@@ -3206,6 +3263,14 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
           }
           try {
             await marcarEntradaAyudaResuelta(row.id, result.reserva_id);
+            const rubroLote = ayudaLoteRubro || "generales";
+            markAyudaResueltaLocal({
+              id: row.id,
+              reserva_id: result.reserva_id,
+              estado: "resuelta",
+              _row: row,
+              _pendienteRubro: rubroLote,
+            }, rubroLote);
           } catch {
             /* reserva ok */
           }
@@ -3213,6 +3278,12 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
           for (const dupId of dupIds) {
             try {
               await descartarEntradaAyudaConsulta(dupId);
+              markAyudaResueltaLocal({
+                id: dupId,
+                estado: "descartada",
+                _row: { id: dupId },
+                _pendienteRubro: ayudaLoteRubro || "duplicadas",
+              }, ayudaLoteRubro || "duplicadas");
             } catch {
               /* no bloquear el lote */
             }
@@ -3222,16 +3293,27 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
           fallos.push(`${row.nombre || row.email || row.id}: ${err?.message || "error"}`);
         }
       }
-      setAyudaColaRefresh((n) => n + 1);
+      if (ok) setAyudaPendientesCount((n) => Math.max(0, n - ok));
       if (ayudaConsulta && rows.some((r) => String(r.id) === String(ayudaConsulta.id))) {
-        setAyudaConsulta(null);
+        const matched = rows.find((r) => String(r.id) === String(ayudaConsulta.id));
+        setAyudaConsulta((prev) =>
+          prev
+            ? {
+                ...prev,
+                estado: "resuelta",
+                reserva_id: prev.reserva_id,
+                resolved_at: prev.resolved_at || new Date().toISOString(),
+              }
+            : null,
+        );
+        if (matched) markAyudaResueltaLocal({ ...matched, estado: "resuelta", _row: matched });
         ayudaPendienteIdRef.current = null;
       }
       await loadBase({ quiet: true });
       if (ok) {
         toast.success(`${ok} reserva${ok === 1 ? "" : "s"} creada${ok === 1 ? "" : "s"}.`);
         window.setTimeout(() => {
-          tercerosListadoRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+          ayudaDetalleRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
         }, 80);
       }
       if (fallos.length) {
@@ -4916,8 +4998,12 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
         loteBusy={ayudaLoteBusy || ayudaVincularBusy}
         filtroEstado={ayudaFiltroEstado}
         onFiltroEstadoChange={setAyudaFiltroEstado}
-        onAceptarLote={openAyudaLote}
-        onResolverQueEntren={resolverAyudaQueEntranEnCupo}
+        localResueltas={ayudaLocalResueltas}
+        onClearLocalResueltas={() => setAyudaLocalResueltas({})}
+        onAceptarLote={(rows, _cid, rubro) => openAyudaLote(rows, null, rubro || "generales")}
+        onResolverQueEntren={(rows, rubro) => {
+          void resolverAyudaQueEntranEnCupo(rows, rubro || "generales");
+        }}
         onResolverConEntradas={(rows) => {
           void resolverAyudaRubroConEntradas(rows, ayudaEmailReservasMap);
         }}
@@ -4925,14 +5011,14 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
         onRowsLoaded={refreshAyudaEmailReservasMap}
         reservasVigentesPorEmail={ayudaEmailReservasMap}
         conciertoDeConsulta={(id) => concertosFlat.find((c) => Number(c.id) === Number(id)) || null}
-        onVincularVigente={(row, reservaMeta) => {
+        onVincularVigente={(row, reservaMeta, rubro = "con_entradas") => {
           void (async () => {
             setAyudaConsulta(row);
             const params = new URLSearchParams(searchParams);
             params.set("view", "entradas-terceros");
             params.set("ayuda", String(row.id));
             setSearchParams(params);
-            await handleVincularAyudaAReservaVigente(row, reservaMeta);
+            await handleVincularAyudaAReservaVigente(row, reservaMeta, rubro);
             await loadAyudaReservasVigentesForEmail(row.email, row.concierto_id);
           })();
         }}
@@ -4982,7 +5068,9 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
           } else {
             ayudaPendienteIdRef.current = null;
             ayudaPendienteDescartarIdsRef.current = [];
-            if (row.estado === "resuelta") setAyudaFiltroEstado("resuelta");
+            if (row.estado === "resuelta" && !row._localResuelta) {
+              setAyudaFiltroEstado("resuelta");
+            }
             void loadAyudaReservasVigentesForEmail(row.email, row.concierto_id);
           }
           scrollToAyudaDetalle();
@@ -4994,7 +5082,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
             return;
           }
           const flat = groups.flat();
-          openAyudaLote(flat);
+          openAyudaLote(flat, null, "duplicadas");
         }}
       />
 
