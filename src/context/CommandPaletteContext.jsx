@@ -28,6 +28,10 @@ import {
   searchPaletteObras,
   searchPalettePeople,
 } from '../utils/commandPaletteEntitySearch';
+import {
+  fetchObraProgramPresence,
+  formatObraProgramPresenceLabel,
+} from '../services/obraProgramHistoryService';
 import { 
     IconSettings, IconMusic, IconCalendar, 
     IconUsers, IconTruck, IconFileText, IconGrid, 
@@ -777,14 +781,30 @@ export const CommandPaletteProvider = ({ children }) => {
         ]);
         if (gen !== entitySearchGen.current) return;
 
-        const obraActions = (obras || []).map((obra) => ({
-          id: `obra-${obra.id}`,
-          label: obra.titulo || `Obra ${obra.id}`,
-          subtitle: formatObraComposerLabel(obra) || undefined,
-          icon: <IconMusicNote size={14} className="text-violet-500" />,
-          section: "Obras",
-          run: () => openWorkFromPalette(obra.id),
-        }));
+        const presenceMap = await fetchObraProgramPresence(
+          supabase,
+          (obras || []).map((o) => o.id),
+        ).catch((err) => {
+          console.warn("CommandPalette: program presence", err);
+          return new Map();
+        });
+        if (gen !== entitySearchGen.current) return;
+
+        const obraActions = (obras || []).map((obra) => {
+          const composer = formatObraComposerLabel(obra) || "";
+          const presenceLabel = formatObraProgramPresenceLabel(
+            presenceMap.get(Number(obra.id)),
+          );
+          const subtitle = [composer, presenceLabel].filter(Boolean).join(" · ") || undefined;
+          return {
+            id: `obra-${obra.id}`,
+            label: obra.titulo || `Obra ${obra.id}`,
+            subtitle,
+            icon: <IconMusicNote size={14} className="text-violet-500" />,
+            section: "Obras",
+            run: () => openWorkFromPalette(obra.id),
+          };
+        });
 
         const personActions = (people || []).map((person) => ({
           id: `persona-${person.id}`,

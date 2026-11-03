@@ -79,6 +79,9 @@ import { stampRosterActor } from "../../utils/giraUtils";
 import { filterAndRankMultiTokenSearch } from "../../utils/sanitize";
 import WorkForm, { WysiwygEditor } from "../../views/Repertoire/WorkForm";
 import RepertoireWorkPickerModal from "./RepertoireWorkPickerModal";
+import ObraEnProgramasChip from "./ObraEnProgramasChip";
+import WorkProgramHistoryModal from "./WorkProgramHistoryModal";
+import { fetchObraProgramPresence } from "../../services/obraProgramHistoryService";
 import ConcertoFragmentoBloque from "./ConcertoFragmentoBloque";
 import { fetchConcertoPorRepertorio } from "../../utils/concertoCompeticion";
 import {
@@ -747,6 +750,8 @@ function QuickWorkRow({
   const [saving, setSaving] = useState(false);
   const [isNewWorkForComposer, setIsNewWorkForComposer] = useState(false);
   const [workOptions, setWorkOptions] = useState([]);
+  const [programPresenceById, setProgramPresenceById] = useState(() => new Map());
+  const [historyWork, setHistoryWork] = useState(null);
   const [activeWorkIndex, setActiveWorkIndex] = useState(-1);
   const [showWorkDropdown, setShowWorkDropdown] = useState(false);
   const [searchingWork, setSearchingWork] = useState(false);
@@ -946,9 +951,21 @@ function QuickWorkRow({
         setWorkOptions(list);
         setIsNewWorkForComposer(!(list.length > 0 && clean.length >= 3));
         setShowWorkDropdown(true);
+        const presenceIds = list.map((w) => w.id).filter(Boolean);
+        if (presenceIds.length > 0) {
+          fetchObraProgramPresence(supabase, presenceIds)
+            .then((presenceMap) => setProgramPresenceById(presenceMap))
+            .catch((err) => {
+              console.warn("QuickWorkRow: program presence", err);
+              setProgramPresenceById(new Map());
+            });
+        } else {
+          setProgramPresenceById(new Map());
+        }
       } catch (e) {
         console.warn("Error buscando obras del compositor:", e);
         setWorkOptions([]);
+        setProgramPresenceById(new Map());
         setIsNewWorkForComposer(false);
       } finally {
         setSearchingWork(false);
@@ -1423,6 +1440,7 @@ function QuickWorkRow({
   };
 
   return (
+    <>
     <tr className="bg-white/80 border-t border-slate-200">
       <td className="p-1 text-center text-slate-300">
         <IconPlus size={12} />
@@ -1651,6 +1669,11 @@ function QuickWorkRow({
                           >
                             {organico || "—"}
                           </span>
+                          <ObraEnProgramasChip
+                            presence={programPresenceById.get(Number(w.id))}
+                            size="xs"
+                            onOpenHistory={() => setHistoryWork(w)}
+                          />
                         </button>
                       </div>
                     );
@@ -1760,6 +1783,16 @@ function QuickWorkRow({
       </td>
       <td className="p-1" />
     </tr>
+    {historyWork?.id ? (
+      <WorkProgramHistoryModal
+        work={historyWork}
+        onClose={() => setHistoryWork(null)}
+        supabase={supabase}
+        isEditor={!!isEditor}
+        overlayClassName="z-[10050]"
+      />
+    ) : null}
+    </>
   );
 }
 

@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Asignar obras legacy sin candidato – OFRN</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { --bg:#0f1115; --card:#181b22; --line:#2a2f3a; --txt:#e8eaf0; --mut:#9aa3b5; --acc:#4f8cff; --ok:#2fbf71; --warn:#e0a526; --bad:#e5534b; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--txt); font:14px/1.45 system-ui,Segoe UI,Roboto,sans-serif; }
+  header { position:sticky; top:0; z-index:10; background:#0f1115ee; backdrop-filter:blur(6px); border-bottom:1px solid var(--line); padding:12px 20px; }
+  header h1 { margin:0 0 8px; font-size:17px; }
+  .bar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+  .progress { flex:1 1 220px; min-width:200px; }
+  .progress .track { height:8px; background:var(--line); border-radius:4px; overflow:hidden; }
+  .progress .fill { height:100%; background:var(--ok); width:0; transition:width .2s; }
+  .progress small { color:var(--mut); }
+  button, select, input[type=text], input[type=number], input[type=search] { background:#222733; color:var(--txt); border:1px solid var(--line); border-radius:6px; padding:6px 10px; font:inherit; }
+  button { cursor:pointer; } button:hover { border-color:var(--acc); }
+  button.primary { background:var(--acc); border-color:var(--acc); color:#fff; }
+  .filters button.on { background:var(--acc); border-color:var(--acc); }
+  main { max-width:1000px; margin:16px auto 80px; padding:0 16px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; margin-bottom:14px; outline:none; }
+  .card.focus { border-color:var(--acc); box-shadow:0 0 0 2px #4f8cff44; }
+  .card.resolved { border-left:4px solid var(--ok); }
+  .card.skipped { border-left:4px solid var(--warn); }
+  .card h2 { margin:0; font-size:16px; }
+  .card .src { color:var(--mut); font-size:13px; margin:2px 0 4px; }
+  .card .motivo { color:var(--mut); font-size:12px; font-style:italic; margin-bottom:6px; }
+  .tag { display:inline-block; font-size:11px; padding:1px 7px; border-radius:10px; background:#2a3142; color:var(--mut); margin-right:6px; }
+  a { color:var(--acc); text-decoration:none; } a:hover { text-decoration:underline; }
+  .row { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-top:8px; }
+  .cc { color:var(--mut); font-size:13px; }
+  input.manual { width:110px; }
+  input.buscar { flex:1 1 280px; min-width:220px; }
+  .res { list-style:none; margin:6px 0 0; padding:0; }
+  .res li { display:grid; grid-template-columns:1fr auto; gap:8px; padding:6px 8px; border:1px solid transparent; border-radius:6px; cursor:pointer; }
+  .res li:hover { background:#1f2430; border-color:var(--line); }
+  .res .ct { font-weight:600; } .res .cm { text-align:right; font-size:12px; color:var(--mut); white-space:nowrap; }
+  .chosen { margin-top:8px; padding:7px 10px; border-radius:6px; background:#16301f; border:1px solid var(--ok); }
+  .chosen.nomatch { background:#33290f; border-color:var(--warn); }
+  .chosen.warn { background:#331a18; border-color:var(--bad); }
+  .hint { font-size:12px; color:var(--mut); margin-top:4px; }
+  .empty { text-align:center; color:var(--mut); padding:40px; }
+  footer { color:var(--mut); font-size:12px; margin-top:20px; }
+  kbd { background:#222733; border:1px solid var(--line); border-radius:4px; padding:0 5px; font-size:11px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Asignar obras legacy sin candidato (ingreso manual de ID de obra)</h1>
+  <div class="bar">
+    <div class="progress">
+      <div class="track"><div class="fill" id="fill"></div></div>
+      <small id="progTxt"></small>
+    </div>
+    <div class="filters" id="filters">
+      <button data-f="todas" class="on">Todas</button>
+      <button data-f="pend">Sin resolver</button>
+      <button data-f="res">Con ID</button>
+      <button data-f="skip">Sin match</button>
+    </div>
+    <select id="anioSel" title="Filtrar por año"></select>
+    <input type="search" id="q" placeholder="Filtrar filas (compositor, obra, gira)…" style="min-width:210px">
+    <button class="primary" id="expJson">Exportar JSON</button>
+    <button id="expCsv">Exportar CSV</button>
+    <button id="impJson" title="Cargar un JSON exportado antes (fusiona con lo actual)">Importar JSON</button>
+    <input type="file" id="impFile" accept=".json,application/json" hidden>
+    <button id="reset" title="Borra todas las decisiones guardadas">Reiniciar</button>
+  </div>
+</header>
+<main>
+  <div id="list"></div>
+  <footer>
+    Para cada fila: escribí el <b>ID de obra</b> (columna <code>obras.id</code>) o buscá en el catálogo por compositor/título y hacé clic en el resultado.
+    Atajos: <kbd>j</kbd>/<kbd>↓</kbd> siguiente · <kbd>k</kbd>/<kbd>↑</kbd> anterior · <kbd>i</kbd> ir al campo ID · <kbd>/</kbd> ir al buscador ·
+    <kbd>0</kbd> dejar sin match · <kbd>u</kbd> deshacer · <kbd>n</kbd> próxima sin resolver · <kbd>Enter</kbd> en el buscador elige el primer resultado.
+    Las decisiones se guardan solas en este navegador (localStorage). Todo funciona sin conexión.
+  </footer>
+</main>
+
+<script>
+const DATA = /*__DATA__*/null;
+const LS_KEY = 'legacy_sin_candidato_v2';
+const ITEMS = DATA.items;
+const CAT = DATA.catalogo || [];
+const CAT_BY_ID = new Map(CAT.map((c) => [c[0], c]));
+const norm = (s) => String(s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+const CAT_N = CAT.map((c) => ({ c, t: norm(c[1] + ' ' + c[2]) }));
+let decisions = {};
+try { decisions = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { decisions = {}; }
+let filter = 'todas', anio = 'todos', texto = '', focusIdx = 0;
+
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+const save = () => localStorage.setItem(LS_KEY, JSON.stringify(decisions));
+const isResolved = (it) => !!decisions[it.key];
+const byKey = (k) => ITEMS.find((x) => x.key === k);
+
+function visibleItems() {
+  const qn = norm(texto).trim();
+  return ITEMS.filter((it) => {
+    if (anio !== 'todos' && String(it.anio) !== anio) return false;
+    const d = decisions[it.key];
+    if (filter === 'pend' && d) return false;
+    if (filter === 'res' && !(d && d.accion === 'match')) return false;
+    if (filter === 'skip' && !(d && d.accion === 'sin_match')) return false;
+    if (qn && !norm(`${it.compositor} ${it.titulo} ${it.gira}`).includes(qn)) return false;
+    return true;
+  });
+}
+
+function setDecision(it, d, keepFocusSel) {
+  if (d) decisions[it.key] = d; else delete decisions[it.key];
+  save(); render(true, keepFocusSel);
+}
+function pick(it, id) {
+  const c = CAT_BY_ID.get(id);
+  setDecision(it, { accion: 'match', id_obra: id, titulo_obra: c ? c[1] : '(ID no encontrado en catálogo)', en_catalogo: !!c });
+}
+
+function buscar(q) {
+  const toks = norm(q).split(/\s+/).filter(Boolean);
+  if (!toks.length) return [];
+  const out = [];
+  for (const e of CAT_N) {
+    if (toks.every((t) => e.t.includes(t))) { out.push(e.c); if (out.length >= 8) break; }
+  }
+  return out;
+}
+function resultsHtml(key, q) {
+  const r = buscar(q);
+  if (!q.trim()) return '';
+  if (!r.length) return '<li class="cc" style="cursor:default">Sin resultados en el catálogo.</li>';
+  return r.map((c) => `<li data-pick="${c[0]}" data-key="${esc(key)}">
+    <span><span class="ct">${esc(c[1])}</span><br><span class="cc">${esc(c[2] || '(sin compositor)')}</span></span>
+    <span class="cm">ID ${c[0]}${c[3] ? '' : '<br>sin Drive'}</span></li>`).join('');
+}
+
+function render(keepScroll, keepFocusSel) {
+  const y = window.scrollY;
+  const vis = visibleItems();
+  if (focusIdx >= vis.length) focusIdx = Math.max(0, vis.length - 1);
+  const list = $('#list');
+  if (!vis.length) list.innerHTML = '<div class="empty">No hay elementos para este filtro.</div>';
+  else list.innerHTML = vis.map((it, i) => cardHtml(it, i)).join('');
+  const done = ITEMS.filter(isResolved).length;
+  $('#fill').style.width = (ITEMS.length ? (done / ITEMS.length) * 100 : 0) + '%';
+  $('#progTxt').textContent = `${done} resueltas / ${ITEMS.length} total` + (done === ITEMS.length ? ' — ¡listo! Exportá las decisiones.' : '');
+  document.querySelectorAll('#filters button').forEach((b) => b.classList.toggle('on', b.dataset.f === filter));
+  if (keepScroll) window.scrollTo(0, y);
+}
+
+function sugHtml(it) {
+  const s = (it.sugeridos || []).map(([id, sc]) => [CAT_BY_ID.get(id), sc]).filter(([c]) => c);
+  if (!s.length) return '';
+  return `<div class="sug" style="margin:6px 0;font-size:12px"><span class="cc">Sugeridas (clic para elegir):</span><ul class="res" style="display:block;margin:4px 0 0">` +
+    s.map(([c, sc]) => `<li data-pick="${c[0]}" data-key="${esc(it.key)}"><span><span class="ct">${esc(c[1])}</span><br><span class="cc">${esc(c[2] || '(sin compositor)')}</span></span><span class="cm">ID ${c[0]} · ${Math.round(sc * 100)}%${c[3] ? '' : '<br>sin Drive'}</span></li>`).join('') +
+    '</ul></div>';
+}
+
+function cardHtml(it, i) {
+  const d = decisions[it.key];
+  const cls = ['card', i === focusIdx ? 'focus' : '', d ? (d.accion === 'match' ? 'resolved' : 'skipped') : ''].join(' ');
+  const src = it.link_drive_fuente ? ` · <a href="${esc(it.link_drive_fuente)}" target="_blank" rel="noopener">Drive fuente</a>` : '';
+  const metaTxt = it.meta
+    ? `<span class="tag">${esc(it.meta.fecha_desde)}</span>`
+    : '<span class="tag" style="background:#4a1f1c;color:#ffb3ad">sin metadata de gira (no se podrá aplicar)</span>';
+  let chosen = '';
+  if (d && d.accion === 'match') {
+    const warn = d.en_catalogo === false;
+    chosen = `<div class="chosen ${warn ? 'warn' : ''}">✔ ID <b>${d.id_obra}</b> – ${esc(d.titulo_obra)}${warn ? ' <span class="cc">(el ID no está en el catálogo inlineado; el script de aplicación verificará si existe)</span>' : ''}</div>`;
+  } else if (d) {
+    chosen = '<div class="chosen nomatch">⚠ Dejar sin match</div>';
+  }
+  const manualVal = d && d.accion === 'match' ? d.id_obra : '';
+  return `<section class="${cls}" data-idx="${i}" data-key="${esc(it.key)}" tabindex="0">
+    <h2>${esc(it.compositor || '(sin compositor)')} — ${esc(it.titulo)}</h2>
+    <div class="src"><span class="tag">${it.anio}</span>${metaTxt}${esc(it.gira)}${it.hoja ? ' · hoja ' + esc(it.hoja) : ''}${src}</div>
+    ${it.motivo ? `<div class="motivo">Motivo: ${esc(it.motivo)}</div>` : ''}
+    ${sugHtml(it)}
+    <div class="row">
+      <span class="cc">ID de obra:</span>
+      <input class="manual" type="number" min="1" placeholder="ID" value="${esc(manualVal)}" data-key="${esc(it.key)}" data-manual="1">
+      <input class="buscar" type="search" placeholder="Buscar en catálogo (compositor / título)…" data-key="${esc(it.key)}" data-buscar="1" autocomplete="off">
+      <button data-nomatch="${esc(it.key)}">Dejar sin match</button>
+      <button data-undo="${esc(it.key)}">Deshacer</button>
+    </div>
+    <ul class="res" id="res-${i}"></ul>
+    ${chosen || '<div class="hint">pendiente</div>'}
+  </section>`;
+}
+
+document.addEventListener('change', (e) => {
+  const t = e.target;
+  if (t.dataset.manual) {
+    const v = Number(t.value);
+    if (Number.isInteger(v) && v > 0) pick(byKey(t.dataset.key), v);
+    else if (t.value === '') setDecision(byKey(t.dataset.key), null);
+  }
+});
+document.addEventListener('input', (e) => {
+  const t = e.target;
+  if (t.dataset.buscar) {
+    const card = t.closest('.card');
+    card.querySelector('.res').innerHTML = resultsHtml(t.dataset.key, t.value);
+  }
+});
+document.addEventListener('click', (e) => {
+  const p = e.target.closest('[data-pick]');
+  if (p) { pick(byKey(p.dataset.key), Number(p.dataset.pick)); return; }
+  const u = e.target.closest('[data-undo]');
+  if (u) { setDecision(byKey(u.dataset.undo), null); return; }
+  const n = e.target.closest('[data-nomatch]');
+  if (n) { setDecision(byKey(n.dataset.nomatch), { accion: 'sin_match', id_obra: null, titulo_obra: '' }); return; }
+  const card = e.target.closest('.card');
+  if (card && Number(card.dataset.idx) !== focusIdx) setFocus(Number(card.dataset.idx), false);
+});
+
+function setFocus(i, scroll = true) {
+  const vis = visibleItems();
+  if (!vis.length) return;
+  focusIdx = Math.min(Math.max(0, i), vis.length - 1);
+  document.querySelectorAll('.card').forEach((c, n) => c.classList.toggle('focus', n === focusIdx));
+  if (scroll) document.querySelectorAll('.card')[focusIdx]?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+}
+
+document.addEventListener('keydown', (e) => {
+  const tag = (e.target.tagName || '').toLowerCase();
+  if (tag === 'input') {
+    if (e.key === 'Enter' && e.target.dataset.buscar) {
+      const r = buscar(e.target.value);
+      if (r.length) { e.preventDefault(); pick(byKey(e.target.dataset.key), r[0][0]); }
+    } else if (e.key === 'Escape') e.target.blur();
+    return;
+  }
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  const vis = visibleItems();
+  const it = vis[focusIdx];
+  if (e.key === 'j' || e.key === 'ArrowDown') { e.preventDefault(); setFocus(focusIdx + 1); }
+  else if (e.key === 'k' || e.key === 'ArrowUp') { e.preventDefault(); setFocus(focusIdx - 1); }
+  else if (!it) return;
+  else if (e.key === 'i') { e.preventDefault(); document.querySelectorAll('.card')[focusIdx]?.querySelector('.manual')?.focus(); }
+  else if (e.key === '/') { e.preventDefault(); document.querySelectorAll('.card')[focusIdx]?.querySelector('.buscar')?.focus(); }
+  else if (e.key === '0') setDecision(it, { accion: 'sin_match', id_obra: null, titulo_obra: '' });
+  else if (e.key === 'u') setDecision(it, null);
+  else if (e.key === 'n') {
+    const nxt = vis.findIndex((x, i) => i > focusIdx && !isResolved(x));
+    const idx = nxt >= 0 ? nxt : vis.findIndex((x) => !isResolved(x));
+    if (idx >= 0) setFocus(idx);
+  }
+});
+
+$('#filters').addEventListener('click', (e) => { if (e.target.dataset.f) { filter = e.target.dataset.f; focusIdx = 0; render(); } });
+const anios = [...new Set(ITEMS.map((i) => i.anio))].sort();
+$('#anioSel').innerHTML = '<option value="todos">Todos los años</option>' + anios.map((a) => `<option>${a}</option>`).join('');
+$('#anioSel').addEventListener('change', (e) => { anio = e.target.value; focusIdx = 0; render(); });
+$('#q').addEventListener('input', (e) => { texto = e.target.value; focusIdx = 0; render(); });
+$('#reset').addEventListener('click', () => { if (confirm('¿Borrar todas las decisiones guardadas?')) { decisions = {}; save(); render(); } });
+
+function buildExport() {
+  const out = [];
+  for (const it of ITEMS) {
+    const d = decisions[it.key];
+    if (!d) continue;
+    out.push({
+      anio: it.anio, gira: it.gira, hoja: it.hoja, compositor: it.compositor, titulo: it.titulo,
+      link_drive_fuente: it.link_drive_fuente,
+      id_obra_elegida: d.accion === 'match' ? d.id_obra : null,
+      titulo_obra: d.accion === 'match' ? d.titulo_obra : '',
+      accion: d.accion, // 'match' | 'sin_match'
+      ...(it.meta || {}),
+    });
+  }
+  return out;
+}
+function download(name, text, mime) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type: mime }));
+  a.download = name; document.body.appendChild(a); a.click(); a.remove();
+}
+function warnPending() {
+  const p = ITEMS.length - ITEMS.filter(isResolved).length;
+  return !p || confirm(`Quedan ${p} sin resolver; no se incluirán en el export. ¿Exportar igual?`);
+}
+$('#expJson').addEventListener('click', () => {
+  if (!warnPending()) return;
+  const payload = { fuente: DATA.fuente, exportado: new Date().toISOString(), decisiones: buildExport() };
+  download('legacy_match_sin_candidato_v2_decisiones.json', JSON.stringify(payload, null, 2), 'application/json');
+});
+$('#expCsv').addEventListener('click', () => {
+  if (!warnPending()) return;
+  const rows = buildExport();
+  const cols = ['anio','gira','hoja','compositor','titulo','link_drive_fuente','id_obra_elegida','titulo_obra','accion','nombre_gira','fecha_desde','fecha_hasta','tipo','zona','nomenclador','mes_letra','ensambles','fuente'];
+  const q = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+  const csv = '\uFEFF' + [cols.join(','), ...rows.map((r) => cols.map((c) => q(r[c])).join(','))].join('\r\n');
+  download('legacy_match_sin_candidato_v2_decisiones.csv', csv, 'text/csv;charset=utf-8');
+});
+$('#impJson').addEventListener('click', () => $('#impFile').click());
+$('#impFile').addEventListener('change', async (e) => {
+  const f = e.target.files[0]; e.target.value = '';
+  if (!f) return;
+  try {
+    const parsed = JSON.parse((await f.text()).replace(/^\uFEFF/, ''));
+    const arr = Array.isArray(parsed) ? parsed : parsed.decisiones || [];
+    let n = 0;
+    for (const d of arr) {
+      const it = ITEMS.find((x) => x.anio === d.anio && x.gira === d.gira && x.compositor === d.compositor && x.titulo === d.titulo);
+      if (!it) continue;
+      if (d.accion === 'match' && Number(d.id_obra_elegida) > 0) pick0(it, Number(d.id_obra_elegida));
+      else if (d.accion === 'sin_match') decisions[it.key] = { accion: 'sin_match', id_obra: null, titulo_obra: '' };
+      else continue;
+      n++;
+    }
+    save(); render(true);
+    alert(`Importadas ${n} decisiones.`);
+  } catch (err) { alert('No se pudo leer el JSON: ' + err.message); }
+});
+function pick0(it, id) {
+  const c = CAT_BY_ID.get(id);
+  decisions[it.key] = { accion: 'match', id_obra: id, titulo_obra: c ? c[1] : '(ID no encontrado en catálogo)', en_catalogo: !!c };
+}
+
+render();
+</script>
+</body>
+</html>

@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Resolver matches ambiguos – obras legacy OFRN</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { --bg:#0f1115; --card:#181b22; --line:#2a2f3a; --txt:#e8eaf0; --mut:#9aa3b5; --acc:#4f8cff; --ok:#2fbf71; --warn:#e0a526; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--txt); font:14px/1.45 system-ui,Segoe UI,Roboto,sans-serif; }
+  header { position:sticky; top:0; z-index:10; background:#0f1115ee; backdrop-filter:blur(6px); border-bottom:1px solid var(--line); padding:12px 20px; }
+  header h1 { margin:0 0 8px; font-size:17px; }
+  .bar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+  .progress { flex:1 1 220px; min-width:200px; }
+  .progress .track { height:8px; background:var(--line); border-radius:4px; overflow:hidden; }
+  .progress .fill { height:100%; background:var(--ok); width:0; transition:width .2s; }
+  .progress small { color:var(--mut); }
+  button, select, input[type=text], input[type=number] { background:#222733; color:var(--txt); border:1px solid var(--line); border-radius:6px; padding:6px 10px; font:inherit; }
+  button { cursor:pointer; } button:hover { border-color:var(--acc); }
+  button.primary { background:var(--acc); border-color:var(--acc); color:#fff; }
+  .filters button.on { background:var(--acc); border-color:var(--acc); }
+  main { max-width:1000px; margin:16px auto 80px; padding:0 16px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; margin-bottom:14px; outline:none; }
+  .card.focus { border-color:var(--acc); box-shadow:0 0 0 2px #4f8cff44; }
+  .card.resolved { border-left:4px solid var(--ok); }
+  .card.skipped { border-left:4px solid var(--warn); }
+  .card h2 { margin:0; font-size:16px; }
+  .card .src { color:var(--mut); font-size:13px; margin:2px 0 8px; }
+  .tag { display:inline-block; font-size:11px; padding:1px 7px; border-radius:10px; background:#2a3142; color:var(--mut); margin-right:6px; }
+  .cands { list-style:none; margin:8px 0 0; padding:0; }
+  .cands li label { display:grid; grid-template-columns:auto 22px 1fr auto; gap:8px; align-items:start; padding:7px 8px; border:1px solid transparent; border-radius:6px; cursor:pointer; }
+  .cands li label:hover { background:#1f2430; }
+  .cands li.sel label { background:#16301f; border-color:var(--ok); }
+  .k { color:var(--mut); font-size:11px; border:1px solid var(--line); border-radius:4px; padding:0 5px; }
+  .ct { font-weight:600; } .cc { color:var(--mut); font-size:13px; }
+  .cm { text-align:right; font-size:12px; color:var(--mut); white-space:nowrap; }
+  a { color:var(--acc); text-decoration:none; } a:hover { text-decoration:underline; }
+  .row { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-top:8px; }
+  .none label { color:var(--warn); }
+  input.manual { width:110px; }
+  .empty { text-align:center; color:var(--mut); padding:40px; }
+  footer { color:var(--mut); font-size:12px; margin-top:20px; }
+  kbd { background:#222733; border:1px solid var(--line); border-radius:4px; padding:0 5px; font-size:11px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Resolver matches ambiguos – obras legacy</h1>
+  <div class="bar">
+    <div class="progress">
+      <div class="track"><div class="fill" id="fill"></div></div>
+      <small id="progTxt"></small>
+    </div>
+    <div class="filters" id="filters">
+      <button data-f="todas" class="on">Todas</button>
+      <button data-f="pend">Sin resolver</button>
+      <button data-f="res">Resueltas</button>
+    </div>
+    <select id="anioSel" title="Filtrar por año"></select>
+    <button class="primary" id="expJson">Exportar JSON</button>
+    <button id="expCsv">Exportar CSV</button>
+    <button id="reset" title="Borra todas las decisiones guardadas">Reiniciar</button>
+  </div>
+</header>
+<main>
+  <div id="list"></div>
+  <footer>
+    Atajos: <kbd>j</kbd>/<kbd>↓</kbd> siguiente · <kbd>k</kbd>/<kbd>↑</kbd> anterior · <kbd>1</kbd>–<kbd>9</kbd> elegir candidato ·
+    <kbd>0</kbd> ninguna / sin match · <kbd>u</kbd> deshacer · <kbd>n</kbd> próxima sin resolver.
+    Las decisiones se guardan solas en este navegador (localStorage).
+  </footer>
+</main>
+
+<script>
+const DATA = /*__DATA__*/null;
+const LS_KEY = 'legacy_ambiguos_v1';
+const ITEMS = DATA.items;
+let decisions = {};
+try { decisions = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { decisions = {}; }
+let filter = 'todas', anio = 'todos', focusIdx = 0;
+
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+const save = () => localStorage.setItem(LS_KEY, JSON.stringify(decisions));
+const isResolved = (it) => !!decisions[it.key];
+
+function visibleItems() {
+  return ITEMS.filter((it) => {
+    if (anio !== 'todos' && String(it.anio) !== anio) return false;
+    if (filter === 'pend') return !isResolved(it);
+    if (filter === 'res') return isResolved(it);
+    return true;
+  });
+}
+
+function setDecision(it, d) {
+  if (d) decisions[it.key] = d; else delete decisions[it.key];
+  save(); render(true);
+}
+function pick(it, id) {
+  const c = it.candidatos.find((x) => x.id === id);
+  setDecision(it, { accion: 'match', id_obra: id, titulo_obra: c ? c.titulo : '(ID manual)', manual: !c });
+}
+
+function render(keepScroll) {
+  const y = window.scrollY;
+  const vis = visibleItems();
+  if (focusIdx >= vis.length) focusIdx = Math.max(0, vis.length - 1);
+  const list = $('#list');
+  if (!vis.length) list.innerHTML = '<div class="empty">No hay elementos para este filtro.</div>';
+  else list.innerHTML = vis.map((it, i) => cardHtml(it, i)).join('');
+  const done = ITEMS.filter(isResolved).length;
+  $('#fill').style.width = (ITEMS.length ? (done / ITEMS.length) * 100 : 0) + '%';
+  $('#progTxt').textContent = `${done} resueltas / ${ITEMS.length} total` + (done === ITEMS.length ? ' — ¡listo! Exportá las decisiones.' : '');
+  document.querySelectorAll('#filters button').forEach((b) => b.classList.toggle('on', b.dataset.f === filter));
+  if (keepScroll) window.scrollTo(0, y);
+}
+
+function cardHtml(it, i) {
+  const d = decisions[it.key];
+  const cls = ['card', i === focusIdx ? 'focus' : '', d ? (d.accion === 'match' ? 'resolved' : 'skipped') : ''].join(' ');
+  const src = it.link_drive_fuente ? ` · <a href="${esc(it.link_drive_fuente)}" target="_blank" rel="noopener">Drive fuente</a>` : '';
+  const cands = it.candidatos.map((c, n) => {
+    const sel = d && d.accion === 'match' && d.id_obra === c.id;
+    const link = c.link_drive ? `<a href="${esc(c.link_drive)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">Drive</a>` : '<span class="cc">sin Drive</span>';
+    return `<li class="${sel ? 'sel' : ''}"><label>
+      <input type="radio" name="r${esc(it.key)}" ${sel ? 'checked' : ''} data-key="${esc(it.key)}" data-id="${c.id}">
+      <span class="k">${n < 9 ? n + 1 : '·'}</span>
+      <span><span class="ct">${esc(c.titulo)}</span><br><span class="cc">${esc(c.compositores || '(sin compositor)')}</span></span>
+      <span class="cm">ID ${c.id} · score ${c.score}<br>${link}</span>
+    </label></li>`;
+  }).join('') || '<li class="cc">Sin candidatos en BD.</li>';
+  const none = d && d.accion === 'sin_match';
+  const manualVal = d && d.manual ? d.id_obra : '';
+  return `<section class="${cls}" data-idx="${i}" data-key="${esc(it.key)}" tabindex="0">
+    <h2>${esc(it.compositor || '(sin compositor)')} — ${esc(it.titulo)}</h2>
+    <div class="src"><span class="tag">${it.anio}</span>${esc(it.gira)}${it.hoja ? ' · hoja ' + esc(it.hoja) : ''}${src}</div>
+    <ul class="cands">${cands}
+      <li class="none ${none ? 'sel' : ''}"><label>
+        <input type="radio" name="r${esc(it.key)}" ${none ? 'checked' : ''} data-key="${esc(it.key)}" data-none="1">
+        <span class="k">0</span><span>Ninguna / dejar sin match</span><span></span>
+      </label></li>
+    </ul>
+    <div class="row">
+      <span class="cc">Otro ID de obra:</span>
+      <input class="manual" type="number" min="1" placeholder="ID" value="${esc(manualVal)}" data-key="${esc(it.key)}" data-manual="1">
+      <button data-undo="${esc(it.key)}">Deshacer</button>
+      ${d ? `<span class="cc">${d.accion === 'match' ? '✔ ID ' + d.id_obra + ' – ' + esc(d.titulo_obra) : '⚠ sin match'}</span>` : '<span class="cc">pendiente</span>'}
+    </div>
+  </section>`;
+}
+
+const byKey = (k) => ITEMS.find((x) => x.key === k);
+
+document.addEventListener('change', (e) => {
+  const t = e.target;
+  if (t.dataset.none) setDecision(byKey(t.dataset.key), { accion: 'sin_match', id_obra: null, titulo_obra: '' });
+  else if (t.dataset.id) pick(byKey(t.dataset.key), Number(t.dataset.id));
+  else if (t.dataset.manual) {
+    const v = Number(t.value);
+    if (Number.isInteger(v) && v > 0) pick(byKey(t.dataset.key), v);
+    else if (t.value === '') setDecision(byKey(t.dataset.key), null);
+  }
+});
+document.addEventListener('click', (e) => {
+  const u = e.target.closest('[data-undo]');
+  if (u) { setDecision(byKey(u.dataset.undo), null); return; }
+  const card = e.target.closest('.card');
+  if (card && Number(card.dataset.idx) !== focusIdx) { setFocus(Number(card.dataset.idx), false); }
+});
+
+function setFocus(i, scroll = true) {
+  const vis = visibleItems();
+  if (!vis.length) return;
+  focusIdx = Math.min(Math.max(0, i), vis.length - 1);
+  document.querySelectorAll('.card').forEach((c, n) => c.classList.toggle('focus', n === focusIdx));
+  if (scroll) document.querySelectorAll('.card')[focusIdx]?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+}
+
+document.addEventListener('keydown', (e) => {
+  const tag = (e.target.tagName || '').toLowerCase();
+  if (tag === 'input' && e.target.type !== 'radio') return;
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  const vis = visibleItems();
+  const it = vis[focusIdx];
+  const arrows = tag !== 'input';
+  if (e.key === 'j' || (arrows && e.key === 'ArrowDown')) { e.preventDefault(); setFocus(focusIdx + 1); }
+  else if (e.key === 'k' || (arrows && e.key === 'ArrowUp')) { e.preventDefault(); setFocus(focusIdx - 1); }
+  else if (!it) return;
+  else if (/^[1-9]$/.test(e.key)) { const c = it.candidatos[Number(e.key) - 1]; if (c) pick(it, c.id); }
+  else if (e.key === '0') setDecision(it, { accion: 'sin_match', id_obra: null, titulo_obra: '' });
+  else if (e.key === 'u') setDecision(it, null);
+  else if (e.key === 'n') {
+    const nxt = vis.findIndex((x, i) => i > focusIdx && !isResolved(x));
+    const idx = nxt >= 0 ? nxt : vis.findIndex((x) => !isResolved(x));
+    if (idx >= 0) setFocus(idx);
+  }
+});
+
+$('#filters').addEventListener('click', (e) => { if (e.target.dataset.f) { filter = e.target.dataset.f; focusIdx = 0; render(); } });
+const anios = [...new Set(ITEMS.map((i) => i.anio))].sort();
+$('#anioSel').innerHTML = '<option value="todos">Todos los años</option>' + anios.map((a) => `<option>${a}</option>`).join('');
+$('#anioSel').addEventListener('change', (e) => { anio = e.target.value; focusIdx = 0; render(); });
+$('#reset').addEventListener('click', () => { if (confirm('¿Borrar todas las decisiones guardadas?')) { decisions = {}; save(); render(); } });
+
+function buildExport() {
+  const out = [];
+  for (const it of ITEMS) {
+    const d = decisions[it.key];
+    if (!d) continue;
+    out.push({
+      anio: it.anio, gira: it.gira, compositor: it.compositor, titulo: it.titulo,
+      link_drive_fuente: it.link_drive_fuente,
+      id_obra_elegida: d.accion === 'match' ? d.id_obra : null,
+      titulo_obra: d.accion === 'match' ? d.titulo_obra : '',
+      accion: d.accion, // 'match' | 'sin_match'
+      ...(it.meta || {}),
+    });
+  }
+  return out;
+}
+function download(name, text, mime) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type: mime }));
+  a.download = name; document.body.appendChild(a); a.click(); a.remove();
+}
+function warnPending() {
+  const p = ITEMS.length - ITEMS.filter(isResolved).length;
+  return !p || confirm(`Quedan ${p} sin resolver; no se incluirán en el export. ¿Exportar igual?`);
+}
+$('#expJson').addEventListener('click', () => {
+  if (!warnPending()) return;
+  const payload = { fuente: DATA.fuente, exportado: new Date().toISOString(), decisiones: buildExport() };
+  download('legacy_match_ambiguos_decisiones.json', JSON.stringify(payload, null, 2), 'application/json');
+});
+$('#expCsv').addEventListener('click', () => {
+  if (!warnPending()) return;
+  const rows = buildExport();
+  const cols = ['anio','gira','compositor','titulo','link_drive_fuente','id_obra_elegida','titulo_obra','accion','nombre_gira','fecha_desde','fecha_hasta','tipo','zona','nomenclador','mes_letra','ensambles'];
+  const q = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+  const csv = '\uFEFF' + [cols.join(','), ...rows.map((r) => cols.map((c) => q(r[c])).join(','))].join('\r\n');
+  download('legacy_match_ambiguos_decisiones.csv', csv, 'text/csv;charset=utf-8');
+});
+
+render();
+</script>
+</body>
+</html>

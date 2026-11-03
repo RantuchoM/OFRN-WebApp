@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Cargar Archivo - para organizar · OFRN</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { --bg:#0f1115; --card:#181b22; --line:#2a2f3a; --txt:#e8eaf0; --mut:#9aa3b5; --acc:#4f8cff; --ok:#2fbf71; --warn:#e0a526; --bad:#e5534b; --pur:#a07bff; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--txt); font:14px/1.45 system-ui,Segoe UI,Roboto,sans-serif; }
+  header { position:sticky; top:0; z-index:10; background:#0f1115ee; backdrop-filter:blur(6px); border-bottom:1px solid var(--line); padding:10px 20px; }
+  header h1 { margin:0 0 6px; font-size:16px; }
+  header h1 small { color:var(--mut); font-weight:400; }
+  .bar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:6px; }
+  button, select, input[type=text], input[type=search] { background:#222733; color:var(--txt); border:1px solid var(--line); border-radius:6px; padding:5px 9px; font:inherit; }
+  button { cursor:pointer; } button:hover { border-color:var(--acc); }
+  button.primary { background:var(--acc); border-color:var(--acc); color:#fff; }
+  .filters button.on { background:var(--acc); border-color:var(--acc); }
+  .stats { color:var(--mut); font-size:12px; }
+  .stats b { color:var(--txt); }
+  main { max-width:1180px; margin:14px auto 80px; padding:0 14px; }
+  .row { display:grid; grid-template-columns:30px 1fr; gap:10px; background:var(--card); border:1px solid var(--line); border-left:4px solid var(--line); border-radius:8px; padding:10px 12px; margin-bottom:8px; }
+  .row.off { opacity:.62; }
+  .row.s-nuevo { border-left-color:var(--ok); }
+  .row.s-dup { border-left-color:var(--warn); }
+  .row.s-bd { border-left-color:var(--acc); }
+  .row.s-zip { border-left-color:var(--pur); }
+  .row.s-skip { border-left-color:#666; }
+  .row input[type=checkbox] { width:20px; height:20px; margin-top:3px; cursor:pointer; accent-color:var(--ok); }
+  .top { display:flex; flex-wrap:wrap; gap:8px; align-items:baseline; }
+  .rel { font-weight:600; word-break:break-word; }
+  .rel .dir { color:var(--mut); font-weight:400; }
+  .badge { display:inline-block; font-size:11px; padding:1px 8px; border-radius:10px; font-weight:600; }
+  .b-nuevo { background:#14351f; color:#6be39b; } .b-dup { background:#3a2f0e; color:#f0c75a; } .b-bd { background:#162a4a; color:#8db5ff; }
+  .b-zip { background:#2b2147; color:#c3a8ff; } .b-skip { background:#2a2a2a; color:#aaa; } .b-warn { background:#4a1f1c; color:#ffb3ad; }
+  .b-inc { background:#4a1f1c; color:#ffb3ad; } .b-ok { background:#14351f; color:#6be39b; } .b-unk { background:#3a2f0e; color:#f0c75a; }
+  .chip.no { background:#4a1f1c; color:#ffb3ad; } .chip.yes { background:#14351f; color:#6be39b; }
+  .chip { display:inline-block; font-size:11px; padding:0 7px; border-radius:9px; background:#2a3142; color:var(--mut); }
+  .meta { color:var(--mut); font-size:12px; margin-top:3px; }
+  .sug { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:6px; }
+  .sug label { color:var(--mut); font-size:12px; }
+  .sug input { flex:1 1 380px; min-width:240px; }
+  .match { font-size:12px; margin-top:5px; padding:4px 8px; border-radius:6px; background:#1d2230; }
+  .match.top1 { border:1px solid #31507f; }
+  .match .id { color:var(--acc); font-weight:600; }
+  .match .sc { color:var(--mut); }
+  .note { font-size:12px; color:#d9b26a; margin-top:4px; }
+  details { margin-top:4px; font-size:12px; color:var(--mut); } details summary { cursor:pointer; }
+  details ul { margin:4px 0 0 18px; padding:0; }
+  a { color:var(--acc); text-decoration:none; } a:hover { text-decoration:underline; }
+  .empty { text-align:center; color:var(--mut); padding:40px; }
+  footer { color:var(--mut); font-size:12px; margin-top:24px; }
+  kbd { background:#222733; border:1px solid var(--line); border-radius:4px; padding:0 5px; font-size:11px; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title"></h1>
+  <div class="stats" id="desc"></div>
+  <div class="bar">
+    <div class="filters" id="filters"></div>
+    <input type="search" id="q" placeholder="Filtrar (ruta, nombre, obra BD)…" style="min-width:230px">
+    <select id="chk" title="Filtrar por marca"><option value="all">Marcadas y no</option><option value="on">Solo marcadas</option><option value="off">Solo desmarcadas</option></select>
+    <select id="cmp" title="Filtrar por completitud (SCORE + partes)"><option value="all">Completitud: todas</option><option value="completa">Solo completas (SCORE + partes)</option><option value="incompleta">Solo incompletas</option><option value="desconocida">Solo desconocidas</option><option value="noCompleta">Incompletas + desconocidas</option></select>
+    <button id="allOn">Marcar visibles</button>
+    <button id="allOff">Desmarcar visibles</button>
+    <button id="dupOff" title="Desmarca duplicados, ya en BD y skip">Desmarcar duplicados/skip</button>
+    <button id="incOff" title="Desmarca todas las obras sin SCORE y/o sin partes (o comprimidos sin listado)">Desmarcar incompletas</button>
+    <button id="defaults" title="Volver a las marcas por defecto de esta fase">Marcas por defecto</button>
+    <button class="primary" id="expJson">Exportar JSON</button>
+    <button id="expCsv">Exportar CSV</button>
+    <button id="impJson">Importar JSON</button>
+    <input type="file" id="impFile" accept=".json,application/json" hidden>
+    <a id="idxLink" href="archivo_para_organizar_carga.html">← Índice</a>
+  </div>
+  <div class="stats" id="stats" style="margin-top:6px"></div>
+</header>
+<main>
+  <div id="list"></div>
+  <footer>
+    Las decisiones se guardan solas en este navegador (localStorage) y al <b>Exportar JSON</b> se descarga el archivo para la fase 2 (carga con <i>para-acomodar-particellas</i>).
+    El nombre canónico sugerido es editable (<code>Apellido, I. - Título</code>; sin año, sin orgánico en el nombre). Atajos: <kbd>/</kbd> buscar · <kbd>Espacio</kbd> sobre una fila enfocada no aplica (usar el check).
+    Por defecto quedan marcadas solo las filas <b>nuevo</b> y <b>comprimido</b> sin match fuerte <b>y completas</b> (≥1 PDF de SCORE + ≥1 PDF de parte); los <b>posible duplicado</b>, <b>ya en BD</b>, <b>skip</b> y todas las <b>incompletas / desconocidas</b> (sin SCORE, sin partes, sin PDFs o comprimido sin listado) arrancan desmarcadas. Podés tildar a mano una incompleta si realmente querés cargarla.
+  </footer>
+</main>
+<script>
+const DATA = /*__DATA__*/null;
+const LS_KEY = 'archivo_para_organizar_carga_v2_' + DATA.phase;
+const LS_KEY_V1 = 'archivo_para_organizar_carga_v1_' + DATA.phase;
+const ROWS = DATA.rows;
+const STATUS_ORDER = ['nuevo', 'comprimido', 'posible duplicado', 'ya en BD', 'skip'];
+const CLS = { 'nuevo':'nuevo', 'comprimido':'zip', 'posible duplicado':'dup', 'ya en BD':'bd', 'skip':'skip' };
+const BCLS = { 'nuevo':'b-nuevo', 'comprimido':'b-zip', 'posible duplicado':'b-dup', 'ya en BD':'b-bd', 'skip':'b-skip' };
+let saved = {};
+try {
+  const cur = localStorage.getItem(LS_KEY);
+  if (cur) saved = JSON.parse(cur);
+  else {
+    // migración v1 -> v2: se conservan nombres y decisiones, pero un "marcado" explícito sobre una obra incompleta se descarta (default OFF)
+    saved = JSON.parse(localStorage.getItem(LS_KEY_V1) || '{}');
+    for (const r of ROWS) if (r.compl !== 'completa' && saved[r.key] && saved[r.key].on === true) delete saved[r.key].on;
+    if (Object.keys(saved).length) localStorage.setItem(LS_KEY, JSON.stringify(saved));
+  }
+} catch (e) { saved = {}; }
+let fStatus = 'todos', fText = '', fChk = 'all', fCompl = 'all';
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+const norm = (s) => String(s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+const persist = () => localStorage.setItem(LS_KEY, JSON.stringify(saved));
+const isOn = (r) => (saved[r.key] && typeof saved[r.key].on === 'boolean') ? saved[r.key].on : r.defaultOn;
+const nameOf = (r) => (saved[r.key] && typeof saved[r.key].name === 'string') ? saved[r.key].name : r.suggested;
+const fileUrl = (p) => 'file:///' + String(p).replace(/\\/g, '/').replace(/#/g, '%23');
+
+function visible() {
+  const q = norm(fText).trim();
+  return ROWS.filter((r) => {
+    if (fStatus !== 'todos' && r.status !== fStatus) return false;
+    if (fCompl === 'noCompleta' ? r.compl === 'completa' : fCompl !== 'all' && r.compl !== fCompl) return false;
+    const on = isOn(r);
+    if (fChk === 'on' && !on) return false;
+    if (fChk === 'off' && on) return false;
+    if (q) {
+      const hay = norm(`${r.rel} ${nameOf(r)} ${(r.matches || []).map((m) => m.titulo + ' ' + m.comp).join(' ')} ${(r.notes || []).join(' ')}`);
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+}
+function sizeTxt(r) {
+  const bits = [];
+  if (r.type === 'comprimido') {
+    const a = r.archive || {};
+    bits.push(`<span class="chip">${a.sizeMB ?? '?'} MB</span>`);
+    if (a.listed) bits.push(`<span class="chip">${r.pdfs} PDF dentro</span>`);
+    else bits.push('<span class="badge b-warn">no se pudo listar</span>');
+    if (r.srcs) bits.push(`<span class="chip">${r.srcs} .mus/.sib</span>`);
+  } else {
+    bits.push(`<span class="chip">${r.pdfs} PDF</span>`);
+    if (r.srcs) bits.push(`<span class="chip">${r.srcs} .mus/.sib</span>`);
+    if (r.auds) bits.push(`<span class="chip">${r.auds} audio</span>`);
+    if (r.type === 'pdf-suelto') bits.push('<span class="chip">suelto</span>');
+  }
+  if (r.compl === 'desconocida') bits.push('<span class="chip no">SCORE ?</span> <span class="chip no">partes ?</span>');
+  else bits.push(`<span class="chip ${r.hasScore ? 'yes' : 'no'}">SCORE ${r.nScore}</span> <span class="chip ${r.hasParts ? 'yes' : 'no'}">partes ${r.nParts}</span>`);
+  return bits.join(' ');
+}
+const complBadge = (r) => r.compl === 'completa' ? '<span class="badge b-ok" title="≥1 SCORE y ≥1 parte">completa</span>' : r.compl === 'desconocida' ? `<span class="badge b-unk" title="${esc(r.complWhy)}">incompleto_o_desconocido</span>` : `<span class="badge b-inc" title="${esc(r.complWhy)}">incompleta</span>`;
+function rowHtml(r) {
+  const on = isOn(r);
+  const parts = r.rel.split('\\');
+  const leaf = parts.pop();
+  const dir = parts.join(' \\ ');
+  const m = (r.matches || []).slice(0, 3);
+  const mh = m.map((x, i) => `<div class="match ${i === 0 ? 'top1' : ''}"><span class="id">#${x.id}</span> ${esc(x.titulo)}${x.comp ? ' <span class="sc">· ' + esc(x.comp) + '</span>' : ''} <span class="sc">· ${x.parts == null ? '' : x.parts + ' partes · '}${x.drive === false ? 'sin Drive · ' : ''}coincidencia ${Math.round(x.score * 100)}%</span></div>`).join('');
+  const notes = (r.compl !== 'completa' && r.complWhy ? [`Excluida por defecto: ${r.complWhy}`] : []).concat(r.notes || []).map((n) => `<div class="note">• ${esc(n)}</div>`).join('');
+  const folded = (r.folded && r.folded.length) ? `<details><summary>Incluye ${r.folded.length} subcarpeta(s)/PDF(s)</summary><ul>${r.folded.slice(0, 40).map((f) => `<li>${esc(f)}</li>`).join('')}</ul></details>` : '';
+  const sample = (r.sample && r.sample.length) ? `<details><summary>Muestra de archivos</summary><ul>${r.sample.map((f) => `<li>${esc(f)}</li>`).join('')}</ul></details>` : '';
+  const extra = r.dupStrong ? '<span class="badge b-dup">posible duplicado fuerte</span>' : '';
+  return `<section class="row s-${CLS[r.status]} ${on ? '' : 'off'}" data-key="${r.key}">
+    <input type="checkbox" ${on ? 'checked' : ''} data-chk="${r.key}" title="Cargar esta obra">
+    <div>
+      <div class="top">
+        <span class="badge ${BCLS[r.status]}">${esc(r.status)}</span> ${complBadge(r)} ${extra}
+        <span class="rel"><span class="dir">${esc(dir ? dir + ' \\ ' : '')}</span>${esc(leaf)}</span>
+        <a href="${esc(fileUrl(r.path))}" target="_blank" rel="noopener" title="${esc(r.path)}">abrir</a>
+      </div>
+      <div class="meta">${sizeTxt(r)}${r.comp ? ` <span class="chip">compositor detectado: ${esc(r.comp.apellido)}</span>` : ''}</div>
+      <div class="sug"><label>Nombre canónico:</label><input type="text" value="${esc(nameOf(r))}" data-name="${r.key}"></div>
+      ${mh}${notes}${folded}${sample}
+    </div>
+  </section>`;
+}
+function render() {
+  const vis = visible();
+  $('#list').innerHTML = vis.length ? vis.map(rowHtml).join('') : '<div class="empty">No hay filas para este filtro.</div>';
+  const total = ROWS.length, on = ROWS.filter(isOn).length;
+  const cnt = {}; ROWS.forEach((r) => { cnt[r.status] = (cnt[r.status] || 0) + 1; });
+  const cntOn = {}; ROWS.filter(isOn).forEach((r) => { cntOn[r.status] = (cntOn[r.status] || 0) + 1; });
+  const nComp = ROWS.filter((r) => r.compl === 'completa').length;
+  const incOn = ROWS.filter((r) => r.compl !== 'completa' && isOn(r)).length;
+  $('#stats').innerHTML = `<b>${on}</b> marcadas para cargar de ${total} · completas <b>${nComp}</b> / incompletas o desconocidas <b>${total - nComp}</b>${incOn ? ` (<span style="color:#ffb3ad">${incOn} incompletas marcadas a mano</span>)` : ''} · ` + STATUS_ORDER.filter((s) => cnt[s]).map((s) => `${s}: ${cntOn[s] || 0}/${cnt[s]}`).join(' · ') + ` · mostrando ${vis.length}`;
+  $('#filters').innerHTML = ['todos', ...STATUS_ORDER.filter((s) => cnt[s])].map((s) => `<button data-f="${s}" class="${fStatus === s ? 'on' : ''}">${s === 'todos' ? 'Todos' : s} ${s === 'todos' ? '' : '(' + cnt[s] + ')'}</button>`).join('');
+}
+document.addEventListener('change', (e) => {
+  const t = e.target;
+  if (t.dataset.chk) {
+    saved[t.dataset.chk] = { ...(saved[t.dataset.chk] || {}), on: t.checked }; persist();
+    const row = t.closest('.row'); if (row) row.classList.toggle('off', !t.checked);
+    const y = scrollY; render(); scrollTo(0, y);
+  } else if (t.dataset.name) {
+    saved[t.dataset.name] = { ...(saved[t.dataset.name] || {}), name: t.value.trim() }; persist();
+  }
+});
+$('#filters').addEventListener('click', (e) => { if (e.target.dataset.f) { fStatus = e.target.dataset.f; render(); } });
+$('#q').addEventListener('input', (e) => { fText = e.target.value; render(); });
+$('#chk').addEventListener('change', (e) => { fChk = e.target.value; render(); });
+$('#cmp').addEventListener('change', (e) => { fCompl = e.target.value; render(); });
+$('#incOff').addEventListener('click', () => setMany(ROWS.filter((r) => r.compl !== 'completa'), false));
+const setMany = (rows, on) => { rows.forEach((r) => { saved[r.key] = { ...(saved[r.key] || {}), on }; }); persist(); render(); };
+$('#allOn').addEventListener('click', () => setMany(visible(), true));
+$('#allOff').addEventListener('click', () => setMany(visible(), false));
+$('#dupOff').addEventListener('click', () => setMany(ROWS.filter((r) => r.status === 'posible duplicado' || r.status === 'ya en BD' || r.status === 'skip' || r.dupStrong), false));
+$('#defaults').addEventListener('click', () => { if (confirm('¿Volver a las marcas por defecto? (los nombres editados se conservan)')) { for (const k in saved) delete saved[k].on; persist(); render(); } });
+document.addEventListener('keydown', (e) => { if (e.key === '/' && document.activeElement.tagName !== 'INPUT') { e.preventDefault(); $('#q').focus(); } });
+
+function buildExport() {
+  return ROWS.map((r) => {
+    const m0 = (r.matches || [])[0];
+    return {
+      key: r.key, fase: DATA.phase, tipo: r.type, ruta_relativa: r.rel, ruta_local: r.path,
+      cargar: isOn(r), estado: r.status, completitud: r.compl, tiene_score: r.hasScore, tiene_partes: r.hasParts, n_score: r.nScore, n_partes: r.nParts, motivo_incompleta: r.complWhy || '', nombre_canonico: nameOf(r), nombre_sugerido_original: r.suggested,
+      pdfs: r.pdfs, mus_sib: r.srcs || 0, audios: r.auds || 0,
+      obra_match_id: m0 ? m0.id : null, obra_match_titulo: m0 ? m0.titulo : '', obra_match_score: m0 ? m0.score : null,
+      notas: r.notes || [], subcarpetas_incluidas: r.folded || [],
+      ...(r.type === 'comprimido' ? { comprimido: r.archive } : {}),
+    };
+  });
+}
+function download(name, text, mime) {
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: mime })); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+}
+$('#expJson').addEventListener('click', () => {
+  const payload = { fuente: DATA.fuente, fase: DATA.phase, titulo_fase: DATA.title, exportado: new Date().toISOString(), decisiones: buildExport() };
+  download(`archivo_para_organizar_carga_${DATA.phase}_decisiones.json`, JSON.stringify(payload, null, 2), 'application/json');
+});
+$('#expCsv').addEventListener('click', () => {
+  const rows = buildExport();
+  const cols = ['fase','cargar','estado','completitud','n_score','n_partes','tipo','ruta_relativa','nombre_canonico','pdfs','obra_match_id','obra_match_titulo','obra_match_score'];
+  const q = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+  download(`archivo_para_organizar_carga_${DATA.phase}_decisiones.csv`, '\uFEFF' + [cols.join(','), ...rows.map((r) => cols.map((c) => q(r[c])).join(','))].join('\r\n'), 'text/csv;charset=utf-8');
+});
+$('#impJson').addEventListener('click', () => $('#impFile').click());
+$('#impFile').addEventListener('change', async (e) => {
+  const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+  try {
+    const parsed = JSON.parse((await f.text()).replace(/^\uFEFF/, ''));
+    const arr = Array.isArray(parsed) ? parsed : parsed.decisiones || [];
+    let n = 0;
+    for (const d of arr) {
+      const r = ROWS.find((x) => x.key === d.key || x.rel === d.ruta_relativa);
+      if (!r) continue;
+      saved[r.key] = { on: !!d.cargar, name: d.nombre_canonico || r.suggested }; n++;
+    }
+    persist(); render(); alert(`Importadas ${n} decisiones.`);
+  } catch (err) { alert('No se pudo leer el JSON: ' + err.message); }
+});
+$('#title').innerHTML = esc(DATA.title) + ' <small>· fase ' + esc(DATA.phase) + '</small>';
+$('#desc').textContent = DATA.desc;
+document.title = 'Cargar · ' + DATA.title;
+$('#idxLink').href = DATA.indexFile;
+render();
+</script>
+</body>
+</html>

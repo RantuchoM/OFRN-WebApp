@@ -68,6 +68,8 @@ import {
 } from "../../utils/paraAcomodarDrive";
 import { normalizeObraAudios } from "../../utils/repertoireAudioTracks";
 import WorkProgramHistoryModal from "../../components/repertoire/WorkProgramHistoryModal";
+import ObraEnProgramasChip from "../../components/repertoire/ObraEnProgramasChip";
+import { fetchObraProgramPresence } from "../../services/obraProgramHistoryService";
 import {
   formatObraProgramDriveSyncToast,
   syncObraAssignedProgramsDrive,
@@ -532,9 +534,11 @@ export default function WorkForm({
     observaciones: "idle",
   });
   const [duplicateWorks, setDuplicateWorks] = useState([]);
+  const [duplicatePresenceById, setDuplicatePresenceById] = useState(() => new Map());
   const [checkingDuplicates, setCheckingDuplicates] = useState(false);
   const [titleFieldFocused, setTitleFieldFocused] = useState(false);
   const [duplicateSuggestionsDismissed, setDuplicateSuggestionsDismissed] = useState(false);
+  const [historyPeekWork, setHistoryPeekWork] = useState(null);
   const titleDropdownRef = useRef(null);
   const titleMenuRef = useRef(null);
   const [titleMenuStyle, setTitleMenuStyle] = useState(null);
@@ -868,6 +872,7 @@ export default function WorkForm({
       const search = cleanTitle.trim();
       if (!search || search.length <= 3 || !composerIds?.length) {
         setDuplicateWorks([]);
+        setDuplicatePresenceById(new Map());
         setCheckingDuplicates(false);
         return;
       }
@@ -892,6 +897,7 @@ export default function WorkForm({
         if (error) {
           console.warn("Error buscando duplicados de obras:", error);
           setDuplicateWorks([]);
+          setDuplicatePresenceById(new Map());
           return;
         }
         const searchNorm = normalizeForSearch(search);
@@ -905,9 +911,21 @@ export default function WorkForm({
           return na.localeCompare(nb, "es", { sensitivity: "base" });
         });
         setDuplicateWorks(sorted);
+        const presenceIds = sorted.map((w) => w.id).filter(Boolean);
+        if (presenceIds.length > 0) {
+          fetchObraProgramPresence(supabase, presenceIds)
+            .then((presenceMap) => setDuplicatePresenceById(presenceMap))
+            .catch((err) => {
+              console.warn("WorkForm: program presence", err);
+              setDuplicatePresenceById(new Map());
+            });
+        } else {
+          setDuplicatePresenceById(new Map());
+        }
       } catch (e) {
         console.warn("checkDuplicateWorks:", e);
         setDuplicateWorks([]);
+        setDuplicatePresenceById(new Map());
       } finally {
         setCheckingDuplicates(false);
       }
@@ -2042,6 +2060,14 @@ export default function WorkForm({
     );
   }, [formData.link_drive]);
 
+  const copyObraId = useCallback(() => {
+    if (formData.id == null || formData.id === "") return;
+    navigator.clipboard.writeText(String(formData.id)).then(
+      () => toast.success(`ID ${formData.id} copiado`),
+      () => toast.error("No se pudo copiar"),
+    );
+  }, [formData.id]);
+
   const openDriveInBrowser = useCallback(() => {
     const u = (formData.link_drive || "").trim();
     if (!u) {
@@ -2600,6 +2626,18 @@ export default function WorkForm({
                                 {obra.instrumentacion}
                               </span>
                             )}
+                            <div className="mt-1">
+                              <ObraEnProgramasChip
+                                presence={duplicatePresenceById.get(Number(obra.id))}
+                                size="xs"
+                                onOpenHistory={() =>
+                                  setHistoryPeekWork({
+                                    id: obra.id,
+                                    titulo: obra.titulo,
+                                  })
+                                }
+                              />
+                            </div>
                           </div>
                           <div className="mt-2 flex flex-wrap gap-1.5">
                             {isProgramContext ? (
@@ -3210,8 +3248,17 @@ export default function WorkForm({
             </button>
           </>
         ) : (
-          <div className="flex-1 flex justify-center items-center text-xs text-slate-400 italic font-medium">
-            Cambios guardados automáticamente
+          <div className="flex-1 flex flex-col justify-center items-center gap-0.5 text-xs text-slate-400 font-medium">
+            <span className="italic">Cambios guardados automáticamente</span>
+            <button
+              type="button"
+              onClick={copyObraId}
+              title="Copiar ID de la obra"
+              className="inline-flex items-center gap-1 rounded px-1 font-mono text-[11px] text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-colors"
+            >
+              <span className="select-all">ID: {formData.id}</span>
+              <IconCopy size={11} className="shrink-0 opacity-60" />
+            </button>
           </div>
         )}
       </div>
@@ -3236,6 +3283,16 @@ export default function WorkForm({
           isEditor={isEditor || isAdmin}
           overlayClassName="z-[10050]"
           onNavigate={onCancel}
+        />
+      )}
+
+      {historyPeekWork?.id && (
+        <WorkProgramHistoryModal
+          work={historyPeekWork}
+          onClose={() => setHistoryPeekWork(null)}
+          supabase={supabase}
+          isEditor={isEditor || isAdmin}
+          overlayClassName="z-[10050]"
         />
       )}
 

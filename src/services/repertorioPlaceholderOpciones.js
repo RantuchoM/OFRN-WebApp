@@ -193,7 +193,7 @@ export async function fetchDirectRepertorioAssignmentsForObra(supabase, obraId) 
       programas_repertorios (
         id,
         nombre,
-        programas ( id, nombre_gira, mes_letra, nomenclador, fecha_desde, tipo )
+        programas ( id, nombre_gira, mes_letra, nomenclador, fecha_desde, fecha_hasta, tipo )
       )
     `,
     )

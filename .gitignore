@@ -28,3 +28,6 @@ backups/
 # Scratch local (SVG experiments, OpenClipart downloads, one-off seeds)
 temp_*
 temp_freesvg/
+__pycache__/
+*.pyc
+supabase/.temp/

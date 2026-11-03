@@ -1,7 +1,5 @@
 import React, { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { format } from "date-fns";
-import { es } from "date-fns/locale";
 import {
   IconCalendar,
   IconExternalLink,
@@ -15,6 +13,13 @@ import {
   fetchPlaceholderOpcionesForObra,
   fetchProgramIdsWithPlaceholders,
 } from "../../services/repertorioPlaceholderOpciones";
+import {
+  emptyConvocatoria,
+  fetchConvocatoriaByProgramIds,
+  fetchLegacyAssignmentsForObra,
+  parseLegacyConvocatoria,
+} from "../../services/obraProgramHistoryService";
+import LegacyTag from "./LegacyTag";
 
 function stripHtml(html) {
   return (html || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim();
@@ -30,8 +35,93 @@ function isModifiedNavClick(event) {
   );
 }
 
+const MES_CORTO = [
+  "ene",
+  "feb",
+  "mar",
+  "abr",
+  "may",
+  "jun",
+  "jul",
+  "ago",
+  "sep",
+  "oct",
+  "nov",
+  "dic",
+];
+
+/** Parsea `YYYY-MM-DD` (o Date) a partes locales sin corrimiento UTC. */
+function parseDateParts(value) {
+  if (!value) return null;
+  if (typeof value === "string") {
+    const m = value.trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) {
+      return {
+        y: Number(m[1]),
+        mo: Number(m[2]),
+        d: Number(m[3]),
+      };
+    }
+  }
+  try {
+    const dt = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(dt.getTime())) return null;
+    return {
+      y: dt.getFullYear(),
+      mo: dt.getMonth() + 1,
+      d: dt.getDate(),
+    };
+  } catch {
+    return null;
+  }
+}
+
 /**
- * Historial de programas/giras donde la obra está asignada (`repertorio_obras`).
+ * Rango de gira: `19-22/feb/2025` (mismo mes), `19/feb/2025` (un día),
+ * `30/jul-3/ago/2025` si cruza mes.
+ */
+function formatFechaRangoPrograma(fechaDesde, fechaHasta) {
+  const desde = parseDateParts(fechaDesde);
+  if (!desde) return null;
+  const hasta = parseDateParts(fechaHasta) || desde;
+  const mesDesde = MES_CORTO[desde.mo - 1] || String(desde.mo);
+  const mesHasta = MES_CORTO[hasta.mo - 1] || String(hasta.mo);
+
+  if (desde.y === hasta.y && desde.mo === hasta.mo) {
+    if (desde.d === hasta.d) {
+      return `${desde.d}/${mesDesde}/${desde.y}`;
+    }
+    return `${desde.d}-${hasta.d}/${mesDesde}/${desde.y}`;
+  }
+  if (desde.y === hasta.y) {
+    return `${desde.d}/${mesDesde}-${hasta.d}/${mesHasta}/${desde.y}`;
+  }
+  return `${desde.d}/${mesDesde}/${desde.y}-${hasta.d}/${mesHasta}/${hasta.y}`;
+}
+
+/** Fila etiquetada de chips (ensambles, familias o excluidos de la convocatoria). */
+function ConvocatoriaChips({ label, names, chipClassName }) {
+  if (!names?.length) return null;
+  return (
+    <div className="text-[10px] text-slate-600 mt-1 flex flex-wrap items-center gap-1">
+      <span className="text-[9px] font-bold uppercase text-slate-400">
+        {label}:
+      </span>
+      {names.map((name) => (
+        <span
+          key={name}
+          className={`inline-flex px-1.5 py-0.5 rounded border ${chipClassName}`}
+        >
+          {name}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Historial de programas/giras donde la obra está asignada
+ * (`repertorio_obras` + `obras_repertorios_legacy`).
  * Portal a document.body. Overlay por encima de WorkForm (`z-[9999]`) con `z-[10050]`.
  */
 export default function WorkProgramHistoryModal({
@@ -54,37 +144,75 @@ export default function WorkProgramHistoryModal({
       if (!work?.id) return;
       setLoading(true);
       try {
-        const [rows, opciones] = await Promise.all([
+        const [rows, opciones, legacyRows] = await Promise.all([
           fetchDirectRepertorioAssignmentsForObra(supabase, work.id),
           isEditor
             ? fetchPlaceholderOpcionesForObra(supabase, work.id)
             : Promise.resolve([]),
+          fetchLegacyAssignmentsForObra(supabase, work.id),
         ]);
-        const historyData = (rows || [])
+
+        const liveHistory = (rows || [])
           .map((item) => ({
+            key: `live-${item.id}`,
+            source: "live",
             id: item.id,
             bloque: item.programas_repertorios?.nombre,
             gira: item.programas_repertorios?.programas,
+            convocatoria: emptyConvocatoria(),
           }))
           .filter((h) => h.gira);
-        historyData.sort(
-          (a, b) =>
-            new Date(b.gira.fecha_desde || 0) - new Date(a.gira.fecha_desde || 0),
-        );
-        setHistory(historyData);
-        setOpcionesSlots(opciones || []);
 
         const programIds = [
           ...new Set(
             [
-              ...historyData.map((h) => h.gira?.id),
+              ...liveHistory.map((h) => h.gira?.id),
               ...(opciones || []).map(
                 (o) => o.repertorio_obras?.programas_repertorios?.programas?.id,
               ),
             ].filter(Boolean),
           ),
         ];
-        const withPh = await fetchProgramIdsWithPlaceholders(supabase, programIds);
+
+        const [withPh, convocatoriaByProgram] = await Promise.all([
+          fetchProgramIdsWithPlaceholders(supabase, programIds),
+          fetchConvocatoriaByProgramIds(supabase, programIds),
+        ]);
+
+        for (const item of liveHistory) {
+          const pid = Number(item.gira?.id);
+          item.convocatoria = convocatoriaByProgram.get(pid) || emptyConvocatoria();
+        }
+
+        const legacyHistory = (legacyRows || []).map((row) => ({
+          key: `legacy-${row.id}`,
+          source: "legacy",
+          id: row.id,
+          bloque: null,
+          gira: {
+            id: null,
+            nombre_gira: row.nombre_gira,
+            mes_letra: row.mes_letra,
+            nomenclador: row.nomenclador,
+            fecha_desde: row.fecha_desde,
+            fecha_hasta: row.fecha_hasta,
+            tipo: row.tipo,
+            zona: row.zona,
+          },
+          // Texto libre: mezcla ensambles (PILTRI) y familias (Cuerdas) → separar.
+          convocatoria: parseLegacyConvocatoria(row.ensambles),
+          fuente: row.fuente,
+        }));
+
+        const historyData = [...liveHistory, ...legacyHistory];
+        historyData.sort(
+          (a, b) =>
+            new Date(b.gira?.fecha_desde || 0) -
+            new Date(a.gira?.fecha_desde || 0),
+        );
+
+        setHistory(historyData);
+        setOpcionesSlots(opciones || []);
         setProgramsWithPlaceholders(withPh);
       } catch (err) {
         console.error("Error history:", err);
@@ -194,58 +322,94 @@ export default function WorkProgramHistoryModal({
                   })}
                 </div>
               )}
-              {history.map((item) => (
-                <div
-                  key={item.id}
-                  className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm flex justify-between items-center gap-3 hover:border-indigo-200 hover:bg-indigo-50/30 transition-colors group"
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="text-[10px] font-bold text-indigo-700 uppercase mb-0.5 flex flex-wrap items-center gap-1">
-                      <span>
-                        {item.gira.nomenclador} · {item.gira.mes_letra}
-                        {item.gira.tipo && (
-                          <span className="text-slate-500 font-medium ml-1">
-                            · {item.gira.tipo}
-                          </span>
-                        )}
-                      </span>
-                      {programsWithPlaceholders.has(item.gira.id) && (
-                        <span className="inline-flex items-center text-[8px] bg-violet-100 text-violet-800 px-1.5 py-0.5 rounded border border-violet-200 font-semibold normal-case tracking-normal">
-                          Tiene slots a definir
+              {history.map((item) => {
+                const isLegacy = item.source === "legacy";
+                const fechaLabel = formatFechaRangoPrograma(
+                  item.gira?.fecha_desde,
+                  item.gira?.fecha_hasta,
+                );
+                return (
+                  <div
+                    key={item.key}
+                    className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm flex justify-between items-center gap-3 hover:border-indigo-200 hover:bg-indigo-50/30 transition-colors group"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[10px] font-bold text-indigo-700 uppercase mb-0.5 flex flex-wrap items-center gap-1">
+                        <span>
+                          {[item.gira?.nomenclador, item.gira?.mes_letra]
+                            .filter(Boolean)
+                            .join(" · ")}
+                          {item.gira?.tipo && (
+                            <span className="text-slate-500 font-medium ml-1">
+                              · {item.gira.tipo}
+                            </span>
+                          )}
                         </span>
+                        {isLegacy && <LegacyTag size="xs" />}
+                        {!isLegacy &&
+                          programsWithPlaceholders.has(item.gira.id) && (
+                            <span className="inline-flex items-center text-[8px] bg-violet-100 text-violet-800 px-1.5 py-0.5 rounded border border-violet-200 font-semibold normal-case tracking-normal">
+                              Tiene slots a definir
+                            </span>
+                          )}
+                      </div>
+                      <div className="text-sm font-bold text-slate-800">
+                        {item.gira.nombre_gira}
+                      </div>
+                      {item.gira?.zona ? (
+                        <div className="text-[10px] text-slate-500 mt-0.5">
+                          Zona: {item.gira.zona}
+                        </div>
+                      ) : null}
+                      <ConvocatoriaChips
+                        label="Ensambles"
+                        names={item.convocatoria?.ensambles}
+                        chipClassName="bg-emerald-50 text-emerald-800 border-emerald-100"
+                      />
+                      <ConvocatoriaChips
+                        label="Familias"
+                        names={item.convocatoria?.familias}
+                        chipClassName="bg-sky-50 text-sky-800 border-sky-100"
+                      />
+                      <ConvocatoriaChips
+                        label="Excluidos"
+                        names={item.convocatoria?.excluidos}
+                        chipClassName="bg-slate-100 text-slate-500 border-slate-200 line-through"
+                      />
+
+                      {item.bloque && (
+                        <div className="text-[10px] text-slate-500 mt-1 bg-slate-50 inline-block px-1.5 rounded border border-slate-100">
+                          Bloque: {item.bloque}
+                        </div>
+                      )}
+                      {isLegacy && item.fuente ? (
+                        <div className="text-[9px] text-slate-400 mt-1 italic">
+                          Fuente: {item.fuente}
+                        </div>
+                      ) : null}
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {fechaLabel && (
+                        <div className="text-xs text-slate-500 bg-slate-100 px-2 py-1 rounded flex items-center gap-1">
+                          <IconCalendar size={12} /> {fechaLabel}
+                        </div>
+                      )}
+                      {!isLegacy && item.gira?.id != null && (
+                        <AppNavLink
+                          mode="GIRAS"
+                          view="REPERTOIRE"
+                          giraId={item.gira.id}
+                          onClick={handleGoClick}
+                          className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-bold text-indigo-600 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 opacity-80 group-hover:opacity-100 transition-opacity"
+                          title="Ir al repertorio de esta gira"
+                        >
+                          <IconExternalLink size={12} /> Ir
+                        </AppNavLink>
                       )}
                     </div>
-                    <div className="text-sm font-bold text-slate-800">
-                      {item.gira.nombre_gira}
-                    </div>
-                    {item.bloque && (
-                      <div className="text-[10px] text-slate-500 mt-1 bg-slate-50 inline-block px-1.5 rounded border border-slate-100">
-                        Bloque: {item.bloque}
-                      </div>
-                    )}
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    {item.gira.fecha_desde && (
-                      <div className="text-xs text-slate-500 bg-slate-100 px-2 py-1 rounded flex items-center gap-1">
-                        <IconCalendar size={12} />{" "}
-                        {format(new Date(item.gira.fecha_desde), "MMM yy", {
-                          locale: es,
-                        })}
-                      </div>
-                    )}
-                    <AppNavLink
-                      mode="GIRAS"
-                      view="REPERTOIRE"
-                      giraId={item.gira.id}
-                      onClick={handleGoClick}
-                      className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-bold text-indigo-600 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 opacity-80 group-hover:opacity-100 transition-opacity"
-                      title="Ir al repertorio de esta gira"
-                    >
-                      <IconExternalLink size={12} /> Ir
-                    </AppNavLink>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

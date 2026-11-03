@@ -50,6 +50,12 @@ import {
   clearRepertoireSelection,
 } from "../../utils/repertoireSelectionStorage";
 import { formatProgramaVigenteLine } from "../../utils/repertoireProgramaFormat";
+import LegacyTag from "../../components/repertoire/LegacyTag";
+import ObraEnProgramasChip from "../../components/repertoire/ObraEnProgramasChip";
+import {
+  fetchObraProgramPresence,
+  obraHasProgramHistory,
+} from "../../services/obraProgramHistoryService";
 import YaProgramadoExportModal from "../../components/repertoire/YaProgramadoExportModal";
 import { useAuth } from "../../context/AuthContext";
 import AssignProgramModal from "../../components/repertoire/AssignProgramModal";
@@ -488,6 +494,9 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
   const [showComposersManager, setShowComposersManager] = useState(false);
   const [showTagsManager, setShowTagsManager] = useState(false);
   const [historyWork, setHistoryWork] = useState(null);
+  // «En n programas más»: conteo de programas/giras distintos (mismo batch que el picker).
+  const [programPresenceById, setProgramPresenceById] = useState(() => new Map());
+  const presenceRequestedRef = useRef(new Set());
   const [assignWork, setAssignWork] = useState(null);
   const [showInstrFilter, setShowInstrFilter] = useState(false);
   const [showMobileInstrFilter, setShowMobileInstrFilter] = useState(false);
@@ -708,6 +717,16 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
           tipo
         )
       )
+    ),
+    obras_repertorios_legacy (
+      id,
+      nombre_gira,
+      nomenclador,
+      mes_letra,
+      fecha_desde,
+      fecha_hasta,
+      tipo,
+      zona
     )
   `;
 
@@ -789,28 +808,55 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
         vigentesById.set(prog.id, {
           id: prog.id,
           fecha_desde: prog.fecha_desde,
+          fecha_hasta: prog.fecha_hasta || null,
           nomenclador: prog.nomenclador || "",
           nombre_gira: prog.nombre_gira || "",
           tipo: prog.tipo || "",
+          es_legacy: false,
         });
       }
       const startDate = parseISO(prog.fecha_desde);
+      if (Number.isNaN(startDate.getTime())) return;
       if (isBefore(startDate, today)) {
         if (!lastPastProgramStart || isBefore(lastPastProgramStart, startDate)) {
-          lastPastProgram = prog;
+          lastPastProgram = { ...prog, es_legacy: false };
           lastPastProgramStart = startDate;
         }
         return;
       }
       if (!nextProgramStart || isBefore(startDate, nextProgramStart)) {
-        nextProgram = prog;
+        nextProgram = { ...prog, es_legacy: false };
         nextProgramStart = startDate;
       }
     });
+
+    const legacyPrograms = (w.obras_repertorios_legacy || [])
+      .filter((row) => row?.fecha_desde)
+      .map((row) => ({
+        id: `legacy-${row.id}`,
+        fecha_desde: row.fecha_desde,
+        fecha_hasta: row.fecha_hasta || null,
+        nomenclador: row.nomenclador || row.mes_letra || "",
+        nombre_gira: row.nombre_gira || "",
+        tipo: row.tipo || "",
+        es_legacy: true,
+      }));
+
+    // Legacy solo aporta a «Última» (no hay futura real).
+    legacyPrograms.forEach((prog) => {
+      const startDate = parseISO(prog.fecha_desde);
+      if (Number.isNaN(startDate.getTime())) return;
+      if (!lastPastProgramStart || isBefore(lastPastProgramStart, startDate)) {
+        lastPastProgram = prog;
+        lastPastProgramStart = startDate;
+      }
+    });
+
     const displayProgram = nextProgram || lastPastProgram;
     const proximaGiraEsPasada = !nextProgram && !!lastPastProgram;
-    const programas_vigentes = Array.from(vigentesById.values()).sort((a, b) =>
-      (a.fecha_desde || "").localeCompare(b.fecha_desde || ""),
+    const programas_vigentes = Array.from(vigentesById.values());
+    const programas_ya_programado = [...programas_vigentes, ...legacyPrograms].sort(
+      (a, b) => (a.fecha_desde || "").localeCompare(b.fecha_desde || ""),
     );
     return {
       ...w,
@@ -845,14 +891,27 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
       proxima_gira_fecha_desde: displayProgram?.fecha_desde || null,
       proxima_gira_fecha_hasta: displayProgram?.fecha_hasta || null,
       proxima_gira_es_pasada: proximaGiraEsPasada,
-      programas_vigentes,
-      ya_programado: programas_vigentes.length > 0,
-      primer_programa_fecha_desde: programas_vigentes[0]?.fecha_desde || null,
+      proxima_gira_es_legacy: !!(proximaGiraEsPasada && displayProgram?.es_legacy),
+      // Lista del filtro/columna «Ya programado»: vigentes vivos + legacy.
+      programas_vigentes: programas_ya_programado,
+      ya_programado: programas_ya_programado.length > 0,
+      primer_programa_fecha_desde: programas_ya_programado[0]?.fecha_desde || null,
     };
+  };
+
+  const invalidateProgramPresence = (id) => {
+    presenceRequestedRef.current.delete(Number(id));
+    setProgramPresenceById((prev) => {
+      if (!prev.has(Number(id))) return prev;
+      const next = new Map(prev);
+      next.delete(Number(id));
+      return next;
+    });
   };
 
   const upsertWorkLocally = (rawWork) => {
     const processedWork = processWork(rawWork);
+    invalidateProgramPresence(processedWork.id);
     setWorks((prev) => {
       const existingIndex = prev.findIndex((w) => w.id === processedWork.id);
       const next =
@@ -906,6 +965,8 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
         offset += CHUNK;
       }
 
+      presenceRequestedRef.current = new Set();
+      setProgramPresenceById(new Map());
       setWorks(allData.map(processWork));
     } catch (err) {
       console.error("Error fetching works:", err);
@@ -1094,6 +1155,29 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
     const start = (currentPage - 1) * pageSize;
     return allFilteredWorks.slice(start, start + pageSize);
   }, [allFilteredWorks, currentPage, pageSize]);
+
+  // Presencia (programas vivos + giras legacy distintos) solo para las obras visibles.
+  useEffect(() => {
+    const missing = paginatedWorks
+      .map((w) => Number(w.id))
+      .filter(
+        (id) => Number.isFinite(id) && id > 0 && !presenceRequestedRef.current.has(id),
+      );
+    if (missing.length === 0) return;
+    missing.forEach((id) => presenceRequestedRef.current.add(id));
+    fetchObraProgramPresence(supabase, missing)
+      .then((presenceMap) => {
+        setProgramPresenceById((prev) => {
+          const next = new Map(prev);
+          for (const [id, value] of presenceMap) next.set(id, value);
+          return next;
+        });
+      })
+      .catch((err) => {
+        missing.forEach((id) => presenceRequestedRef.current.delete(id));
+        console.warn("RepertoireView: program presence", err);
+      });
+  }, [paginatedWorks, supabase]);
 
   const getGridTemplate = () => {
     let cols = canEdit ? "36px " : "";
@@ -1411,7 +1495,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                 ? "bg-indigo-50 border-indigo-300 text-indigo-800"
                 : "bg-white border-slate-300 text-slate-600 hover:bg-slate-50"
             }`}
-            title="Mostrar obras asociadas a giras vigentes"
+            title="Mostrar obras con programa vigente o historial legacy"
           >
             Ya programado
           </button>
@@ -1420,10 +1504,11 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
               type="button"
               onClick={() => setShowYaProgramadoExportModal(true)}
               className="hidden md:inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded border border-indigo-300 bg-indigo-600 text-white hover:bg-indigo-700"
-              title="Descargar tabla filtrada (Excel o PDF)"
+              title="Exportar el filtro «Ya programado» (Excel o PDF)"
+              aria-label="Descargar obras ya programadas"
             >
               <IconDownload size={14} />
-              Descargar
+              Descargar programadas
             </button>
           )}
           {legacyOficialSinDriveCount > 0 && (
@@ -1730,8 +1815,12 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                           <div className="text-[11px] text-left text-slate-700 leading-snug space-y-0.5">
                             {(work.programas_vigentes || []).length > 0 ? (
                               work.programas_vigentes.map((prog) => (
-                                <div key={prog.id} className="break-words">
-                                  {formatProgramaVigenteLine(prog)}
+                                <div
+                                  key={prog.id}
+                                  className="break-words flex flex-wrap items-center gap-1"
+                                >
+                                  <span>{formatProgramaVigenteLine(prog)}</span>
+                                  {prog.es_legacy ? <LegacyTag size="xs" /> : null}
                                 </div>
                               ))
                             ) : (
@@ -1745,8 +1834,13 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                             {work.proxima_gira_nombre ? (
                               <div className="leading-tight">
                                 {work.proxima_gira_es_pasada && (
-                                  <div className="text-[9px] font-bold uppercase text-slate-400 mb-0.5">
-                                    Última
+                                  <div className="mb-0.5 flex flex-wrap items-center justify-center gap-1">
+                                    <span className="text-[9px] font-bold uppercase text-slate-400">
+                                      Última
+                                    </span>
+                                    {work.proxima_gira_es_legacy ? (
+                                      <LegacyTag size="xs" />
+                                    ) : null}
                                   </div>
                                 )}
                                 <div className="truncate">
@@ -1766,9 +1860,17 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                                   </div>
                                 )}
                               </div>
-                            ) : (
+                            ) : !obraHasProgramHistory(
+                                programPresenceById.get(Number(work.id)),
+                              ) ? (
                               <span className="text-slate-300">-</span>
-                            )}
+                            ) : null}
+                            <ObraEnProgramasChip
+                              presence={programPresenceById.get(Number(work.id))}
+                              onOpenHistory={() => setHistoryWork(work)}
+                              size="xs"
+                              className="mt-0.5"
+                            />
                           </div>
                         )
                       )}
@@ -2191,7 +2293,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                             ? "border-indigo-300 bg-indigo-50 text-indigo-800"
                             : "border-slate-200 bg-white text-slate-600"
                         }`}
-                        title="Mostrar obras asociadas a giras vigentes"
+                        title="Mostrar obras con programa vigente o historial legacy"
                       >
                         Ya programado
                       </button>
@@ -2200,9 +2302,10 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                           type="button"
                           onClick={() => setShowYaProgramadoExportModal(true)}
                           className="h-8 shrink-0 rounded-lg border border-indigo-300 bg-indigo-600 px-2 text-[10px] font-bold text-white"
-                          title="Descargar Excel o PDF"
+                          title="Exportar el filtro «Ya programado» (Excel o PDF)"
+                          aria-label="Descargar obras ya programadas"
                         >
-                          Descargar
+                          Descargar programadas
                         </button>
                       )}
                     </div>
@@ -2319,18 +2422,40 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                               ? (work.programas_vigentes || []).length > 0 && (
                                   <div className="w-full basis-full space-y-0.5 rounded border border-indigo-100 bg-indigo-50 px-1.5 py-1 text-[10px] font-medium leading-snug text-indigo-800">
                                     {work.programas_vigentes.map((prog) => (
-                                      <div key={prog.id} className="break-words">
-                                        {formatProgramaVigenteLine(prog)}
+                                      <div
+                                        key={prog.id}
+                                        className="break-words flex flex-wrap items-center gap-1"
+                                      >
+                                        <span>{formatProgramaVigenteLine(prog)}</span>
+                                        {prog.es_legacy ? (
+                                          <LegacyTag size="xs" />
+                                        ) : null}
                                       </div>
                                     ))}
                                   </div>
                                 )
                               : work.proxima_gira_nombre && (
-                                  <span className="max-w-[10rem] truncate rounded border border-indigo-100 bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700">
-                                    {work.proxima_gira_es_pasada ? "Últ. " : ""}
-                                    {work.proxima_gira_nombre}
+                                  <span className="inline-flex max-w-full items-center gap-1 rounded border border-indigo-100 bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700">
+                                    {work.proxima_gira_es_pasada ? (
+                                      <span className="shrink-0 text-indigo-500">
+                                        Últ.
+                                      </span>
+                                    ) : null}
+                                    {work.proxima_gira_es_legacy ? (
+                                      <LegacyTag size="xs" />
+                                    ) : null}
+                                    <span className="min-w-0 truncate">
+                                      {work.proxima_gira_nombre}
+                                    </span>
                                   </span>
                                 )}
+                            {!showYaProgramado && (
+                              <ObraEnProgramasChip
+                                presence={programPresenceById.get(Number(work.id))}
+                                onOpenHistory={() => setHistoryWork(work)}
+                                size="xs"
+                              />
+                            )}
                           </div>
 
                           {work.tags_objects?.length > 0 && (

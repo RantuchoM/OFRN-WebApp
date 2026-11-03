@@ -33,6 +33,9 @@ import {
   getObraEstadoMobileCardStyles,
   getObraEstadoPickerRowClass,
 } from "../../utils/obraEstadoStyles";
+import ObraEnProgramasChip from "./ObraEnProgramasChip";
+import WorkProgramHistoryModal from "./WorkProgramHistoryModal";
+import { fetchObraProgramPresence } from "../../services/obraProgramHistoryService";
 
 const LIBRARY_PAGE_SIZE = 80;
 const COMPOSER_LOOKUP_LIMIT = 80;
@@ -212,6 +215,8 @@ export default function RepertoireWorkPickerModal({
   const [libraryHasMore, setLibraryHasMore] = useState(false);
   const [libraryError, setLibraryError] = useState(null);
   const [observacionesPreviewWork, setObservacionesPreviewWork] = useState(null);
+  const [historyWork, setHistoryWork] = useState(null);
+  const [programPresenceById, setProgramPresenceById] = useState(() => new Map());
   const [togglingId, setTogglingId] = useState(null);
   const [giraInstrHint, setGiraInstrHint] = useState(null);
   const [sortConfig, setSortConfig] = useState({
@@ -389,6 +394,22 @@ export default function RepertoireWorkPickerModal({
             mapped.length === LIBRARY_PAGE_SIZE,
         );
         setLoadingLibrary(false);
+        const presenceIds = mapped.map((w) => w.id).filter(Boolean);
+        if (presenceIds.length > 0) {
+          fetchObraProgramPresence(supabase, presenceIds)
+            .then((presenceMap) => {
+              setProgramPresenceById((prev) => {
+                const next = append ? new Map(prev) : new Map();
+                for (const [id, value] of presenceMap) next.set(id, value);
+                return next;
+              });
+            })
+            .catch((err) => {
+              console.warn("RepertoireWorkPickerModal: program presence", err);
+            });
+        } else if (!append) {
+          setProgramPresenceById(new Map());
+        }
       } catch (e) {
         setLibraryError(
           e?.message || "No se pudo cargar la biblioteca.",
@@ -930,6 +951,11 @@ export default function RepertoireWorkPickerModal({
                       >
                         {instr}
                       </span>
+                      <ObraEnProgramasChip
+                        presence={programPresenceById.get(Number(w.id))}
+                        size="xs"
+                        onOpenHistory={() => setHistoryWork(w)}
+                      />
                       {w.anio_composicion ? (
                         <span className="text-[10px] text-slate-400">
                           {w.anio_composicion}
@@ -1123,6 +1149,13 @@ export default function RepertoireWorkPickerModal({
                       title={organico || undefined}
                     >
                       {organico || "—"}
+                    </div>
+                    <div className="mt-0.5">
+                      <ObraEnProgramasChip
+                        presence={programPresenceById.get(Number(w.id))}
+                        size="xs"
+                        onOpenHistory={() => setHistoryWork(w)}
+                      />
                     </div>
                   </td>
                   <td className="p-2 text-slate-500 truncate max-w-0">
@@ -1452,6 +1485,15 @@ export default function RepertoireWorkPickerModal({
             </div>
           </div>
         </div>
+      )}
+
+      {historyWork?.id && (
+        <WorkProgramHistoryModal
+          work={historyWork}
+          onClose={() => setHistoryWork(null)}
+          supabase={supabase}
+          overlayClassName="z-[10050]"
+        />
       )}
     </>,
     document.body,
