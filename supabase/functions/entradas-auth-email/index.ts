@@ -391,6 +391,10 @@ async function ensureAuthUserExists(
 /**
  * Sesión para el cliente: token_hash (frontend nuevo) + password broker (frontend actual en producción).
  * No rota la clave si ya hay auth_password_plain.
+ *
+ * El broker solo es confiable mientras GoTrue siga con esa clave.
+ * Si el usuario (o OFRN) ya definió contraseña (`password_set_at`), `auth_password_plain`
+ * puede estar desfasado: en ese caso hay que emitir `token_hash`.
  */
 function extractHashedToken(linkData: unknown): string {
   if (!linkData || typeof linkData !== "object") return "";
@@ -402,6 +406,24 @@ function extractHashedToken(linkData: unknown): string {
   return String(raw || "").trim();
 }
 
+async function isBrokerPasswordTrusted(
+  admin: AdminClient,
+  userId: string | null | undefined,
+): Promise<boolean> {
+  const id = String(userId || "").trim();
+  if (!id) return false;
+  const { data: profile, error } = await admin
+    .from("entrada_usuario")
+    .select("password_set_at")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) {
+    console.error("[entradas-auth-email] broker trust lookup:", formatError(error));
+    return false;
+  }
+  return !profile?.password_set_at;
+}
+
 async function issueSessionPayload(
   admin: AdminClient,
   email: string,
@@ -411,21 +433,25 @@ async function issueSessionPayload(
     skipOfrnBootstrap: opts.skipOfrnBootstrap,
   });
   let broker = String(ensured?.auth_password_plain || "").trim();
+  let userId = ensured?.userId || null;
+  let brokerTrusted = broker ? await isBrokerPasswordTrusted(admin, userId) : false;
 
-  // Sacar entradas: si ya hay broker, evitamos generateLink (GoTrue lento).
-  if (opts.preferBrokerPassword && broker) {
+  // Sacar entradas: broker rápido solo si todavía coincide con GoTrue.
+  if (opts.preferBrokerPassword && broker && brokerTrusted) {
     return { email, password: broker };
   }
 
   if (!broker) {
     const { data: mapped, error: mappedErr } = await admin
       .from("entrada_auth_email_user")
-      .select("auth_password_plain")
+      .select("user_id, auth_password_plain")
       .eq("email", email)
       .maybeSingle();
     throwDbError(mappedErr, "entrada_auth_email_user");
     broker = String(mapped?.auth_password_plain || "").trim();
-    if (opts.preferBrokerPassword && broker) {
+    userId = mapped?.user_id || userId;
+    brokerTrusted = broker ? await isBrokerPasswordTrusted(admin, userId) : false;
+    if (opts.preferBrokerPassword && broker && brokerTrusted) {
       return { email, password: broker };
     }
   }
@@ -439,12 +465,30 @@ async function issueSessionPayload(
   }
   const tokenHash = extractHashedToken(linkData);
 
-  if (tokenHash || broker) {
+  if (tokenHash) {
     return {
       email,
-      ...(tokenHash ? { token_hash: tokenHash } : {}),
-      ...(broker ? { password: broker } : {}),
+      token_hash: tokenHash,
+      ...(brokerTrusted && broker ? { password: broker } : {}),
     };
+  }
+  if (broker && brokerTrusted) {
+    return { email, password: broker };
+  }
+
+  // Sin token_hash y con broker desfasado: no reutilizar plain viejo ni rotar GoTrue
+  // (completeEmailAuth pisaría la contraseña propia/OFRN). Limpiar y fallar limpio.
+  if (broker && !brokerTrusted) {
+    const { error: clearErr } = await admin
+      .from("entrada_auth_email_user")
+      .update({ auth_password_plain: null })
+      .eq("email", email);
+    if (clearErr) {
+      console.error("[entradas-auth-email] clear stale broker:", formatError(clearErr));
+    }
+    throw new Error(
+      "No se pudo abrir la sesión con ese mail. Probá de nuevo o entrá por Gestionar mis entradas.",
+    );
   }
 
   return completeEmailAuth(admin, email);

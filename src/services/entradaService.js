@@ -612,7 +612,11 @@ async function signInAfterEntradasAuthPayload(data, app = "entradas") {
     });
     if (!signInError) return data;
     if (!fields.token_hash) {
-      throw new Error(formatEntradasAuthError(signInError, { action: "password" }));
+      // El usuario no tecleó contraseña: no mostrar «mail o contraseña incorrectos».
+      throw new Error(
+        formatEntradasAuthError(signInError, { action: "verify" })
+          || "No se pudo abrir la sesión con ese mail. Intentá de nuevo.",
+      );
     }
   }
 

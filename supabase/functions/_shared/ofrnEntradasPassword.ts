@@ -163,6 +163,14 @@ export async function applyOfrnDefaultPassword(
       console.error("[ofrnEntradasPassword] updateUserById:", error.message);
     } else {
       applied = true;
+      // GoTrue ya no coincide con el broker; limpiarlo evita «Sacar entradas» con clave vieja.
+      const { error: clearErr } = await admin
+        .from("entrada_auth_email_user")
+        .update({ auth_password_plain: null })
+        .eq("user_id", userId);
+      if (clearErr) {
+        console.error("[ofrnEntradasPassword] clear broker:", clearErr.message);
+      }
     }
   }
 

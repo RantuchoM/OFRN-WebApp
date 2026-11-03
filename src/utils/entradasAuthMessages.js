@@ -108,6 +108,14 @@ export function formatEntradasAuthError(errorOrMessage, { action = "request" } =
     });
   }
 
+  // Broker/sesión automática (p. ej. Sacar entradas): el usuario no tecleó contraseña.
+  if (
+    action === "verify"
+    && /invalid login credentials|invalid_credentials|email not confirmed/i.test(raw)
+  ) {
+    return "No se pudo abrir la sesión con ese mail. Intentá de nuevo o usá Gestionar mis entradas.";
+  }
+
   if (/edge function|functionshttp|supabase functions/i.test(raw)) {
     return action === "verify"
       ? "Hubo un problema temporal al validar el acceso. Intentá de nuevo en unos segundos."

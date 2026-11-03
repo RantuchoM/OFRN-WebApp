@@ -19,7 +19,7 @@ SCRN y Viáticos Manual siguen con código de 8 dígitos + enlace (misma edge fu
 1. Sin sesión: **Sacar entradas** / **Gestionar mis entradas**. Debajo, el catálogo de conciertos con reservas abiertas.
 2. **Sacar entradas** → mail → sesión inmediata (`start_ticket_by_email` → `status: session`).
    - Perfil mínimo si hace falta. Mail nuevo: `email_verified_at = null` y nombre/apellido placeholder (`—`) → el cliente pide datos iniciales («No encontramos tu mail…») con opción de volver atrás y corregir el mail.
-   - Performance sacar: sesión vía broker password (sin `generateLink`), lookups `eq` + índices; bootstrap OFRN diferido.
+   - Performance sacar: sesión vía broker password (sin `generateLink`) solo si el broker sigue siendo confiable (`password_set_at` vacío). Si el usuario/OFRN ya definió clave, se emite `token_hash` (el broker puede estar desfasado respecto a GoTrue). Lookups `eq` + índices; bootstrap OFRN diferido.
    - OTP de verificación: paso posterior (banner / perfil / antes de reservar), no bloquea sacar una vez cargados los datos.
 3. Con mail no verificado:
    - Banner sticky **Verificar mail**.
@@ -120,7 +120,7 @@ Quienes ya tienen mail + `clave_acceso` en `integrantes` entran a `/entradas` co
 - Acción `sso_ofrn`: verifica mail + `clave_acceso` contra `integrantes` y emite sesión GoTrue. El botón **Entradas** del sidebar abre `/entradas` ya logueado.
 - Pre-registro admin (`entradas-admin-invite-user`) también siembra la clave OFRN.
 
-**Importante:** no se escribe `clave_acceso` en `auth_password_plain` (el broker del enlace mágico sigue siendo interno).
+**Importante:** no se escribe `clave_acceso` en `auth_password_plain` (el broker del enlace mágico sigue siendo interno). Al aplicar la clave OFRN se limpia `auth_password_plain` para no dejar un broker desfasado. Si `password_set_at` está seteado, `start_ticket_by_email` no usa el broker a solas: emite `token_hash`.
 
 ## Completado
 
