@@ -148,7 +148,7 @@ export default function EntradasAyudaConsultasPanel({
   };
 
   return (
-    <div className={`${ui.inset} p-4 space-y-3`}>
+    <div className={`${ui.inset} min-w-0 space-y-3 p-3 sm:p-4`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className={ui.sectionTitle}>Consultas de ayuda</h3>
         <button
@@ -170,7 +170,7 @@ export default function EntradasAyudaConsultasPanel({
             <button
               type="button"
               disabled={loteBusy || busyId != null}
-              className={`${ui.btnPrimary} w-full sm:w-auto px-3 py-2 text-xs`}
+              className={`${ui.btnPrimary} !w-full px-3 py-2 text-xs sm:!w-auto`}
               onClick={() => onResolverQueEntren(rows)}
             >
               Resolver las que entren en cupo ({rows.length} pendiente{rows.length === 1 ? "" : "s"})
@@ -180,7 +180,7 @@ export default function EntradasAyudaConsultasPanel({
             <button
               type="button"
               disabled={loteBusy || busyId != null}
-              className={`${ui.btnSecondary || ui.btnGhost} w-full sm:w-auto px-3 py-2 text-xs border border-violet-300 text-violet-900 bg-violet-50`}
+              className={`${ui.btnSecondary || ui.btnGhost} !w-full border border-violet-300 bg-violet-50 px-3 py-2 text-xs text-violet-900 sm:!w-auto`}
               onClick={() => onUnificarDuplicados(rows)}
             >
               Unificar duplicados ({duplicatePeople} persona{duplicatePeople === 1 ? "" : "s"}, {duplicateExtraCount} copia{duplicateExtraCount === 1 ? "" : "s"})
@@ -204,7 +204,7 @@ export default function EntradasAyudaConsultasPanel({
 
       {someSelected && (
         <div
-          className={`sticky top-0 z-10 flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2 ${
+          className={`sticky top-0 z-10 flex flex-col gap-2 rounded-lg border px-3 py-2 sm:flex-row sm:flex-wrap sm:items-center ${
             isDark
               ? "border-sky-800 bg-sky-950/80"
               : "border-sky-200 bg-sky-50"
@@ -213,30 +213,32 @@ export default function EntradasAyudaConsultasPanel({
           <span className={`text-sm font-semibold ${ui.textStrong}`}>
             {selectedRows.length} seleccionada{selectedRows.length === 1 ? "" : "s"}
           </span>
-          <button
-            type="button"
-            disabled={loteBusy || busyId != null}
-            className={`${ui.btnPrimary} w-auto px-3 py-1.5 text-xs`}
-            onClick={() => onAceptarLote?.(selectedRows)}
-          >
-            Aceptar {selectedRows.length}
-          </button>
-          <button
-            type="button"
-            disabled={loteBusy || busyId != null}
-            className={`${ui.btnGhost} px-2 py-1.5 text-xs`}
-            onClick={() => void descartarSeleccionadas()}
-          >
-            Descartar {selectedRows.length}
-          </button>
-          <button
-            type="button"
-            disabled={loteBusy}
-            className={`${ui.btnGhost} px-2 py-1.5 text-xs`}
-            onClick={() => setSelectedIds(new Set())}
-          >
-            Limpiar
-          </button>
+          <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap">
+            <button
+              type="button"
+              disabled={loteBusy || busyId != null}
+              className={`${ui.btnPrimary} col-span-2 !w-full px-3 py-2 text-xs sm:col-auto sm:!w-auto sm:py-1.5`}
+              onClick={() => onAceptarLote?.(selectedRows)}
+            >
+              Aceptar {selectedRows.length}
+            </button>
+            <button
+              type="button"
+              disabled={loteBusy || busyId != null}
+              className={`${ui.btnGhost} inline-flex !w-full items-center justify-center px-2 py-2 text-xs sm:!w-auto sm:py-1.5`}
+              onClick={() => void descartarSeleccionadas()}
+            >
+              Descartar {selectedRows.length}
+            </button>
+            <button
+              type="button"
+              disabled={loteBusy}
+              className={`${ui.btnGhost} inline-flex !w-full items-center justify-center px-2 py-2 text-xs sm:!w-auto sm:py-1.5`}
+              onClick={() => setSelectedIds(new Set())}
+            >
+              Limpiar
+            </button>
+          </div>
         </div>
       )}
 
@@ -255,7 +257,7 @@ export default function EntradasAyudaConsultasPanel({
             />
             Seleccionar todas ({rows.length})
           </label>
-          <ul className="space-y-2 list-none p-0 m-0">
+          <ul className="m-0 min-w-0 list-none space-y-3 p-0">
             {rows.map((row) => {
               const active = String(activeAyudaId || "") === String(row.id);
               const checked = selectedIds.has(String(row.id));
@@ -277,7 +279,7 @@ export default function EntradasAyudaConsultasPanel({
               return (
                 <li
                   key={row.id}
-                  className={`rounded-lg border p-3 space-y-2 ${
+                  className={`min-w-0 rounded-lg border p-3 ${
                     active
                       ? isDark
                         ? "border-[#1ebbf0] bg-slate-900/80"
@@ -291,21 +293,21 @@ export default function EntradasAyudaConsultasPanel({
                           : "border-slate-200 bg-white"
                   }`}
                 >
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <label className="flex items-start gap-2 min-w-0 cursor-pointer flex-1">
+                  <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start">
+                    <label className="flex min-w-0 w-full flex-1 cursor-pointer items-start gap-2.5">
                       <input
                         type="checkbox"
-                        className="mt-1 shrink-0"
+                        className="mt-0.5 h-4 w-4 shrink-0"
                         checked={checked}
                         disabled={loteBusy}
                         onChange={() => toggleOne(row.id)}
                       />
-                      <div className="min-w-0 space-y-0.5">
-                        <p className={`font-bold text-sm ${ui.textStrong} flex flex-wrap items-center gap-2`}>
-                          <span>{row.nombre}</span>
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <span className={`break-words text-sm font-bold ${ui.textStrong}`}>{row.nombre}</span>
                           {dupSize > 1 ? (
                             <span
-                              className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                              className={`inline-flex shrink-0 whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
                                 isDark
                                   ? "bg-violet-800 text-violet-100"
                                   : "bg-violet-200 text-violet-900"
@@ -316,7 +318,7 @@ export default function EntradasAyudaConsultasPanel({
                           ) : null}
                           {vigentePreferida ? (
                             <span
-                              className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                              className={`inline-flex shrink-0 whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
                                 isDark
                                   ? "bg-amber-800 text-amber-100"
                                   : "bg-amber-200 text-amber-950"
@@ -325,11 +327,11 @@ export default function EntradasAyudaConsultasPanel({
                               Ya tiene entrada
                             </span>
                           ) : null}
-                        </p>
-                        <p className={`text-xs break-all ${ui.textMuted}`}>{row.email}</p>
+                        </div>
+                        <p className={`break-words text-xs ${ui.textMuted}`}>{row.email}</p>
                         {row.telefono && normalizePhoneForWhatsApp(row.telefono) ? (
-                          <p className={`text-xs flex flex-wrap items-center gap-1 ${ui.textMuted}`}>
-                            <span>{row.telefono}</span>
+                          <p className={`flex flex-wrap items-center gap-x-2 gap-y-1 text-xs ${ui.textMuted}`}>
+                            <span className="break-words">{row.telefono}</span>
                             <EntradasAyudaWhatsAppBtn
                               telefono={row.telefono}
                               nombre={row.nombre}
@@ -340,8 +342,8 @@ export default function EntradasAyudaConsultasPanel({
                               isDark={isDark}
                               className={
                                 isDark
-                                  ? "inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-bold text-emerald-300 hover:bg-emerald-950/60"
-                                  : "inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-bold text-emerald-700 hover:bg-emerald-50"
+                                  ? "inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-bold text-emerald-300 hover:bg-emerald-950/60"
+                                  : "inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-bold text-emerald-700 hover:bg-emerald-50"
                               }
                             />
                           </p>
@@ -350,16 +352,21 @@ export default function EntradasAyudaConsultasPanel({
                           {row.cantidad
                             ? `${row.cantidad} entrada${Number(row.cantidad) === 1 ? "" : "s"}`
                             : "Sin cantidad"}
-                          {row.funcion_label ? ` · ${row.funcion_label}` : ""}
                         </p>
+                        {row.funcion_label ? (
+                          <p className={`break-words text-xs leading-snug ${ui.textSoft}`}>{row.funcion_label}</p>
+                        ) : null}
                         <p className={`text-[11px] ${ui.textMuted}`}>{formatWhen(row.created_at)}</p>
+                        {row.comentarios ? (
+                          <p className={`break-words pt-1 text-xs leading-relaxed ${ui.textBody}`}>{row.comentarios}</p>
+                        ) : null}
                       </div>
                     </label>
-                    <div className="flex flex-wrap gap-2">
+                    <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-44 sm:shrink-0 sm:flex-col">
                       {vigentePreferida && onVincularVigente ? (
                         <button
                           type="button"
-                          className={`${ui.btnPrimary} w-auto px-3 py-1.5 text-xs`}
+                          className={`${ui.btnPrimary} col-span-2 !w-full whitespace-normal px-3 py-2 text-center text-xs leading-tight sm:col-span-1`}
                           disabled={loteBusy || busyId != null}
                           title={vigentePreferida.label || vigentePreferida.codigo || "Entrada vigente"}
                           onClick={() => onVincularVigente(row, vigentePreferida)}
@@ -369,7 +376,7 @@ export default function EntradasAyudaConsultasPanel({
                       ) : null}
                       <button
                         type="button"
-                        className={`${vigentePreferida ? ui.btnGhost : ui.btnPrimary} w-auto px-3 py-1.5 text-xs`}
+                        className={`${vigentePreferida ? ui.btnGhost : ui.btnPrimary} !w-full whitespace-normal px-3 py-2 text-center text-xs leading-tight`}
                         disabled={loteBusy}
                         onClick={() => onOpenConsulta?.(row)}
                       >
@@ -378,16 +385,13 @@ export default function EntradasAyudaConsultasPanel({
                       <button
                         type="button"
                         disabled={loteBusy || busyId === row.id}
-                        className={`${ui.btnGhost} px-2 py-1.5 text-xs`}
+                        className={`${ui.btnGhost} inline-flex !w-full items-center justify-center whitespace-normal px-2 py-2 text-center text-xs leading-tight`}
                         onClick={() => void descartar(row.id)}
                       >
                         Descartar
                       </button>
                     </div>
                   </div>
-                  {row.comentarios ? (
-                    <p className={`text-xs leading-relaxed pl-6 ${ui.textBody}`}>{row.comentarios}</p>
-                  ) : null}
                 </li>
               );
             })}

@@ -4881,7 +4881,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
           {ayudaConsulta.estado === "resuelta" ? (
             <>
               <p className="font-bold text-base">Esta consulta ya fue resuelta</p>
-              <p>
+              <p className="break-words">
                 {ayudaConsulta.nombre} · {ayudaConsulta.email}
                 {ayudaConsulta.reserva_id ? ` · reserva #${ayudaConsulta.reserva_id}` : ""}
                 {ayudaConsulta.resolved_at
@@ -4937,15 +4937,15 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
           ) : ayudaConsulta.estado === "descartada" ? (
             <>
               <p className="font-bold text-base">Esta consulta fue descartada</p>
-              <p>
+              <p className="break-words">
                 {ayudaConsulta.nombre} · {ayudaConsulta.email}
               </p>
             </>
           ) : (
             <>
               <p className="font-bold text-base">Consulta de ayuda abierta</p>
-              <p className="flex flex-wrap items-center gap-2">
-                <span>
+              <p className="flex min-w-0 flex-wrap items-center gap-2">
+                <span className="min-w-0 break-words">
                   {ayudaConsulta.nombre} · {ayudaConsulta.email}
                   {ayudaConsulta.telefono ? ` · ${ayudaConsulta.telefono}` : ""}
                 </span>
@@ -4985,7 +4985,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
                             isDark ? "border-amber-800/80 bg-black/20" : "border-amber-200 bg-white/70"
                           }`}
                         >
-                          <p className="text-xs font-semibold">
+                          <p className="break-words text-xs font-semibold">
                             {reservaMeta.label || `Reserva #${reservaMeta.id}`}
                             {preferida ? " · sugerida" : ""}
                           </p>
@@ -4993,11 +4993,11 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
                             {reservaMeta.codigo ? `Código ${reservaMeta.codigo} · ` : ""}
                             {reservaMeta.cantidadLabel || `${reservaMeta.cantidad || "?"} entrada(s)`}
                           </p>
-                          <div className="flex flex-wrap gap-2">
+                          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
                             <button
                               type="button"
                               disabled={ayudaVincularBusy}
-                              className={`${ui.btnPrimary} w-auto px-2.5 py-1 text-xs`}
+                              className={`${ui.btnPrimary} !w-full px-2.5 py-2 text-xs sm:!w-auto sm:py-1`}
                               onClick={() =>
                                 void handleVincularAyudaAReservaVigente(ayudaConsulta, reservaMeta)
                               }
@@ -5007,7 +5007,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
                             <button
                               type="button"
                               disabled={ayudaVincularBusy}
-                              className={`${ui.btnGhost} px-2 py-1 text-xs`}
+                              className={`${ui.btnGhost} inline-flex !w-full items-center justify-center px-2 py-2 text-xs sm:!w-auto sm:py-1`}
                               onClick={() =>
                                 void handleReenviarMailAyudaVigente(ayudaConsulta.email, reservaMeta)
                               }
@@ -5022,6 +5022,11 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
                                 concierto={conciertoWa}
                                 cantidad={reservaMeta.cantidad}
                                 isDark={isDark}
+                                className={
+                                  isDark
+                                    ? "inline-flex !w-full items-center justify-center gap-1 rounded-md border border-emerald-700 px-2 py-2 text-xs font-bold text-emerald-200 hover:bg-emerald-950/50 sm:!w-auto"
+                                    : "inline-flex !w-full items-center justify-center gap-1 rounded-md border border-emerald-300 px-2 py-2 text-xs font-bold text-emerald-800 hover:bg-emerald-50 sm:!w-auto"
+                                }
                               />
                             ) : null}
                           </div>
@@ -6314,7 +6319,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
         )}
 
         {section === "entradas-terceros" && canTerceros && (
-          <section className={`${ui.section} p-4 space-y-4`}>
+          <section className={`${ui.section} min-w-0 space-y-4 p-3 sm:p-4`}>
             {renderEntradasTercerosPanel()}
           </section>
         )}
