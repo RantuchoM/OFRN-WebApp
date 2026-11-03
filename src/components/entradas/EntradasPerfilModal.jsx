@@ -13,6 +13,7 @@ export default function EntradasPerfilModal({
   profile,
   hasPassword,
   onSaved,
+  onRequestVerifyEmail,
 }) {
   const [nombre, setNombre] = useState("");
   const [apellido, setApellido] = useState("");
@@ -76,7 +77,35 @@ export default function EntradasPerfilModal({
         </div>
 
         {profile?.email && (
-          <p className={`mb-3 text-xs ${ui.textMuted}`}>{profile.email}</p>
+          <div className="mb-3 space-y-2">
+            <p className={`text-xs ${ui.textMuted}`}>{profile.email}</p>
+            {profile.email_verified_at ? (
+              <p className={`text-xs font-semibold ${isDark ? "text-emerald-300" : "text-emerald-700"}`}>
+                Mail verificado
+              </p>
+            ) : (
+              <div
+                className={
+                  isDark
+                    ? "rounded-md border border-amber-700 bg-amber-950/50 px-3 py-2 space-y-2"
+                    : "rounded-md border border-amber-200 bg-amber-50 px-3 py-2 space-y-2"
+                }
+              >
+                <p className={`text-xs font-semibold ${isDark ? "text-amber-100" : "text-amber-900"}`}>
+                  Mail sin verificar
+                </p>
+                {onRequestVerifyEmail && (
+                  <button
+                    type="button"
+                    onClick={onRequestVerifyEmail}
+                    className={`${ui.btnGhost} w-full text-xs`}
+                  >
+                    Verificar mail
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
         )}
 
         <form className="space-y-2" onSubmit={handleSaveNombre}>

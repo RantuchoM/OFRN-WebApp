@@ -17,6 +17,7 @@ import EntradasTercerosSection from "../../../components/entradas/EntradasTercer
 import EntradasAyudaConsultasPanel from "../../../components/entradas/EntradasAyudaConsultasPanel";
 import EntradasCambiarCantidadControls from "../../../components/entradas/EntradasCambiarCantidadControls";
 import EntradasPerfilModal from "../../../components/entradas/EntradasPerfilModal";
+import EntradasVerifyEmailModal from "../../../components/entradas/EntradasVerifyEmailModal";
 import EntradasVerQrButton from "../../../components/entradas/EntradasVerQrButton";
 import MisReservasQrModal from "../../../components/entradas/MisReservasQrModal";
 import {
@@ -632,7 +633,7 @@ function adminBajaTargetPrograma(programa, bloqueoEliminar) {
   };
 }
 
-export default function EntradasMain({ user, profile, onLogout, onProfileUpdated }) {
+export default function EntradasMain({ user, profile, onLogout, onProfileUpdated, onProfileRefresh }) {
   const { isDark, toggle } = useEntradasDarkMode();
   const ui = entradasUi(isDark);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -642,11 +643,14 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
   /** Detalle del concierto por URL; no debe ocultar el catálogo. */
   const [selectedConciertoLoading, setSelectedConciertoLoading] = useState(false);
   const [perfilModalOpen, setPerfilModalOpen] = useState(false);
+  const [verifyEmailModalOpen, setVerifyEmailModalOpen] = useState(false);
+  const [reservaAckUnverified, setReservaAckUnverified] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
   const userMenuRef = useRef(null);
   const [cantidad, setCantidad] = useState(1);
   const [creatingReserva, setCreatingReserva] = useState(false);
+  const emailVerified = Boolean(profile?.email_verified_at);
   const [reservaResult, setReservaResult] = useState(null);
   const [misReservas, setMisReservas] = useState([]);
   const [entradasTerceros, setEntradasTerceros] = useState([]);
@@ -2566,6 +2570,10 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
 
   const handleCreateReserva = async () => {
     if (!selectedConcierto?.id) return;
+    if (!emailVerified && !reservaAckUnverified) {
+      toast.error("Confirmá que entendés el riesgo de no verificar el mail antes de obtener la entrada.");
+      return;
+    }
     setCreatingReserva(true);
     try {
       const result = await crearReserva({ conciertoId: selectedConcierto.id, cantidad });
@@ -5313,6 +5321,34 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
         </div>
       </header>
 
+      {!emailVerified && (
+        <div
+          className={
+            isDark
+              ? "border-b border-amber-700/80 bg-amber-950/80 text-amber-50"
+              : "border-b border-amber-300 bg-amber-100 text-amber-950"
+          }
+          role="status"
+        >
+          <div className="max-w-7xl mx-auto px-4 py-2.5 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm font-semibold">
+              Verificar mail — tu cuenta aún no confirmó este correo. Podés sacar entradas igual.
+            </p>
+            <button
+              type="button"
+              onClick={() => setVerifyEmailModalOpen(true)}
+              className={
+                isDark
+                  ? "rounded-md border border-amber-500 bg-amber-900/80 px-3 py-1.5 text-sm font-bold text-amber-50 hover:bg-amber-800"
+                  : "rounded-md border border-amber-500 bg-white px-3 py-1.5 text-sm font-bold text-amber-900 hover:bg-amber-50"
+              }
+            >
+              Verificar mail
+            </button>
+          </div>
+        </div>
+      )}
+
       <main className="max-w-7xl mx-auto px-4 py-4 space-y-4">
         <div className="entradas-nav-row grid grid-cols-2 sm:flex flex-wrap gap-2">
           <button
@@ -5763,6 +5799,46 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
                           </option>
                         ))}
                       </select>
+                      {!emailVerified && (
+                        <div
+                          className={
+                            isDark
+                              ? "rounded-lg border-2 border-amber-600 bg-amber-950/55 px-4 py-3 space-y-3 text-amber-50"
+                              : "rounded-lg border-2 border-amber-400 bg-amber-50 px-4 py-3 space-y-3 text-amber-950"
+                          }
+                          role="alert"
+                        >
+                          <p className="text-base font-bold leading-snug">
+                            Tu mail no está verificado
+                          </p>
+                          <p className="text-sm leading-relaxed">
+                            Si no verificás el mail, <strong>no vas a poder recuperar la entrada</strong> si
+                            la perdés o cambiás de celular. La entrada queda asociada a{" "}
+                            <span className="break-all font-semibold">
+                              {profile?.email || user?.email || "tu mail"}
+                            </span>
+                            .
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => setVerifyEmailModalOpen(true)}
+                            className={`${ui.btnGhost} w-full`}
+                          >
+                            Verificar mail ahora
+                          </button>
+                          <label className="flex items-start gap-2 text-sm cursor-pointer">
+                            <input
+                              type="checkbox"
+                              className={`mt-0.5 ${ui.checkbox}`}
+                              checked={reservaAckUnverified}
+                              onChange={(e) => setReservaAckUnverified(e.target.checked)}
+                            />
+                            <span>
+                              Prefiero sacar la entrada primero y después verificaré mi mail
+                            </span>
+                          </label>
+                        </div>
+                      )}
                       <button
                         type="button"
                         onClick={handleCreateReserva}
@@ -5770,6 +5846,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
                           creatingReserva
                           || !entradaConciertoReservasAbiertas(selectedConcierto)
                           || computeDisponibles(selectedConcierto) < cantidad
+                          || (!emailVerified && !reservaAckUnverified)
                         }
                         className={ui.btnPrimary}
                       >
@@ -7409,8 +7486,25 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
         isDark={isDark}
         profile={profile}
         hasPassword={Boolean(profile?.password_set_at)}
+        onRequestVerifyEmail={() => {
+          setPerfilModalOpen(false);
+          setVerifyEmailModalOpen(true);
+        }}
         onSaved={(nextProfile) => {
           if (nextProfile) onProfileUpdated?.(nextProfile);
+        }}
+      />
+
+      <EntradasVerifyEmailModal
+        isOpen={verifyEmailModalOpen}
+        onClose={() => setVerifyEmailModalOpen(false)}
+        ui={ui}
+        isDark={isDark}
+        email={profile?.email || user?.email}
+        onVerified={async () => {
+          setReservaAckUnverified(false);
+          if (onProfileRefresh) await onProfileRefresh();
+          else onProfileUpdated?.({ ...profile, email_verified_at: new Date().toISOString() });
         }}
       />
 

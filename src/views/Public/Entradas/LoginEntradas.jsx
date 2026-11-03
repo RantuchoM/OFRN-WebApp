@@ -6,9 +6,13 @@ import EntradasLoginCatalogPreview from "../../../components/entradas/EntradasLo
 import {
   checkEntradasLoginOptions,
   ensureEntradaProfile,
+  isEntradasProfileDatosIncompletos,
+  markEntradasEmailVerified,
+  needsEntradasDatosBasicos,
   requestEntradasEmailCode,
   requestEntradasPasswordReset,
   signInEntradasWithPassword,
+  updateEntradaProfile,
   verifyEntradasEmailCode,
 } from "../../../services/entradaService";
 
@@ -63,9 +67,14 @@ export default function LoginEntradas({
   const [savingProfile, setSavingProfile] = useState(false);
   const [nextLinkAllowedAt, setNextLinkAllowedAt] = useState(0);
 
-  const needsProfile = useMemo(() => Boolean(user) && !profile, [user, profile]);
+  const needsProfile = useMemo(() => {
+    if (!user) return false;
+    if (!profile) return true;
+    return needsEntradasDatosBasicos(profile);
+  }, [user, profile]);
   const showPasswordForm = Boolean(user)
     && Boolean(profile)
+    && !needsProfile
     && (
       passwordPrompt === "required"
       || (passwordPrompt === "optional" && !profile?.password_set_at)
@@ -149,7 +158,7 @@ export default function LoginEntradas({
       setOtpCode("");
       setStep("otp");
       setMessage(
-        "Te enviamos un link de acceso rápido o código único al mail. Preferí el botón del mail; si no, usá el código de 8 dígitos acá.",
+        "Te enviamos un link de acceso rápido o código único. Preferí el botón del mail; si no, usá el código de 8 dígitos. Revisá también Spam / Correo no deseado.",
       );
     } catch (codeError) {
       setError(codeError?.message || "No se pudo enviar el acceso al mail.");
@@ -192,6 +201,11 @@ export default function LoginEntradas({
     try {
       await signInEntradasWithPassword(normalizedEmail, password);
       rememberEmail(normalizedEmail);
+      try {
+        await markEntradasEmailVerified();
+      } catch {
+        /* la sesión ya quedó; el flag se puede completar después */
+      }
     } catch (loginError) {
       setError(loginError?.message || "No se pudo entrar con esa contraseña.");
     } finally {
@@ -226,7 +240,11 @@ export default function LoginEntradas({
     setSavingProfile(true);
     clearFeedback();
     try {
-      await ensureEntradaProfile(form);
+      if (profile && isEntradasProfileDatosIncompletos(profile)) {
+        await updateEntradaProfile(form);
+      } else {
+        await ensureEntradaProfile(form);
+      }
       onProfileSaved?.();
     } catch (saveError) {
       setError(saveError?.message || "No se pudo guardar el perfil.");
@@ -443,6 +461,20 @@ export default function LoginEntradas({
                 Volver a opciones
               </button>
             </div>
+            <div
+              className={
+                isDark
+                  ? "rounded-lg border-2 border-amber-600 bg-amber-950/60 px-4 py-3 text-sm leading-relaxed text-amber-100"
+                  : "rounded-lg border-2 border-amber-400 bg-amber-50 px-4 py-3 text-sm leading-relaxed text-amber-950"
+              }
+              role="note"
+            >
+              <p className="font-bold mb-1">Revisá Spam / Correo no deseado</p>
+              <p>
+                Si no ves el mail, abrí <strong>Spam</strong>, <strong>Correo no deseado</strong> o{" "}
+                <strong>Promociones</strong>. Marcá el mensaje como «No es spam» para los próximos envíos.
+              </p>
+            </div>
             <form className="space-y-4" onSubmit={handleVerifyCode}>
               <label className={`${ui.label} text-sm`} htmlFor="entradas-login-otp">
                 Código de 8 dígitos
@@ -485,7 +517,18 @@ export default function LoginEntradas({
 
         {needsProfile && (
           <form className="space-y-3" onSubmit={saveProfile}>
-            <h2 className={`text-base font-bold uppercase tracking-wide ${ui.textSoft}`}>Completá tu perfil</h2>
+            <h2 className={`text-base font-bold uppercase tracking-wide ${ui.textSoft}`}>
+              Completá tu perfil
+            </h2>
+            <p className={hintClass}>
+              Antes de sacar entradas, registrá tu nombre y apellido. El mail lo podés verificar después.
+            </p>
+            {profile?.email && (
+              <div className={`${ui.inset} text-base`}>
+                <p className={`text-xs font-bold uppercase tracking-wide ${ui.textSoft}`}>Mail</p>
+                <p className={`break-all font-semibold ${ui.textStrong}`}>{profile.email}</p>
+              </div>
+            )}
             <input
               required
               value={form.nombre}
@@ -493,6 +536,7 @@ export default function LoginEntradas({
               className={inputA11y}
               placeholder="Nombre"
               autoComplete="given-name"
+              autoFocus
             />
             <input
               required
@@ -503,7 +547,7 @@ export default function LoginEntradas({
               autoComplete="family-name"
             />
             <button type="submit" disabled={savingProfile} className={btnPrimaryA11y}>
-              {savingProfile ? "Guardando…" : "Guardar perfil"}
+              {savingProfile ? "Guardando…" : "Guardar y continuar"}
             </button>
           </form>
         )}

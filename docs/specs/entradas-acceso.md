@@ -2,27 +2,41 @@
 
 ## Objetivo
 
-En `/entradas`, **sacar una entrada no exige login**: alcanza un mail válido. Gestionar las que ya tenés sigue pidiendo el acceso (código o contraseña). Si el dispositivo **ya tiene sesión**, entra directo al catálogo.
+En `/entradas`, **sacar una entrada no exige login ni mail verificado**: alcanza un mail válido. La reserva queda asociada a ese mail en `entrada_usuario`. Gestionar las que ya tenés sigue pidiendo el acceso (código o contraseña). Si el dispositivo **ya tiene sesión**, entra directo al catálogo.
 
 - Pantalla inicial: **Sacar entradas** y **Gestionar mis entradas**.
-- Sacar: pide el mail. Si ya está en la base (`entrada_usuario`, `entrada_auth_email_user` o `integrantes`), abre sesión y sigue. Si no está, manda un código de 8 dígitos y lo valida **una sola vez**.
+- Sacar: pide el mail → abre sesión siempre. Si el mail es nuevo, el perfil nace **sin** `email_verified_at` (verificar es un paso posterior).
+- Banner superior **Verificar mail** mientras el mail no esté verificado; al obtener la entrada, advertencia grande + acuse si sigue sin verificar.
 - Gestionar: el login por pasos (mail → código o contraseña).
 - Quien tiene usuario OFRN usa la misma `clave_acceso` en gestionar.
+
+**Mails existentes al desplegar la migración `email_verified_at`:** todos quedan verificados (backfill). Solo los mails **nuevos** posteriores nacen sin tilde.
 
 SCRN y Viáticos Manual siguen con código de 8 dígitos + enlace (misma edge function, `app !== entradas`).
 
 ## Flujo público
 
 1. Sin sesión: **Sacar entradas** / **Gestionar mis entradas**. Debajo, el catálogo de conciertos con reservas abiertas.
-2. **Sacar entradas** → mail.
-   - Mail conocido: sesión y catálogo, sin código ni contraseña.
-   - Mail nuevo: código al mail (sin enlace). Al validarlo se crea el usuario y un perfil mínimo; la próxima vez ese mail ya es conocido.
-3. **Gestionar mis entradas** (accesible, texto grande):
+2. **Sacar entradas** → mail → sesión inmediata (`start_ticket_by_email` → `status: session`).
+   - Perfil mínimo si hace falta. Mail nuevo: `email_verified_at = null` y nombre/apellido placeholder (`—`) → el cliente **pide nombre y apellido** antes del catálogo.
+   - OTP de verificación: paso posterior (banner / perfil / antes de reservar), no bloquea sacar una vez cargados los datos.
+3. Con mail no verificado:
+   - Banner sticky **Verificar mail**.
+   - Al **Obtener** entrada: aviso grande de que sin verificar no podrá recuperar la entrada si la pierde + checkbox de acuse.
+   - Modal OTP con aviso claro de revisar **Spam / Correo no deseado**.
+4. **Gestionar mis entradas** (accesible, texto grande):
    - Solo el mail → Continuar (`check_login_options`).
-   - **Link rápido** (botón corto en login): envía enlace mágico primero + OTP 8 dígitos como alternativa. El mail aclara «link de acceso rápido o código único»; el CTA del mail dice «Link rápido».
+   - **Link rápido** (botón corto en login): envía enlace mágico primero + OTP 8 dígitos como alternativa. El mail aclara «link de acceso rápido o código único»; el CTA del mail dice «Link rápido». Aviso Spam en UI y en el HTML del mail.
    - **Ingresar contraseña** si ya tiene (`password_set_at` o clave OFRN usable).
    - **Crear / recuperar contraseña** según el caso.
-4. Con sesión: el nombre en el header abre menú con **Ver mi perfil** y **Cerrar sesión**; el ícono de tema queda aparte. Cerrar sesión vuelve a la pantalla de los dos botones.
+5. Con sesión: el nombre en el header abre menú con **Ver mi perfil** y **Cerrar sesión**; el ícono de tema queda aparte. Cerrar sesión vuelve a la pantalla de los dos botones.
+
+## Verificación de mail (`email_verified_at`)
+
+- Columna en `entrada_usuario`. `null` = pendiente; con timestamp = verificado.
+- Se marca al validar OTP (`verify_code`), magic link, SSO OFRN, o login con contraseña (RPC `entrada_mark_email_verified`).
+- Acción edge `request_verify_email`: envía código de 8 dígitos (sin enlace) para el flujo diferido.
+- La reserva sigue ligada al `usuario_id` / mail aunque no esté verificado.
 
 ## Sesión larga en el dispositivo
 
@@ -41,37 +55,41 @@ Edge Function `entradas-auth-email`:
 
 | Acción | Uso |
 |--------|-----|
-| `start_ticket_by_email` | Sacar entradas: si el mail existe, sesión (`status: known`); si no, código de un solo uso (`status: code_sent`). |
-| `verify_code` + `ticket: true` | Valida ese código y, si falta, crea perfil mínimo para reservar. |
+| `start_ticket_by_email` | Sacar entradas: siempre sesión + perfil mínimo (`status: session`; `email_verified`). |
+| `request_verify_email` | OTP 8 dígitos para verificar mail (paso posterior). |
 | `check_login_options` | `{ has_password }` para el login de **Gestionar** (sin filtrar por existencia de cuenta). |
 | `request_code` | OTP 8 dígitos + enlace en el mismo mail (gestionar, SCRN, viáticos). |
 | `request_magic_link` | Enlace de acceso sin código (flujos legacy / otros). |
 | `request_password_reset` | Enlace de restauración (`purpose=reset`). |
-| `verify_magic_link` | Consume el token; sesión vía `generateLink` + `token_hash`. |
-| `verify_code` | Valida OTP 8 dígitos. |
+| `verify_magic_link` | Consume el token; sesión; marca mail verificado. |
+| `verify_code` | Valida OTP 8 dígitos; marca mail verificado. |
 | `bootstrap_ofrn_password` | Siembra `clave_acceso` de OFRN en GoTrue si aún no hay clave propia en Entradas. |
-| `sso_ofrn` | Login desde la app OFRN: verifica `integrantes` y emite sesión. |
+| `sso_ofrn` | Login desde la app OFRN: verifica `integrantes`, emite sesión y marca mail verificado. |
 
-RPC `entrada_mark_password_set()` marca `entrada_usuario.password_set_at`.
+RPC `entrada_mark_password_set()` marca `entrada_usuario.password_set_at`.  
+RPC `entrada_mark_email_verified()` marca `entrada_usuario.email_verified_at`.
 
-## Migración (aplicar a mano)
+## Migraciones
 
-`supabase/migrations/20260818180000_entradas_auth_password_magic_link.sql`
+`supabase/migrations/20260818180000_entradas_auth_password_magic_link.sql` — password / magic link.
 
-- `entrada_auth_email_otp.code_hash` nullable; `purpose` (`access` \| `reset`).
-- `entrada_usuario.password_set_at`.
-- RPC `entrada_mark_password_set()`.
+`supabase/migrations/20261103120000_entrada_usuario_email_verified_at.sql`
+
+- `entrada_usuario.email_verified_at`.
+- Backfill: **todos los perfiles existentes** quedan verificados.
+- RPC `entrada_mark_email_verified()`.
 
 **Orden:** 1) aplicar el SQL en el proyecto linked, 2) desplegar `entradas-auth-email`, 3) frontend.
 
 ## UI
 
-- `EntradasAccesoInicio.jsx` — **Sacar entradas** / **Gestionar mis entradas**; mail y código de primera vez.
-- `LoginEntradas.jsx` — gestionar: mail primero; luego opciones; tipografía/botones más grandes.
+- `EntradasAccesoInicio.jsx` — **Sacar entradas** / **Gestionar mis entradas**; mail sin OTP obligatorio.
+- `LoginEntradas.jsx` — gestionar: mail primero; luego opciones; aviso Spam en paso OTP.
+- `EntradasVerifyEmailModal.jsx` — verificar mail diferido (Spam destacado).
 - `EntradasLoginCatalogPreview.jsx` — debajo del acceso (sin sesión): tarjetas de conciertos con reservas abiertas + barra de disponibilidad.
 - `EntradasSetPasswordForm.jsx` / `EntradasPasswordModal.jsx` (portal `z-[100]`; flujo post-login opcional).
-- `EntradasPerfilModal.jsx` — cambiar nombre/apellido y contraseña.
-- Header de `EntradasMain.jsx`: el **nombre** abre menú con **Ver mi perfil** y **Cerrar sesión**.
+- `EntradasPerfilModal.jsx` — nombre/apellido, contraseña y estado de verificación del mail.
+- Header de `EntradasMain.jsx`: banner **Verificar mail**; al obtener entrada, warning + acuse si no está verificado.
 - `EntradasAyudaFlotante.jsx` — botón flotante abajo izquierda «¿Necesitás ayuda?» en toda `/entradas`. Al cargar arranca como un círculo con el signo de pregunta, espera 0,7 s y se expande a la derecha en 1,8 s hasta el tamaño del botón; con `prefers-reduced-motion` aparece directo en ese tamaño. Modal con **Enviar correo directo** (`mailto:` + plantilla) arriba y **formulario web** abajo (Edge `entradas-send-ayuda` → guarda `entrada_ayuda_consulta` + mail a staff con botón **Reservar en Entradas**; `Reply-To` = mail del consultante; **acuse al consultante** con aviso de revisar Spam / Correo no deseado).
 - Si el mail del formulario ya tiene **reservas activas** en conciertos con reservas abiertas: aviso + **Descargar PDF** (si hay sesión) / **Reenviar al mail** (`action: check_reservas` / `reenviar_entradas`); la consulta sigue disponible **sin** elegir cantidad ni función (solo comentarios).
 - Staff: cola en **🎫 Terceros** (`EntradasAyudaConsultasPanel`); deep link `?view=entradas-terceros&ayuda=<uuid>` precarga el formulario o avisa si ya está resuelta/descartada.
@@ -101,7 +119,9 @@ Quienes ya tienen mail + `clave_acceso` en `integrantes` entran a `/entradas` co
 
 ## Completado
 
-- [x] Puerta inicial: Sacar entradas (mail; código solo si el mail no está) / Gestionar mis entradas (login).
+- [x] Puerta inicial: Sacar entradas (mail; sin OTP obligatorio) / Gestionar mis entradas (login).
+- [x] Mail no verificado: banner + warning al reservar + modal OTP con Spam.
+- [x] `email_verified_at` + backfill de mails existentes como verificados.
 - [x] Sesión directa si el dispositivo ya está logueado.
 - [x] Acceso por código al mail en gestionar (OTP 8 dígitos + enlace en el mismo correo).
 - [x] Contraseña opcional + restaurar / crear.

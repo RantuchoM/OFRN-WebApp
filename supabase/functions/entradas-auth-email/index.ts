@@ -214,6 +214,10 @@ function buildOtpHtml({
     <div class="code">${safeCode}</div>
     <p style="margin: 8px 0 0 0; font-size: 12px; color: #64748b;">Mismo vencimiento: ${OTP_TTL_MINUTES} minutos.</p>
   </div>
+  <p style="margin: 18px 0 0 0; padding: 12px 14px; border-left: 4px solid #d97706; background: #fffbeb; border-radius: 6px; font-size: 14px; color: #92400e;">
+    <strong>Importante:</strong> si no ves este mail, revisá <strong>Spam</strong> o <strong>Correo no deseado</strong>
+    (y Promociones, si usás Gmail).
+  </p>
   <p style="font-size: 12px; color: #64748b;">Si no solicitaste este acceso, podés ignorar este mensaje.</p>
 </body>
 </html>`;
@@ -450,7 +454,11 @@ async function isKnownTicketEmail(admin: AdminClient, email: string): Promise<bo
 }
 
 /** Perfil mínimo para reservar sin pedir nombre, si todavía no hay fila. */
-async function ensureTicketProfile(admin: AdminClient, email: string): Promise<void> {
+async function ensureTicketProfile(
+  admin: AdminClient,
+  email: string,
+  opts: { markVerified?: boolean } = {},
+): Promise<{ email_verified: boolean }> {
   const { data: mapped, error: mappedErr } = await admin
     .from("entrada_auth_email_user")
     .select("user_id")
@@ -458,20 +466,44 @@ async function ensureTicketProfile(admin: AdminClient, email: string): Promise<v
     .maybeSingle();
   throwDbError(mappedErr, "entrada_auth_email_user");
   const userId = mapped?.user_id ? String(mapped.user_id) : "";
-  if (!userId) return;
+  if (!userId) return { email_verified: false };
 
   const { data: existing, error: existingErr } = await admin
     .from("entrada_usuario")
-    .select("id")
+    .select("id, email_verified_at")
     .eq("id", userId)
     .maybeSingle();
   throwDbError(existingErr, "leer perfil para sacar entradas");
-  if (existing?.id) return;
+
+  if (existing?.id) {
+    if (opts.markVerified && !existing.email_verified_at) {
+      await markEmailVerifiedByUserId(admin, userId);
+      return { email_verified: true };
+    }
+    return { email_verified: Boolean(existing.email_verified_at) };
+  }
 
   const integrante = await lookupOfrnIntegranteForEntradas(admin, email);
-  const fromMail = namesFromTicketEmail(email);
-  const nombre = String(integrante?.nombre || "").trim() || fromMail.nombre;
-  const apellido = String(integrante?.apellido || "").trim() || fromMail.apellido;
+  // Mails nuevos nacen sin verificar, salvo OTP/enlace/SSO o mail ya conocido en integrantes OFRN.
+  const verifiedAt = (opts.markVerified || Boolean(integrante))
+    ? new Date().toISOString()
+    : null;
+  // Sin verificar: placeholders "—" para forzar nombre/apellido en el cliente.
+  // Con integrante OFRN o verificación: datos reales (o derivados del mail).
+  let nombre: string;
+  let apellido: string;
+  if (integrante) {
+    const fromMail = namesFromTicketEmail(email);
+    nombre = String(integrante.nombre || "").trim() || fromMail.nombre;
+    apellido = String(integrante.apellido || "").trim() || fromMail.apellido;
+  } else if (verifiedAt) {
+    const fromMail = namesFromTicketEmail(email);
+    nombre = fromMail.nombre;
+    apellido = fromMail.apellido;
+  } else {
+    nombre = "—";
+    apellido = "—";
+  }
   const { error: insertErr } = await admin.from("entrada_usuario").insert({
     id: userId,
     email,
@@ -479,8 +511,40 @@ async function ensureTicketProfile(admin: AdminClient, email: string): Promise<v
     apellido,
     rol: email === "ofrn.archivo@gmail.com" ? "admin" : "personal",
     activo: true,
+    email_verified_at: verifiedAt,
   });
   throwDbError(insertErr, "crear perfil para sacar entradas");
+  return { email_verified: Boolean(verifiedAt) };
+}
+
+async function markEmailVerifiedByUserId(admin: AdminClient, userId: string): Promise<void> {
+  const { error } = await admin
+    .from("entrada_usuario")
+    .update({ email_verified_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+    .eq("id", userId)
+    .is("email_verified_at", null);
+  if (error) console.error("[entradas-auth-email] mark email verified:", formatError(error));
+}
+
+async function markEmailVerifiedByEmail(admin: AdminClient, email: string): Promise<void> {
+  const { data: mapped, error: mappedErr } = await admin
+    .from("entrada_auth_email_user")
+    .select("user_id")
+    .eq("email", email)
+    .maybeSingle();
+  throwDbError(mappedErr, "entrada_auth_email_user para verificar mail");
+  if (!mapped?.user_id) return;
+  await markEmailVerifiedByUserId(admin, String(mapped.user_id));
+}
+
+async function readEmailVerified(admin: AdminClient, email: string): Promise<boolean> {
+  const { data: usuarios, error } = await admin
+    .from("entrada_usuario")
+    .select("email_verified_at")
+    .ilike("email", email)
+    .limit(1);
+  throwDbError(error, "leer email_verified_at");
+  return Boolean(usuarios?.[0]?.email_verified_at);
 }
 
 function buildTicketCodeHtml({ code }: { code: string }) {
@@ -492,6 +556,7 @@ function buildTicketCodeHtml({ code }: { code: string }) {
   <style>
     body { font-family: Helvetica, Arial, sans-serif; color: #334155; line-height: 1.5; }
     .box { border-left: 4px solid #2563eb; background: #eff6ff; padding: 16px; border-radius: 6px; }
+    .warn { border-left: 4px solid #d97706; background: #fffbeb; padding: 14px; border-radius: 6px; margin: 16px 0; }
     .code {
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
       font-size: 30px; font-weight: 700; letter-spacing: 0.2em; color: #0f172a;
@@ -501,10 +566,16 @@ function buildTicketCodeHtml({ code }: { code: string }) {
 </head>
 <body>
   <p>Hola,</p>
-  <p>Este código es para confirmar tu mail y <strong>sacar entradas</strong>. Solo hace falta esta vez:</p>
+  <p>Este código es para <strong>verificar tu mail</strong> en Entradas OFRN:</p>
   <div class="box">
     <div class="code">${safeCode}</div>
     <p style="margin: 8px 0 0 0; font-size: 12px; color: #64748b;">Vence en ${OTP_TTL_MINUTES} minutos.</p>
+  </div>
+  <div class="warn">
+    <p style="margin: 0; font-size: 14px; color: #92400e;">
+      <strong>Importante:</strong> si no ves este mensaje en la bandeja de entrada, revisá
+      <strong>Spam</strong> o <strong>Correo no deseado</strong> (y Promociones, si usás Gmail).
+    </p>
   </div>
   <p style="font-size: 12px; color: #64748b;">Si no pediste este código, podés ignorar este mensaje.</p>
 </body>
@@ -633,22 +704,47 @@ serve(async (req) => {
         });
       }
 
-      const known = await isKnownTicketEmail(admin, email);
-      if (known) {
-        const authPayload = await issueSessionPayload(admin, email);
+      // Sacar entradas: siempre abre sesión. Mail nuevo = perfil sin verificar (OTP después).
+      const authPayload = await issueSessionPayload(admin, email);
+      let emailVerified = false;
+      try {
+        const profileState = await ensureTicketProfile(admin, email);
+        emailVerified = profileState.email_verified;
+      } catch (profileErr) {
+        console.error("[entradas-auth-email] perfil ticket:", formatError(profileErr));
         try {
-          await ensureTicketProfile(admin, email);
-        } catch (profileErr) {
-          console.error("[entradas-auth-email] perfil ticket:", formatError(profileErr));
+          emailVerified = await readEmailVerified(admin, email);
+        } catch {
+          emailVerified = false;
         }
-        return new Response(JSON.stringify({ success: true, status: "known", purpose: "access", ...authPayload }), {
-          status: 200,
+      }
+      return new Response(JSON.stringify({
+        success: true,
+        status: "session",
+        purpose: "access",
+        email_verified: emailVerified,
+        ...authPayload,
+      }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "request_verify_email") {
+      if (!isValidEmail(email)) {
+        return new Response(JSON.stringify({ error: "Email inválido." }), {
+          status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-
       if (!GMAIL_USER || !GMAIL_PASS) {
         throw new Error("Falta ENTRADAS_GMAIL_USER/ENTRADAS_GMAIL_PASS o GMAIL_USER/GMAIL_PASS.");
+      }
+      if (await readEmailVerified(admin, email)) {
+        return new Response(JSON.stringify({ success: true, already_verified: true, cooldownSeconds: 0 }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
       const limited = await assertLinkRateLimit(admin, email, ip, "código");
       if (limited) return limited;
@@ -664,16 +760,16 @@ serve(async (req) => {
         requested_ip: ip,
         user_agent: userAgent,
       });
-      throwDbError(insertErr, "guardar código para sacar entradas");
+      throwDbError(insertErr, "guardar código de verificación de mail");
 
       await sendAuthMail({
         fromLabel: "Entradas OFRN",
-        subject: "Tu código para sacar entradas - Entradas OFRN",
+        subject: "Verificá tu mail - Entradas OFRN",
         email,
         html: buildTicketCodeHtml({ code: otp }),
       });
 
-      return new Response(JSON.stringify({ success: true, status: "code_sent", cooldownSeconds: OTP_COOLDOWN_SECONDS }), {
+      return new Response(JSON.stringify({ success: true, cooldownSeconds: OTP_COOLDOWN_SECONDS }), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -714,7 +810,13 @@ serve(async (req) => {
       }
       await ensureAuthUserExists(admin, email);
       const authPayload = await issueSessionPayload(admin, email);
-      return new Response(JSON.stringify({ success: true, purpose: "access", ...authPayload }), {
+      try {
+        await ensureTicketProfile(admin, email, { markVerified: true });
+      } catch (profileErr) {
+        console.error("[entradas-auth-email] perfil al SSO:", formatError(profileErr));
+        await markEmailVerifiedByEmail(admin, email);
+      }
+      return new Response(JSON.stringify({ success: true, purpose: "access", email_verified: true, ...authPayload }), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -769,8 +871,14 @@ serve(async (req) => {
 
       const linkEmail = normalizeEmail(linkRow.email);
       const authPayload = await issueSessionPayload(admin, linkEmail);
+      try {
+        await ensureTicketProfile(admin, linkEmail, { markVerified: true });
+      } catch (profileErr) {
+        console.error("[entradas-auth-email] perfil al magic link:", formatError(profileErr));
+        await markEmailVerifiedByEmail(admin, linkEmail);
+      }
       const purpose = String(linkRow.purpose || "access") === "reset" ? "reset" : "access";
-      return new Response(JSON.stringify({ success: true, purpose, ...authPayload }), {
+      return new Response(JSON.stringify({ success: true, purpose, email_verified: true, ...authPayload }), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -933,14 +1041,13 @@ serve(async (req) => {
       await admin.from("entrada_auth_email_otp").update({ consumed_at: new Date().toISOString() }).eq("id", otpRow.id);
 
       const authPayload = await issueSessionPayload(admin, email);
-      if (body?.ticket === true && app === "entradas") {
-        try {
-          await ensureTicketProfile(admin, email);
-        } catch (profileErr) {
-          console.error("[entradas-auth-email] perfil ticket:", formatError(profileErr));
-        }
+      try {
+        await ensureTicketProfile(admin, email, { markVerified: true });
+      } catch (profileErr) {
+        console.error("[entradas-auth-email] perfil al verificar código:", formatError(profileErr));
+        await markEmailVerifiedByEmail(admin, email);
       }
-      return new Response(JSON.stringify({ success: true, ...authPayload }), {
+      return new Response(JSON.stringify({ success: true, email_verified: true, ...authPayload }), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });

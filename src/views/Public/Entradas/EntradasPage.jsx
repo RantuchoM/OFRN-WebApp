@@ -2,7 +2,12 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import "../../../styles/entradas-filarmonica.css";
 import { entradasUi, useEntradasDarkMode } from "../../../hooks/useEntradasDarkMode";
 import { supabaseEntradasPublic } from "../../../services/supabase";
-import { getEntradasSessionProfile, signInEntradasFromOfrnApp, verifyEntradasMagicLink } from "../../../services/entradaService";
+import {
+  getEntradasSessionProfile,
+  needsEntradasDatosBasicos,
+  signInEntradasFromOfrnApp,
+  verifyEntradasMagicLink,
+} from "../../../services/entradaService";
 import { useAuth } from "../../../context/AuthContext";
 import {
   clearMagicTokenFromUrl,
@@ -170,6 +175,7 @@ export default function EntradasPage() {
 
   const showLoginGate = !session?.user
     || !profile
+    || needsEntradasDatosBasicos(profile)
     || passwordPrompt === "required"
     || (passwordPrompt === "optional" && !profile?.password_set_at);
 

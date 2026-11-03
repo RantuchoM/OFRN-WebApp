@@ -71,6 +71,24 @@ export async function getEntradasSessionProfile() {
   return { session, profile: profile || null };
 }
 
+/** Nombre/apellido aún placeholder (mail no verificado recién creado). */
+export function isEntradasProfileDatosIncompletos(profile) {
+  if (!profile) return true;
+  const nombre = String(profile.nombre || "").trim();
+  const apellido = String(profile.apellido || "").trim();
+  if (!nombre || !apellido) return true;
+  if (nombre === "—" || apellido === "—") return true;
+  if (nombre === "Invitado") return true;
+  return false;
+}
+
+/** Mail sin verificar y sin datos personales cargados por la persona. */
+export function needsEntradasDatosBasicos(profile) {
+  return Boolean(profile)
+    && !profile.email_verified_at
+    && isEntradasProfileDatosIncompletos(profile);
+}
+
 export async function ensureEntradaProfile({ nombre, apellido }) {
   const { data, error } = await supabaseEntradasPublic.rpc("entrada_ensure_profile", {
     p_nombre: nombre,
@@ -246,8 +264,8 @@ export async function checkEntradasLoginOptions(email) {
 }
 
 /**
- * Sacar entradas: si el mail ya está en la base, abre sesión.
- * Si no, manda un código de un solo uso (`status: "code_sent"`).
+ * Sacar entradas: abre sesión con el mail (verificado o no).
+ * Mails nuevos nacen sin `email_verified_at`; el OTP es un paso posterior.
  */
 export async function startEntradasTicketByEmail(email) {
   const normalizedEmail = String(email || "").trim().toLowerCase();
@@ -259,14 +277,57 @@ export async function startEntradasTicketByEmail(email) {
     },
   });
   const payload = await assertEntradasAuthInvokeResult({ data, error }, "request");
-  if (payload?.status === "known") {
-    await signInAfterEntradasAuthPayload(payload, "entradas");
-  }
+  await signInAfterEntradasAuthPayload(payload, "entradas");
   return {
     email: normalizedEmail,
-    status: payload?.status === "known" ? "known" : "code_sent",
+    status: "session",
+    emailVerified: Boolean(payload?.email_verified),
+  };
+}
+
+/** Envía OTP para verificar el mail (flujo diferido; no bloquea sacar entradas). */
+export async function requestEntradasVerifyEmail(email) {
+  const normalizedEmail = String(email || "").trim().toLowerCase();
+  const { data, error } = await supabase.functions.invoke("entradas-auth-email", {
+    body: {
+      action: "request_verify_email",
+      email: normalizedEmail,
+      app: "entradas",
+    },
+  });
+  const payload = await assertEntradasAuthInvokeResult({ data, error }, "request");
+  return {
+    email: normalizedEmail,
+    alreadyVerified: Boolean(payload?.already_verified),
     cooldownSeconds: Number(payload?.cooldownSeconds || 0),
   };
+}
+
+/** Marca el mail del usuario autenticado como verificado (RPC). */
+export async function markEntradasEmailVerified() {
+  const { data, error } = await supabaseEntradasPublic.rpc("entrada_mark_email_verified");
+  if (!error && data) return data;
+  const {
+    data: { user },
+  } = await supabaseEntradasPublic.auth.getUser();
+  if (user?.id) {
+    const { data: row } = await supabaseEntradasPublic
+      .from("entrada_usuario")
+      .update({ email_verified_at: new Date().toISOString() })
+      .eq("id", user.id)
+      .is("email_verified_at", null)
+      .select("*")
+      .maybeSingle();
+    if (row) return row;
+    const { data: existing } = await supabaseEntradasPublic
+      .from("entrada_usuario")
+      .select("*")
+      .eq("id", user.id)
+      .maybeSingle();
+    return existing || null;
+  }
+  if (error) throw error;
+  return null;
 }
 
 export async function requestEntradasMagicLink(email, app = "entradas") {
