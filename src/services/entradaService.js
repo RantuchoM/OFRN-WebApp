@@ -895,6 +895,42 @@ export async function adminCancelarReserva(reservaId) {
   if (error) throw error;
 }
 
+/** Staff (terceros): historial de reservas de un mail (titular o beneficiario). */
+export async function listarReservasPersonaStaff(email) {
+  const { data, error } = await supabaseEntradasPublic.rpc("entrada_staff_listar_reservas_persona", {
+    p_email: String(email || "").trim().toLowerCase(),
+  });
+  if (error) throw error;
+  const list = Array.isArray(data) ? data : [];
+  return list.map((row) => mapReservaConConcierto({
+    ...row,
+    entradas: Array.isArray(row?.entradas) ? row.entradas : [],
+  }));
+}
+
+/** Staff: mueve reserva activa no usada a otro concierto. */
+export async function cambiarConciertoReservaStaff({
+  reservaId,
+  nuevoConciertoId,
+  forzarCupo = false,
+}) {
+  const { data, error } = await supabaseEntradasPublic.rpc("entrada_staff_cambiar_concierto_reserva", {
+    p_reserva_id: Number(reservaId),
+    p_nuevo_concierto_id: Number(nuevoConciertoId),
+    p_forzar_cupo: Boolean(forzarCupo),
+  });
+  if (error) throw error;
+  return Array.isArray(data) ? data[0] : data;
+}
+
+/** Staff (terceros): cancela cualquier reserva activa. */
+export async function cancelarReservaStaff(reservaId) {
+  const { error } = await supabaseEntradasPublic.rpc("entrada_staff_cancelar_reserva", {
+    p_reserva_id: Number(reservaId),
+  });
+  if (error) throw error;
+}
+
 export async function actualizarReferenciaTercero(reservaId, referencia) {
   const { error } = await supabaseEntradasPublic.rpc("entrada_actualizar_referencia_tercero", {
     p_reserva_id: reservaId,

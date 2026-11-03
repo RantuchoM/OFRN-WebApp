@@ -51,12 +51,17 @@
 - `entrada_admin_cancelar_reserva_tercero(p_reserva_id)` — `entrada_can_terceros`
 - `entrada_actualizar_referencia_tercero(p_reserva_id, p_referencia)` — `entrada_can_terceros`
 - `entrada_vincular_reservas_pendientes()`
+- `entrada_staff_listar_reservas_persona(p_email)` — historial titular/beneficiario (`entrada_can_terceros`)
+- `entrada_staff_cambiar_concierto_reserva(p_reserva_id, p_nuevo_concierto_id, p_forzar_cupo)` — mueve activa no usada
+- `entrada_staff_cancelar_reserva(p_reserva_id)` — cancela activa (boletos también, no solo admin)
+- `entrada_cambiar_cantidad_reserva` — además de titular/`reservada_por`, permite `entrada_can_terceros`
 
 Migraciones:
 - `supabase/migrations/20260619120000_entradas_reservas_terceros.sql`
 - `supabase/migrations/20260819150000_entradas_roles_boletos.sql` (enum `boletos` / `boletos_recep`)
 - `supabase/migrations/20260819150100_entradas_roles_boletos_rpcs.sql` (RPCs, RLS; transacción aparte por SQLSTATE 55P04)
 - `supabase/migrations/20261023120000_entrada_tercero_forzar_cupo.sql` (`cupo_excepcional` + `p_forzar_cupo`)
+- `supabase/migrations/20261103210000_entrada_staff_historial_reservas_persona.sql` (historial + editar no usadas)
 
 ## UI
 
@@ -66,12 +71,13 @@ Migraciones:
 - Componente: `src/components/entradas/EntradasTercerosSection.jsx`.
 - Helpers de rol: `src/utils/entradaRoles.js`.
 - Roles asignables en Usuarios / pre-registro: personal, recepcionista, boletos, boletos+recepc, admin.
+- [x] **Historial por persona** (`EntradasPersonaHistorialPanel`): en detalle de consulta de ayuda y en Admin → Usuarios (botón Entradas). Activas no usadas: cambiar cantidad, cambiar función (con forzar cupo), cancelar; Ver QR / PDF / WhatsApp.
 
 ## Consultas de ayuda (formulario público)
 
 - Tabla `entrada_ayuda_consulta` + RPCs `entrada_ayuda_listar` / `get` / `marcar_resuelta` / `descartar` (`entrada_can_terceros`).
 - Edge `entradas-send-ayuda` persiste la fila, manda mail a staff con botón **Reservar en Entradas** → `/entradas?view=entradas-terceros&ayuda=<uuid>`, y **acuse al consultante** (aviso Spam / Correo no deseado).
-- En Terceros: cola con pestañas **Pendientes** / **Resueltas** (`EntradasAyudaConsultasPanel`; resueltas por `resolved_at` desc). Dentro de Pendientes, subpestañas por rubro excluyente (orden UI): **Generales** / **Duplicadas** / **Con entradas** (`classifyAyudaPendientesPorRubro`). Cualquier rol con `entrada_can_terceros` (admin, boletos, boletos_recep) ve **todas** las pendientes y resueltas (no hay filtro por dueño). Al Abrir o Usar entrada vigente el detalle queda en el mismo bloque (banner bajo la cola) con WhatsApp activo; al resolver **no cambia a Resueltas** ni quita la fila: queda en Pendientes con tag **Resuelta** hasta Actualizar / salir de Terceros. En **Con entradas**, el WhatsApp de la fila ya lleva el link público al PDF de la reserva vigente. Pendiente: precarga el formulario de emisión.
+- En Terceros: cola con pestañas **Pendientes** / **Resueltas** (`EntradasAyudaConsultasPanel`; resueltas por `resolved_at` desc). Dentro de Pendientes, subpestañas por rubro excluyente (orden UI): **Generales** / **Duplicadas** / **Con entradas** (`classifyAyudaPendientesPorRubro`). Cualquier rol con `entrada_can_terceros` (admin, boletos, boletos_recep) ve **todas** las pendientes y resueltas (no hay filtro por dueño). Al Abrir o Usar entrada vigente el detalle queda en el mismo bloque (banner bajo la cola) con WhatsApp activo e **historial de entradas** del mail; al resolver **no cambia a Resueltas** ni quita la fila: queda en Pendientes con tag **Resuelta** hasta Actualizar / salir de Terceros. En **Con entradas**, el WhatsApp de la fila ya lleva el link público al PDF de la reserva vigente. Pendiente: precarga el formulario de emisión.
 - Tag **quién resolvió**: columna `resolved_by` (UUID de `entrada_usuario`) se setea al marcar resuelta/descartada desde el origen; la UI muestra `resolved_by_label` vía `entrada_usuario_display_short`. Filas viejas sin `resolved_by` no tienen etiqueta.
 - [x] En móvil (y hasta `lg`), cada solicitud usa todo el ancho de la tarjeta: nombre, mail, teléfono, cantidad, función y la anotación. Los botones no comparten fila con esos datos. «Usar entrada vigente» ocupa toda la fila; Abrir y Descartar van en dos columnas. El chip «Ya tiene entrada» no se parte letra por letra y el mail corta por palabras. Desde `lg`, datos a la izquierda y acciones en una columna fija.
 - **Lote:** tildar varias → **Aceptar N** (un concierto + mensaje personalizado compartido); avisa si alguna persona **ya tiene entradas** para ese concierto (`checkEntradasAyudaReservas`); procesa secuencial (reserva + mail + marcar resuelta; sin auto-descarga PDF).

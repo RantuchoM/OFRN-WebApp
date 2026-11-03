@@ -16,6 +16,9 @@ import EntradasMisReservasSection from "../../../components/entradas/EntradasMis
 import EntradasTercerosSection from "../../../components/entradas/EntradasTercerosSection";
 import EntradasAyudaConsultasPanel from "../../../components/entradas/EntradasAyudaConsultasPanel";
 import EntradasCambiarCantidadControls from "../../../components/entradas/EntradasCambiarCantidadControls";
+import EntradasPersonaHistorialPanel, {
+  EntradasPersonaHistorialModal,
+} from "../../../components/entradas/EntradasPersonaHistorialPanel";
 import EntradasPerfilModal from "../../../components/entradas/EntradasPerfilModal";
 import EntradasVerifyEmailModal from "../../../components/entradas/EntradasVerifyEmailModal";
 import EntradasVerQrButton from "../../../components/entradas/EntradasVerQrButton";
@@ -702,6 +705,8 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
   const [ayudaVincularBusy, setAyudaVincularBusy] = useState(false);
   /** email → reservas vigentes (para badge en la cola). */
   const [ayudaEmailReservasMap, setAyudaEmailReservasMap] = useState(() => ({}));
+  /** Admin → Usuarios: historial de entradas de un mail. */
+  const [historialUsuario, setHistorialUsuario] = useState(null);
   const terceroFormRef = useRef(null);
   const tercerosListadoRef = useRef(null);
   /** Al abrir una consulta de ayuda, confirmar automáticamente el beneficiario hallado. */
@@ -5390,6 +5395,29 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
               ) : null}
             </>
           )}
+          {ayudaConsulta.email ? (
+            <div
+              className={`mt-3 space-y-2 border-t pt-3 ${
+                isDark ? "border-white/15" : "border-black/10"
+              }`}
+            >
+              <h4 className={`text-xs font-bold uppercase tracking-wide ${ui.textMuted}`}>
+                Historial de entradas
+              </h4>
+              <EntradasPersonaHistorialPanel
+                email={ayudaConsulta.email}
+                nombre={ayudaConsulta.nombre || ""}
+                telefono={ayudaConsulta.telefono || null}
+                ui={ui}
+                isDark={isDark}
+                compact
+                onChanged={() => {
+                  setAyudaColaRefresh((n) => n + 1);
+                  void loadBase({ quiet: true });
+                }}
+              />
+            </div>
+          ) : null}
         </div>
       )}
 
@@ -7254,6 +7282,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
                         <th className="px-3 py-2 min-w-[10rem]">Mail</th>
                         <th className="px-3 py-2 min-w-[9rem]">Localidades</th>
                         <th className="px-3 py-2 whitespace-nowrap w-[8.5rem]">Rol</th>
+                        <th className="px-3 py-2 whitespace-nowrap w-[6.5rem]">Entradas</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -7282,6 +7311,21 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
                                 <option key={r.id} value={r.id}>{r.label}</option>
                               ))}
                             </select>
+                          </td>
+                          <td className="px-3 py-2">
+                            <button
+                              type="button"
+                              className={`${ui.btnGhost} px-2 py-1 text-xs whitespace-nowrap`}
+                              disabled={!usr.email}
+                              onClick={() =>
+                                setHistorialUsuario({
+                                  email: usr.email,
+                                  nombre: [usr.nombre, usr.apellido].filter(Boolean).join(" "),
+                                })
+                              }
+                            >
+                              Entradas
+                            </button>
                           </td>
                         </tr>
                       ))}
@@ -7329,6 +7373,19 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
                           ))}
                         </select>
                       </div>
+                      <button
+                        type="button"
+                        className={`${ui.btnSecondary} w-full`}
+                        disabled={!usr.email}
+                        onClick={() =>
+                          setHistorialUsuario({
+                            email: usr.email,
+                            nombre: [usr.nombre, usr.apellido].filter(Boolean).join(" "),
+                          })
+                        }
+                      >
+                        Ver entradas
+                      </button>
                     </article>
                   ))}
                 </div>
@@ -7349,6 +7406,18 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
           </section>
         )}
       </main>
+
+      <EntradasPersonaHistorialModal
+        open={Boolean(historialUsuario?.email)}
+        onClose={() => setHistorialUsuario(null)}
+        email={historialUsuario?.email || ""}
+        nombre={historialUsuario?.nombre || ""}
+        ui={ui}
+        isDark={isDark}
+        onChanged={() => {
+          void loadBase({ quiet: true });
+        }}
+      />
 
       <EntradasLiveQrScanner
         open={liveQrScannerOpen}
