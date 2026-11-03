@@ -6,11 +6,18 @@ import {
   listEntradasAyudaConsultas,
 } from "../../services/entradaService";
 import {
+  classifyAyudaPendientesPorRubro,
   findAyudaDuplicateGroups,
   indexAyudaDuplicateGroupSize,
   normalizeAyudaEmail,
 } from "../../utils/entradasAyudaCupo";
 import { normalizePhoneForWhatsApp } from "../../utils/entradasWhatsApp";
+
+const PENDIENTE_RUBROS = [
+  { key: "duplicadas", label: "Duplicadas" },
+  { key: "con_entradas", label: "Con entradas" },
+  { key: "generales", label: "Generales" },
+];
 
 function formatWhen(iso) {
   if (!iso) return "—";
@@ -24,7 +31,7 @@ function formatWhen(iso) {
 
 /**
  * Cola de consultas del formulario público (vista Terceros).
- * Pendientes (lote) y resueltas (histórico, más recientes primero).
+ * Pendientes (por rubro) y resueltas (histórico, más recientes primero).
  */
 export default function EntradasAyudaConsultasPanel({
   ui,
@@ -35,6 +42,7 @@ export default function EntradasAyudaConsultasPanel({
   onResolverQueEntren,
   onUnificarDuplicados,
   onVincularVigente,
+  onResolverConEntradas = null,
   onPendientesChange,
   onRowsLoaded,
   reservasVigentesPorEmail = null,
@@ -55,6 +63,8 @@ export default function EntradasAyudaConsultasPanel({
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState(null);
   const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const [pendienteRubro, setPendienteRubro] = useState("duplicadas");
+  const [pendientesTotal, setPendientesTotal] = useState(0);
 
   const esPendientes = filtroEstado === "pendiente";
   const esResueltas = filtroEstado === "resuelta";
@@ -73,6 +83,7 @@ export default function EntradasAyudaConsultasPanel({
       }
       setRows(list);
       if (filtroEstado === "pendiente") {
+        setPendientesTotal(list.length);
         onPendientesChange?.(list.length);
         onRowsLoaded?.(list);
       }
@@ -88,6 +99,7 @@ export default function EntradasAyudaConsultasPanel({
       toast.error(e?.message || "No se pudieron cargar las consultas de ayuda.");
       setRows([]);
       if (filtroEstado === "pendiente") {
+        setPendientesTotal(0);
         onPendientesChange?.(0);
         onRowsLoaded?.([]);
       }
@@ -108,6 +120,7 @@ export default function EntradasAyudaConsultasPanel({
         const data = await listEntradasAyudaConsultas("pendiente");
         if (!cancelled) {
           const list = Array.isArray(data) ? data : [];
+          setPendientesTotal(list.length);
           onPendientesChange?.(list.length);
           onRowsLoaded?.(list);
         }
@@ -120,22 +133,64 @@ export default function EntradasAyudaConsultasPanel({
     };
   }, [filtroEstado, refreshKey, onPendientesChange, onRowsLoaded]);
 
-  const selectedRows = useMemo(
-    () => rows.filter((r) => selectedIds.has(String(r.id))),
-    [rows, selectedIds],
+  const rubros = useMemo(() => {
+    if (!esPendientes) {
+      return {
+        duplicadas: [],
+        conEntradas: [],
+        generales: [],
+        duplicadasPersonas: 0,
+        duplicadasCopias: 0,
+        conEntradasPersonas: 0,
+        generalesPersonas: 0,
+      };
+    }
+    return classifyAyudaPendientesPorRubro(rows, reservasVigentesPorEmail || {});
+  }, [esPendientes, rows, reservasVigentesPorEmail]);
+
+  const rubroCounts = useMemo(
+    () => ({
+      duplicadas: rubros.duplicadas.length,
+      con_entradas: rubros.conEntradas.length,
+      generales: rubros.generales.length,
+    }),
+    [rubros],
   );
-  const allSelected = rows.length > 0 && selectedRows.length === rows.length;
+
+  useEffect(() => {
+    if (!esPendientes || loading) return;
+    const current = rubroCounts[pendienteRubro] || 0;
+    if (current > 0) return;
+    const firstNonEmpty = PENDIENTE_RUBROS.find((r) => (rubroCounts[r.key] || 0) > 0);
+    if (firstNonEmpty && firstNonEmpty.key !== pendienteRubro) {
+      setPendienteRubro(firstNonEmpty.key);
+    }
+  }, [esPendientes, loading, pendienteRubro, rubroCounts]);
+
+  const visibleRows = useMemo(() => {
+    if (!esPendientes) return rows;
+    if (pendienteRubro === "duplicadas") return rubros.duplicadas;
+    if (pendienteRubro === "con_entradas") return rubros.conEntradas;
+    return rubros.generales;
+  }, [esPendientes, pendienteRubro, rows, rubros]);
+
+  const selectedRows = useMemo(
+    () => visibleRows.filter((r) => selectedIds.has(String(r.id))),
+    [visibleRows, selectedIds],
+  );
+  const allSelected = visibleRows.length > 0 && selectedRows.length === visibleRows.length;
   const someSelected = selectedRows.length > 0;
   const duplicateGroupSizeById = useMemo(
     () => (esPendientes ? indexAyudaDuplicateGroupSize(rows) : new Map()),
     [rows, esPendientes],
   );
   const duplicateGroups = useMemo(
-    () => (esPendientes ? findAyudaDuplicateGroups(rows) : []),
-    [rows, esPendientes],
+    () => (esPendientes ? findAyudaDuplicateGroups(rubros.duplicadas) : []),
+    [rubros.duplicadas, esPendientes],
   );
-  const duplicatePeople = duplicateGroups.length;
-  const duplicateExtraCount = duplicateGroups.reduce((n, g) => n + Math.max(0, g.length - 1), 0);
+  const duplicatePeople = rubros.duplicadasPersonas || duplicateGroups.length;
+  const duplicateExtraCount = rubros.duplicadasCopias
+    || duplicateGroups.reduce((n, g) => n + Math.max(0, g.length - 1), 0);
 
   const toggleOne = (id) => {
     const key = String(id);
@@ -152,7 +207,7 @@ export default function EntradasAyudaConsultasPanel({
       setSelectedIds(new Set());
       return;
     }
-    setSelectedIds(new Set(rows.map((r) => String(r.id))));
+    setSelectedIds(new Set(visibleRows.map((r) => String(r.id))));
   };
 
   const descartar = async (id) => {
@@ -196,7 +251,7 @@ export default function EntradasAyudaConsultasPanel({
     await load();
   };
 
-  const tabBtn = (key, label) => {
+  const tabBtn = (key, label, count = null) => {
     const active = filtroEstado === key;
     return (
       <button
@@ -212,9 +267,36 @@ export default function EntradasAyudaConsultasPanel({
         }
       >
         {label}
+        {count != null ? ` (${count})` : ""}
       </button>
     );
   };
+
+  const rubroTabBtn = (key, label, count) => {
+    const active = pendienteRubro === key;
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          setSelectedIds(new Set());
+          setPendienteRubro(key);
+        }}
+        className={
+          active
+            ? `${ui.navActive} px-2.5 py-1 text-[11px] sm:text-xs`
+            : `${ui.navIdle} px-2.5 py-1 text-[11px] sm:text-xs`
+        }
+      >
+        {label} ({count})
+      </button>
+    );
+  };
+
+  const emptyPendienteMsg = (() => {
+    if (pendienteRubro === "duplicadas") return "No hay consultas duplicadas.";
+    if (pendienteRubro === "con_entradas") return "No hay consultas con entrada vigente.";
+    return "No hay consultas generales pendientes.";
+  })();
 
   return (
     <div className={`${ui.inset} min-w-0 space-y-3 p-3 sm:p-4`}>
@@ -231,42 +313,62 @@ export default function EntradasAyudaConsultasPanel({
       </div>
 
       <div className="flex flex-wrap gap-2">
-        {tabBtn("pendiente", "Pendientes")}
+        {tabBtn("pendiente", "Pendientes", pendientesTotal)}
         {tabBtn("resuelta", "Resueltas")}
       </div>
+
+      {esPendientes ? (
+        <div className="flex flex-wrap gap-1.5 sm:gap-2">
+          {PENDIENTE_RUBROS.map((r) => rubroTabBtn(r.key, r.label, rubroCounts[r.key] || 0))}
+        </div>
+      ) : null}
 
       <p className={`text-sm ${ui.textMuted}`}>
         {esResueltas
           ? "Consultas ya resueltas, de la más reciente a la más antigua. Abrí una para reenviar mail o WhatsApp."
-          : "Llegan del botón «¿Necesitás ayuda?». Tildá varias para aceptarlas juntas, o abrí una sola."}
+          : pendienteRubro === "duplicadas"
+            ? "Mismo mail = misma persona. Unificá o aceptá el lote: se emite una sola reserva y se descartan las copias."
+            : pendienteRubro === "con_entradas"
+              ? "Ya tienen reserva vigente. Vinculá la consulta a esa entrada sin emitir otra."
+              : "Sin duplicados ni entrada vigente. Tildá varias para aceptarlas juntas, o resolvé las que entren en cupo."}
       </p>
 
-      {esPendientes && !loading && rows.length > 0 ? (
+      {esPendientes && !loading && visibleRows.length > 0 ? (
         <div className="flex flex-wrap gap-2">
-          {onResolverQueEntren ? (
+          {pendienteRubro === "generales" && onResolverQueEntren ? (
             <button
               type="button"
               disabled={loteBusy || busyId != null}
               className={`${ui.btnPrimary} !w-full px-3 py-2 text-xs sm:!w-auto`}
-              onClick={() => onResolverQueEntren(rows)}
+              onClick={() => onResolverQueEntren(visibleRows)}
             >
-              Resolver las que entren en cupo ({rows.length} pendiente{rows.length === 1 ? "" : "s"})
+              Resolver las que entren en cupo ({visibleRows.length})
             </button>
           ) : null}
-          {duplicatePeople > 0 && onUnificarDuplicados ? (
+          {pendienteRubro === "duplicadas" && duplicatePeople > 0 && onUnificarDuplicados ? (
             <button
               type="button"
               disabled={loteBusy || busyId != null}
               className={`${ui.btnSecondary || ui.btnGhost} !w-full border border-violet-300 bg-violet-50 px-3 py-2 text-xs text-violet-900 sm:!w-auto`}
-              onClick={() => onUnificarDuplicados(rows)}
+              onClick={() => onUnificarDuplicados(visibleRows)}
             >
               Unificar duplicados ({duplicatePeople} persona{duplicatePeople === 1 ? "" : "s"}, {duplicateExtraCount} copia{duplicateExtraCount === 1 ? "" : "s"})
+            </button>
+          ) : null}
+          {pendienteRubro === "con_entradas" && onResolverConEntradas ? (
+            <button
+              type="button"
+              disabled={loteBusy || busyId != null}
+              className={`${ui.btnPrimary} !w-full px-3 py-2 text-xs sm:!w-auto`}
+              onClick={() => onResolverConEntradas(visibleRows)}
+            >
+              Vincular todas a entrada vigente ({visibleRows.length})
             </button>
           ) : null}
         </div>
       ) : null}
 
-      {esPendientes && !loading && duplicatePeople > 0 ? (
+      {esPendientes && pendienteRubro === "duplicadas" && !loading && duplicatePeople > 0 ? (
         <div
           className={`rounded-lg border px-3 py-2 text-xs ${
             isDark
@@ -274,8 +376,7 @@ export default function EntradasAyudaConsultasPanel({
               : "border-violet-200 bg-violet-50 text-violet-950"
           }`}
         >
-          Mismo mail = misma persona. Al unificar se emite <strong>una sola reserva</strong> (cantidad = la mayor pedida) y se
-          {" "}descartan las consultas duplicadas.
+          Al unificar se emite <strong>una sola reserva</strong> (cantidad = la mayor pedida) y se descartan las consultas duplicadas.
         </div>
       ) : null}
 
@@ -321,10 +422,12 @@ export default function EntradasAyudaConsultasPanel({
 
       {loading ? (
         <p className={`text-sm ${ui.textMuted}`}>Cargando…</p>
-      ) : rows.length === 0 ? (
-        <p className={`text-sm ${ui.textMuted}`}>
-          {esResueltas ? "No hay consultas resueltas." : "No hay consultas pendientes."}
-        </p>
+      ) : esResueltas && rows.length === 0 ? (
+        <p className={`text-sm ${ui.textMuted}`}>No hay consultas resueltas.</p>
+      ) : esPendientes && rows.length === 0 ? (
+        <p className={`text-sm ${ui.textMuted}`}>No hay consultas pendientes.</p>
+      ) : esPendientes && visibleRows.length === 0 ? (
+        <p className={`text-sm ${ui.textMuted}`}>{emptyPendienteMsg}</p>
       ) : (
         <>
           {esPendientes ? (
@@ -335,12 +438,11 @@ export default function EntradasAyudaConsultasPanel({
                 onChange={toggleAll}
                 disabled={loteBusy}
               />
-              Seleccionar todas ({rows.length})
+              Seleccionar todas ({visibleRows.length})
             </label>
           ) : null}
           <ul className="m-0 min-w-0 list-none space-y-3 p-0">
-            {rows.map((row) => {
-              const active = String(activeAyudaId || "") === String(row.id);
+            {visibleRows.map((row) => {              const active = String(activeAyudaId || "") === String(row.id);
               const checked = selectedIds.has(String(row.id));
               const dupSize = duplicateGroupSizeById.get(String(row.id)) || 0;
               const emailKey = normalizeAyudaEmail(row.email);

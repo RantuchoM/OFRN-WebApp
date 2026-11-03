@@ -14,6 +14,7 @@ export default function ConfirmModal({
   confirmText = "Confirmar",
   cancelText = "Cancelar",
   hideCancel = false,
+  hideConfirm = false,
   confirmClassName = "px-4 py-2.5 sm:py-2 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-md hover:shadow-lg transition-all active:scale-[0.98]",
   overlayClassName = "z-[100]",
   confirmLoading = false,
@@ -130,15 +131,17 @@ export default function ConfirmModal({
               {cancelText}
             </button>
           ) : null}
-          <button
-            type="button"
-            onClick={handleConfirm}
-            disabled={busy || confirmDisabled}
-            className={`w-full sm:w-auto flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed ${confirmClassName}`}
-          >
-            {busy ? <IconLoader size={16} className="animate-spin shrink-0" /> : null}
-            {busy ? loadingText : confirmText}
-          </button>
+          {!hideConfirm ? (
+            <button
+              type="button"
+              onClick={handleConfirm}
+              disabled={busy || confirmDisabled}
+              className={`w-full sm:w-auto flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed ${confirmClassName}`}
+            >
+              {busy ? <IconLoader size={16} className="animate-spin shrink-0" /> : null}
+              {busy ? loadingText : confirmText}
+            </button>
+          ) : null}
         </div>
       </div>
     </div>,

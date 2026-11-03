@@ -3,6 +3,7 @@
  * - send: persiste consulta + mail staff + acuse
  * - check_reservas: avisa si el mail ya tiene reservas activas
  * - reenviar_entradas: reenvía confirmación con QR a ese mail
+ * - abrir_entrada: pdf_share_token para PDF/QR/WhatsApp sin login (mail + reserva)
  */
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
@@ -26,8 +27,10 @@ const corsHeaders = {
 
 const COOLDOWN_MS = 60_000;
 const RESEND_COOLDOWN_MS = 90_000;
+const ABRIR_COOLDOWN_MS = 20_000;
 const recentByKey = new Map<string, number>();
 const resendByKey = new Map<string, number>();
+const abrirByKey = new Map<string, number>();
 
 function normalizeEmail(value: unknown): string {
   return String(value || "").trim().toLowerCase();
@@ -168,6 +171,9 @@ function pruneCooldown(now: number) {
   }
   for (const [key, at] of resendByKey) {
     if (now - at > RESEND_COOLDOWN_MS * 2) resendByKey.delete(key);
+  }
+  for (const [key, at] of abrirByKey) {
+    if (now - at > ABRIR_COOLDOWN_MS * 2) abrirByKey.delete(key);
   }
 }
 
@@ -435,6 +441,64 @@ async function handleReenviarEntradas(
   return jsonResponse({ success: true });
 }
 
+async function handleAbrirEntrada(
+  admin: SupabaseClient,
+  email: string,
+  reservaId: number,
+  ip: string,
+) {
+  if (!isValidEmail(email)) {
+    return jsonResponse({ error: "Ingresá un mail válido." }, 400);
+  }
+  if (!Number.isFinite(reservaId) || reservaId <= 0) {
+    return jsonResponse({ error: "Reserva inválida." }, 400);
+  }
+
+  const now = Date.now();
+  pruneCooldown(now);
+  const rateKey = `abrir|${email}|${reservaId}|${ip}`;
+  const last = abrirByKey.get(rateKey) || 0;
+  if (now - last < ABRIR_COOLDOWN_MS) {
+    return jsonResponse({ error: "Esperá un momento antes de volver a abrir esa entrada." }, 429);
+  }
+
+  const rows = await fetchReservasActivasPorEmail(admin, email);
+  const row = rows.find((r) => Number(r.id) === reservaId);
+  if (!row) {
+    return jsonResponse({ error: "No encontramos una reserva activa con ese mail." }, 404);
+  }
+
+  const { data: reservaRow, error: fetchErr } = await admin
+    .from("entrada_reserva")
+    .select("id, pdf_share_token, codigo_reserva")
+    .eq("id", reservaId)
+    .eq("estado", "activa")
+    .maybeSingle();
+  if (fetchErr) throw new Error(fetchErr.message);
+  if (!reservaRow?.id) {
+    return jsonResponse({ error: "No encontramos una reserva activa con ese mail." }, 404);
+  }
+
+  let token = String(reservaRow.pdf_share_token || "").trim().toLowerCase();
+  if (!/^[a-f0-9]{32,96}$/.test(token)) {
+    token = `${crypto.randomUUID().replace(/-/g, "")}${crypto.randomUUID().replace(/-/g, "")}`;
+    const { error: updErr } = await admin
+      .from("entrada_reserva")
+      .update({ pdf_share_token: token })
+      .eq("id", reservaId)
+      .eq("estado", "activa");
+    if (updErr) throw new Error(updErr.message);
+  }
+
+  abrirByKey.set(rateKey, now);
+  return jsonResponse({
+    success: true,
+    token,
+    codigo_reserva: String(reservaRow.codigo_reserva || row.codigo_reserva || ""),
+    reserva_id: reservaId,
+  });
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -464,6 +528,10 @@ serve(async (req) => {
     if (action === "reenviar_entradas") {
       const reservaId = Number(body?.reservaId ?? body?.reserva_id);
       return await handleReenviarEntradas(admin, email, reservaId, ip);
+    }
+    if (action === "abrir_entrada") {
+      const reservaId = Number(body?.reservaId ?? body?.reserva_id);
+      return await handleAbrirEntrada(admin, email, reservaId, ip);
     }
 
     if (!GMAIL_USER || !GMAIL_PASS) {

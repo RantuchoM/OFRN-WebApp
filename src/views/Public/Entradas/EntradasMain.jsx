@@ -102,6 +102,7 @@ import {
 } from "../../../services/entradaService";
 import { isEntradasNetworkError, formatEntradasNetworkError } from "../../../utils/entradasAuthMessages";
 import {
+  classifyAyudaPendientesPorRubro,
   collapseAyudaConsultasDuplicadas,
   elegirConciertoYConsultasParaCupo,
   findAyudaDuplicateGroups,
@@ -2881,24 +2882,68 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
     let cancelled = false;
     (async () => {
       const list = await refreshAyudaPendientesCount();
-      if (cancelled || !list?.length || !conciertosTercerosSelect.length) return;
-      const best = elegirConciertoYConsultasParaCupo(
-        list,
-        conciertosTercerosSelect,
-        (c) => computeDisponibles(c),
+      if (cancelled || !list?.length) return;
+
+      const emails = [
+        ...new Set(
+          list
+            .map((r) => normalizeAyudaEmail(r?.email))
+            .filter((e) => e.includes("@")),
+        ),
+      ];
+      const reservasMap = {};
+      await Promise.all(
+        emails.map(async (email) => {
+          try {
+            reservasMap[email] = await checkEntradasAyudaReservas(email);
+          } catch {
+            reservasMap[email] = [];
+          }
+        }),
       );
-      if (!best?.picked?.length) return;
+      if (cancelled) return;
+      setAyudaEmailReservasMap(reservasMap);
+
+      const rubros = classifyAyudaPendientesPorRubro(list, reservasMap);
+      if (
+        !rubros.duplicadas.length
+        && !rubros.conEntradas.length
+        && !rubros.generales.length
+      ) {
+        return;
+      }
+
+      let generalesOffer = null;
+      if (rubros.generales.length && conciertosTercerosSelect.length) {
+        const best = elegirConciertoYConsultasParaCupo(
+          rubros.generales,
+          conciertosTercerosSelect,
+          (c) => computeDisponibles(c),
+        );
+        if (best?.picked?.length) {
+          generalesOffer = {
+            entra: best.picked.length,
+            tickets: best.ticketsPicked,
+            disponibles: best.disponibles,
+            conciertoNombre: best.concierto?.nombre || "el concierto",
+            picked: best.picked,
+            conciertoId: best.concierto.id,
+          };
+        }
+      }
+
       ayudaResolverOfferShownRef.current = true;
       setAyudaResolverCupoOffer({
         total: list.length,
-        entra: best.picked.length,
-        tickets: best.ticketsPicked,
-        disponibles: best.disponibles,
-        conciertoNombre: best.concierto?.nombre || "el concierto",
-        picked: best.picked,
-        conciertoId: best.concierto.id,
-        discardedDuplicates: best.discardedDuplicates || 0,
-        groupsWithDupes: best.groupsWithDupes || 0,
+        duplicadasRows: rubros.duplicadas,
+        duplicadasPersonas: rubros.duplicadasPersonas,
+        duplicadasCopias: rubros.duplicadasCopias,
+        conEntradasRows: rubros.conEntradas,
+        conEntradasPersonas: rubros.conEntradasPersonas,
+        generalesRows: rubros.generales,
+        generalesPersonas: rubros.generalesPersonas,
+        generalesOffer,
+        reservasMap,
       });
     })();
     return () => {
@@ -2951,6 +2996,71 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
     }
     openAyudaLote(best.picked, best.concierto.id);
   }, [conciertosTercerosSelect, openAyudaLote]);
+
+  const resolverAyudaRubroDuplicadas = useCallback((rows) => {
+    const list = Array.isArray(rows) ? rows.filter(Boolean) : [];
+    if (!list.length) {
+      toast.message("No hay consultas duplicadas.");
+      return;
+    }
+    openAyudaLote(list);
+  }, [openAyudaLote]);
+
+  const resolverAyudaRubroConEntradas = useCallback(async (rows, reservasMap = {}) => {
+    const list = Array.isArray(rows) ? rows.filter(Boolean) : [];
+    if (!list.length) {
+      toast.message("No hay consultas con entrada vigente.");
+      return;
+    }
+    setAyudaVincularBusy(true);
+    let ok = 0;
+    let fail = 0;
+    try {
+      for (const row of list) {
+        const email = normalizeAyudaEmail(row.email);
+        let vigentes = Array.isArray(reservasMap?.[email]) ? reservasMap[email] : null;
+        if (!vigentes) {
+          try {
+            vigentes = await checkEntradasAyudaReservas(email);
+          } catch {
+            vigentes = [];
+          }
+        }
+        const preferida = pickAyudaReservaVigentePreferida(vigentes, row.concierto_id);
+        if (!preferida?.id) {
+          fail += 1;
+          continue;
+        }
+        try {
+          await marcarEntradaAyudaResuelta(row.id, preferida.id);
+          ok += 1;
+        } catch {
+          fail += 1;
+        }
+      }
+      setAyudaColaRefresh((n) => n + 1);
+      void refreshAyudaPendientesCount();
+      if (ok) {
+        toast.success(
+          `${ok} consulta${ok === 1 ? "" : "s"} vinculada${ok === 1 ? "" : "s"} a entrada vigente.`,
+        );
+      }
+      if (fail) {
+        toast.error(`${fail} no se pudieron vincular.`);
+      }
+    } finally {
+      setAyudaVincularBusy(false);
+    }
+  }, [pickAyudaReservaVigentePreferida, refreshAyudaPendientesCount]);
+
+  const resolverAyudaRubroGenerales = useCallback((rows) => {
+    const list = Array.isArray(rows) ? rows.filter(Boolean) : [];
+    if (!list.length) {
+      toast.message("No hay consultas generales pendientes.");
+      return;
+    }
+    void resolverAyudaQueEntranEnCupo(list);
+  }, [resolverAyudaQueEntranEnCupo]);
 
   const closeAyudaLote = () => {
     if (ayudaLoteBusy) return;
@@ -4808,6 +4918,9 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
         onFiltroEstadoChange={setAyudaFiltroEstado}
         onAceptarLote={openAyudaLote}
         onResolverQueEntren={resolverAyudaQueEntranEnCupo}
+        onResolverConEntradas={(rows) => {
+          void resolverAyudaRubroConEntradas(rows, ayudaEmailReservasMap);
+        }}
         onPendientesChange={setAyudaPendientesCount}
         onRowsLoaded={refreshAyudaEmailReservasMap}
         reservasVigentesPorEmail={ayudaEmailReservasMap}
@@ -7571,33 +7684,119 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
 
       <ConfirmModal
         isOpen={Boolean(ayudaResolverCupoOffer)}
-        onClose={() => setAyudaResolverCupoOffer(null)}
+        onClose={() => !ayudaVincularBusy && setAyudaResolverCupoOffer(null)}
         title="Solicitudes sin resolver"
         message={
           ayudaResolverCupoOffer
-            ? [
-                `Hay ${ayudaResolverCupoOffer.total} solicitud${ayudaResolverCupoOffer.total === 1 ? "" : "es"} pendiente${ayudaResolverCupoOffer.total === 1 ? "" : "s"}.`,
-                ayudaResolverCupoOffer.discardedDuplicates > 0
-                  ? `Se detectaron ${ayudaResolverCupoOffer.groupsWithDupes} persona${ayudaResolverCupoOffer.groupsWithDupes === 1 ? "" : "s"} con consultas duplicadas: se unifican en una sola reserva y se descartan ${ayudaResolverCupoOffer.discardedDuplicates} copia${ayudaResolverCupoOffer.discardedDuplicates === 1 ? "" : "s"}.`
-                  : null,
-                `Con el cupo actual de «${ayudaResolverCupoOffer.conciertoNombre}» (${ayudaResolverCupoOffer.disponibles} disponibles) se pueden emitir ${ayudaResolverCupoOffer.entra} (${ayudaResolverCupoOffer.tickets} entrada${ayudaResolverCupoOffer.tickets === 1 ? "" : "s"}).`,
-                "¿Seleccionamos esas y abrimos el lote para resolverlas?",
-              ]
-                .filter(Boolean)
-                .join("\n\n")
+            ? `Hay ${ayudaResolverCupoOffer.total} solicitud${ayudaResolverCupoOffer.total === 1 ? "" : "es"} pendiente${ayudaResolverCupoOffer.total === 1 ? "" : "s"}. Elegí un rubro para resolver.`
             : ""
         }
-        confirmText="Resolver las que entren"
+        hideConfirm
         cancelText="Ahora no"
-        confirmClassName="px-4 py-2.5 sm:py-2 text-sm font-bold text-white bg-sky-600 hover:bg-sky-700 rounded-lg shadow-md"
-        onConfirm={() => {
-          const offer = ayudaResolverCupoOffer;
-          setAyudaResolverCupoOffer(null);
-          if (offer?.picked?.length) {
-            openAyudaLote(offer.picked, offer.conciertoId);
-          }
-        }}
-      />
+        confirmLoading={ayudaVincularBusy}
+        loadingText="Vinculando…"
+        onConfirm={() => {}}
+      >
+        {ayudaResolverCupoOffer ? (
+          <ul className="mt-4 space-y-3">
+            <li className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
+              <div className="min-w-0 text-sm text-slate-600 leading-snug">
+                <span className="font-semibold text-slate-800">Consultas duplicadas</span>
+                {ayudaResolverCupoOffer.duplicadasPersonas > 0 ? (
+                  <span className="block mt-0.5">
+                    {ayudaResolverCupoOffer.duplicadasPersonas} persona
+                    {ayudaResolverCupoOffer.duplicadasPersonas === 1 ? "" : "s"}
+                    {" · "}
+                    {ayudaResolverCupoOffer.duplicadasRows?.length || 0} consulta
+                    {(ayudaResolverCupoOffer.duplicadasRows?.length || 0) === 1 ? "" : "s"}
+                    {ayudaResolverCupoOffer.duplicadasCopias > 0
+                      ? ` (${ayudaResolverCupoOffer.duplicadasCopias} copia${ayudaResolverCupoOffer.duplicadasCopias === 1 ? "" : "s"} a unificar)`
+                      : ""}
+                  </span>
+                ) : (
+                  <span className="block mt-0.5 text-slate-400">Ninguna</span>
+                )}
+              </div>
+              <button
+                type="button"
+                disabled={ayudaVincularBusy || !(ayudaResolverCupoOffer.duplicadasRows?.length)}
+                onClick={() => {
+                  const rows = ayudaResolverCupoOffer.duplicadasRows || [];
+                  setAyudaResolverCupoOffer(null);
+                  resolverAyudaRubroDuplicadas(rows);
+                }}
+                className="shrink-0 w-full sm:w-auto px-3 py-2 text-sm font-bold text-white bg-sky-600 hover:bg-sky-700 rounded-lg shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Resolver
+              </button>
+            </li>
+            <li className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
+              <div className="min-w-0 text-sm text-slate-600 leading-snug">
+                <span className="font-semibold text-slate-800">Consultas con entradas</span>
+                {ayudaResolverCupoOffer.conEntradasPersonas > 0 ? (
+                  <span className="block mt-0.5">
+                    {ayudaResolverCupoOffer.conEntradasPersonas} persona
+                    {ayudaResolverCupoOffer.conEntradasPersonas === 1 ? "" : "s"}
+                    {" con reserva vigente · vincular sin emitir"}
+                  </span>
+                ) : (
+                  <span className="block mt-0.5 text-slate-400">Ninguna</span>
+                )}
+              </div>
+              <button
+                type="button"
+                disabled={ayudaVincularBusy || !(ayudaResolverCupoOffer.conEntradasRows?.length)}
+                onClick={() => {
+                  const rows = ayudaResolverCupoOffer.conEntradasRows || [];
+                  const map = ayudaResolverCupoOffer.reservasMap || {};
+                  setAyudaResolverCupoOffer(null);
+                  void resolverAyudaRubroConEntradas(rows, map);
+                }}
+                className="shrink-0 w-full sm:w-auto px-3 py-2 text-sm font-bold text-white bg-sky-600 hover:bg-sky-700 rounded-lg shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Resolver
+              </button>
+            </li>
+            <li className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
+              <div className="min-w-0 text-sm text-slate-600 leading-snug">
+                <span className="font-semibold text-slate-800">Consultas generales</span>
+                {ayudaResolverCupoOffer.generalesPersonas > 0 ? (
+                  <span className="block mt-0.5">
+                    {ayudaResolverCupoOffer.generalesPersonas} consulta
+                    {ayudaResolverCupoOffer.generalesPersonas === 1 ? "" : "s"}
+                    {ayudaResolverCupoOffer.generalesOffer
+                      ? ` · con cupo de «${ayudaResolverCupoOffer.generalesOffer.conciertoNombre}» (${ayudaResolverCupoOffer.generalesOffer.disponibles} disp.) entran ${ayudaResolverCupoOffer.generalesOffer.entra} (${ayudaResolverCupoOffer.generalesOffer.tickets} entrada${ayudaResolverCupoOffer.generalesOffer.tickets === 1 ? "" : "s"})`
+                      : " · sin cupo suficiente ahora"}
+                  </span>
+                ) : (
+                  <span className="block mt-0.5 text-slate-400">Ninguna</span>
+                )}
+              </div>
+              <button
+                type="button"
+                disabled={
+                  ayudaVincularBusy
+                  || !(ayudaResolverCupoOffer.generalesRows?.length)
+                  || !ayudaResolverCupoOffer.generalesOffer?.picked?.length
+                }
+                onClick={() => {
+                  const offer = ayudaResolverCupoOffer.generalesOffer;
+                  const rows = ayudaResolverCupoOffer.generalesRows || [];
+                  setAyudaResolverCupoOffer(null);
+                  if (offer?.picked?.length) {
+                    openAyudaLote(offer.picked, offer.conciertoId);
+                  } else {
+                    resolverAyudaRubroGenerales(rows);
+                  }
+                }}
+                className="shrink-0 w-full sm:w-auto px-3 py-2 text-sm font-bold text-white bg-sky-600 hover:bg-sky-700 rounded-lg shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Resolver
+              </button>
+            </li>
+          </ul>
+        ) : null}
+      </ConfirmModal>
 
       <ConfirmModal
         isOpen={Boolean(cupoExcepcionModal)}

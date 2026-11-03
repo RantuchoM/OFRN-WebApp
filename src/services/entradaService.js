@@ -171,6 +171,24 @@ export async function reenviarEntradasAyudaReserva({ email, reservaId }) {
   });
 }
 
+/**
+ * Sin login: mail + reserva → payload completo (mismo que /entradas/pdf) vía pdf_share_token.
+ * Verifica titularidad en Edge (titular o beneficiario).
+ */
+export async function abrirEntradaAyudaPorEmail({ email, reservaId }) {
+  const data = await invokeEntradasAyuda({
+    action: "abrir_entrada",
+    email: String(email || "").trim().toLowerCase(),
+    reservaId: Number(reservaId),
+  });
+  const token = String(data?.token || "").trim().toLowerCase();
+  if (!/^[a-f0-9]{32,96}$/.test(token)) {
+    throw new Error("No se pudo abrir la entrada. Probá reenviar el mail.");
+  }
+  const reserva = await fetchEntradaPdfSharePayload(token);
+  return { token, reserva };
+}
+
 async function enrichAyudaConsultaResolvedBy(row) {
   if (!row || typeof row !== "object") return row;
   const resolvedBy = row.resolved_by;
@@ -955,7 +973,8 @@ export function mergeAsegurarQrEnReserva(reserva, payload) {
   };
 }
 
-export async function descargarPdfDesdeReservaRow(reserva) {
+/** Arma el PDF de una reserva (blob + nombre) sin disparar la descarga. */
+export async function buildPdfBlobDesdeReservaRow(reserva) {
   let row = reserva;
   if (!entradasConTokensCompletos(row)) {
     const payload = await asegurarQrTokensReserva(row.id);
@@ -970,13 +989,17 @@ export async function descargarPdfDesdeReservaRow(reserva) {
   if (tokens.length !== Number(row.cantidad_solicitada) || !tokens.length) {
     throw new Error("Faltan datos de entradas para generar el PDF. Contactá a la administración.");
   }
-  const { blob, filename } = await buildEntradasReservaPdfConQr({
+  return buildEntradasReservaPdfConQr({
     concierto: row.concierto,
     reserva: row,
     qrReservaToken: grupoToken,
     qrEntradaTokens: tokens,
     entradasRows: sorted,
   });
+}
+
+export async function descargarPdfDesdeReservaRow(reserva) {
+  const { blob, filename } = await buildPdfBlobDesdeReservaRow(reserva);
   downloadEntradasReservaPdfBlob(blob, filename);
 }
 

@@ -1,20 +1,32 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
+import MisReservasQrModal from "./MisReservasQrModal";
 import { IconHelpCircle, IconMail, IconX } from "../ui/Icons";
 import { entradasUi, useEntradasDarkMode } from "../../hooks/useEntradasDarkMode";
 import {
+  abrirEntradaAyudaPorEmail,
+  buildPdfBlobDesdeReservaRow,
   checkEntradasAyudaReservas,
   descargarPdfDesdeReservaRow,
   listarMisReservasActivasParaAyuda,
   reenviarEntradasAyudaReserva,
   sendEntradasAyudaConsulta,
 } from "../../services/entradaService";
+import { canShareFiles } from "../../utils/downloadBlob";
 import { buildEntradasAyudaMailtoHref } from "../../utils/entradasAyudaMailto";
 import {
   isValidEntradasAyudaEmail,
   listEntradasConciertosAbiertosPublicos,
 } from "../../utils/entradasConciertosAbiertosPublicos";
-import { normalizePhoneForWhatsApp } from "../../utils/entradasWhatsApp";
+import {
+  buildEntradasPdfShareUrl,
+  formatDiaHoraWhatsAppEntradas,
+  normalizePhoneForWhatsApp,
+} from "../../utils/entradasWhatsApp";
+import {
+  fechaHoraDesdeConciertoEntrada,
+  lugarNombreDesdeConciertoEntrada,
+} from "../../utils/entradasConciertoEvento";
 
 const emptyForm = {
   nombre: "",
@@ -30,8 +42,8 @@ const CANTIDAD_OPTIONS = ["1", "2", "3", "4"];
 
 /**
  * Botón flotante (abajo izquierda) + modal de ayuda.
- * Si el mail ya tiene reservas en conciertos abiertos: aviso + descarga/reenvío;
- * la consulta sigue disponible sin elegir cantidad ni función.
+ * Si el mail ya tiene reservas en conciertos abiertos: aviso + PDF/QR/reenvío/WhatsApp
+ * (sin login); la consulta sigue disponible sin elegir cantidad ni función.
  */
 export default function EntradasAyudaFlotante({
   sessionEmail = "",
@@ -51,6 +63,7 @@ export default function EntradasAyudaFlotante({
   const [reservasChecking, setReservasChecking] = useState(false);
   const [misReservasFull, setMisReservasFull] = useState([]);
   const [busyReservaId, setBusyReservaId] = useState(null);
+  const [qrModalReserva, setQrModalReserva] = useState(null);
   const mailtoHref = buildEntradasAyudaMailtoHref();
 
   const sessionEmailNorm = String(sessionEmail || "").trim().toLowerCase();
@@ -202,31 +215,37 @@ export default function EntradasAyudaFlotante({
     }));
   };
 
-  const canDownloadPdf = (reservaId) => {
-    if (!sessionEmailNorm || sessionEmailNorm !== String(form.email || "").trim().toLowerCase()) {
-      return false;
-    }
-    return misReservasFull.some((r) => Number(r.id) === Number(reservaId));
+  const resolveReservaPayload = async (reservaMeta) => {
+    const full = misReservasFull.find((r) => Number(r.id) === Number(reservaMeta.id));
+    if (full) return { reserva: full, token: null };
+    const opened = await abrirEntradaAyudaPorEmail({
+      email: form.email,
+      reservaId: reservaMeta.id,
+    });
+    return { reserva: opened.reserva, token: opened.token };
   };
 
   const handleDescargar = async (reservaMeta) => {
     setBusyReservaId(reservaMeta.id);
     setError("");
     try {
-      const full = misReservasFull.find((r) => Number(r.id) === Number(reservaMeta.id));
-      if (full) {
-        await descargarPdfDesdeReservaRow(full);
-        return;
-      }
-      await reenviarEntradasAyudaReserva({
-        email: form.email,
-        reservaId: reservaMeta.id,
-      });
-      setError("");
-      // feedback soft
-      window.alert("Te reenviamos las entradas a tu mail. Revisá también Spam / Correo no deseado.");
+      const { reserva } = await resolveReservaPayload(reservaMeta);
+      await descargarPdfDesdeReservaRow(reserva);
     } catch (downloadError) {
-      setError(downloadError?.message || "No se pudo descargar ni reenviar las entradas.");
+      setError(downloadError?.message || "No se pudo descargar el PDF.");
+    } finally {
+      setBusyReservaId(null);
+    }
+  };
+
+  const handleVerQr = async (reservaMeta) => {
+    setBusyReservaId(reservaMeta.id);
+    setError("");
+    try {
+      const { reserva } = await resolveReservaPayload(reservaMeta);
+      setQrModalReserva(reserva);
+    } catch (qrError) {
+      setError(qrError?.message || "No se pudo abrir el QR.");
     } finally {
       setBusyReservaId(null);
     }
@@ -243,6 +262,75 @@ export default function EntradasAyudaFlotante({
       window.alert("Te reenviamos las entradas a tu mail. Revisá también Spam / Correo no deseado.");
     } catch (resendError) {
       setError(resendError?.message || "No se pudo reenviar el mail.");
+    } finally {
+      setBusyReservaId(null);
+    }
+  };
+
+  /**
+   * Backup personal: si el celular permite compartir archivos, abre la hoja nativa
+   * (WhatsApp / contactos) con el PDF. Si no, abre WhatsApp con el link de descarga.
+   * WhatsApp no permite adjuntar un archivo vía URL; solo link o Share API.
+   */
+  const handleCompartirWhatsApp = async (reservaMeta) => {
+    setBusyReservaId(reservaMeta.id);
+    setError("");
+    try {
+      const { reserva, token } = await resolveReservaPayload(reservaMeta);
+      const { blob, filename } = await buildPdfBlobDesdeReservaRow(reserva);
+      const file = new File([blob], filename || "entradas-OFRN.pdf", {
+        type: blob.type || "application/pdf",
+      });
+
+      if (canShareFiles(file)) {
+        try {
+          await navigator.share({
+            files: [file],
+            title: filename || "Entradas OFRN",
+            text: "Te paso el PDF de mis entradas OFRN.",
+          });
+          return;
+        } catch (shareErr) {
+          if (shareErr?.name === "AbortError") return;
+          /* fallback a link */
+        }
+      }
+
+      let pdfUrl = token ? buildEntradasPdfShareUrl(token) : null;
+      if (!pdfUrl) {
+        const opened = await abrirEntradaAyudaPorEmail({
+          email: form.email,
+          reservaId: reservaMeta.id,
+        });
+        pdfUrl = buildEntradasPdfShareUrl(opened.token);
+      }
+      if (!pdfUrl) {
+        throw new Error("No se pudo armar el enlace del PDF para WhatsApp.");
+      }
+
+      const cuando = formatDiaHoraWhatsAppEntradas(
+        reserva?.concierto?.fecha_hora || fechaHoraDesdeConciertoEntrada(reserva?.concierto),
+      );
+      const lugar = String(lugarNombreDesdeConciertoEntrada(reserva?.concierto) || "").trim();
+      const detalles = [
+        reserva?.concierto?.nombre || reservaMeta.label || "Entradas OFRN",
+        cuando.dia && cuando.hora ? `${cuando.dia} · ${cuando.hora}` : (cuando.dia || ""),
+        lugar,
+        reservaMeta.codigo ? `Código ${reservaMeta.codigo}` : "",
+      ].filter(Boolean);
+      const text = [
+        "Hola, te paso el PDF de mis entradas OFRN como respaldo.",
+        "",
+        ...detalles,
+        "",
+        "Descargá el PDF acá (no hace falta iniciar sesión):",
+        pdfUrl,
+      ].join("\n");
+
+      const waUrl = `https://wa.me/?text=${encodeURIComponent(text)}`;
+      window.open(waUrl, "_blank", "noopener,noreferrer");
+    } catch (shareError) {
+      setError(shareError?.message || "No se pudo preparar el PDF para WhatsApp.");
     } finally {
       setBusyReservaId(null);
     }
@@ -476,7 +564,21 @@ export default function EntradasAyudaFlotante({
                           <ul className="space-y-2 list-none p-0 m-0">
                             {reservasEnAbiertos.map((r) => {
                               const busy = busyReservaId === r.id;
-                              const canPdf = canDownloadPdf(r.id);
+                              const btnCls = `${secondaryBtnClass} ${
+                                isDark
+                                  ? "border-slate-500 text-slate-200 hover:bg-slate-800"
+                                  : "border-slate-300 text-slate-700 hover:bg-slate-50"
+                              }`;
+                              const primaryBtnCls = `${secondaryBtnClass} ${
+                                isDark
+                                  ? "border-sky-700 text-sky-200 hover:bg-sky-950"
+                                  : "border-sky-300 text-sky-800 hover:bg-sky-50"
+                              }`;
+                              const waBtnCls = `${secondaryBtnClass} ${
+                                isDark
+                                  ? "border-emerald-700 text-emerald-200 hover:bg-emerald-950"
+                                  : "border-emerald-400 text-emerald-800 hover:bg-emerald-50"
+                              }`;
                               return (
                                 <li
                                   key={r.id}
@@ -494,31 +596,38 @@ export default function EntradasAyudaFlotante({
                                     {r.codigo ? ` · ${r.codigo}` : ""}
                                   </p>
                                   <div className="flex flex-wrap gap-2">
-                                    {canPdf ? (
-                                      <button
-                                        type="button"
-                                        disabled={busy}
-                                        className={`${secondaryBtnClass} ${
-                                          isDark
-                                            ? "border-sky-700 text-sky-200 hover:bg-sky-950"
-                                            : "border-sky-300 text-sky-800 hover:bg-sky-50"
-                                        }`}
-                                        onClick={() => void handleDescargar(r)}
-                                      >
-                                        {busy ? "…" : "Descargar PDF"}
-                                      </button>
-                                    ) : null}
                                     <button
                                       type="button"
                                       disabled={busy}
-                                      className={`${secondaryBtnClass} ${
-                                        isDark
-                                          ? "border-slate-500 text-slate-200 hover:bg-slate-800"
-                                          : "border-slate-300 text-slate-700 hover:bg-slate-50"
-                                      }`}
+                                      className={primaryBtnCls}
+                                      onClick={() => void handleDescargar(r)}
+                                    >
+                                      {busy ? "…" : "Descargar PDF"}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      disabled={busy}
+                                      className={btnCls}
+                                      onClick={() => void handleVerQr(r)}
+                                    >
+                                      {busy ? "…" : "Ver QR"}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      disabled={busy}
+                                      className={btnCls}
                                       onClick={() => void handleReenviar(r)}
                                     >
-                                      {busy ? "…" : "Reenviar al mail"}
+                                      {busy ? "…" : "Reenviar mail"}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      disabled={busy}
+                                      className={waBtnCls}
+                                      title="Abrí WhatsApp para mandarle el PDF a un contacto tuyo (respaldo)."
+                                      onClick={() => void handleCompartirWhatsApp(r)}
+                                    >
+                                      {busy ? "…" : "Compartir por WhatsApp"}
                                     </button>
                                   </div>
                                 </li>
@@ -680,6 +789,13 @@ export default function EntradasAyudaFlotante({
           </div>,
           document.body,
         )}
+
+      <MisReservasQrModal
+        reserva={qrModalReserva}
+        onClose={() => setQrModalReserva(null)}
+        isDark={isDark}
+        ui={ui}
+      />
     </>
   );
 }

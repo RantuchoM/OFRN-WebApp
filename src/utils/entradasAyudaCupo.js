@@ -126,6 +126,62 @@ export function collapseAyudaConsultasDuplicadas(rows) {
 }
 
 /**
+ * Clasifica pendientes en rubros excluyentes (prioridad: duplicadas → con entradas → generales).
+ * @param {object[]} rows
+ * @param {Record<string, object[]>} reservasVigentesPorEmail
+ * @returns {{
+ *   duplicadas: object[],
+ *   conEntradas: object[],
+ *   generales: object[],
+ *   duplicadasPersonas: number,
+ *   duplicadasCopias: number,
+ *   conEntradasPersonas: number,
+ *   generalesPersonas: number,
+ * }}
+ */
+export function classifyAyudaPendientesPorRubro(rows, reservasVigentesPorEmail = {}) {
+  const groups = groupAyudaConsultasByEmail(rows);
+  const duplicadas = [];
+  const conEntradas = [];
+  const generales = [];
+  let duplicadasPersonas = 0;
+  let duplicadasCopias = 0;
+  let conEntradasPersonas = 0;
+  let generalesPersonas = 0;
+
+  for (const [email, group] of groups) {
+    const list = Array.isArray(group) ? group : [];
+    if (!list.length) continue;
+    if (list.length >= 2) {
+      duplicadasPersonas += 1;
+      duplicadasCopias += list.length - 1;
+      duplicadas.push(...list);
+      continue;
+    }
+    const vigentes = Array.isArray(reservasVigentesPorEmail?.[email])
+      ? reservasVigentesPorEmail[email]
+      : [];
+    if (vigentes.length > 0) {
+      conEntradasPersonas += 1;
+      conEntradas.push(...list);
+    } else {
+      generalesPersonas += 1;
+      generales.push(...list);
+    }
+  }
+
+  return {
+    duplicadas,
+    conEntradas,
+    generales,
+    duplicadasPersonas,
+    duplicadasCopias,
+    conEntradasPersonas,
+    generalesPersonas,
+  };
+}
+
+/**
  * Toma consultas en orden de llegada mientras entren en `disponibles`.
  * @param {object[]} rows
  * @param {number} disponibles
