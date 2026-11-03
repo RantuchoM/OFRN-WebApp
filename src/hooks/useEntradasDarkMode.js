@@ -193,6 +193,12 @@ export function entradasUi(isDark) {
       : "text-[10px] font-bold uppercase tracking-wide text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1.5 py-0.5",
     badgeAgotadas:
       "inline-flex items-center text-xs font-black uppercase tracking-wide text-rose-800 bg-white border-2 border-rose-600 rounded-full px-2.5 py-1 shadow-sm",
+    badgeCupoBajo: d
+      ? "inline-flex items-center text-xs font-black uppercase tracking-wide text-amber-100 bg-amber-950 border-2 border-amber-500 rounded-full px-2.5 py-1 shadow-sm"
+      : "inline-flex items-center text-xs font-black uppercase tracking-wide text-amber-900 bg-white border-2 border-amber-500 rounded-full px-2.5 py-1 shadow-sm",
+    badgeCupoPct: d
+      ? "inline-flex items-center text-xs font-black uppercase tracking-wide text-[#7dd3fc] bg-slate-900 border-2 border-[#1ebbf0] rounded-full px-2.5 py-1 shadow-sm"
+      : "inline-flex items-center text-xs font-black uppercase tracking-wide text-[#0e7490] bg-white border-2 border-[#1ebbf0] rounded-full px-2.5 py-1 shadow-sm",
     /** Botón “ya tenés entrada” suelto (fuera de tarjeta de concierto). */
     reservaActivaBox: d
       ? "rounded-md border border-emerald-800/45 bg-emerald-950/30 px-2.5 py-2 w-full text-left cursor-pointer hover:bg-emerald-950/55"

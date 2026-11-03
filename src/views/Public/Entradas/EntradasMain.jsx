@@ -59,6 +59,7 @@ import {
   buildEntradasReservaPdfConDataUrls,
   computeDisponibles,
   conciertoSinPlazasDisponibles,
+  etiquetaCupoConcierto,
   crearReserva,
   crearReservaTercero,
   cambiarCantidadReserva,
@@ -5807,6 +5808,11 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
                         const funcionAgotada =
                           reservasAbiertas && conciertoSinPlazasDisponibles(concierto);
                         const entradasAgotadas = funcionAgotada && !tieneReservaEnConcierto(concierto.id);
+                        const plazasLibres = reservasAbiertas ? computeDisponibles(concierto) : null;
+                        const etiquetaCupo = reservasAbiertas && !funcionAgotada
+                          ? etiquetaCupoConcierto(concierto)
+                          : null;
+                        const cupoBajo = plazasLibres != null && plazasLibres > 0 && plazasLibres < 4;
                         const aceptaRecordatorio = conciertoAceptaRecordatorioApertura(
                           concierto,
                           finDiaVentanaCatalogo,
@@ -5840,6 +5846,10 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
                                     <p className={`text-sm font-semibold ${textoTarjetaAgotada}`}>{concierto.nombre}</p>
                                     {funcionAgotada ? (
                                       <span className={ui.badgeAgotadas}>Entradas agotadas</span>
+                                    ) : etiquetaCupo ? (
+                                      <span className={cupoBajo ? ui.badgeCupoBajo : ui.badgeCupoPct}>
+                                        {etiquetaCupo}
+                                      </span>
                                     ) : null}
                                     {catalogoSeleccionado && (
                                       <span className={ui.badgeSelected}>Seleccionado</span>
@@ -5865,6 +5875,15 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
                                 {concierto.lugar_nombre && (
                                   <p className={`text-xs ${textoSecundarioAgotado || ui.textMuted}`}>{concierto.lugar_nombre}</p>
                                 )}
+                                {reservasAbiertas && !funcionAgotada ? (
+                                  <EntradasDisponibilidadBar
+                                    concierto={concierto}
+                                    isDark={isDark}
+                                    compact
+                                    square
+                                    className="pt-2"
+                                  />
+                                ) : null}
                               </button>
                               {canAdmin && (
                                 <button

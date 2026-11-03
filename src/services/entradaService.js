@@ -772,6 +772,21 @@ export function computeDisponibles(concierto) {
   return Math.max(0, Number(concierto?.capacidad_maxima || 0) - ocupadas);
 }
 
+/**
+ * Texto corto de cupo para catálogo / barra.
+ * - 0 → «Entradas agotadas»
+ * - 1..3 → «Quedan N»
+ * - más → «N% disponible» (si hay %); si no, null
+ */
+export function etiquetaCupoConcierto(concierto) {
+  const plazas = computeDisponibles(concierto);
+  if (plazas <= 0) return "Entradas agotadas";
+  if (plazas < 4) return `Quedan ${plazas}`;
+  const pct = porcentajeDisponibleConcierto(concierto);
+  if (pct == null) return null;
+  return `${pct}% disponible`;
+}
+
 export function todosConciertoIdsEnProgramas(programas) {
   const ids = [];
   for (const p of programas || []) {

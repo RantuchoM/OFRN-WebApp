@@ -87,8 +87,8 @@ RPC `entrada_mark_email_verified()` marca `entrada_usuario.email_verified_at`.
 - `EntradasAccesoInicio.jsx` — **Sacar entradas** / **Gestionar mis entradas**; mail sin OTP obligatorio.
 - `LoginEntradas.jsx` — gestionar: mail primero; luego opciones; aviso Spam en paso OTP.
 - `EntradasVerifyEmailModal.jsx` — verificar mail diferido (Spam destacado).
-- `EntradasLoginCatalogPreview.jsx` — debajo del acceso (sin sesión): conciertos con reservas abiertas, agrupados, y barra de disponibilidad. Cada función agotada lleva **una** pastilla **Entradas agotadas** (la barra no la repite). Si el concierto tiene más de una función y todas están agotadas, arriba del nombre: **Entradas agotadas para todas las funciones**.
-- Catálogo logueado: la misma pastilla, una sola, junto al nombre de la función. El aviso de todas las funciones va arriba del concierto, con la misma condición. Si ya tenés entrada, la pastilla queda al lado de «Ya tenés entrada».
+- `EntradasLoginCatalogPreview.jsx` — debajo del acceso (sin sesión): conciertos con reservas abiertas, agrupados, y barra de disponibilidad. Cada función agotada lleva **una** pastilla **Entradas agotadas** (la barra no la repite). Si no está agotada: pastilla con **N% disponible** (o **Quedan 1/2/3** si quedan menos de 4) + la misma barra. Si el concierto tiene más de una función y todas están agotadas, arriba del nombre: **Entradas agotadas para todas las funciones**.
+- Catálogo logueado: mismas pastillas junto al nombre de la función + barra debajo si hay cupo. El aviso de todas las funciones va arriba del concierto. Si ya tenés entrada, la pastilla de agotadas queda al lado de «Ya tenés entrada». Helper `etiquetaCupoConcierto`.
 - `EntradasSetPasswordForm.jsx` / `EntradasPasswordModal.jsx` (portal `z-[100]`; flujo post-login opcional).
 - `EntradasPerfilModal.jsx` — nombre/apellido, contraseña y estado de verificación del mail.
 - Header de `EntradasMain.jsx`: banner **Verificar mail**; al obtener entrada, warning + acuse si no está verificado.

@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from "react";
 import EntradasDisponibilidadBar from "./EntradasDisponibilidadBar";
 import {
+  computeDisponibles,
   conciertoSinPlazasDisponibles,
+  etiquetaCupoConcierto,
   fetchConciertosDisponibilidad,
   listProgramasConConciertos,
   programasConDisponibilidad,
@@ -144,10 +146,17 @@ export default function EntradasLoginCatalogPreview({ ui, isDark }) {
                 <ul className="space-y-3 list-none p-0 m-0">
                   {grupo.funciones.map((concierto) => {
                     const agotada = funcionAgotada(concierto);
+                    const plazas = computeDisponibles(concierto);
+                    const etiquetaCupo = !agotada ? etiquetaCupoConcierto(concierto) : null;
+                    const cupoBajo = plazas > 0 && plazas < 4;
                     return (
                       <li key={concierto.id} className="space-y-2">
                         {agotada ? (
                           <span className={ui.badgeAgotadas}>Entradas agotadas</span>
+                        ) : etiquetaCupo ? (
+                          <span className={cupoBajo ? ui.badgeCupoBajo : ui.badgeCupoPct}>
+                            {etiquetaCupo}
+                          </span>
                         ) : null}
                         <p className={`text-sm sm:text-base ${ui.textSoft}`}>
                           {formatEntradasConciertoFechaHora(concierto.fecha_hora)}
@@ -159,6 +168,7 @@ export default function EntradasLoginCatalogPreview({ ui, isDark }) {
                           concierto={concierto}
                           isDark={isDark}
                           className="pt-1"
+                          compact
                           ocultarEtiquetaAgotadas={agotada}
                         />
                       </li>
