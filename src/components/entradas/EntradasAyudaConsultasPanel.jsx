@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import EntradasAyudaWhatsAppBtn from "./EntradasAyudaWhatsAppBtn";
 import {
@@ -71,10 +71,20 @@ export default function EntradasAyudaConsultasPanel({
   const esPendientes = filtroEstado === "pendiente";
   const esResueltas = filtroEstado === "resuelta";
 
+  // Refs: el padre a veces pasa lambdas inline; no deben rearmar `load` ni disparar fetch en bucle.
+  const onPendientesChangeRef = useRef(onPendientesChange);
+  const onRowsLoadedRef = useRef(onRowsLoaded);
+  const onClearLocalResueltasRef = useRef(onClearLocalResueltas);
+  useEffect(() => {
+    onPendientesChangeRef.current = onPendientesChange;
+    onRowsLoadedRef.current = onRowsLoaded;
+    onClearLocalResueltasRef.current = onClearLocalResueltas;
+  }, [onPendientesChange, onRowsLoaded, onClearLocalResueltas]);
+
   const load = useCallback(async ({ clearLocal = false } = {}) => {
     setLoading(true);
     try {
-      if (clearLocal) onClearLocalResueltas?.();
+      if (clearLocal) onClearLocalResueltasRef.current?.();
       const data = await listEntradasAyudaConsultas(filtroEstado);
       let list = Array.isArray(data) ? data : [];
       if (filtroEstado === "resuelta") {
@@ -87,8 +97,8 @@ export default function EntradasAyudaConsultasPanel({
       setRows(list);
       if (filtroEstado === "pendiente") {
         setPendientesTotal(list.length);
-        onPendientesChange?.(list.length);
-        onRowsLoaded?.(list);
+        onPendientesChangeRef.current?.(list.length);
+        onRowsLoadedRef.current?.(list);
       }
       setSelectedIds((prev) => {
         const next = new Set();
@@ -103,13 +113,13 @@ export default function EntradasAyudaConsultasPanel({
       setRows([]);
       if (filtroEstado === "pendiente") {
         setPendientesTotal(0);
-        onPendientesChange?.(0);
-        onRowsLoaded?.([]);
+        onPendientesChangeRef.current?.(0);
+        onRowsLoadedRef.current?.([]);
       }
     } finally {
       setLoading(false);
     }
-  }, [filtroEstado, onClearLocalResueltas, onPendientesChange, onRowsLoaded]);
+  }, [filtroEstado]);
 
   useEffect(() => {
     void load();
@@ -124,8 +134,8 @@ export default function EntradasAyudaConsultasPanel({
         if (!cancelled) {
           const list = Array.isArray(data) ? data : [];
           setPendientesTotal(list.length);
-          onPendientesChange?.(list.length);
-          onRowsLoaded?.(list);
+          onPendientesChangeRef.current?.(list.length);
+          onRowsLoadedRef.current?.(list);
         }
       } catch {
         /* badge no crítico */
@@ -134,7 +144,7 @@ export default function EntradasAyudaConsultasPanel({
     return () => {
       cancelled = true;
     };
-  }, [filtroEstado, refreshKey, onPendientesChange, onRowsLoaded]);
+  }, [filtroEstado, refreshKey]);
 
   const rowsWithLocal = useMemo(() => {
     if (!esPendientes) return rows;

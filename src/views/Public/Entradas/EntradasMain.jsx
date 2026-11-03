@@ -1231,6 +1231,10 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
     }
   }, []);
 
+  const clearAyudaLocalResueltas = useCallback(() => {
+    setAyudaLocalResueltas({});
+  }, []);
+
   const markAyudaResueltaLocal = useCallback((entries, pendienteRubro = "generales") => {
     const list = (Array.isArray(entries) ? entries : [entries]).filter((e) => e?.id != null);
     if (!list.length) return;
@@ -1315,7 +1319,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
       ),
     ];
     if (!emails.length) {
-      setAyudaEmailReservasMap({});
+      setAyudaEmailReservasMap((prev) => (Object.keys(prev).length ? {} : prev));
       return;
     }
     const next = {};
@@ -1328,7 +1332,30 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
         }
       }),
     );
-    setAyudaEmailReservasMap(next);
+    setAyudaEmailReservasMap((prev) => {
+      const prevKeys = Object.keys(prev);
+      const nextKeys = Object.keys(next);
+      if (prevKeys.length === nextKeys.length) {
+        let same = true;
+        for (const key of nextKeys) {
+          const a = prev[key];
+          const b = next[key];
+          if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) {
+            same = false;
+            break;
+          }
+          for (let i = 0; i < a.length; i += 1) {
+            if (Number(a[i]?.id) !== Number(b[i]?.id)) {
+              same = false;
+              break;
+            }
+          }
+          if (!same) break;
+        }
+        if (same) return prev;
+      }
+      return next;
+    });
   }, []);
 
   useEffect(() => {
@@ -4999,7 +5026,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
         filtroEstado={ayudaFiltroEstado}
         onFiltroEstadoChange={setAyudaFiltroEstado}
         localResueltas={ayudaLocalResueltas}
-        onClearLocalResueltas={() => setAyudaLocalResueltas({})}
+        onClearLocalResueltas={clearAyudaLocalResueltas}
         onAceptarLote={(rows, _cid, rubro) => openAyudaLote(rows, null, rubro || "generales")}
         onResolverQueEntren={(rows, rubro) => {
           void resolverAyudaQueEntranEnCupo(rows, rubro || "generales");
