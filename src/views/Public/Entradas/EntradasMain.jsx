@@ -7701,6 +7701,43 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
           <ul className="mt-4 space-y-3">
             <li className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
               <div className="min-w-0 text-sm text-slate-600 leading-snug">
+                <span className="font-semibold text-slate-800">Consultas generales</span>
+                {ayudaResolverCupoOffer.generalesPersonas > 0 ? (
+                  <span className="block mt-0.5">
+                    {ayudaResolverCupoOffer.generalesPersonas} consulta
+                    {ayudaResolverCupoOffer.generalesPersonas === 1 ? "" : "s"}
+                    {ayudaResolverCupoOffer.generalesOffer
+                      ? ` · con cupo de «${ayudaResolverCupoOffer.generalesOffer.conciertoNombre}» (${ayudaResolverCupoOffer.generalesOffer.disponibles} disp.) entran ${ayudaResolverCupoOffer.generalesOffer.entra} (${ayudaResolverCupoOffer.generalesOffer.tickets} entrada${ayudaResolverCupoOffer.generalesOffer.tickets === 1 ? "" : "s"})`
+                      : " · sin cupo suficiente ahora"}
+                  </span>
+                ) : (
+                  <span className="block mt-0.5 text-slate-400">Ninguna</span>
+                )}
+              </div>
+              <button
+                type="button"
+                disabled={
+                  ayudaVincularBusy
+                  || !(ayudaResolverCupoOffer.generalesRows?.length)
+                  || !ayudaResolverCupoOffer.generalesOffer?.picked?.length
+                }
+                onClick={() => {
+                  const offer = ayudaResolverCupoOffer.generalesOffer;
+                  const rows = ayudaResolverCupoOffer.generalesRows || [];
+                  setAyudaResolverCupoOffer(null);
+                  if (offer?.picked?.length) {
+                    openAyudaLote(offer.picked, offer.conciertoId);
+                  } else {
+                    resolverAyudaRubroGenerales(rows);
+                  }
+                }}
+                className="shrink-0 w-full sm:w-auto px-3 py-2 text-sm font-bold text-white bg-sky-600 hover:bg-sky-700 rounded-lg shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Resolver
+              </button>
+            </li>
+            <li className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
+              <div className="min-w-0 text-sm text-slate-600 leading-snug">
                 <span className="font-semibold text-slate-800">Consultas duplicadas</span>
                 {ayudaResolverCupoOffer.duplicadasPersonas > 0 ? (
                   <span className="block mt-0.5">
@@ -7751,43 +7788,6 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
                   const map = ayudaResolverCupoOffer.reservasMap || {};
                   setAyudaResolverCupoOffer(null);
                   void resolverAyudaRubroConEntradas(rows, map);
-                }}
-                className="shrink-0 w-full sm:w-auto px-3 py-2 text-sm font-bold text-white bg-sky-600 hover:bg-sky-700 rounded-lg shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                Resolver
-              </button>
-            </li>
-            <li className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
-              <div className="min-w-0 text-sm text-slate-600 leading-snug">
-                <span className="font-semibold text-slate-800">Consultas generales</span>
-                {ayudaResolverCupoOffer.generalesPersonas > 0 ? (
-                  <span className="block mt-0.5">
-                    {ayudaResolverCupoOffer.generalesPersonas} consulta
-                    {ayudaResolverCupoOffer.generalesPersonas === 1 ? "" : "s"}
-                    {ayudaResolverCupoOffer.generalesOffer
-                      ? ` · con cupo de «${ayudaResolverCupoOffer.generalesOffer.conciertoNombre}» (${ayudaResolverCupoOffer.generalesOffer.disponibles} disp.) entran ${ayudaResolverCupoOffer.generalesOffer.entra} (${ayudaResolverCupoOffer.generalesOffer.tickets} entrada${ayudaResolverCupoOffer.generalesOffer.tickets === 1 ? "" : "s"})`
-                      : " · sin cupo suficiente ahora"}
-                  </span>
-                ) : (
-                  <span className="block mt-0.5 text-slate-400">Ninguna</span>
-                )}
-              </div>
-              <button
-                type="button"
-                disabled={
-                  ayudaVincularBusy
-                  || !(ayudaResolverCupoOffer.generalesRows?.length)
-                  || !ayudaResolverCupoOffer.generalesOffer?.picked?.length
-                }
-                onClick={() => {
-                  const offer = ayudaResolverCupoOffer.generalesOffer;
-                  const rows = ayudaResolverCupoOffer.generalesRows || [];
-                  setAyudaResolverCupoOffer(null);
-                  if (offer?.picked?.length) {
-                    openAyudaLote(offer.picked, offer.conciertoId);
-                  } else {
-                    resolverAyudaRubroGenerales(rows);
-                  }
                 }}
                 className="shrink-0 w-full sm:w-auto px-3 py-2 text-sm font-bold text-white bg-sky-600 hover:bg-sky-700 rounded-lg shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
               >

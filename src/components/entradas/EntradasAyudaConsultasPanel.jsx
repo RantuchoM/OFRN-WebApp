@@ -14,9 +14,9 @@ import {
 import { normalizePhoneForWhatsApp } from "../../utils/entradasWhatsApp";
 
 const PENDIENTE_RUBROS = [
+  { key: "generales", label: "Generales" },
   { key: "duplicadas", label: "Duplicadas" },
   { key: "con_entradas", label: "Con entradas" },
-  { key: "generales", label: "Generales" },
 ];
 
 function formatWhen(iso) {
@@ -63,7 +63,7 @@ export default function EntradasAyudaConsultasPanel({
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState(null);
   const [selectedIds, setSelectedIds] = useState(() => new Set());
-  const [pendienteRubro, setPendienteRubro] = useState("duplicadas");
+  const [pendienteRubro, setPendienteRubro] = useState("generales");
   const [pendientesTotal, setPendientesTotal] = useState(0);
 
   const esPendientes = filtroEstado === "pendiente";
