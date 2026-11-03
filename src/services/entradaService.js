@@ -150,6 +150,35 @@ export async function sendEntradasAyudaConsulta({
     funcion: String(funcion || "").trim(),
     concierto_id: conciertoId ? Number(conciertoId) : null,
     comentarios: String(comentarios || "").trim(),
+    pedido: "consulta",
+  });
+}
+
+/** Pedido de cancelación o cambio de función, para que terceros lo acepte. */
+export async function sendEntradasAyudaPedido({
+  nombre,
+  email,
+  telefono,
+  cantidad,
+  funcion,
+  conciertoId,
+  comentarios,
+  pedido,
+  reservaPedidoId,
+  conciertoDestinoId,
+}) {
+  return invokeEntradasAyuda({
+    action: "send",
+    nombre: String(nombre || "").trim(),
+    email: String(email || "").trim().toLowerCase(),
+    telefono: String(telefono || "").trim(),
+    cantidad: cantidad != null ? String(cantidad) : "",
+    funcion: String(funcion || "").trim(),
+    concierto_id: conciertoId ? Number(conciertoId) : null,
+    comentarios: String(comentarios || "").trim(),
+    pedido: pedido === "cancelar" ? "cancelar" : "cambiar_funcion",
+    reserva_pedido_id: Number(reservaPedidoId),
+    concierto_destino_id: conciertoDestinoId ? Number(conciertoDestinoId) : null,
   });
 }
 
@@ -1076,6 +1105,33 @@ export async function cancelarReserva(reservaId) {
     p_reserva_id: reservaId,
   });
   if (error) throw error;
+}
+
+/** Cancela si la sesión verificó el mail con código y la entrada es de ese mail. */
+export async function cancelarReservaVerificada(reservaId) {
+  const { error } = await supabaseEntradasPublic.rpc("entrada_cancelar_reserva_verificada", {
+    p_reserva_id: Number(reservaId),
+  });
+  if (error) throw error;
+}
+
+/** Mueve la reserva a otra función abierta, con el mail ya verificado. */
+export async function cambiarFuncionReservaVerificada(reservaId, conciertoDestinoId) {
+  const { data, error } = await supabaseEntradasPublic.rpc("entrada_cambiar_funcion_reserva", {
+    p_reserva_id: Number(reservaId),
+    p_concierto_destino_id: Number(conciertoDestinoId),
+  });
+  if (error) throw error;
+  return data;
+}
+
+/** Terceros: aplica un pedido de cancelación o cambio y marca la consulta resuelta. */
+export async function aceptarEntradaAyudaPedido(id) {
+  const { data, error } = await supabaseEntradasPublic.rpc("entrada_ayuda_aceptar_pedido", {
+    p_id: id,
+  });
+  if (error) throw error;
+  return enrichAyudaConsultaResolvedBy(data);
 }
 
 /** Recepción: cancela reserva activa (plazas pendientes → anuladas). */

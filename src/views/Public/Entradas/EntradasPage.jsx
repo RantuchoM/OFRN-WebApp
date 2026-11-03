@@ -170,6 +170,7 @@ export default function EntradasPage() {
     <EntradasAyudaFlotante
       sessionEmail={sessionEmail}
       onGoGestionar={goGestionarFromAyuda}
+      onSessionVerified={loadProfile}
     />
   );
 

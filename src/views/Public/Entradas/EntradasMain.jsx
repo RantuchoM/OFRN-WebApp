@@ -79,6 +79,7 @@ import {
   listConciertoIdsConReservaActiva,
   listarMisReservas,
   listarEntradasTercerosAdmin,
+  aceptarEntradaAyudaPedido,
   checkEntradasAyudaReservas,
   getEntradaAyudaConsulta,
   descartarEntradaAyudaConsulta,
@@ -105,6 +106,7 @@ import {
   classifyAyudaPendientesPorRubro,
   collapseAyudaConsultasDuplicadas,
   elegirConciertoYConsultasParaCupo,
+  esPedidoAyudaGestion,
   findAyudaDuplicateGroups,
   normalizeAyudaEmail,
 } from "../../../utils/entradasAyudaCupo";
@@ -1288,6 +1290,59 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
     } catch (e) {
       toast.error(e?.message || "No se pudo vincular la consulta a la entrada.");
       throw e;
+    } finally {
+      setAyudaVincularBusy(false);
+    }
+  }, [markAyudaResueltaLocal, scrollToAyudaDetalle]);
+
+  const handleAceptarPedidoAyuda = useCallback(async (consulta) => {
+    if (!consulta?.id || !esPedidoAyudaGestion(consulta)) return;
+    const esCancelar = consulta.pedido === "cancelar";
+    const confirmar = window.confirm(
+      esCancelar
+        ? `¿Aceptar la cancelación de la entrada de ${consulta.email}?`
+        : `¿Aceptar el cambio de función de ${consulta.email}?`,
+    );
+    if (!confirmar) return;
+    setAyudaVincularBusy(true);
+    try {
+      const updated = await aceptarEntradaAyudaPedido(consulta.id);
+      const reservaId = updated?.reserva_id || consulta.reserva_pedido_id;
+      const resolved = {
+        ...(consulta || {}),
+        ...(updated || {}),
+        telefono: updated?.telefono || consulta?.telefono,
+        estado: "resuelta",
+        reserva_id: reservaId,
+        resolved_at: updated?.resolved_at || new Date().toISOString(),
+        resolved_by_label: updated?.resolved_by_label || null,
+      };
+      setAyudaConsulta(resolved);
+      markAyudaResueltaLocal(
+        { ...resolved, _row: consulta, _pendienteRubro: "pedidos" },
+        "pedidos",
+      );
+      setAyudaPendientesCount((n) => Math.max(0, n - 1));
+      if (esCancelar && reservaId) {
+        try {
+          await enviarMailCancelacionReserva({ reservaId });
+        } catch {
+          toast.message("La cancelación quedó hecha, pero el mail de aviso no salió.");
+        }
+      } else if (reservaId) {
+        try {
+          await reenviarEntradasAyudaReserva({
+            email: consulta.email,
+            reservaId,
+          });
+        } catch {
+          toast.message("El cambio quedó hecho, pero no se pudo reenviar el PDF.");
+        }
+      }
+      toast.success(esCancelar ? "Cancelación aceptada." : "Cambio de función aceptado.");
+      scrollToAyudaDetalle();
+    } catch (e) {
+      toast.error(e?.message || "No se pudo aceptar el pedido.");
     } finally {
       setAyudaVincularBusy(false);
     }
@@ -2874,9 +2929,14 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
   };
 
   const openAyudaLote = useCallback((rows, conciertoIdPreferido = null, rubro = "generales") => {
-    const raw = Array.isArray(rows) ? rows.filter(Boolean) : [];
+    const incoming = Array.isArray(rows) ? rows.filter(Boolean) : [];
+    const raw = incoming.filter((row) => !esPedidoAyudaGestion(row));
     if (!raw.length) {
-      toast.error("Seleccioná al menos una consulta.");
+      toast.error(
+        incoming.length
+          ? "Esos pedidos se aceptan uno por uno (cancelar o cambiar de función), no como reserva nueva."
+          : "Seleccioná al menos una consulta.",
+      );
       return;
     }
     if (!conciertosTercerosSelect.length) {
@@ -5038,6 +5098,9 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
         onRowsLoaded={refreshAyudaEmailReservasMap}
         reservasVigentesPorEmail={ayudaEmailReservasMap}
         conciertoDeConsulta={(id) => concertosFlat.find((c) => Number(c.id) === Number(id)) || null}
+        onAceptarPedido={(row) => {
+          void handleAceptarPedidoAyuda(row);
+        }}
         onVincularVigente={(row, reservaMeta, rubro = "con_entradas") => {
           void (async () => {
             setAyudaConsulta(row);
@@ -5197,7 +5260,32 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
             </>
           ) : (
             <>
-              <p className="font-bold text-base">Consulta de ayuda abierta</p>
+              <p className="font-bold text-base">
+                {ayudaConsulta.pedido === "cancelar"
+                  ? "Pedido de cancelación"
+                  : ayudaConsulta.pedido === "cambiar_funcion"
+                    ? "Pedido de cambio de función"
+                    : "Consulta de ayuda abierta"}
+              </p>
+              {ayudaConsulta.pedido === "cancelar" || ayudaConsulta.pedido === "cambiar_funcion" ? (
+                <div className="flex flex-col gap-2 pt-1">
+                  <p>
+                    {ayudaConsulta.pedido === "cancelar"
+                      ? "Pide cancelar la entrada vigente. Al aceptar se cancela y se avisa por mail."
+                      : `Pide pasar la entrada a otra función${
+                        ayudaConsulta.funcion_label ? `: ${ayudaConsulta.funcion_label}` : ""
+                      }. Al aceptar se mueve si hay lugar y se reenvía el PDF.`}
+                  </p>
+                  <button
+                    type="button"
+                    disabled={ayudaVincularBusy}
+                    className={`${ui.btnPrimary} w-full sm:w-auto`}
+                    onClick={() => void handleAceptarPedidoAyuda(ayudaConsulta)}
+                  >
+                    {ayudaConsulta.pedido === "cancelar" ? "Aceptar cancelación" : "Aceptar cambio de función"}
+                  </button>
+                </div>
+              ) : null}
               <p className="flex min-w-0 flex-wrap items-center gap-2">
                 <span className="min-w-0 break-words">
                   {ayudaConsulta.nombre} · {ayudaConsulta.email}
@@ -5702,7 +5790,9 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
                       {(programa.entrada_concierto || []).map((concierto) => {
                         const catalogoSeleccionado = String(concierto.slug_publico || "") === conciertoSlug;
                         const reservasAbiertas = entradaConciertoReservasAbiertas(concierto);
-                        const entradasAgotadas = conciertoCatalogoEntradasAgotadas(concierto);
+                        const funcionAgotada =
+                          reservasAbiertas && conciertoSinPlazasDisponibles(concierto);
+                        const entradasAgotadas = funcionAgotada && !tieneReservaEnConcierto(concierto.id);
                         const aceptaRecordatorio = conciertoAceptaRecordatorioApertura(
                           concierto,
                           finDiaVentanaCatalogo,
@@ -5725,6 +5815,9 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
                             aria-current={catalogoSeleccionado ? "true" : undefined}
                           >
                             {renderCatalogReservaEnRecuadro(concierto.id, { embedded: true })}
+                            {entradasAgotadas
+                              ? renderCatalogAgotadasEnRecuadro(concierto, { embedded: true })
+                              : null}
                             <div className="flex min-w-0 flex-1 items-stretch">
                               <button
                                 type="button"
@@ -5734,6 +5827,9 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
                                 <div className="space-y-1">
                                   <div className="flex flex-wrap items-center gap-2">
                                     <p className={`text-sm font-semibold ${textoTarjetaAgotada}`}>{concierto.nombre}</p>
+                                    {funcionAgotada ? (
+                                      <span className={ui.badgeAgotadas}>Entradas agotadas</span>
+                                    ) : null}
                                     {catalogoSeleccionado && (
                                       <span className={ui.badgeSelected}>Seleccionado</span>
                                     )}
@@ -5919,7 +6015,9 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
               )}
               {!catalogAdminEditing && !selectedConciertoLoading && selectedConcierto && (() => {
                 const reservasAbiertasSel = entradaConciertoReservasAbiertas(selectedConcierto);
-                const entradasAgotadasSel = conciertoCatalogoEntradasAgotadas(selectedConcierto);
+                const funcionAgotadaSel =
+                  reservasAbiertasSel && conciertoSinPlazasDisponibles(selectedConcierto);
+                const entradasAgotadasSel = funcionAgotadaSel && !tieneReservaEnConcierto(selectedConcierto.id);
                 const aceptaRecSel = conciertoAceptaRecordatorioApertura(
                   selectedConcierto,
                   finDiaVentanaCatalogo,
@@ -5939,7 +6037,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
                   {entradasAgotadasSel && !tieneReservaSel ? (
                     <div
                       className={`entradas-catalog-control overflow-hidden border-2 ${
-                        isDark ? "border-slate-600 bg-slate-800/70" : "border-slate-300 bg-slate-100"
+                        isDark ? "border-rose-700 bg-slate-800/70" : "border-rose-300 bg-rose-50/40"
                       }`}
                     >
                       {renderCatalogAgotadasEnRecuadro(selectedConcierto, { embedded: true })}
@@ -5977,6 +6075,9 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
                               ? `Ya tenés ${reservaSel.cantidad_solicitada} entrada${Number(reservaSel.cantidad_solicitada) === 1 ? "" : "s"}`
                               : "Ya tenés entrada/s"}
                           </span>
+                          {funcionAgotadaSel ? (
+                            <span className={ui.badgeAgotadas}>Entradas agotadas</span>
+                          ) : null}
                         </div>
                         <div className="px-3 py-3 space-y-1">
                           <h3 className={`text-lg font-bold ${ui.textStrong}`}>{selectedConcierto.nombre}</h3>

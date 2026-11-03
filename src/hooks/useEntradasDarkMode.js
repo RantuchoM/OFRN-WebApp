@@ -191,9 +191,8 @@ export function entradasUi(isDark) {
     badgeReserva: d
       ? "text-[10px] font-bold uppercase tracking-wide text-emerald-300 bg-emerald-950 border border-emerald-800 rounded px-1.5 py-0.5"
       : "text-[10px] font-bold uppercase tracking-wide text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1.5 py-0.5",
-    badgeAgotadas: d
-      ? "text-[10px] font-bold uppercase tracking-wide text-slate-300 bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5"
-      : "text-[10px] font-bold uppercase tracking-wide text-slate-600 bg-slate-200 border border-slate-300 rounded px-1.5 py-0.5",
+    badgeAgotadas:
+      "inline-flex items-center text-xs font-black uppercase tracking-wide text-rose-800 bg-white border-2 border-rose-600 rounded-full px-2.5 py-1 shadow-sm",
     /** Botón “ya tenés entrada” suelto (fuera de tarjeta de concierto). */
     reservaActivaBox: d
       ? "rounded-md border border-emerald-800/45 bg-emerald-950/30 px-2.5 py-2 w-full text-left cursor-pointer hover:bg-emerald-950/55"
@@ -203,8 +202,8 @@ export function entradasUi(isDark) {
       ? "border-0 border-b border-emerald-800/50 bg-emerald-950/35 px-3 py-2 w-full text-left cursor-pointer rounded-none hover:bg-emerald-950/55"
       : "border-0 border-b border-emerald-200/90 bg-emerald-50/80 px-3 py-2 w-full text-left cursor-pointer rounded-none hover:bg-emerald-100/80",
     agotadasBoxEnTarjeta: d
-      ? "border-0 border-b border-slate-600/80 bg-slate-800/50 px-3 py-2 w-full rounded-none"
-      : "border-0 border-b border-slate-300 bg-slate-200/80 px-3 py-2 w-full rounded-none",
+      ? "border-0 border-b-2 border-rose-500 bg-rose-950 px-3 py-2.5 w-full rounded-none"
+      : "border-0 border-b-2 border-rose-700 bg-rose-100 px-3 py-2.5 w-full rounded-none",
     badgeRecordatorio: d
       ? "text-[10px] font-bold uppercase tracking-wide text-sky-200 bg-sky-950/80 border border-[#1ebbf0]/50 rounded px-1.5 py-0.5"
       : "text-[10px] font-bold uppercase tracking-wide text-[#0e7490] bg-[#1ebbf0]/10 border border-[#1ebbf0]/40 rounded px-1.5 py-0.5",
