@@ -1,6 +1,7 @@
 /**
  * Formulario público de ayuda en /entradas.
  * - send: persiste consulta + mail staff + acuse
+ *   pedido consulta | cancelar | cambiar_funcion (los dos últimos quedan para que terceros acepte)
  * - check_reservas: avisa si el mail ya tiene reservas activas
  * - reenviar_entradas: reenvía confirmación con QR a ese mail
  * - abrir_entrada: pdf_share_token para PDF/QR/WhatsApp sin login (mail + reserva)
@@ -538,7 +539,19 @@ serve(async (req) => {
       throw new Error("Falta ENTRADAS_GMAIL_USER/ENTRADAS_GMAIL_PASS o GMAIL_USER/GMAIL_PASS.");
     }
 
-    const nombre = String(body?.nombre || "").trim();
+    const pedidoRaw = String(body?.pedido || "consulta").trim() || "consulta";
+    if (!["consulta", "cancelar", "cambiar_funcion"].includes(pedidoRaw)) {
+      return jsonResponse({ error: "Tipo de pedido inválido." }, 400);
+    }
+    const pedido = pedidoRaw;
+    const reservaPedidoNum = Number(body?.reserva_pedido_id ?? body?.reservaPedidoId);
+    const reservaPedidoId =
+      Number.isFinite(reservaPedidoNum) && reservaPedidoNum > 0 ? reservaPedidoNum : null;
+    const destinoNum = Number(body?.concierto_destino_id ?? body?.conciertoDestinoId);
+    const conciertoDestinoId =
+      Number.isFinite(destinoNum) && destinoNum > 0 ? destinoNum : null;
+
+    let nombre = String(body?.nombre || "").trim();
     const telefonoRaw = String(body?.telefono || "").trim();
     const telefono =
       normalizePhoneForWhatsApp(telefonoRaw)
@@ -552,11 +565,27 @@ serve(async (req) => {
     const conciertoId =
       Number.isFinite(conciertoIdNum) && conciertoIdNum > 0 ? conciertoIdNum : null;
 
+    if (pedido !== "consulta" && nombre.length < 2) {
+      nombre = "Titular";
+    }
     if (!nombre || nombre.length < 2) {
       return jsonResponse({ error: "Completá tu nombre completo." }, 400);
     }
     if (!isValidEmail(email)) {
       return jsonResponse({ error: "Ingresá un mail válido." }, 400);
+    }
+    if (pedido === "cancelar" || pedido === "cambiar_funcion") {
+      if (!reservaPedidoId) {
+        return jsonResponse({ error: "Falta la entrada sobre la que querés operar." }, 400);
+      }
+      if (pedido === "cambiar_funcion" && !conciertoDestinoId) {
+        return jsonResponse({ error: "Elegí la función a la que querés pasar." }, 400);
+      }
+      const propias = await fetchReservasActivasPorEmail(admin, email);
+      const propia = propias.find((r) => Number(r.id) === reservaPedidoId);
+      if (!propia) {
+        return jsonResponse({ error: "No encontramos una entrada vigente con ese mail." }, 404);
+      }
     }
 
     let cantidad: number | null = null;
@@ -587,6 +616,9 @@ serve(async (req) => {
         funcion_label: funcion || null,
         comentarios: comentarios || null,
         estado: "pendiente",
+        pedido,
+        reserva_pedido_id: reservaPedidoId,
+        concierto_destino_id: pedido === "cambiar_funcion" ? conciertoDestinoId : null,
       })
       .select("id")
       .single();
@@ -609,10 +641,23 @@ serve(async (req) => {
       cantidad,
     });
 
-    const subject = `Consulta sobre entradas — ${nombre}`;
+    const pedidoLabel =
+      pedido === "cancelar"
+        ? "Pedido de cancelación"
+        : pedido === "cambiar_funcion"
+          ? "Pedido de cambio de función"
+          : "Consulta";
+    const staffBtnLabel = pedido === "consulta" ? "Reservar en Entradas" : "Revisar pedido";
+    const subject = pedido === "consulta"
+      ? `Consulta sobre entradas — ${nombre}`
+      : `${pedidoLabel} — ${nombre}`;
     const cantidadTxt = cantidad != null ? String(cantidad) : "—";
     const textLines = [
-      "Consulta desde el formulario de ayuda de Entradas OFRN.",
+      `${pedidoLabel} desde el formulario de ayuda de Entradas OFRN.`,
+      pedido === "cancelar" ? "Pidió cancelar la entrada vigente. Aceptalo en Terceros para aplicarlo." : "",
+      pedido === "cambiar_funcion"
+        ? "Pidió pasar la entrada a otra función. Aceptalo en Terceros si hay lugar."
+        : "",
       "",
       `Abrir en Entradas (Terceros): ${staffUrl}`,
       waUrl ? `WhatsApp: ${waUrl}` : "",
@@ -620,6 +665,8 @@ serve(async (req) => {
       `Nombre completo: ${nombre}`,
       `Mail: ${email}`,
       `Teléfono: ${telefono || "—"}`,
+      `Pedido: ${pedidoLabel}`,
+      reservaPedidoId ? `Reserva #${reservaPedidoId}` : "",
       `Cantidad de entradas: ${cantidadTxt}`,
       `Función: ${funcion || "—"}`,
       `Otros comentarios:`,
@@ -639,11 +686,18 @@ serve(async (req) => {
     const html = `<!DOCTYPE html>
 <html><head><meta charset="utf-8" /></head>
 <body style="font-family: Helvetica, Arial, sans-serif; color: #334155; line-height: 1.5;">
-  <p>Consulta desde el formulario de ayuda de <strong>Entradas OFRN</strong>.</p>
+  <p><strong>${escHtml(pedidoLabel)}</strong> desde el formulario de ayuda de <strong>Entradas OFRN</strong>.</p>
+  ${
+    pedido === "consulta"
+      ? ""
+      : `<p>Al abrir el enlace, aceptá el pedido para ${
+        pedido === "cancelar" ? "cancelar la entrada" : "pasar la entrada a la otra función"
+      }.</p>`
+  }
   <p style="margin: 18px 0 8px 0;">
     <a href="${escHtml(staffUrl)}"
        style="display:inline-block;background:#1ebbf0;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:8px;font-weight:700;font-size:14px;">
-      Reservar en Entradas
+      ${escHtml(staffBtnLabel)}
     </a>
   </p>
   ${waBtnHtml}
@@ -653,6 +707,9 @@ serve(async (req) => {
     <tr><td style="padding:6px 0;font-weight:700;">Mail</td><td style="padding:6px 0;"><a href="mailto:${escHtml(email)}">${escHtml(email)}</a></td></tr>
     <tr><td style="padding:6px 0;font-weight:700;">Teléfono</td><td style="padding:6px 0;">${escHtml(telefono || "—")}${
       waUrl ? ` · <a href="${escHtml(waUrl)}">WhatsApp</a>` : ""
+    }</td></tr>
+    <tr><td style="padding:6px 0;font-weight:700;">Pedido</td><td style="padding:6px 0;">${escHtml(pedidoLabel)}${
+      reservaPedidoId ? ` · reserva #${escHtml(String(reservaPedidoId))}` : ""
     }</td></tr>
     <tr><td style="padding:6px 0;font-weight:700;">Cantidad de entradas</td><td style="padding:6px 0;">${escHtml(cantidadTxt)}</td></tr>
     <tr><td style="padding:6px 0;font-weight:700;">Función</td><td style="padding:6px 0;">${escHtml(funcion || "—")}</td></tr>
@@ -675,11 +732,18 @@ serve(async (req) => {
       html,
     });
 
-    const ackSubject = "Recibimos tu consulta de Entradas OFRN";
+    const ackSubject = pedido === "consulta"
+      ? "Recibimos tu consulta de Entradas OFRN"
+      : `Recibimos tu ${pedidoLabel.toLowerCase()} de Entradas OFRN`;
+    const ackIntro = pedido === "cancelar"
+      ? "Recibimos el pedido para cancelar tu entrada. El equipo lo revisa y, si lo acepta, la cancelación queda hecha."
+      : pedido === "cambiar_funcion"
+        ? "Recibimos el pedido para cambiar de función. El equipo lo revisa y, si hay lugar y lo acepta, tu entrada pasa a esa función."
+        : "Recibimos tu consulta sobre entradas. El equipo te va a responder a este mismo correo.";
     const ackText = [
       `Hola ${nombre},`,
       "",
-      "Recibimos tu consulta sobre entradas. El equipo te va a responder a este mismo correo.",
+      ackIntro,
       "",
       "Importante: revisá también las carpetas Spam o Correo no deseado. A veces nuestros mails (códigos, confirmaciones o las entradas en PDF) llegan ahí.",
       "",
@@ -700,7 +764,7 @@ serve(async (req) => {
 <html><head><meta charset="utf-8" /></head>
 <body style="font-family: Helvetica, Arial, sans-serif; color: #334155; line-height: 1.55; font-size: 15px;">
   <p>Hola <strong>${escHtml(nombre)}</strong>,</p>
-  <p>Recibimos tu consulta sobre entradas. El equipo te va a responder a <strong>este mismo correo</strong>.</p>
+  <p>${escHtml(ackIntro)}</p>
   <div style="margin:18px 0;padding:14px 16px;background:#fffbeb;border-left:4px solid #ca8a04;border-radius:8px;color:#422006;">
     <p style="margin:0 0 8px 0;font-weight:700;">Revisá Spam / Correo no deseado</p>
     <p style="margin:0;">A veces nuestros mails (códigos de acceso, confirmaciones o las entradas en PDF) llegan a <strong>Spam</strong> o <strong>Correo no deseado</strong>. Si ves uno nuestro ahí, marcalo como «No es spam» / «Confiar» para que los próximos te lleguen bien.</p>

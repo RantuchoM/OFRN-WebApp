@@ -7,6 +7,7 @@ import {
 } from "../../services/entradaService";
 import {
   classifyAyudaPendientesPorRubro,
+  esPedidoAyudaGestion,
   findAyudaDuplicateGroups,
   indexAyudaDuplicateGroupSize,
   normalizeAyudaEmail,
@@ -17,6 +18,7 @@ const PENDIENTE_RUBROS = [
   { key: "generales", label: "Generales" },
   { key: "duplicadas", label: "Duplicadas" },
   { key: "con_entradas", label: "Con entradas" },
+  { key: "pedidos", label: "Pedidos" },
 ];
 
 function formatWhen(iso) {
@@ -42,6 +44,7 @@ export default function EntradasAyudaConsultasPanel({
   onResolverQueEntren,
   onUnificarDuplicados,
   onVincularVigente,
+  onAceptarPedido = null,
   onResolverConEntradas = null,
   onPendientesChange,
   onRowsLoaded,
@@ -185,10 +188,12 @@ export default function EntradasAyudaConsultasPanel({
         duplicadas: [],
         conEntradas: [],
         generales: [],
+        pedidos: [],
         duplicadasPersonas: 0,
         duplicadasCopias: 0,
         conEntradasPersonas: 0,
         generalesPersonas: 0,
+        pedidosCount: 0,
       };
     }
     // Clasificar solo las aún pendientes reales; las locales resueltas se anexan al rubro activo.
@@ -206,6 +211,7 @@ export default function EntradasAyudaConsultasPanel({
       duplicadas: rubros.duplicadas.length,
       con_entradas: rubros.conEntradas.length,
       generales: rubros.generales.length,
+      pedidos: rubros.pedidos.length,
     }),
     [rubros],
   );
@@ -225,6 +231,7 @@ export default function EntradasAyudaConsultasPanel({
     let base;
     if (pendienteRubro === "duplicadas") base = rubros.duplicadas;
     else if (pendienteRubro === "con_entradas") base = rubros.conEntradas;
+    else if (pendienteRubro === "pedidos") base = rubros.pedidos;
     else base = rubros.generales;
     const baseIds = new Set(base.map((r) => String(r.id)));
     const localsHere = localResueltasRows.filter((r) => {
@@ -235,7 +242,7 @@ export default function EntradasAyudaConsultasPanel({
   }, [esPendientes, pendienteRubro, rows, rubros, localResueltasRows]);
 
   const actionableVisibleRows = useMemo(
-    () => visibleRows.filter((r) => !r._localResuelta),
+    () => visibleRows.filter((r) => !r._localResuelta && !esPedidoAyudaGestion(r)),
     [visibleRows],
   );
 
@@ -361,6 +368,7 @@ export default function EntradasAyudaConsultasPanel({
   const emptyPendienteMsg = (() => {
     if (pendienteRubro === "duplicadas") return "No hay consultas duplicadas.";
     if (pendienteRubro === "con_entradas") return "No hay consultas con entrada vigente.";
+    if (pendienteRubro === "pedidos") return "No hay pedidos de cancelación o cambio de función.";
     return "No hay consultas generales pendientes.";
   })();
 
@@ -396,7 +404,9 @@ export default function EntradasAyudaConsultasPanel({
             ? "Mismo mail = misma persona. Unificá o aceptá el lote: se emite una sola reserva y se descartan las copias."
             : pendienteRubro === "con_entradas"
               ? "Ya tienen reserva vigente. Vinculá la consulta a esa entrada sin emitir otra."
-              : "Sin duplicados ni entrada vigente. Tildá varias para aceptarlas juntas, o resolvé las que entren en cupo."}
+              : pendienteRubro === "pedidos"
+                ? "Pidieron cancelar o cambiar de función. Aceptá el pedido para aplicarlo, o descartalo."
+                : "Sin duplicados ni entrada vigente. Tildá varias para aceptarlas juntas, o resolvé las que entren en cupo."}
       </p>
 
       {esPendientes && !loading && visibleRows.length > 0 ? (
@@ -496,7 +506,7 @@ export default function EntradasAyudaConsultasPanel({
         <p className={`text-sm ${ui.textMuted}`}>{emptyPendienteMsg}</p>
       ) : (
         <>
-          {esPendientes ? (
+          {esPendientes && actionableVisibleRows.length > 0 ? (
             <label className={`inline-flex items-center gap-2 text-sm cursor-pointer ${ui.textSoft}`}>
               <input
                 type="checkbox"
@@ -528,7 +538,8 @@ export default function EntradasAyudaConsultasPanel({
                 }
                 return vigentes[0];
               })();
-              const waReservaId = row.reserva_id || vigentePreferida?.id || null;
+              const pedidoGestion = esPedidoAyudaGestion(row);
+              const waReservaId = row.reserva_id || row.reserva_pedido_id || vigentePreferida?.id || null;
               const waConciertoId = vigentePreferida?.conciertoId ?? row.concierto_id;
 
               return (
@@ -554,7 +565,7 @@ export default function EntradasAyudaConsultasPanel({
                 >
                   <div className="flex w-full min-w-0 flex-col gap-3 lg:flex-row lg:items-start">
                     <div className="flex w-full min-w-0 items-start gap-2.5 lg:flex-1">
-                      {esPendientes && !localResuelta ? (
+                      {esPendientes && !localResuelta && !pedidoGestion ? (
                         <input
                           type="checkbox"
                           className="mt-0.5 h-4 w-4 shrink-0"
@@ -601,7 +612,22 @@ export default function EntradasAyudaConsultasPanel({
                               Duplicada · {dupSize}
                             </span>
                           ) : null}
-                          {esPendientes && vigentePreferida ? (
+                          {pedidoGestion && !localResuelta && !esResueltas ? (
+                            <span
+                              className={`inline-flex shrink-0 whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                                row.pedido === "cancelar"
+                                  ? isDark
+                                    ? "bg-rose-800 text-rose-100"
+                                    : "bg-rose-200 text-rose-950"
+                                  : isDark
+                                    ? "bg-sky-800 text-sky-100"
+                                    : "bg-sky-200 text-sky-950"
+                              }`}
+                            >
+                              {row.pedido === "cancelar" ? "Pide cancelar" : "Pide cambiar"}
+                            </span>
+                          ) : null}
+                          {esPendientes && vigentePreferida && !pedidoGestion ? (
                             <span
                               className={`inline-flex shrink-0 whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
                                 isDark
@@ -659,7 +685,17 @@ export default function EntradasAyudaConsultasPanel({
                       </div>
                     </div>
                     <div className="grid w-full grid-cols-2 gap-2 lg:w-44 lg:shrink-0 lg:grid-cols-1">
-                      {esPendientes && !localResuelta && vigentePreferida && onVincularVigente ? (
+                      {esPendientes && !localResuelta && pedidoGestion && onAceptarPedido ? (
+                        <button
+                          type="button"
+                          className={`${ui.btnPrimary} col-span-2 !w-full whitespace-normal px-3 py-2 text-center text-xs leading-tight`}
+                          disabled={loteBusy || busyId != null}
+                          onClick={() => onAceptarPedido(row)}
+                        >
+                          {row.pedido === "cancelar" ? "Aceptar cancelación" : "Aceptar cambio"}
+                        </button>
+                      ) : null}
+                      {esPendientes && !localResuelta && !pedidoGestion && vigentePreferida && onVincularVigente ? (
                         <button
                           type="button"
                           className={`${ui.btnPrimary} col-span-2 !w-full whitespace-normal px-3 py-2 text-center text-xs leading-tight`}

@@ -13,6 +13,12 @@ export function normalizeAyudaEmail(email) {
   return String(email || "").trim().toLowerCase();
 }
 
+/** Pedido sobre una entrada vigente (cancelar o cambiar de función), no una reserva nueva. */
+export function esPedidoAyudaGestion(row) {
+  const pedido = String(row?.pedido || "consulta").trim();
+  return pedido === "cancelar" || pedido === "cambiar_funcion";
+}
+
 function sortAyudaPorLlegada(rows) {
   return [...(Array.isArray(rows) ? rows : [])].sort((a, b) => {
     const ta = new Date(a?.created_at || 0).getTime();
@@ -140,7 +146,9 @@ export function collapseAyudaConsultasDuplicadas(rows) {
  * }}
  */
 export function classifyAyudaPendientesPorRubro(rows, reservasVigentesPorEmail = {}) {
-  const groups = groupAyudaConsultasByEmail(rows);
+  const source = Array.isArray(rows) ? rows : [];
+  const pedidos = source.filter((row) => esPedidoAyudaGestion(row));
+  const groups = groupAyudaConsultasByEmail(source.filter((row) => !esPedidoAyudaGestion(row)));
   const duplicadas = [];
   const conEntradas = [];
   const generales = [];
@@ -174,10 +182,12 @@ export function classifyAyudaPendientesPorRubro(rows, reservasVigentesPorEmail =
     duplicadas,
     conEntradas,
     generales,
+    pedidos,
     duplicadasPersonas,
     duplicadasCopias,
     conEntradasPersonas,
     generalesPersonas,
+    pedidosCount: pedidos.length,
   };
 }
 
@@ -217,7 +227,7 @@ export function pickAyudaConsultasQueEntranEnCupo(rows, disponibles) {
  * @returns {{ concierto: object, picked: object[], skipped: object[], disponibles: number, ticketsPicked: number } | null}
  */
 export function elegirConciertoYConsultasParaCupo(rows, conciertosSelect, getDisponibles) {
-  const raw = Array.isArray(rows) ? rows : [];
+  const raw = (Array.isArray(rows) ? rows : []).filter((row) => !esPedidoAyudaGestion(row));
   const { keepers, discardedCount, groupsWithDupes } = collapseAyudaConsultasDuplicadas(raw);
   const list = keepers;
   const conciertos = Array.isArray(conciertosSelect) ? conciertosSelect : [];

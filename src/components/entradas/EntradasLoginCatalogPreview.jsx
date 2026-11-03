@@ -3,6 +3,7 @@ import EntradasDisponibilidadBar from "./EntradasDisponibilidadBar";
 import {
   fetchConciertosDisponibilidad,
   listProgramasConConciertos,
+  porcentajeDisponibleConcierto,
   programasConDisponibilidad,
   todosConciertoIdsEnProgramas,
 } from "../../services/entradaService";
@@ -109,6 +110,9 @@ export default function EntradasLoginCatalogPreview({ ui, isDark }) {
         <ul className="space-y-3 list-none p-0 m-0">
           {items.map((concierto) => (
             <li key={concierto.id} className={`${ui.section} p-4 sm:p-5 space-y-2`}>
+              {porcentajeDisponibleConcierto(concierto) === 0 ? (
+                <span className={ui.badgeAgotadas}>Entradas agotadas</span>
+              ) : null}
               {concierto.localidadLabel ? (
                 <p className={`${ui.programaLocalidad} text-xs sm:text-sm`}>{concierto.localidadLabel}</p>
               ) : null}
