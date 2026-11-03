@@ -71,7 +71,7 @@ Migraciones:
 
 - Tabla `entrada_ayuda_consulta` + RPCs `entrada_ayuda_listar` / `get` / `marcar_resuelta` / `descartar` (`entrada_can_terceros`).
 - Edge `entradas-send-ayuda` persiste la fila, manda mail a staff con botón **Reservar en Entradas** → `/entradas?view=entradas-terceros&ayuda=<uuid>`, y **acuse al consultante** (aviso Spam / Correo no deseado).
-- En Terceros: cola de pendientes (`EntradasAyudaConsultasPanel`); al Abrir (mail o cola) se precarga mail/cantidad/concierto/referencia, se hace scroll al formulario y se auto-confirma el beneficiario si ya tiene cuenta.
+- En Terceros: cola con pestañas **Pendientes** / **Resueltas** (`EntradasAyudaConsultasPanel`; resueltas por `resolved_at` desc). Al Abrir o Usar entrada vigente el detalle queda en el mismo bloque (banner bajo la cola) con WhatsApp activo; al resolver no salta al listado de reservas. Pendiente: precarga el formulario de emisión.
 - [x] En móvil (y hasta `lg`), cada solicitud usa todo el ancho de la tarjeta: nombre, mail, teléfono, cantidad, función y la anotación. Los botones no comparten fila con esos datos. «Usar entrada vigente» ocupa toda la fila; Abrir y Descartar van en dos columnas. El chip «Ya tiene entrada» no se parte letra por letra y el mail corta por palabras. Desde `lg`, datos a la izquierda y acciones en una columna fija.
 - **Lote:** tildar varias → **Aceptar N** (un concierto + mensaje personalizado compartido); avisa si alguna persona **ya tiene entradas** para ese concierto (`checkEntradasAyudaReservas`); procesa secuencial (reserva + mail + marcar resuelta; sin auto-descarga PDF).
 - **Badge en menú «🎫 Terceros»:** ícono/contador arriba del botón con pendientes (`listEntradasAyudaConsultas`); se refresca al entrar, al resolver y cada 60s.

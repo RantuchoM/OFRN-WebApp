@@ -669,6 +669,8 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
   /** Consulta del formulario público abierta vía ?ayuda= o cola en Terceros. */
   const [ayudaConsulta, setAyudaConsulta] = useState(null);
   const [ayudaColaRefresh, setAyudaColaRefresh] = useState(0);
+  const [ayudaFiltroEstado, setAyudaFiltroEstado] = useState("pendiente");
+  const ayudaDetalleRef = useRef(null);
   /** Lote: aceptar varias consultas con un concierto y un mensaje compartido. */
   const [ayudaLoteRows, setAyudaLoteRows] = useState(null);
   const [ayudaLoteConciertoId, setAyudaLoteConciertoId] = useState("");
@@ -1158,6 +1160,12 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
     ayudaConsulta?.concierto_id,
   ]);
 
+  const scrollToAyudaDetalle = useCallback(() => {
+    window.requestAnimationFrame(() => {
+      ayudaDetalleRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    });
+  }, []);
+
   const applyAyudaConsultaToForm = useCallback((row) => {
     if (!row) return;
     ayudaAutoConfirmRef.current = true;
@@ -1176,9 +1184,6 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
     setTerceroBeneficiarioConfirmado(false);
     setTerceroMensajePersonalizado("");
     setTerceroForzarCupo(false);
-    window.requestAnimationFrame(() => {
-      terceroFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    });
   }, []);
 
   const pickAyudaReservaVigentePreferida = useCallback((reservas, conciertoIdPreferido = null) => {
@@ -1226,25 +1231,27 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
       const updated = await marcarEntradaAyudaResuelta(consulta.id, reservaMeta.id);
       ayudaPendienteIdRef.current = null;
       ayudaPendienteDescartarIdsRef.current = [];
-      setAyudaConsulta(
-        updated || {
-          ...consulta,
-          estado: "resuelta",
-          reserva_id: reservaMeta.id,
-          resolved_at: new Date().toISOString(),
-        },
-      );
+      setAyudaConsulta({
+        ...(consulta || {}),
+        ...(updated || {}),
+        telefono: updated?.telefono || consulta?.telefono,
+        estado: "resuelta",
+        reserva_id: updated?.reserva_id || reservaMeta.id,
+        resolved_at: updated?.resolved_at || new Date().toISOString(),
+      });
+      setAyudaFiltroEstado("resuelta");
       setAyudaColaRefresh((n) => n + 1);
       toast.success(
         `Consulta vinculada a la entrada vigente (${reservaMeta.codigo || `#${reservaMeta.id}`}).`,
       );
+      scrollToAyudaDetalle();
     } catch (e) {
       toast.error(e?.message || "No se pudo vincular la consulta a la entrada.");
       throw e;
     } finally {
       setAyudaVincularBusy(false);
     }
-  }, []);
+  }, [scrollToAyudaDetalle]);
 
   const handleReenviarMailAyudaVigente = useCallback(async (email, reservaMeta) => {
     if (!reservaMeta?.id) return;
@@ -2724,15 +2731,16 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
               /* seguir */
             }
           }
-          setAyudaConsulta(
-            updated
-            || {
-              ...(ayudaConsulta || {}),
-              id: ayudaIdPendiente,
-              estado: "resuelta",
-              reserva_id: result.reserva_id,
-            },
-          );
+          setAyudaConsulta({
+            ...(ayudaConsulta || {}),
+            ...(updated || {}),
+            id: ayudaIdPendiente,
+            telefono: updated?.telefono || ayudaConsulta?.telefono,
+            estado: "resuelta",
+            reserva_id: updated?.reserva_id || result.reserva_id,
+            resolved_at: updated?.resolved_at || new Date().toISOString(),
+          });
+          setAyudaFiltroEstado("resuelta");
           setAyudaColaRefresh((n) => n + 1);
           toast.message(
             descartadas > 0
@@ -2747,7 +2755,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
       await loadBase({ quiet: true });
       if (desdeSolicitud) {
         window.setTimeout(() => {
-          tercerosListadoRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+          ayudaDetalleRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
         }, 80);
       }
     } catch (error) {
@@ -4796,6 +4804,8 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
         activeAyudaId={ayudaIdParam || ayudaConsulta?.id}
         refreshKey={ayudaColaRefresh}
         loteBusy={ayudaLoteBusy || ayudaVincularBusy}
+        filtroEstado={ayudaFiltroEstado}
+        onFiltroEstadoChange={setAyudaFiltroEstado}
         onAceptarLote={openAyudaLote}
         onResolverQueEntren={resolverAyudaQueEntranEnCupo}
         onPendientesChange={setAyudaPendientesCount}
@@ -4805,16 +4815,20 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
         onVincularVigente={(row, reservaMeta) => {
           void (async () => {
             setAyudaConsulta(row);
-            await handleVincularAyudaAReservaVigente(row, reservaMeta);
             const params = new URLSearchParams(searchParams);
             params.set("view", "entradas-terceros");
             params.set("ayuda", String(row.id));
             setSearchParams(params);
+            await handleVincularAyudaAReservaVigente(row, reservaMeta);
             await loadAyudaReservasVigentesForEmail(row.email, row.concierto_id);
           })();
         }}
         onOpenConsulta={(row) => {
           setAyudaConsulta(row);
+          const params = new URLSearchParams(searchParams);
+          params.set("view", "entradas-terceros");
+          params.set("ayuda", String(row.id));
+          setSearchParams(params);
           if (row.estado === "pendiente") {
             ayudaPendienteIdRef.current = row.id;
             applyAyudaConsultaToForm(row);
@@ -4855,12 +4869,10 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
           } else {
             ayudaPendienteIdRef.current = null;
             ayudaPendienteDescartarIdsRef.current = [];
+            if (row.estado === "resuelta") setAyudaFiltroEstado("resuelta");
             void loadAyudaReservasVigentesForEmail(row.email, row.concierto_id);
           }
-          const params = new URLSearchParams(searchParams);
-          params.set("view", "entradas-terceros");
-          params.set("ayuda", String(row.id));
-          setSearchParams(params);
+          scrollToAyudaDetalle();
         }}
         onUnificarDuplicados={(rows) => {
           const groups = findAyudaDuplicateGroups(rows);
@@ -4875,6 +4887,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
 
       {ayudaConsulta && (
         <div
+          ref={ayudaDetalleRef}
           className={
             ayudaConsulta.estado === "resuelta" || ayudaConsulta.estado === "descartada"
               ? isDark

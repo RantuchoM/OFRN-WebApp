@@ -24,7 +24,7 @@ function formatWhen(iso) {
 
 /**
  * Cola de consultas del formulario público (vista Terceros).
- * Soporta selección múltiple para aceptar o descartar en lote.
+ * Pendientes (lote) y resueltas (histórico, más recientes primero).
  */
 export default function EntradasAyudaConsultasPanel({
   ui,
@@ -41,20 +41,41 @@ export default function EntradasAyudaConsultasPanel({
   conciertoDeConsulta,
   refreshKey = 0,
   loteBusy = false,
+  filtroEstado: filtroEstadoControlled = null,
+  onFiltroEstadoChange = null,
 }) {
+  const [filtroInterno, setFiltroInterno] = useState("pendiente");
+  const filtroEstado = filtroEstadoControlled ?? filtroInterno;
+  const setFiltroEstado = (next) => {
+    if (onFiltroEstadoChange) onFiltroEstadoChange(next);
+    else setFiltroInterno(next);
+  };
+
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState(null);
   const [selectedIds, setSelectedIds] = useState(() => new Set());
 
+  const esPendientes = filtroEstado === "pendiente";
+  const esResueltas = filtroEstado === "resuelta";
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await listEntradasAyudaConsultas("pendiente");
-      const list = Array.isArray(data) ? data : [];
+      const data = await listEntradasAyudaConsultas(filtroEstado);
+      let list = Array.isArray(data) ? data : [];
+      if (filtroEstado === "resuelta") {
+        list = [...list].sort((a, b) => {
+          const ta = new Date(a.resolved_at || a.created_at || 0).getTime();
+          const tb = new Date(b.resolved_at || b.created_at || 0).getTime();
+          return tb - ta;
+        });
+      }
       setRows(list);
-      onPendientesChange?.(list.length);
-      onRowsLoaded?.(list);
+      if (filtroEstado === "pendiente") {
+        onPendientesChange?.(list.length);
+        onRowsLoaded?.(list);
+      }
       setSelectedIds((prev) => {
         const next = new Set();
         const ids = new Set(list.map((r) => String(r.id)));
@@ -66,16 +87,38 @@ export default function EntradasAyudaConsultasPanel({
     } catch (e) {
       toast.error(e?.message || "No se pudieron cargar las consultas de ayuda.");
       setRows([]);
-      onPendientesChange?.(0);
-      onRowsLoaded?.([]);
+      if (filtroEstado === "pendiente") {
+        onPendientesChange?.(0);
+        onRowsLoaded?.([]);
+      }
     } finally {
       setLoading(false);
     }
-  }, [onPendientesChange, onRowsLoaded]);
+  }, [filtroEstado, onPendientesChange, onRowsLoaded]);
 
   useEffect(() => {
     void load();
   }, [load, refreshKey]);
+
+  useEffect(() => {
+    if (filtroEstado === "pendiente") return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await listEntradasAyudaConsultas("pendiente");
+        if (!cancelled) {
+          const list = Array.isArray(data) ? data : [];
+          onPendientesChange?.(list.length);
+          onRowsLoaded?.(list);
+        }
+      } catch {
+        /* badge no crítico */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [filtroEstado, refreshKey, onPendientesChange, onRowsLoaded]);
 
   const selectedRows = useMemo(
     () => rows.filter((r) => selectedIds.has(String(r.id))),
@@ -83,8 +126,14 @@ export default function EntradasAyudaConsultasPanel({
   );
   const allSelected = rows.length > 0 && selectedRows.length === rows.length;
   const someSelected = selectedRows.length > 0;
-  const duplicateGroupSizeById = useMemo(() => indexAyudaDuplicateGroupSize(rows), [rows]);
-  const duplicateGroups = useMemo(() => findAyudaDuplicateGroups(rows), [rows]);
+  const duplicateGroupSizeById = useMemo(
+    () => (esPendientes ? indexAyudaDuplicateGroupSize(rows) : new Map()),
+    [rows, esPendientes],
+  );
+  const duplicateGroups = useMemo(
+    () => (esPendientes ? findAyudaDuplicateGroups(rows) : []),
+    [rows, esPendientes],
+  );
   const duplicatePeople = duplicateGroups.length;
   const duplicateExtraCount = duplicateGroups.reduce((n, g) => n + Math.max(0, g.length - 1), 0);
 
@@ -147,6 +196,26 @@ export default function EntradasAyudaConsultasPanel({
     await load();
   };
 
+  const tabBtn = (key, label) => {
+    const active = filtroEstado === key;
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          setSelectedIds(new Set());
+          setFiltroEstado(key);
+        }}
+        className={
+          active
+            ? `${ui.navActive} px-3 py-1.5 text-xs`
+            : `${ui.navIdle} px-3 py-1.5 text-xs`
+        }
+      >
+        {label}
+      </button>
+    );
+  };
+
   return (
     <div className={`${ui.inset} min-w-0 space-y-3 p-3 sm:p-4`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -160,11 +229,19 @@ export default function EntradasAyudaConsultasPanel({
           Actualizar
         </button>
       </div>
+
+      <div className="flex flex-wrap gap-2">
+        {tabBtn("pendiente", "Pendientes")}
+        {tabBtn("resuelta", "Resueltas")}
+      </div>
+
       <p className={`text-sm ${ui.textMuted}`}>
-        Llegan del botón «¿Necesitás ayuda?». Tildá varias para aceptarlas juntas, o abrí una sola.
+        {esResueltas
+          ? "Consultas ya resueltas, de la más reciente a la más antigua. Abrí una para reenviar mail o WhatsApp."
+          : "Llegan del botón «¿Necesitás ayuda?». Tildá varias para aceptarlas juntas, o abrí una sola."}
       </p>
 
-      {!loading && rows.length > 0 ? (
+      {esPendientes && !loading && rows.length > 0 ? (
         <div className="flex flex-wrap gap-2">
           {onResolverQueEntren ? (
             <button
@@ -189,7 +266,7 @@ export default function EntradasAyudaConsultasPanel({
         </div>
       ) : null}
 
-      {!loading && duplicatePeople > 0 ? (
+      {esPendientes && !loading && duplicatePeople > 0 ? (
         <div
           className={`rounded-lg border px-3 py-2 text-xs ${
             isDark
@@ -202,7 +279,7 @@ export default function EntradasAyudaConsultasPanel({
         </div>
       ) : null}
 
-      {someSelected && (
+      {esPendientes && someSelected && (
         <div
           className={`sticky top-0 z-10 flex flex-col gap-2 rounded-lg border px-3 py-2 sm:flex-row sm:flex-wrap sm:items-center ${
             isDark
@@ -245,18 +322,22 @@ export default function EntradasAyudaConsultasPanel({
       {loading ? (
         <p className={`text-sm ${ui.textMuted}`}>Cargando…</p>
       ) : rows.length === 0 ? (
-        <p className={`text-sm ${ui.textMuted}`}>No hay consultas pendientes.</p>
+        <p className={`text-sm ${ui.textMuted}`}>
+          {esResueltas ? "No hay consultas resueltas." : "No hay consultas pendientes."}
+        </p>
       ) : (
         <>
-          <label className={`inline-flex items-center gap-2 text-sm cursor-pointer ${ui.textSoft}`}>
-            <input
-              type="checkbox"
-              checked={allSelected}
-              onChange={toggleAll}
-              disabled={loteBusy}
-            />
-            Seleccionar todas ({rows.length})
-          </label>
+          {esPendientes ? (
+            <label className={`inline-flex items-center gap-2 text-sm cursor-pointer ${ui.textSoft}`}>
+              <input
+                type="checkbox"
+                checked={allSelected}
+                onChange={toggleAll}
+                disabled={loteBusy}
+              />
+              Seleccionar todas ({rows.length})
+            </label>
+          ) : null}
           <ul className="m-0 min-w-0 list-none space-y-3 p-0">
             {rows.map((row) => {
               const active = String(activeAyudaId || "") === String(row.id);
@@ -276,6 +357,7 @@ export default function EntradasAyudaConsultasPanel({
                 }
                 return vigentes[0];
               })();
+
               return (
                 <li
                   key={row.id}
@@ -294,17 +376,31 @@ export default function EntradasAyudaConsultasPanel({
                   }`}
                 >
                   <div className="flex w-full min-w-0 flex-col gap-3 lg:flex-row lg:items-start">
-                    <label className="grid w-full min-w-0 cursor-pointer grid-cols-[1.25rem_minmax(0,1fr)] items-start gap-x-2.5 lg:flex-1">
-                      <input
-                        type="checkbox"
-                        className="mt-0.5 h-4 w-4"
-                        checked={checked}
-                        disabled={loteBusy}
-                        onChange={() => toggleOne(row.id)}
-                      />
-                      <div className="min-w-0 space-y-1">
+                    <div className="flex w-full min-w-0 items-start gap-2.5 lg:flex-1">
+                      {esPendientes ? (
+                        <input
+                          type="checkbox"
+                          className="mt-0.5 h-4 w-4 shrink-0"
+                          checked={checked}
+                          disabled={loteBusy}
+                          onChange={() => toggleOne(row.id)}
+                          aria-label={`Seleccionar ${row.nombre || row.email}`}
+                        />
+                      ) : null}
+                      <div className="min-w-0 flex-1 space-y-1">
                         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                           <span className={`break-words text-sm font-bold ${ui.textStrong}`}>{row.nombre}</span>
+                          {esResueltas ? (
+                            <span
+                              className={`inline-flex shrink-0 whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                                isDark
+                                  ? "bg-emerald-800 text-emerald-100"
+                                  : "bg-emerald-200 text-emerald-900"
+                              }`}
+                            >
+                              Resuelta
+                            </span>
+                          ) : null}
                           {dupSize > 1 ? (
                             <span
                               className={`inline-flex shrink-0 whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
@@ -316,7 +412,7 @@ export default function EntradasAyudaConsultasPanel({
                               Duplicada · {dupSize}
                             </span>
                           ) : null}
-                          {vigentePreferida ? (
+                          {esPendientes && vigentePreferida ? (
                             <span
                               className={`inline-flex shrink-0 whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
                                 isDark
@@ -352,18 +448,25 @@ export default function EntradasAyudaConsultasPanel({
                           {row.cantidad
                             ? `${row.cantidad} entrada${Number(row.cantidad) === 1 ? "" : "s"}`
                             : "Sin cantidad"}
+                          {esResueltas && row.reserva_id ? ` · reserva #${row.reserva_id}` : ""}
                         </p>
                         {row.funcion_label ? (
                           <p className={`break-words text-xs leading-snug ${ui.textSoft}`}>{row.funcion_label}</p>
                         ) : null}
-                        <p className={`text-[11px] ${ui.textMuted}`}>{formatWhen(row.created_at)}</p>
+                        <p className={`text-[11px] ${ui.textMuted}`}>
+                          {esResueltas
+                            ? `Resuelta ${formatWhen(row.resolved_at || row.created_at)}`
+                            : formatWhen(row.created_at)}
+                        </p>
                         {row.comentarios ? (
-                          <p className={`w-full min-w-0 whitespace-pre-wrap break-words pt-1 text-xs leading-relaxed ${ui.textBody}`}>{row.comentarios}</p>
+                          <p className={`w-full min-w-0 whitespace-pre-wrap break-words pt-1 text-xs leading-relaxed ${ui.textBody}`}>
+                            {row.comentarios}
+                          </p>
                         ) : null}
                       </div>
-                    </label>
+                    </div>
                     <div className="grid w-full grid-cols-2 gap-2 lg:w-44 lg:shrink-0 lg:grid-cols-1">
-                      {vigentePreferida && onVincularVigente ? (
+                      {esPendientes && vigentePreferida && onVincularVigente ? (
                         <button
                           type="button"
                           className={`${ui.btnPrimary} col-span-2 !w-full whitespace-normal px-3 py-2 text-center text-xs leading-tight`}
@@ -376,20 +479,24 @@ export default function EntradasAyudaConsultasPanel({
                       ) : null}
                       <button
                         type="button"
-                        className={`${vigentePreferida ? ui.btnGhost : ui.btnPrimary} !w-full whitespace-normal px-3 py-2 text-center text-xs leading-tight`}
+                        className={`${
+                          esPendientes && vigentePreferida ? ui.btnGhost : ui.btnPrimary
+                        } ${esResueltas ? "col-span-2" : ""} !w-full whitespace-normal px-3 py-2 text-center text-xs leading-tight`}
                         disabled={loteBusy}
                         onClick={() => onOpenConsulta?.(row)}
                       >
                         Abrir
                       </button>
-                      <button
-                        type="button"
-                        disabled={loteBusy || busyId === row.id}
-                        className={`${ui.btnGhost} inline-flex !w-full items-center justify-center whitespace-normal px-2 py-2 text-center text-xs leading-tight`}
-                        onClick={() => void descartar(row.id)}
-                      >
-                        Descartar
-                      </button>
+                      {esPendientes ? (
+                        <button
+                          type="button"
+                          disabled={loteBusy || busyId === row.id}
+                          className={`${ui.btnGhost} inline-flex !w-full items-center justify-center whitespace-normal px-2 py-2 text-center text-xs leading-tight`}
+                          onClick={() => void descartar(row.id)}
+                        >
+                          Descartar
+                        </button>
+                      ) : null}
                     </div>
                   </div>
                 </li>
