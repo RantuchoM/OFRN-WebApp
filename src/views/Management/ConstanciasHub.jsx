@@ -143,7 +143,10 @@ export default function ConstanciasHub() {
 
   useEffect(() => {
     if (!highlightId) return;
-    const el = document.getElementById(`constancia-${highlightId}`);
+    const nodes = document.querySelectorAll(
+      `[data-constancia-id="${CSS.escape(String(highlightId))}"]`,
+    );
+    const el = [...nodes].find((n) => n.offsetParent !== null) || nodes[0];
     if (el) {
       el.scrollIntoView({ behavior: "smooth", block: "center" });
     }
@@ -325,11 +328,168 @@ export default function ConstanciasHub() {
     );
   }
 
+  const renderComoField = (r, nombre, { large = false } = {}) => {
+    if (r.estado === CONSTANCIA_ESTADOS.pendiente) {
+      return (
+        <div className={large ? "w-full" : "min-w-[8.5rem]"}>
+          {large ? (
+            <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-slate-500">
+              como…
+            </label>
+          ) : null}
+          <input
+            type="text"
+            value={comoById[r.id] ?? ""}
+            onChange={(e) =>
+              setComoById((prev) => ({
+                ...prev,
+                [r.id]: e.target.value,
+              }))
+            }
+            onBlur={() => {
+              persistComoIfNeeded(r).catch((err) => {
+                toast.error(err?.message || "No se pudo guardar «como…»");
+              });
+            }}
+            placeholder="violinista"
+            className={`w-full rounded-md border border-slate-200 text-slate-800 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400 ${
+              large ? "px-3 py-2.5 text-sm" : "px-2 py-1 text-[11px]"
+            }`}
+            aria-label={`como ${nombre || r.id}`}
+          />
+          <div
+            className={`mt-0.5 text-slate-400 ${large ? "text-[11px]" : "text-[9px]"}`}
+          >
+            {r.snap_instrumento || ""}
+          </div>
+        </div>
+      );
+    }
+    return (
+      <div>
+        {large ? (
+          <div className="mb-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">
+            como…
+          </div>
+        ) : null}
+        <div className={`font-medium text-slate-800 ${large ? "text-sm" : ""}`}>
+          {r.snap_funcion ||
+            String(r.snap_instrumento || "")
+              .toLowerCase() ||
+            "—"}
+        </div>
+        <div className={`text-slate-400 ${large ? "text-[11px]" : "text-[9px]"}`}>
+          {r.snap_instrumento || ""}
+        </div>
+      </div>
+    );
+  };
+
+  const renderActions = (r, { large = false } = {}) => {
+    const btnPad = large ? "px-3 py-2.5 text-xs" : "px-2 py-1 text-[10px]";
+    const iconSz = large ? 14 : 12;
+    if (r.estado === CONSTANCIA_ESTADOS.pendiente) {
+      return (
+        <div className={`flex gap-2 ${large ? "w-full" : "flex-wrap"}`}>
+          <button
+            type="button"
+            disabled={busyId === r.id || !String(comoById[r.id] || "").trim()}
+            onClick={() => handleAprobar(r.id)}
+            className={`inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-emerald-600 font-bold text-white hover:bg-emerald-700 disabled:opacity-50 ${btnPad}`}
+          >
+            {busyId === r.id ? (
+              <IconLoader size={iconSz} className="animate-spin" />
+            ) : (
+              <IconCheck size={iconSz} />
+            )}
+            Aprobar
+          </button>
+          <button
+            type="button"
+            disabled={busyId === r.id}
+            onClick={() => {
+              setDenyTarget(r);
+              setDenyMotivo("");
+            }}
+            className={`inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-rose-300 bg-white font-bold text-rose-700 hover:bg-rose-50 disabled:opacity-50 ${btnPad}`}
+          >
+            <IconX size={iconSz} />
+            Denegar
+          </button>
+        </div>
+      );
+    }
+    if (r.estado === CONSTANCIA_ESTADOS.aprobada) {
+      return (
+        <div className={`flex flex-col gap-1 ${large ? "w-full" : ""}`}>
+          <span className="inline-flex items-center gap-1 text-[10px] text-slate-400">
+            <IconFileText size={12} />
+            {formatShortDate(r.resuelto_at)}
+          </span>
+          <div className={`flex gap-2 ${large ? "w-full" : "flex-wrap"}`}>
+            <button
+              type="button"
+              disabled={busyId === r.id || !r.integrantes?.mail}
+              title={
+                r.integrantes?.mail
+                  ? `Reenviar a ${r.integrantes.mail}`
+                  : "Sin email cargado"
+              }
+              onClick={() => handleReenviar(r)}
+              className={`inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 font-bold text-indigo-700 hover:bg-indigo-100 disabled:opacity-50 ${btnPad}`}
+            >
+              {busyId === r.id ? (
+                <IconLoader size={iconSz} className="animate-spin" />
+              ) : (
+                <IconMail size={iconSz} />
+              )}
+              Reenviar
+            </button>
+            <button
+              type="button"
+              disabled={busyId === r.id}
+              onClick={() => handleDescargar(r)}
+              className={`inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50 ${btnPad}`}
+            >
+              {busyId === r.id ? (
+                <IconLoader size={iconSz} className="animate-spin" />
+              ) : (
+                <IconDownload size={iconSz} />
+              )}
+              Descargar
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return (
+      <div className={`flex flex-col gap-1 ${large ? "w-full" : ""}`}>
+        <span className="inline-flex items-center gap-1 text-[10px] text-slate-400">
+          <IconFileText size={12} />
+          {formatShortDate(r.resuelto_at)}
+        </span>
+        <button
+          type="button"
+          disabled={busyId === r.id}
+          onClick={() => setUndoTarget(r)}
+          className={`inline-flex items-center justify-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 font-bold text-amber-800 hover:bg-amber-100 disabled:opacity-50 ${btnPad} ${large ? "w-full" : ""}`}
+        >
+          {busyId === r.id ? (
+            <IconLoader size={iconSz} className="animate-spin" />
+          ) : (
+            <IconUndo size={iconSz} />
+          )}
+          Deshacer
+        </button>
+      </div>
+    );
+  };
+
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
-      <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
         <div className="flex min-w-0 flex-col gap-2">
-          <div className="inline-flex flex-wrap items-center gap-1 rounded-xl border border-slate-200/80 bg-slate-50/80 p-1">
+          <div className="inline-flex max-w-full flex-wrap items-center gap-1 rounded-xl border border-slate-200/80 bg-slate-50/80 p-1">
             {[
               { id: "pendiente", label: "Pendientes" },
               { id: "aprobada", label: "Aprobadas" },
@@ -418,31 +578,20 @@ export default function ConstanciasHub() {
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-slate-200 bg-white">
+      <div className="min-h-0 flex-1 overflow-auto md:rounded-lg md:border md:border-slate-200 md:bg-white">
         {loading ? (
-          <div className="flex items-center justify-center gap-2 p-10 text-sm text-slate-500">
+          <div className="flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white p-10 text-sm text-slate-500 md:border-0">
             <IconLoader size={16} className="animate-spin" />
             Cargando…
           </div>
         ) : rows.length === 0 ? (
-          <div className="p-10 text-center text-sm text-slate-400">
+          <div className="rounded-lg border border-slate-200 bg-white p-10 text-center text-sm text-slate-400 md:border-0">
             No hay solicitudes en este filtro.
           </div>
         ) : (
-          <table className="min-w-full text-left text-xs">
-            <thead className="sticky top-0 bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
-              <tr>
-                <th className="px-3 py-2 font-bold">#</th>
-                <th className="px-3 py-2 font-bold">Solicitante</th>
-                <th className="px-3 py-2 font-bold">Tipo</th>
-                <th className="px-3 py-2 font-bold">Gira</th>
-                <th className="px-3 py-2 font-bold">como…</th>
-                <th className="px-3 py-2 font-bold">Fechas</th>
-                <th className="px-3 py-2 font-bold">Estado</th>
-                <th className="px-3 py-2 font-bold">Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
+          <>
+            {/* Móvil: tarjetas con acciones grandes */}
+            <ul className="flex flex-col gap-3 pb-2 md:hidden">
               {rows.map((r) => {
                 const highlighted =
                   highlightId && String(highlightId) === String(r.id);
@@ -450,21 +599,37 @@ export default function ConstanciasHub() {
                   .filter(Boolean)
                   .join(" ");
                 return (
-                  <tr
+                  <li
                     key={r.id}
-                    id={`constancia-${r.id}`}
-                    className={`border-t border-slate-100 ${
-                      highlighted ? "bg-indigo-50/80" : "hover:bg-slate-50/80"
+                    data-constancia-id={r.id}
+                    className={`rounded-xl border bg-white p-3.5 shadow-sm ${
+                      highlighted
+                        ? "border-indigo-300 ring-2 ring-indigo-200"
+                        : "border-slate-200"
                     }`}
                   >
-                    <td className="px-3 py-2 font-mono text-slate-500">{r.id}</td>
-                    <td className="px-3 py-2">
-                      <div className="font-bold text-slate-800">{nombre || "—"}</div>
-                      <div className="text-[10px] text-slate-500">
-                        DNI {r.snap_dni || "—"} · {r.integrantes?.mail || "sin mail"}
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="truncate text-base font-bold text-slate-900">
+                          {nombre || "—"}
+                        </div>
+                        <div className="mt-0.5 text-[11px] text-slate-500">
+                          #{r.id} · DNI {r.snap_dni || "—"}
+                        </div>
+                        {r.integrantes?.mail ? (
+                          <div className="truncate text-[11px] text-slate-400">
+                            {r.integrantes.mail}
+                          </div>
+                        ) : null}
                       </div>
-                    </td>
-                    <td className="px-3 py-2">
+                      <span
+                        className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold ${estadoClass(r.estado)}`}
+                      >
+                        {CONSTANCIA_ESTADO_LABEL[r.estado] || r.estado}
+                      </span>
+                    </div>
+
+                    <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
                       <span
                         className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-bold ${
                           r.tipo === CONSTANCIA_TIPOS.participacion
@@ -475,186 +640,145 @@ export default function ConstanciasHub() {
                         {CONSTANCIA_TIPO_LABEL_SHORT[r.tipo] ||
                           CONSTANCIA_TIPO_LABEL_SHORT.convocatoria}
                       </span>
-                      <div className="mt-0.5 hidden text-[9px] text-slate-400 sm:block">
-                        {CONSTANCIA_TIPO_LABEL[r.tipo] || ""}
-                      </div>
-                    </td>
-                    <td className="px-3 py-2">
-                      <div className="font-medium text-slate-800">
+                      <span className="text-[11px] text-slate-500">
+                        {formatShortDate(r.snap_fecha_desde)} –{" "}
+                        {formatShortDate(r.snap_fecha_hasta)}
+                      </span>
+                    </div>
+
+                    <div className="mt-2 rounded-lg bg-slate-50 px-2.5 py-2">
+                      <div className="text-sm font-semibold text-slate-800">
                         {r.snap_gira_nombre || "—"}
                       </div>
-                      <div className="text-[10px] text-slate-500">
-                        {r.snap_gira_tipo || ""} · {r.snap_localidades || ""}
+                      <div className="text-[11px] text-slate-500">
+                        {[r.snap_gira_tipo, r.snap_localidades]
+                          .filter(Boolean)
+                          .join(" · ")}
                       </div>
-                    </td>
-                    <td className="px-3 py-2 align-top text-slate-700">
-                      {r.estado === CONSTANCIA_ESTADOS.pendiente ? (
-                        <div className="min-w-[8.5rem]">
-                          <input
-                            type="text"
-                            value={comoById[r.id] ?? ""}
-                            onChange={(e) =>
-                              setComoById((prev) => ({
-                                ...prev,
-                                [r.id]: e.target.value,
-                              }))
-                            }
-                            onBlur={() => {
-                              persistComoIfNeeded(r).catch((err) => {
-                                toast.error(
-                                  err?.message || "No se pudo guardar «como…»",
-                                );
-                              });
-                            }}
-                            placeholder="violinista"
-                            className="w-full rounded-md border border-slate-200 px-2 py-1 text-[11px] text-slate-800 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400"
-                            aria-label={`como ${nombre || r.id}`}
-                          />
-                          <div className="mt-0.5 text-[9px] text-slate-400">
-                            {r.snap_instrumento || ""}
-                          </div>
-                        </div>
-                      ) : (
-                        <div>
-                          <div className="font-medium text-slate-800">
-                            {r.snap_funcion ||
-                              String(r.snap_instrumento || "")
-                                .toLowerCase() ||
-                              "—"}
-                          </div>
-                          <div className="text-[9px] text-slate-400">
-                            {r.snap_instrumento || ""}
-                          </div>
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 text-slate-600">
-                      {formatShortDate(r.snap_fecha_desde)} –{" "}
-                      {formatShortDate(r.snap_fecha_hasta)}
-                    </td>
-                    <td className="px-3 py-2">
-                      <span
-                        className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-bold ${estadoClass(r.estado)}`}
-                      >
-                        {CONSTANCIA_ESTADO_LABEL[r.estado] || r.estado}
-                      </span>
-                      {r.estado === CONSTANCIA_ESTADOS.denegada &&
-                        r.motivo_denegacion && (
-                          <div className="mt-1 max-w-[12rem] text-[10px] text-rose-600">
-                            {r.motivo_denegacion}
-                          </div>
-                        )}
-                    </td>
-                    <td className="px-3 py-2">
-                      {r.estado === CONSTANCIA_ESTADOS.pendiente ? (
-                        <div className="flex flex-wrap gap-1">
-                          <button
-                            type="button"
-                            disabled={
-                              busyId === r.id ||
-                              !String(comoById[r.id] || "").trim()
-                            }
-                            onClick={() => handleAprobar(r.id)}
-                            className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2 py-1 text-[10px] font-bold text-white hover:bg-emerald-700 disabled:opacity-50"
-                          >
-                            {busyId === r.id ? (
-                              <IconLoader size={12} className="animate-spin" />
-                            ) : (
-                              <IconCheck size={12} />
-                            )}
-                            Aprobar
-                          </button>
-                          <button
-                            type="button"
-                            disabled={busyId === r.id}
-                            onClick={() => {
-                              setDenyTarget(r);
-                              setDenyMotivo("");
-                            }}
-                            className="inline-flex items-center gap-1 rounded-md border border-rose-200 bg-white px-2 py-1 text-[10px] font-bold text-rose-700 hover:bg-rose-50 disabled:opacity-50"
-                          >
-                            <IconX size={12} />
-                            Denegar
-                          </button>
-                        </div>
-                      ) : r.estado === CONSTANCIA_ESTADOS.aprobada ? (
-                        <div className="flex flex-col gap-1">
-                          <span className="inline-flex items-center gap-1 text-[10px] text-slate-400">
-                            <IconFileText size={12} />
-                            {formatShortDate(r.resuelto_at)}
-                          </span>
-                          <div className="flex flex-wrap gap-1">
-                            <button
-                              type="button"
-                              disabled={busyId === r.id || !r.integrantes?.mail}
-                              title={
-                                r.integrantes?.mail
-                                  ? `Reenviar a ${r.integrantes.mail}`
-                                  : "Sin email cargado"
-                              }
-                              onClick={() => handleReenviar(r)}
-                              className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2 py-1 text-[10px] font-bold text-indigo-700 hover:bg-indigo-100 disabled:opacity-50"
-                            >
-                              {busyId === r.id ? (
-                                <IconLoader size={12} className="animate-spin" />
-                              ) : (
-                                <IconMail size={12} />
-                              )}
-                              Reenviar
-                            </button>
-                            <button
-                              type="button"
-                              disabled={busyId === r.id}
-                              onClick={() => handleDescargar(r)}
-                              className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[10px] font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-                            >
-                              {busyId === r.id ? (
-                                <IconLoader size={12} className="animate-spin" />
-                              ) : (
-                                <IconDownload size={12} />
-                              )}
-                              Descargar
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="flex flex-col gap-1">
-                          <span className="inline-flex items-center gap-1 text-[10px] text-slate-400">
-                            <IconFileText size={12} />
-                            {formatShortDate(r.resuelto_at)}
-                          </span>
-                          <button
-                            type="button"
-                            disabled={busyId === r.id}
-                            onClick={() => setUndoTarget(r)}
-                            className="inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] font-bold text-amber-800 hover:bg-amber-100 disabled:opacity-50"
-                          >
-                            {busyId === r.id ? (
-                              <IconLoader size={12} className="animate-spin" />
-                            ) : (
-                              <IconUndo size={12} />
-                            )}
-                            Deshacer
-                          </button>
-                        </div>
-                      )}
-                    </td>
-                  </tr>
+                    </div>
+
+                    {r.estado === CONSTANCIA_ESTADOS.denegada &&
+                    r.motivo_denegacion ? (
+                      <div className="mt-2 rounded-lg border border-rose-100 bg-rose-50 px-2.5 py-2 text-[12px] text-rose-700">
+                        {r.motivo_denegacion}
+                      </div>
+                    ) : null}
+
+                    <div className="mt-3">
+                      {renderComoField(r, nombre, { large: true })}
+                    </div>
+                    <div className="mt-3">
+                      {renderActions(r, { large: true })}
+                    </div>
+                  </li>
                 );
               })}
-            </tbody>
-          </table>
+            </ul>
+
+            {/* Desktop: tabla */}
+            <table className="hidden min-w-full text-left text-xs md:table">
+              <thead className="sticky top-0 bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
+                <tr>
+                  <th className="px-3 py-2 font-bold">#</th>
+                  <th className="px-3 py-2 font-bold">Solicitante</th>
+                  <th className="px-3 py-2 font-bold">Tipo</th>
+                  <th className="px-3 py-2 font-bold">Gira</th>
+                  <th className="px-3 py-2 font-bold">como…</th>
+                  <th className="px-3 py-2 font-bold">Fechas</th>
+                  <th className="px-3 py-2 font-bold">Estado</th>
+                  <th className="px-3 py-2 font-bold">Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => {
+                  const highlighted =
+                    highlightId && String(highlightId) === String(r.id);
+                  const nombre = [r.snap_nombre, r.snap_apellido]
+                    .filter(Boolean)
+                    .join(" ");
+                  return (
+                    <tr
+                      key={r.id}
+                      data-constancia-id={r.id}
+                      className={`border-t border-slate-100 ${
+                        highlighted
+                          ? "bg-indigo-50/80"
+                          : "hover:bg-slate-50/80"
+                      }`}
+                    >
+                      <td className="px-3 py-2 font-mono text-slate-500">
+                        {r.id}
+                      </td>
+                      <td className="px-3 py-2">
+                        <div className="font-bold text-slate-800">
+                          {nombre || "—"}
+                        </div>
+                        <div className="text-[10px] text-slate-500">
+                          DNI {r.snap_dni || "—"} ·{" "}
+                          {r.integrantes?.mail || "sin mail"}
+                        </div>
+                      </td>
+                      <td className="px-3 py-2">
+                        <span
+                          className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-bold ${
+                            r.tipo === CONSTANCIA_TIPOS.participacion
+                              ? "border-sky-200 bg-sky-50 text-sky-800"
+                              : "border-violet-200 bg-violet-50 text-violet-800"
+                          }`}
+                        >
+                          {CONSTANCIA_TIPO_LABEL_SHORT[r.tipo] ||
+                            CONSTANCIA_TIPO_LABEL_SHORT.convocatoria}
+                        </span>
+                        <div className="mt-0.5 text-[9px] text-slate-400">
+                          {CONSTANCIA_TIPO_LABEL[r.tipo] || ""}
+                        </div>
+                      </td>
+                      <td className="px-3 py-2">
+                        <div className="font-medium text-slate-800">
+                          {r.snap_gira_nombre || "—"}
+                        </div>
+                        <div className="text-[10px] text-slate-500">
+                          {r.snap_gira_tipo || ""} · {r.snap_localidades || ""}
+                        </div>
+                      </td>
+                      <td className="px-3 py-2 align-top text-slate-700">
+                        {renderComoField(r, nombre)}
+                      </td>
+                      <td className="px-3 py-2 text-slate-600">
+                        {formatShortDate(r.snap_fecha_desde)} –{" "}
+                        {formatShortDate(r.snap_fecha_hasta)}
+                      </td>
+                      <td className="px-3 py-2">
+                        <span
+                          className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-bold ${estadoClass(r.estado)}`}
+                        >
+                          {CONSTANCIA_ESTADO_LABEL[r.estado] || r.estado}
+                        </span>
+                        {r.estado === CONSTANCIA_ESTADOS.denegada &&
+                          r.motivo_denegacion && (
+                            <div className="mt-1 max-w-[12rem] text-[10px] text-rose-600">
+                              {r.motivo_denegacion}
+                            </div>
+                          )}
+                      </td>
+                      <td className="px-3 py-2">{renderActions(r)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </>
         )}
       </div>
 
       {denyTarget &&
         createPortal(
-          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-3">
-            <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-4 shadow-xl">
-              <h3 className="text-sm font-bold text-slate-800">
+          <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-3">
+            <div className="w-full max-w-md rounded-t-2xl border border-slate-200 bg-white p-4 shadow-xl sm:rounded-xl">
+              <h3 className="text-base font-bold text-slate-800 sm:text-sm">
                 Denegar solicitud #{denyTarget.id}
               </h3>
-              <p className="mt-1 text-xs text-slate-500">
+              <p className="mt-1 text-sm text-slate-500 sm:text-xs">
                 El motivo se envía por mail al solicitante y queda visible en Mis
                 Constancias.
               </p>
@@ -663,16 +787,16 @@ export default function ConstanciasHub() {
                 onChange={(e) => setDenyMotivo(e.target.value)}
                 rows={4}
                 placeholder="Escribí el motivo…"
-                className="mt-3 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-rose-400 focus:outline-none focus:ring-1 focus:ring-rose-400"
+                className="mt-3 w-full rounded-lg border border-slate-200 px-3 py-3 text-base focus:border-rose-400 focus:outline-none focus:ring-1 focus:ring-rose-400 sm:py-2 sm:text-sm"
               />
-              <div className="mt-3 flex justify-end gap-2">
+              <div className="mt-3 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
                 <button
                   type="button"
                   onClick={() => {
                     setDenyTarget(null);
                     setDenyMotivo("");
                   }}
-                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-50"
+                  className="rounded-lg border border-slate-200 px-3 py-3 text-sm font-bold text-slate-600 hover:bg-slate-50 sm:py-1.5 sm:text-xs"
                 >
                   Cancelar
                 </button>
@@ -680,7 +804,7 @@ export default function ConstanciasHub() {
                   type="button"
                   disabled={!denyMotivo.trim() || busyId === denyTarget.id}
                   onClick={confirmDenegar}
-                  className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-rose-700 disabled:opacity-50"
+                  className="rounded-lg bg-rose-600 px-3 py-3 text-sm font-bold text-white hover:bg-rose-700 disabled:opacity-50 sm:py-1.5 sm:text-xs"
                 >
                   Confirmar denegación
                 </button>

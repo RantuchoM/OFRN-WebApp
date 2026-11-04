@@ -25,9 +25,11 @@ Clave de unicidad: **`(programa / gira, tramo / segmento, hotel, integrante)`**.
   - Importación de hotel: sanitiza asignaciones antes del insert.
   - Traslado de habitación a otro hotel del tramo: limpia duplicados en el destino.
   - Fusión de hoteles: la recarga post-merge deduplica.
+  - Desplegable **Trasladar**: orden tramo → resto de la gira → catálogo; etiqueta `Nombre (Localidad)` (+ `· tramo` / `· gira`). Portal `z-[100]`.
 
 ## Estado
 
 - [x] Utilidad de unicidad por hotel
 - [x] Enforcement en asignación / carga / import / traslado / fusión
 - [x] Spec documentada
+- [x] Trasladar: prioridad tramo/gira + localidad en todas las opciones

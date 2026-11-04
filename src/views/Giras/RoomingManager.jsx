@@ -507,25 +507,81 @@ const TransferRoomModal = ({
   room,
   masterHotels,
   bookings,
+  giraBookings = [],
+  locationsList = [],
   currentBooking,
   onConfirm,
   onClose,
 }) => {
   const [targetHotelId, setTargetHotelId] = useState("");
-  const currentHotelId = bookings.find(
-    (b) => b.id === currentBooking,
-  )?.id_hotel;
-  const sortedHotels = [...masterHotels].sort((a, b) =>
-    a.nombre.localeCompare(b.nombre),
+  const currentHotelId =
+    (bookings || []).find((b) => b.id === currentBooking)?.id_hotel ??
+    (giraBookings || []).find((b) => b.id === currentBooking)?.id_hotel;
+
+  const locNameById = useMemo(() => {
+    const map = new Map();
+    (locationsList || []).forEach((l) => {
+      if (l?.id != null) map.set(Number(l.id), l.localidad || "");
+    });
+    return map;
+  }, [locationsList]);
+
+  const hotelLocalidad = (h) =>
+    h?.localidades?.localidad ||
+    (h?.id_localidad != null
+      ? locNameById.get(Number(h.id_localidad))
+      : null) ||
+    "S/D";
+
+  const tramoHotelIds = useMemo(
+    () =>
+      new Set(
+        (bookings || [])
+          .map((b) => b.id_hotel)
+          .filter((id) => id != null && id !== ""),
+      ),
+    [bookings],
   );
+  const giraHotelIds = useMemo(
+    () =>
+      new Set(
+        (giraBookings || [])
+          .map((b) => b.id_hotel)
+          .filter((id) => id != null && id !== ""),
+      ),
+    [giraBookings],
+  );
+
+  const sortedHotels = useMemo(() => {
+    const rank = (h) => {
+      if (tramoHotelIds.has(h.id)) return 0;
+      if (giraHotelIds.has(h.id)) return 1;
+      return 2;
+    };
+    return [...(masterHotels || [])]
+      .filter((h) => h.id !== currentHotelId)
+      .sort((a, b) => {
+        const byRank = rank(a) - rank(b);
+        if (byRank !== 0) return byRank;
+        const byLoc = String(hotelLocalidad(a)).localeCompare(
+          String(hotelLocalidad(b)),
+          "es",
+          { sensitivity: "base" },
+        );
+        if (byLoc !== 0) return byLoc;
+        return String(a.nombre || "").localeCompare(String(b.nombre || ""), "es", {
+          sensitivity: "base",
+        });
+      });
+  }, [masterHotels, currentHotelId, tramoHotelIds, giraHotelIds, locNameById]);
 
   return (
     <div
-      className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-in fade-in zoom-in-95"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-in fade-in zoom-in-95"
       onClick={onClose}
     >
       <div
-        className="bg-white border rounded-lg shadow-xl w-80 space-y-4 p-5"
+        className="bg-white border rounded-lg shadow-xl w-96 max-w-[calc(100vw-2rem)] space-y-4 p-5"
         onClick={(e) => e.stopPropagation()}
       >
         <h5 className="font-bold text-sm mb-2 text-indigo-900 flex items-center gap-2">
@@ -538,12 +594,16 @@ const TransferRoomModal = ({
         >
           <option value="">-- Destino --</option>
           {sortedHotels.map((h) => {
-            if (h.id === currentHotelId) return null;
-            const isAlreadyInSegment = bookings.some((b) => b.id_hotel === h.id);
+            const inTramo = tramoHotelIds.has(h.id);
+            const inGira = giraHotelIds.has(h.id);
+            const scope = inTramo
+              ? " · tramo"
+              : inGira
+                ? " · gira"
+                : "";
             return (
               <option key={h.id} value={h.id}>
-                {h.nombre}{" "}
-                {isAlreadyInSegment ? "(En este tramo)" : "(Nuevo en tramo)"}
+                {h.nombre} ({hotelLocalidad(h)}){scope}
               </option>
             );
           })}
@@ -2127,7 +2187,7 @@ export default function RoomingManager({
   const fetchMasterHotels = async () => {
     const { data } = await supabase
       .from("hoteles")
-      .select("id, nombre, id_localidad")
+      .select("id, nombre, id_localidad, localidades(localidad)")
       .order("nombre");
     if (data) setMasterHotels(data);
   };
@@ -3397,18 +3457,20 @@ export default function RoomingManager({
           />
         </div>
       )}
-      {roomToTransfer && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+      {roomToTransfer &&
+        createPortal(
           <TransferRoomModal
             room={roomToTransfer}
             masterHotels={masterHotels}
             bookings={visibleBookings}
+            giraBookings={bookings}
+            locationsList={locationsList}
             currentBooking={roomToTransfer.id_hospedaje}
             onConfirm={handleTransferConfirm}
             onClose={() => setRoomToTransfer(null)}
-          />
-        </div>
-      )}
+          />,
+          document.body,
+        )}
       {hotelToMerge && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
           <MergeHotelModal

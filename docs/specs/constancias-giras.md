@@ -19,7 +19,7 @@ Una persona puede pedir **una de cada tipo por gira** (`UNIQUE (id_integrante, i
 | Badge (músico) | Solicitudes propias aprobadas/denegadas aún no vistas |
 | Badge (editor/admin) | Cantidad de solicitudes **pendientes** (abiertas) |
 | Modal | Primero carga **Mis solicitudes** (más recientes primero; muestra 5 y «Mostrar más»; cada ítem con mes_letra \| nomenclador \| zona + fechas); en **aprobadas**: **Reenviar** (mail propio) y **Descargar** PDF; el desplegable de giras solo se carga al elegir tipo |
-| Gestión `/management/constancias` | Lista (Tipo + columna **como…** editable en convocatoria), filtros estado/tipo, aprobar, denegar, **Aprobar todas** (respeta filtro de tipo y el «como…» editado); en aprobadas: **Reenviar** / **Descargar**; en denegadas: **Deshacer** |
+| Gestión `/management/constancias` | Lista (Tipo + columna **como…** editable), filtros estado/tipo, aprobar, denegar, **Aprobar todas** (respeta filtro de tipo y el «como…» editado); en aprobadas: **Reenviar** / **Descargar**; en denegadas: **Deshacer**. En **móvil**: listado tipo tarjeta con botones grandes Aprobar/Denegar; tabla desde `md` |
 
 En Mis Constancias el estado **pendiente** deja claro que hay que esperar la resolución.
 
@@ -73,6 +73,6 @@ Tabla `instrumentos`: columna `funcion` (rol formal precompletado; editable en U
 - [x] Tipo participación + UNIQUE por tipo
 - [x] Service + PDF + mail
 - [x] Modal Mis Constancias + botón header + badges
-- [x] Hub Gestión (aprobar / denegar / aprobar todas / deshacer denegación)
+- [x] Hub Gestión (aprobar / denegar / aprobar todas / deshacer denegación; vista móvil en tarjetas)
 - [x] `instrumentos.funcion` + columna editable «como…» en Gestión
 - [x] Descarga y mail con PDF aplanado (imagen, sin texto extraíble) (2026-11-04)
