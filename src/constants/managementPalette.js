@@ -74,6 +74,30 @@ export const MANAGEMENT_PALETTE_ENTRIES = [
     section: "Informes de Gestión",
   },
   {
+    slug: "contrataciones",
+    id: "mgmt-contrataciones",
+    label: "Gestión: Contrataciones y expedientes",
+    section: "Informes de Gestión",
+    aliases: [
+      "expedientes",
+      "fondos",
+      "pagos",
+      "productores",
+      "reemplazos",
+    ],
+  },
+  {
+    slug: "constancias",
+    id: "mgmt-constancias",
+    label: "Gestión: Constancias",
+    section: "Informes de Gestión",
+    aliases: [
+      "constancia",
+      "solicitudes de constancia",
+      "certificados de gira",
+    ],
+  },
+  {
     id: "mgmt-horas",
     label: "Horas",
     section: "Informes de Gestión",

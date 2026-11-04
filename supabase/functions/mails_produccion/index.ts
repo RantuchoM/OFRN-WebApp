@@ -867,6 +867,129 @@
           </html>
         `;
       },
+
+      // 12. Constancia: aviso a producción al solicitar
+      constancia_solicitud: (_nombre: string, gira: string, d: any) => {
+        const bannerModelo = d?.es_modelo
+          ? `<p style="margin:0 0 14px 0; padding:10px 12px; background:#fef3c7; border:1px solid #f59e0b; border-radius:6px; font-size:12px; color:#92400e;"><strong>MODELO PARA REVISIÓN</strong> — borrador del mail que recibe producción al solicitar una constancia. No es una solicitud real.</p>`
+          : "";
+        const solicitante = escapeHtmlMail(
+          String(d?.solicitante_nombre || [d?.nombre, d?.apellido].filter(Boolean).join(" ") || "Integrante"),
+        );
+        const dni = escapeHtmlMail(String(d?.dni || "—"));
+        const mail = escapeHtmlMail(String(d?.mail || "—"));
+        const instrumento = escapeHtmlMail(String(d?.instrumento || "—"));
+        const tipo = escapeHtmlMail(String(d?.gira_tipo || ""));
+        const fechas = escapeHtmlMail(String(d?.fechas_label || "—"));
+        const localidades = escapeHtmlMail(String(d?.localidades || "—"));
+        const idSol = d?.solicitud_id != null ? String(d.solicitud_id) : "";
+        const link = escapeHtmlMail(String(d?.link_solicitud || "").trim());
+        const giraLabel = escapeHtmlMail(String(gira || d?.gira_nombre || "gira"));
+        const cta = link
+          ? `<div style="margin:18px 0; padding:16px; background:#eef2ff; border:1px solid #c7d2fe; border-radius:8px; text-align:center;">
+              <p style="margin:0 0 10px 0; font-size:13px; color:#312e81;">Abrí la solicitud en Gestión:</p>
+              <a href="${link}" style="display:inline-block; background:#4f46e5; color:#ffffff; text-decoration:none; font-weight:bold; font-size:14px; padding:12px 22px; border-radius:6px;">Ver solicitud</a>
+              <p style="margin:12px 0 0 0; font-size:11px; color:#64748b; word-break:break-all;">Si el botón no funciona:<br><a href="${link}" style="color:#4f46e5;">${link}</a></p>
+            </div>`
+          : "";
+        return `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <style>
+              body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #333; line-height: 1.6; font-size: 14px; }
+              .box { border-left: 4px solid #4f46e5; background-color: #f5f3ff; padding: 15px; margin: 20px 0; border-radius: 4px; }
+            </style>
+          </head>
+          <body>
+            ${bannerModelo}
+            <p>Hola producción,</p>
+            <p>Hay una <strong>solicitud de constancia</strong> pendiente de revisión.</p>
+            <div class="box">
+              <h2 style="margin-top:0; color:#111;">Solicitud de constancia${idSol ? ` #${escapeHtmlMail(idSol)}` : ""}</h2>
+              <p style="margin:0 0 6px 0;"><strong>Solicitante:</strong> ${solicitante}</p>
+              <p style="margin:0 0 6px 0;"><strong>DNI:</strong> ${dni}</p>
+              <p style="margin:0 0 6px 0;"><strong>Email:</strong> ${mail}</p>
+              <p style="margin:0 0 6px 0;"><strong>Instrumento:</strong> ${instrumento}</p>
+              <p style="margin:0 0 6px 0;"><strong>Gira:</strong> ${giraLabel}${tipo ? ` (${tipo})` : ""}</p>
+              <p style="margin:0 0 6px 0;"><strong>Fechas:</strong> ${fechas}</p>
+              <p style="margin:0;"><strong>Localidades:</strong> ${localidades}</p>
+            </div>
+            ${cta}
+            <p style="color: #666; font-size: 12px;">Orquesta Filarmónica de Río Negro – Sistema de Gestión</p>
+          </body>
+          </html>
+        `;
+      },
+
+      // 13. Constancia aprobada (al músico, con PDF adjunto)
+      constancia_aprobada: (nombre: string, gira: string, d: any) => {
+        const bannerModelo = d?.es_modelo
+          ? `<p style="margin:0 0 14px 0; padding:10px 12px; background:#fef3c7; border:1px solid #f59e0b; border-radius:6px; font-size:12px; color:#92400e;"><strong>MODELO PARA REVISIÓN</strong> — borrador del mail de aceptación con PDF. No es una constancia real.</p>`
+          : "";
+        const saludo = String(nombre || "").trim() ? `Hola ${escapeHtmlMail(String(nombre).trim())},` : "Hola,";
+        const giraLabel = escapeHtmlMail(String(gira || d?.gira_nombre || "la gira"));
+        return `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <style>
+              body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #333; line-height: 1.6; font-size: 14px; }
+              .box { border-left: 4px solid #059669; background-color: #ecfdf5; padding: 15px; margin: 20px 0; border-radius: 4px; }
+            </style>
+          </head>
+          <body>
+            ${bannerModelo}
+            <p>${saludo}</p>
+            <div class="box">
+              <h2 style="margin-top:0; color:#111;">Constancia aprobada</h2>
+              <p style="margin:0;">Tu solicitud de constancia para la gira <strong>${giraLabel}</strong> fue <strong>aprobada</strong>.</p>
+            </div>
+            <p>Adjuntamos el PDF de la constancia. También podés ver el estado en <strong>Mis Constancias</strong> en la app.</p>
+            <p>Cualquier consulta, respondé a este correo.</p>
+            <p>¡Saludos!<br>Orquesta Filarmónica de Río Negro</p>
+            <p style="color: #666; font-size: 12px;">Orquesta Filarmónica de Río Negro – Sistema de Gestión</p>
+          </body>
+          </html>
+        `;
+      },
+
+      // 14. Constancia denegada (al músico, con motivo)
+      constancia_denegada: (nombre: string, gira: string, d: any) => {
+        const bannerModelo = d?.es_modelo
+          ? `<p style="margin:0 0 14px 0; padding:10px 12px; background:#fef3c7; border:1px solid #f59e0b; border-radius:6px; font-size:12px; color:#92400e;"><strong>MODELO PARA REVISIÓN</strong> — borrador del mail de denegación. No es una denegación real.</p>`
+          : "";
+        const saludo = String(nombre || "").trim() ? `Hola ${escapeHtmlMail(String(nombre).trim())},` : "Hola,";
+        const giraLabel = escapeHtmlMail(String(gira || d?.gira_nombre || "la gira"));
+        const motivo = escapeHtmlMail(String(d?.motivo_denegacion || "").trim());
+        const motivoBlock = motivo
+          ? `<p style="margin: 10px 0; padding: 10px; background: #fef3c7; border-left: 4px solid #f59e0b; border-radius: 4px; font-size: 13px;"><strong>Motivo:</strong> ${motivo}</p>`
+          : "";
+        return `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <style>
+              body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #333; line-height: 1.6; font-size: 14px; }
+              .box { border-left: 4px solid #dc2626; background-color: #fef2f2; padding: 15px; margin: 20px 0; border-radius: 4px; }
+            </style>
+          </head>
+          <body>
+            ${bannerModelo}
+            <p>${saludo}</p>
+            <div class="box">
+              <h2 style="margin-top:0; color:#111;">Constancia denegada</h2>
+              <p style="margin:0;">Tu solicitud de constancia para la gira <strong>${giraLabel}</strong> fue <strong>denegada</strong>.</p>
+            </div>
+            ${motivoBlock}
+            <p>Podés ver el detalle en <strong>Mis Constancias</strong>. Si corresponde, podés volver a solicitar.</p>
+            <p>Cualquier consulta, respondé a este correo.</p>
+            <p>¡Saludos!<br>Orquesta Filarmónica de Río Negro</p>
+            <p style="color: #666; font-size: 12px;">Orquesta Filarmónica de Río Negro – Sistema de Gestión</p>
+          </body>
+          </html>
+        `;
+      },
     };
 
     // --- HANDLER PRINCIPAL ---
@@ -959,6 +1082,29 @@
                 : "Recuperación de contraseña | OFRN";
           } else if (tid === "cambio_alimentacion") {
             subject = `Cambio de alimentación | ${nombreParaTemplate || "Integrante"}`;
+          } else if (tid === "constancia_solicitud") {
+            {
+              const solicitanteAsunto = String(
+                detalle?.solicitante_nombre ||
+                  [detalle?.nombre, detalle?.apellido].filter(Boolean).join(" ") ||
+                  "",
+              ).trim();
+              const giraAsunto = nombreGira || detalle?.gira_nombre || "OFRN";
+              const cola = solicitanteAsunto
+                ? `${solicitanteAsunto} | ${giraAsunto}`
+                : giraAsunto;
+              subject = detalle?.es_modelo
+                ? `[MODELO] Solicitud de constancia | ${cola}`
+                : `Solicitud de constancia | ${cola}`;
+            }
+          } else if (tid === "constancia_aprobada") {
+            subject = detalle?.es_modelo
+              ? `[MODELO] Constancia aprobada | ${nombreGira || "OFRN"}`
+              : `Constancia aprobada | ${nombreGira || "OFRN"}`;
+          } else if (tid === "constancia_denegada") {
+            subject = detalle?.es_modelo
+              ? `[MODELO] Constancia denegada | ${nombreGira || "OFRN"}`
+              : `Constancia denegada | ${nombreGira || "OFRN"}`;
           }
 
           const transporter = nodemailer.createTransport({
@@ -984,8 +1130,21 @@
           }
 
           const convocatoriaVariant = String(detalle?.variant || "").toUpperCase();
+          const attachments: any[] = [];
           if (tid === "convocatoria_gira" && convocatoriaVariant === "ALTA_ACCESO_PERSONAL") {
-            mailOptions.attachments = convocatoriaAccesoPersonalAttachments();
+            attachments.push(...convocatoriaAccesoPersonalAttachments());
+          }
+          const pdfB64 = String(detalle?.pdf_base64 || detalle?.pdfBase64 || "").trim();
+          if (pdfB64) {
+            const pdfName = String(detalle?.pdf_filename || detalle?.pdfFilename || "Constancia_OFRN.pdf").trim();
+            attachments.push({
+              filename: pdfName,
+              content: b64ToBytes(pdfB64),
+              contentType: "application/pdf",
+            });
+          }
+          if (attachments.length > 0) {
+            mailOptions.attachments = attachments;
           }
 
           // console.log(`[LOG] Enviando mail (${tid}). TO: ${email || 'Self'}, BCC: ${bcc?.length || 0}`);

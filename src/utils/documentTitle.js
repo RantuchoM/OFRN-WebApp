@@ -67,6 +67,9 @@ const MANAGEMENT_SECTION_LABELS = {
   asistencia_ensayos: "Asistencia a ensayos",
   conciertos: "Conciertos",
   audiencia: "Audiencia",
+  viaticos_seguimiento: "Seguimiento viáticos",
+  contrataciones: "Contrataciones",
+  constancias: "Constancias",
 };
 
 const PUBLIC_ROUTE_LABELS = [

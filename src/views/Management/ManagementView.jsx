@@ -20,6 +20,8 @@ import {
   IconCheck,
   IconDollarSign,
   IconClock,
+  IconClipboardCheck,
+  IconFileText,
 } from "../../components/ui/Icons";
 import { VenuesManager } from "../../components/management/VenuesManager";
 import SeatingReports from "./SeatingReports";
@@ -31,6 +33,8 @@ import ConciertosView from "../Giras/ConciertosView";
 import AudienceView from "./AudienceView";
 import ServiciosCantidadReport from "./ServiciosCantidadReport";
 import ViaticosSeguimientoReport from "./ViaticosSeguimientoReport";
+import ContratacionesHub from "./ContratacionesHub";
+import ConstanciasHub from "./ConstanciasHub";
 import ManagementSectionCard from "./ManagementSectionCard";
 
 const DEFAULT_SECTIONS = [
@@ -44,6 +48,8 @@ const DEFAULT_SECTIONS = [
   "conciertos",
   "audiencia",
   "viaticos_seguimiento",
+  "contrataciones",
+  "constancias",
 ];
 
 const HOME_VIEW = "home";
@@ -90,6 +96,8 @@ const SECTION_ORDER = [
   "conciertos",
   "audiencia",
   "viaticos_seguimiento",
+  "contrataciones",
+  "constancias",
 ];
 
 const SECTION_CONFIG = {
@@ -222,6 +230,32 @@ const SECTION_CONFIG = {
     iconClasses:
       "bg-lime-50 text-lime-700 group-hover:bg-lime-600 group-hover:text-white",
     titleClasses: "text-lime-900 group-hover:text-lime-800",
+  },
+  contrataciones: {
+    title: "Contrataciones",
+    tabLabel: "Contrataciones",
+    subtitle: "Fondos, expedientes, contrataciones y pagos",
+    description:
+      "Administrá fondos (factura, 690, reemplazos, orquesta), expedientes, cachets de invitados y pagos.",
+    icon: IconClipboardCheck,
+    cardClasses:
+      "border-violet-100 hover:border-violet-300 hover:shadow-md focus-visible:ring-violet-300",
+    iconClasses:
+      "bg-violet-50 text-violet-700 group-hover:bg-violet-600 group-hover:text-white",
+    titleClasses: "text-violet-900 group-hover:text-violet-800",
+  },
+  constancias: {
+    title: "Constancias",
+    tabLabel: "Constancias",
+    subtitle: "Solicitudes de constancia de convocatoria",
+    description:
+      "Revisá, aprobá o denegá solicitudes de constancia para giras sinfónicas y cameratas. Al aprobar se envía el PDF por mail.",
+    icon: IconFileText,
+    cardClasses:
+      "border-indigo-100 hover:border-indigo-300 hover:shadow-md focus-visible:ring-indigo-300",
+    iconClasses:
+      "bg-indigo-50 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white",
+    titleClasses: "text-indigo-900 group-hover:text-indigo-700",
   },
   horas: {
     title: "Horas",
@@ -408,7 +442,9 @@ export default function ManagementView({
     activeTab === "asistencia_ensayos" ||
     activeTab === "conciertos" ||
     activeTab === "audiencia" ||
-    activeTab === "viaticos_seguimiento";
+    activeTab === "viaticos_seguimiento" ||
+    activeTab === "contrataciones" ||
+    activeTab === "constancias";
 
   const headerSubtitle = isHomeView
     ? "Selecciona el informe que deseas abrir. Las vistas se cargan bajo demanda."
@@ -551,6 +587,18 @@ export default function ManagementView({
           enabledSections.has("viaticos_seguimiento") && (
             <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
               <ViaticosSeguimientoReport supabase={supabase} />
+            </div>
+          )}
+        {activeTab === "contrataciones" &&
+          enabledSections.has("contrataciones") && (
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+              <ContratacionesHub />
+            </div>
+          )}
+        {activeTab === "constancias" &&
+          enabledSections.has("constancias") && (
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+              <ConstanciasHub />
             </div>
           )}
       </div>

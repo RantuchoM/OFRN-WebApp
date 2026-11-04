@@ -1,0 +1,699 @@
+import {
+  CONSTANCIAS_TIPOS_GIRA,
+  CONSTANCIA_ESTADOS,
+  CONSTANCIA_MAIL_OFICINA,
+  CONSTANCIA_MAIL_MODELOS,
+} from "../constants/constancias";
+import { resolveGiraRosterIds } from "./giraService";
+import { integranteIdForDb, integranteKey } from "../utils/integranteIds";
+import { legalNombre, legalApellido } from "../utils/integranteDisplayName";
+import {
+  generateConstanciaPdf,
+  formatRangoFechasConstancia,
+  formatLocalidadesConstancia,
+} from "../utils/constanciaPdf";
+import { formatProgramSelectLabel } from "../utils/giraUtils";
+
+const SOLICITUD_SELECT = `
+  id, id_integrante, id_gira, estado, motivo_denegacion,
+  solicitado_at, resuelto_at, resuelto_por, visto_solicitante,
+  mail_enviado_at, mail_error,
+  snap_nombre, snap_apellido, snap_dni, snap_genero, snap_instrumento,
+  snap_fecha_desde, snap_fecha_hasta, snap_localidades,
+  snap_gira_nombre, snap_gira_tipo,
+  integrantes!constancias_solicitudes_id_integrante_fkey (
+    id, nombre, apellido, mail, dni, genero, id_instr,
+    instrumentos ( instrumento )
+  ),
+  programas!constancias_solicitudes_id_gira_fkey (
+    id, nombre_gira, nomenclador, mes_letra, zona, tipo,
+    fecha_desde, fecha_hasta, estado
+  )
+`;
+
+function appOrigin() {
+  if (typeof window !== "undefined" && window.location?.origin) {
+    return window.location.origin;
+  }
+  return "https://ofrn-web-app.vercel.app";
+}
+
+export function constanciaGestionLink(solicitudId) {
+  const base = `${appOrigin()}/management/constancias`;
+  if (solicitudId == null) return base;
+  return `${base}?solicitud=${encodeURIComponent(String(solicitudId))}`;
+}
+
+async function invokeConstanciaMail(supabase, { templateId, email, nombre, gira, detalle }) {
+  const { data, error } = await supabase.functions.invoke("mails_produccion", {
+    body: {
+      action: "enviar_mail",
+      templateId,
+      email,
+      nombre: nombre || "",
+      gira: gira || "",
+      detalle: detalle || {},
+    },
+  });
+  if (error) {
+    let detail = error.message || String(error);
+    try {
+      const ctx = error.context;
+      if (ctx && typeof ctx.json === "function") {
+        const body = await ctx.json();
+        if (body?.error) detail = body.error;
+      } else if (data?.error) {
+        detail = data.error;
+      }
+    } catch {
+      /* ignore */
+    }
+    throw new Error(detail);
+  }
+  if (data?.error) throw new Error(data.error);
+  return data;
+}
+
+async function fetchLocalidadesGira(supabase, idGira) {
+  const names = [];
+  const seen = new Set();
+
+  const push = (name) => {
+    const n = String(name || "").trim();
+    if (!n || seen.has(n.toLowerCase())) return;
+    seen.add(n.toLowerCase());
+    names.push(n);
+  };
+
+  const { data: tramos } = await supabase
+    .from("giras_tramo_segmentos")
+    .select(
+      "indice, giras_tramo_localidades ( id_localidad, localidades ( localidad ) )",
+    )
+    .eq("id_gira", idGira)
+    .order("indice");
+
+  (tramos || []).forEach((seg) => {
+    (seg.giras_tramo_localidades || []).forEach((row) => {
+      push(row?.localidades?.localidad);
+    });
+  });
+
+  if (names.length === 0) {
+    const { data: gl } = await supabase
+      .from("giras_localidades")
+      .select("id_localidad, localidades ( localidad )")
+      .eq("id_gira", idGira);
+    (gl || []).forEach((row) => push(row?.localidades?.localidad));
+  }
+
+  return names;
+}
+
+async function resolveInstrumentoLabel(supabase, integrante, idGira) {
+  const idInt = integranteIdForDb(integrante.id);
+  const { data: ov } = await supabase
+    .from("giras_integrantes")
+    .select("id_instr, instrumentos ( instrumento )")
+    .eq("id_gira", idGira)
+    .eq("id_integrante", idInt)
+    .maybeSingle();
+
+  if (ov?.instrumentos?.instrumento) return String(ov.instrumentos.instrumento).trim();
+  if (ov?.id_instr) {
+    const { data: instr } = await supabase
+      .from("instrumentos")
+      .select("instrumento")
+      .eq("id", ov.id_instr)
+      .maybeSingle();
+    if (instr?.instrumento) return String(instr.instrumento).trim();
+  }
+
+  if (integrante?.instrumentos?.instrumento) {
+    return String(integrante.instrumentos.instrumento).trim();
+  }
+  if (integrante?.id_instr) {
+    const { data: instr } = await supabase
+      .from("instrumentos")
+      .select("instrumento")
+      .eq("id", integrante.id_instr)
+      .maybeSingle();
+    if (instr?.instrumento) return String(instr.instrumento).trim();
+  }
+  return "integrante";
+}
+
+export async function buildConstanciaSnapshot(supabase, integrante, programa) {
+  const localidades = await fetchLocalidadesGira(supabase, programa.id);
+  const instrumento = await resolveInstrumentoLabel(supabase, integrante, programa.id);
+  return {
+    snap_nombre: legalNombre(integrante),
+    snap_apellido: legalApellido(integrante),
+    snap_dni: String(integrante.dni || "").replace(/\s+/g, ""),
+    snap_genero: integrante.genero || null,
+    snap_instrumento: instrumento,
+    snap_fecha_desde: programa.fecha_desde || null,
+    snap_fecha_hasta: programa.fecha_hasta || null,
+    snap_localidades: formatLocalidadesConstancia(localidades),
+    snap_gira_nombre: programa.nombre_gira || formatProgramSelectLabel(programa),
+    snap_gira_tipo: programa.tipo || null,
+    _localidades_list: localidades,
+  };
+}
+
+/**
+ * Giras Sinfónico / Camerata Filarmónica donde la persona está en nómina y no ausente.
+ */
+export async function listGirasElegiblesConstancia(supabase, integranteId) {
+  const id = integranteIdForDb(integranteId);
+  if (!id) return [];
+
+  const { data: programas, error } = await supabase
+    .from("programas")
+    .select(
+      "id, nombre_gira, nomenclador, mes_letra, zona, tipo, fecha_desde, fecha_hasta, estado",
+    )
+    .in("tipo", CONSTANCIAS_TIPOS_GIRA)
+    .neq("estado", "Borrador")
+    .order("fecha_desde", { ascending: false });
+  if (error) throw error;
+
+  const { data: overrides } = await supabase
+    .from("giras_integrantes")
+    .select("id_gira, estado")
+    .eq("id_integrante", id);
+  const ausenteByGira = new Map(
+    (overrides || []).map((o) => [String(o.id_gira), String(o.estado || "").toLowerCase()]),
+  );
+
+  const key = integranteKey(id);
+  const elegibles = [];
+  const batch = programas || [];
+  const CONCURRENCY = 6;
+  for (let i = 0; i < batch.length; i += CONCURRENCY) {
+    const slice = batch.slice(i, i + CONCURRENCY);
+    const results = await Promise.all(
+      slice.map(async (prog) => {
+        if (ausenteByGira.get(String(prog.id)) === "ausente") return null;
+        const ids = await resolveGiraRosterIds(supabase, prog.id);
+        const inRoster = (ids || []).some((x) => integranteKey(x) === key);
+        return inRoster ? prog : null;
+      }),
+    );
+    results.forEach((p) => {
+      if (p) elegibles.push(p);
+    });
+  }
+  return elegibles;
+}
+
+export async function listMisConstancias(supabase, integranteId) {
+  const id = integranteIdForDb(integranteId);
+  const { data, error } = await supabase
+    .from("constancias_solicitudes")
+    .select(SOLICITUD_SELECT)
+    .eq("id_integrante", id)
+    .order("solicitado_at", { ascending: false });
+  if (error) throw error;
+  return data || [];
+}
+
+export async function countMisConstanciasNoVistas(supabase, integranteId) {
+  const id = integranteIdForDb(integranteId);
+  const { count, error } = await supabase
+    .from("constancias_solicitudes")
+    .select("id", { count: "exact", head: true })
+    .eq("id_integrante", id)
+    .eq("visto_solicitante", false)
+    .in("estado", [CONSTANCIA_ESTADOS.aprobada, CONSTANCIA_ESTADOS.denegada]);
+  if (error) throw error;
+  return count || 0;
+}
+
+export async function countConstanciasPendientes(supabase) {
+  const { count, error } = await supabase
+    .from("constancias_solicitudes")
+    .select("id", { count: "exact", head: true })
+    .eq("estado", CONSTANCIA_ESTADOS.pendiente);
+  if (error) throw error;
+  return count || 0;
+}
+
+export async function listConstanciasGestion(supabase, { estado } = {}) {
+  let q = supabase
+    .from("constancias_solicitudes")
+    .select(SOLICITUD_SELECT)
+    .order("solicitado_at", { ascending: false });
+  if (estado) q = q.eq("estado", estado);
+  const { data, error } = await q;
+  if (error) throw error;
+  return data || [];
+}
+
+export async function markConstanciasVistas(supabase, integranteId) {
+  const id = integranteIdForDb(integranteId);
+  const { error } = await supabase
+    .from("constancias_solicitudes")
+    .update({ visto_solicitante: true, updated_at: new Date().toISOString() })
+    .eq("id_integrante", id)
+    .eq("visto_solicitante", false);
+  if (error) throw error;
+}
+
+export async function solicitarConstancia(supabase, { user, idGira }) {
+  const idInt = integranteIdForDb(user?.id);
+  if (!idInt) throw new Error("Usuario inválido");
+  if (!idGira) throw new Error("Elegí una gira");
+
+  const { data: programa, error: progErr } = await supabase
+    .from("programas")
+    .select(
+      "id, nombre_gira, nomenclador, mes_letra, zona, tipo, fecha_desde, fecha_hasta, estado",
+    )
+    .eq("id", idGira)
+    .maybeSingle();
+  if (progErr) throw progErr;
+  if (!programa) throw new Error("Gira no encontrada");
+  if (!CONSTANCIAS_TIPOS_GIRA.includes(programa.tipo)) {
+    throw new Error("Solo Sinfónico o Camerata Filarmónica");
+  }
+  if (String(programa.estado || "") === "Borrador") {
+    throw new Error("La gira aún no está publicada");
+  }
+
+  const { data: ov } = await supabase
+    .from("giras_integrantes")
+    .select("estado")
+    .eq("id_gira", idGira)
+    .eq("id_integrante", idInt)
+    .maybeSingle();
+  if (String(ov?.estado || "").toLowerCase() === "ausente") {
+    throw new Error("No podés solicitar constancia si figurás ausente en esa gira");
+  }
+
+  const rosterIds = await resolveGiraRosterIds(supabase, idGira);
+  const key = integranteKey(idInt);
+  if (!(rosterIds || []).some((x) => integranteKey(x) === key)) {
+    throw new Error("No figurás en la nómina de esa gira");
+  }
+
+  const { data: integrante, error: intErr } = await supabase
+    .from("integrantes")
+    .select(
+      "id, nombre, apellido, mail, dni, genero, id_instr, instrumentos ( instrumento )",
+    )
+    .eq("id", idInt)
+    .single();
+  if (intErr) throw intErr;
+
+  const snap = await buildConstanciaSnapshot(supabase, integrante, programa);
+  const { _localidades_list, ...snapRow } = snap;
+
+  const rowBase = {
+    id_integrante: idInt,
+    id_gira: Number(idGira),
+    estado: CONSTANCIA_ESTADOS.pendiente,
+    motivo_denegacion: null,
+    solicitado_at: new Date().toISOString(),
+    resuelto_at: null,
+    resuelto_por: null,
+    visto_solicitante: true,
+    mail_enviado_at: null,
+    mail_error: null,
+    updated_at: new Date().toISOString(),
+    ...snapRow,
+  };
+
+  const { data: existing } = await supabase
+    .from("constancias_solicitudes")
+    .select("id, estado")
+    .eq("id_integrante", idInt)
+    .eq("id_gira", idGira)
+    .maybeSingle();
+
+  let solicitud;
+  if (existing?.id) {
+    if (existing.estado === CONSTANCIA_ESTADOS.pendiente) {
+      throw new Error("Ya tenés una solicitud pendiente para esta gira. Esperá la revisión.");
+    }
+    if (existing.estado === CONSTANCIA_ESTADOS.aprobada) {
+      throw new Error("Ya tenés una constancia aprobada para esta gira.");
+    }
+    const { data, error } = await supabase
+      .from("constancias_solicitudes")
+      .update(rowBase)
+      .eq("id", existing.id)
+      .select(SOLICITUD_SELECT)
+      .single();
+    if (error) throw error;
+    solicitud = data;
+  } else {
+    const { data, error } = await supabase
+      .from("constancias_solicitudes")
+      .insert(rowBase)
+      .select(SOLICITUD_SELECT)
+      .single();
+    if (error) throw error;
+    solicitud = data;
+  }
+
+  const fechasLabel = formatRangoFechasConstancia(
+    snap.snap_fecha_desde,
+    snap.snap_fecha_hasta,
+  );
+  const solicitanteNombre = [snap.snap_nombre, snap.snap_apellido]
+    .filter(Boolean)
+    .join(" ");
+
+  try {
+    await notificarOficinaSolicitudConstancia(supabase, {
+      solicitud,
+      integranteMail: integrante.mail || "",
+      fechasLabel,
+      solicitanteNombre,
+    });
+  } catch (mailErr) {
+    console.error("[constancias] mail oficina:", mailErr);
+    const msg = String(mailErr?.message || mailErr);
+    const soft = new Error(
+      `Solicitud #${solicitud.id} guardada, pero no se pudo avisar a producción por mail: ${msg}`,
+    );
+    soft.solicitud = solicitud;
+    soft.mailFailed = true;
+    throw soft;
+  }
+
+  return solicitud;
+}
+
+/** Reenvía / envía el aviso operativo de una solicitud pendiente. */
+export async function notificarOficinaSolicitudConstancia(
+  supabase,
+  { solicitud, integranteMail = "", fechasLabel, solicitanteNombre },
+) {
+  const nombre =
+    solicitanteNombre ||
+    [solicitud.snap_nombre, solicitud.snap_apellido].filter(Boolean).join(" ");
+  const fechas =
+    fechasLabel ||
+    formatRangoFechasConstancia(
+      solicitud.snap_fecha_desde,
+      solicitud.snap_fecha_hasta,
+    );
+  await invokeConstanciaMail(supabase, {
+    templateId: "constancia_solicitud",
+    email: CONSTANCIA_MAIL_OFICINA,
+    nombre: "Producción",
+    gira: solicitud.snap_gira_nombre,
+    detalle: {
+      solicitud_id: solicitud.id,
+      solicitante_nombre: nombre,
+      nombre: solicitud.snap_nombre,
+      apellido: solicitud.snap_apellido,
+      dni: solicitud.snap_dni,
+      mail: integranteMail || solicitud.integrantes?.mail || "",
+      instrumento: solicitud.snap_instrumento,
+      gira_tipo: solicitud.snap_gira_tipo,
+      gira_nombre: solicitud.snap_gira_nombre,
+      fechas_label: fechas,
+      localidades: solicitud.snap_localidades,
+      link_solicitud: constanciaGestionLink(solicitud.id),
+    },
+  });
+}
+
+function snapshotToPdfData(row, fechaEmision = new Date()) {
+  return {
+    nombre: row.snap_nombre,
+    apellido: row.snap_apellido,
+    dni: row.snap_dni,
+    genero: row.snap_genero,
+    instrumento: row.snap_instrumento,
+    fechaDesde: row.snap_fecha_desde,
+    fechaHasta: row.snap_fecha_hasta,
+    localidades: row.snap_localidades,
+    fechaEmision,
+  };
+}
+
+function fechaEmisionDesdeSolicitud(row) {
+  if (row?.resuelto_at) {
+    const d = new Date(row.resuelto_at);
+    if (!Number.isNaN(d.getTime())) return d;
+  }
+  return new Date();
+}
+
+/** Genera el PDF de una solicitud (usa fecha de resolución si ya fue aprobada). */
+export async function buildConstanciaPdfFromSolicitud(row) {
+  return generateConstanciaPdf(
+    snapshotToPdfData(row, fechaEmisionDesdeSolicitud(row)),
+  );
+}
+
+async function sendAprobacionMail(supabase, row) {
+  const { base64, filename } = await buildConstanciaPdfFromSolicitud(row);
+  const mail = row.integrantes?.mail || "";
+  if (!mail) throw new Error("El solicitante no tiene email cargado");
+  const nombreSaludo = row.snap_nombre || legalNombre(row.integrantes) || "Participante";
+  await invokeConstanciaMail(supabase, {
+    templateId: "constancia_aprobada",
+    email: mail,
+    nombre: nombreSaludo,
+    gira: row.snap_gira_nombre,
+    detalle: {
+      gira_nombre: row.snap_gira_nombre,
+      pdf_base64: base64,
+      pdf_filename: filename,
+    },
+  });
+}
+
+/** Reenvía el PDF por mail a una solicitud ya aprobada. */
+export async function reenviarConstanciaAprobada(supabase, { solicitudId }) {
+  const { data: row, error } = await supabase
+    .from("constancias_solicitudes")
+    .select(SOLICITUD_SELECT)
+    .eq("id", solicitudId)
+    .single();
+  if (error) throw error;
+  if (row.estado !== CONSTANCIA_ESTADOS.aprobada) {
+    throw new Error("Solo se puede reenviar una constancia aprobada");
+  }
+  await sendAprobacionMail(supabase, row);
+  const { data, error: upErr } = await supabase
+    .from("constancias_solicitudes")
+    .update({
+      mail_enviado_at: new Date().toISOString(),
+      mail_error: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", solicitudId)
+    .select(SOLICITUD_SELECT)
+    .single();
+  if (upErr) throw upErr;
+  return data;
+}
+
+/** Descarga el PDF en el navegador. */
+export async function descargarConstanciaPdf(row) {
+  const { blob, filename } = await buildConstanciaPdfFromSolicitud(row);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  return { filename };
+}
+
+async function sendDenegacionMail(supabase, row, motivo) {
+  const mail = row.integrantes?.mail || "";
+  if (!mail) return;
+  const nombreSaludo = row.snap_nombre || legalNombre(row.integrantes) || "Participante";
+  await invokeConstanciaMail(supabase, {
+    templateId: "constancia_denegada",
+    email: mail,
+    nombre: nombreSaludo,
+    gira: row.snap_gira_nombre,
+    detalle: {
+      gira_nombre: row.snap_gira_nombre,
+      motivo_denegacion: motivo || "",
+    },
+  });
+}
+
+export async function aprobarConstancia(supabase, { solicitudId, resueltoPorId }) {
+  const { data: row, error } = await supabase
+    .from("constancias_solicitudes")
+    .select(SOLICITUD_SELECT)
+    .eq("id", solicitudId)
+    .single();
+  if (error) throw error;
+  if (row.estado !== CONSTANCIA_ESTADOS.pendiente) {
+    throw new Error("La solicitud ya fue resuelta");
+  }
+
+  let mailError = null;
+  try {
+    await sendAprobacionMail(supabase, row);
+  } catch (err) {
+    mailError = String(err?.message || err);
+    console.error("[constancias] mail aprobación:", err);
+  }
+
+  const { data, error: upErr } = await supabase
+    .from("constancias_solicitudes")
+    .update({
+      estado: CONSTANCIA_ESTADOS.aprobada,
+      motivo_denegacion: null,
+      resuelto_at: new Date().toISOString(),
+      resuelto_por: integranteIdForDb(resueltoPorId) || null,
+      visto_solicitante: false,
+      mail_enviado_at: mailError ? null : new Date().toISOString(),
+      mail_error: mailError,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", solicitudId)
+    .select(SOLICITUD_SELECT)
+    .single();
+  if (upErr) throw upErr;
+  if (mailError) {
+    const e = new Error(`Aprobada, pero falló el mail: ${mailError}`);
+    e.solicitud = data;
+    throw e;
+  }
+  return data;
+}
+
+export async function denegarConstancia(supabase, {
+  solicitudId,
+  resueltoPorId,
+  motivo,
+}) {
+  const motivoTxt = String(motivo || "").trim();
+  if (!motivoTxt) throw new Error("Indicá el motivo de la denegación");
+
+  const { data: row, error } = await supabase
+    .from("constancias_solicitudes")
+    .select(SOLICITUD_SELECT)
+    .eq("id", solicitudId)
+    .single();
+  if (error) throw error;
+  if (row.estado !== CONSTANCIA_ESTADOS.pendiente) {
+    throw new Error("La solicitud ya fue resuelta");
+  }
+
+  try {
+    await sendDenegacionMail(supabase, row, motivoTxt);
+  } catch (err) {
+    console.error("[constancias] mail denegación:", err);
+  }
+
+  const { data, error: upErr } = await supabase
+    .from("constancias_solicitudes")
+    .update({
+      estado: CONSTANCIA_ESTADOS.denegada,
+      motivo_denegacion: motivoTxt,
+      resuelto_at: new Date().toISOString(),
+      resuelto_por: integranteIdForDb(resueltoPorId) || null,
+      visto_solicitante: false,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", solicitudId)
+    .select(SOLICITUD_SELECT)
+    .single();
+  if (upErr) throw upErr;
+  return data;
+}
+
+export async function aprobarTodasConstanciasPendientes(supabase, { resueltoPorId }) {
+  const pendientes = await listConstanciasGestion(supabase, {
+    estado: CONSTANCIA_ESTADOS.pendiente,
+  });
+  const results = { ok: 0, fail: 0, errors: [] };
+  for (const row of pendientes) {
+    try {
+      await aprobarConstancia(supabase, {
+        solicitudId: row.id,
+        resueltoPorId,
+      });
+      results.ok += 1;
+    } catch (err) {
+      results.fail += 1;
+      results.errors.push({ id: row.id, message: String(err?.message || err) });
+    }
+  }
+  return results;
+}
+
+/** Envía los 3 modelos de mail a Archivo (estilo revisión Pike / es_modelo). */
+export async function enviarModelosConstanciaArchivo(supabase, {
+  email = CONSTANCIA_MAIL_MODELOS,
+} = {}) {
+  const sampleGira = "W.A Mozart";
+  const sampleLink = constanciaGestionLink(999);
+  const { base64, filename } = await generateConstanciaPdf({
+    nombre: "Martin",
+    apellido: "Pike",
+    dni: "00000000",
+    genero: "M",
+    instrumento: "violín",
+    fechaDesde: "2026-03-01",
+    fechaHasta: "2026-03-05",
+    localidades: ["Viedma"],
+    fechaEmision: new Date(),
+  });
+
+  await invokeConstanciaMail(supabase, {
+    templateId: "constancia_solicitud",
+    email,
+    nombre: "Archivo",
+    gira: sampleGira,
+    detalle: {
+      es_modelo: true,
+      solicitud_id: 999,
+      solicitante_nombre: "Martin Pike",
+      nombre: "Martin",
+      apellido: "Pike",
+      dni: "00000000",
+      mail: "martinpike@hotmail.com",
+      instrumento: "violín",
+      gira_tipo: "Sinfónico",
+      gira_nombre: sampleGira,
+      fechas_label: formatRangoFechasConstancia("2026-03-01", "2026-03-05"),
+      localidades: formatLocalidadesConstancia(["Viedma"]),
+      link_solicitud: sampleLink,
+    },
+  });
+
+  await invokeConstanciaMail(supabase, {
+    templateId: "constancia_aprobada",
+    email,
+    nombre: "Martin",
+    gira: sampleGira,
+    detalle: {
+      es_modelo: true,
+      gira_nombre: sampleGira,
+      pdf_base64: base64,
+      pdf_filename: filename,
+    },
+  });
+
+  await invokeConstanciaMail(supabase, {
+    templateId: "constancia_denegada",
+    email,
+    nombre: "Martin",
+    gira: sampleGira,
+    detalle: {
+      es_modelo: true,
+      gira_nombre: sampleGira,
+      motivo_denegacion:
+        "Ejemplo de motivo: la persona no figura en la nómina definitiva de la gira.",
+    },
+  });
+
+  return { ok: true, email };
+}

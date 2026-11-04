@@ -10,6 +10,8 @@ import {
   IconLink,
   IconX,
   IconAlertTriangle,
+  IconClipboardCheck,
+  IconAlertCircle,
 } from "../ui/Icons";
 import WhatsAppLink from "../ui/WhatsAppLink";
 import { seatingApellidoNombre } from "../../utils/integranteDisplayName";
@@ -120,6 +122,10 @@ export default function RosterTableRow({
   pendingBajaForRow,
   onCopyLink,
   onOpenMotivoModal,
+  onOpenContratacion,
+  showContratacionButton = false,
+  contratacionMissing = false,
+  contratacionAereoPending = false,
   grupoTags = [],
   onRemoveFromGrupo,
 }) {
@@ -267,6 +273,36 @@ export default function RosterTableRow({
             <span className="truncate">
               {seatingApellidoNombre(m)}
             </span>
+            {showContratacionButton && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onOpenContratacion?.(m);
+                }}
+                className={`inline-flex h-5 shrink-0 items-center gap-0.5 rounded border px-0.5 md:h-6 md:px-1 transition-colors ${
+                  contratacionMissing
+                    ? "border-slate-300 bg-slate-100 text-slate-500 hover:bg-slate-200"
+                    : contratacionAereoPending
+                      ? "border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100"
+                      : "border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100"
+                }`}
+                title={
+                  contratacionMissing
+                    ? "Sin fila de contratación — crear / abrir"
+                    : contratacionAereoPending
+                      ? "Contratación / expediente (falta modo aéreo)"
+                      : "Contratación / expediente"
+                }
+                aria-label="Contratación o expediente"
+              >
+                <IconClipboardCheck size={12} />
+                {contratacionMissing && (
+                  <IconAlertCircle size={11} className="text-slate-500" />
+                )}
+              </button>
+            )}
             {missingDocLabels.length > 0 && (
               <MissingDocWarnIcon labels={missingDocLabels} />
             )}

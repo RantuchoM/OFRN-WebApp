@@ -107,6 +107,7 @@ export async function fetchRosterForGira(supabase, gira, options = {}) {
     const kid = integranteKey(o.id_integrante);
     if (!kid) return;
     overrideMap[kid] = {
+      id: o.id ?? null,
       estado: o.estado,
       rol: o.rol,
       id_instr: o.id_instr ?? null,
@@ -307,6 +308,7 @@ export async function fetchRosterForGira(supabase, gira, options = {}) {
         en_giras_integrantes: enGirasIntegrantes,
         ...(enGirasIntegrantes && manualData
           ? {
+              giras_integrantes_id: manualData.id ?? null,
               motivo_estado: manualData.motivo_estado ?? null,
               motivo_estado_actualizado_at:
                 manualData.motivo_estado_actualizado_at ?? null,
@@ -321,6 +323,7 @@ export async function fetchRosterForGira(supabase, gira, options = {}) {
               cubre_a_label: cubreALabelFromRef(manualData.cubre_a_ref),
             }
           : {
+              giras_integrantes_id: null,
               motivo_estado: null,
               motivo_estado_actualizado_at: null,
               abona_reemplazo: false,

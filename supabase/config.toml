@@ -95,7 +95,7 @@ enabled = true
 verify_jwt = false
 import_map = "./functions/ensayo-salida-recordatorios/deno.json"
 entrypoint = "./functions/ensayo-salida-recordatorios/index.ts"
-# pg_cron cada 1 min (migración 20260805000000). Secrets:
+# pg_cron */15 en franja ART (migración 20261104003559; antes */5). Secrets:
 #   ENSAYO_SALIDA_CRON_SECRET (o DB_BACKUP_CRON_SECRET), GMAIL_*, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY
 #   VAPID_SUBJECT (opcional), APP_BASE_URL / FRONTEND_URL
 # Header: x-ensayo-salida-cron-secret
@@ -105,7 +105,7 @@ enabled = true
 verify_jwt = false
 import_map = "./functions/ensayo-inicio-recordatorios/deno.json"
 entrypoint = "./functions/ensayo-inicio-recordatorios/index.ts"
-# pg_cron cada 1 min (migración 20260806140000). Secrets:
+# pg_cron */15 en franja ART (migración 20261104003559; antes */5). Secrets:
 #   ENSAYO_INICIO_CRON_SECRET (o ENSAYO_SALIDA / DB_BACKUP), GMAIL_*, VAPID_*, APP_BASE_URL
 # Header: x-ensayo-inicio-cron-secret (también acepta x-ensayo-salida-cron-secret / x-db-backup-cron-secret)
 # Gate ONLY_ADMINS=true en código hasta abrir check-in a músicos.

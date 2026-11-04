@@ -3,6 +3,7 @@ import React, {
   useEffect,
   useLayoutEffect,
   useMemo,
+  useCallback,
   useRef,
   lazy,
   Suspense,
@@ -103,6 +104,11 @@ import {
   IconTag,
 } from "./components/ui/Icons";
 import ProfileEditModal from "./components/users/ProfileEditModal";
+import ConstanciasModal from "./components/users/ConstanciasModal";
+import {
+  countConstanciasPendientes,
+  countMisConstanciasNoVistas,
+} from "./services/constanciasService";
 import SearchableSelect from "./components/ui/SearchableSelect";
 import { useDocumentTitle } from "./hooks/useDocumentTitle";
 
@@ -551,6 +557,8 @@ const ProtectedApp = ({ initialTab }) => {
   const [globalCommentsOpen, setGlobalCommentsOpen] = useState(false);
 
   const [profileModalOpen, setProfileModalOpen] = useState(false);
+  const [constanciasModalOpen, setConstanciasModalOpen] = useState(false);
+  const [constanciasBadge, setConstanciasBadge] = useState(0);
   const [userData, setUserData] = useState(null);
   const [userAvatar, setUserAvatar] = useState(null);
   const [userColor, setUserColor] = useState("#64748b");
@@ -569,6 +577,31 @@ const ProtectedApp = ({ initialTab }) => {
     total: 0,
     mentioned: 0,
   });
+
+  const refreshConstanciasBadge = useCallback(async () => {
+    if (!user?.id) {
+      setConstanciasBadge(0);
+      return;
+    }
+    try {
+      if (isAdmin || isEditor) {
+        const n = await countConstanciasPendientes(supabase);
+        setConstanciasBadge(n);
+      } else {
+        const n = await countMisConstanciasNoVistas(supabase, user.id);
+        setConstanciasBadge(n);
+      }
+    } catch (err) {
+      console.error("[constancias] badge:", err);
+    }
+  }, [user?.id, isAdmin, isEditor]);
+
+  useEffect(() => {
+    refreshConstanciasBadge();
+    if (!user?.id) return undefined;
+    const t = setInterval(refreshConstanciasBadge, 60_000);
+    return () => clearInterval(t);
+  }, [user?.id, refreshConstanciasBadge]);
 
   // --- UI SCALE & DARK MODE STATE ---
   const [uiScale, setUiScale] = useState(() =>
@@ -1065,6 +1098,8 @@ const ProtectedApp = ({ initialTab }) => {
               "conciertos",
               "audiencia",
               "viaticos_seguimiento",
+              "contrataciones",
+              "constancias",
             ]}
           />
         );
@@ -1546,6 +1581,21 @@ const ProtectedApp = ({ initialTab }) => {
             </button>
 
             <button
+              type="button"
+              onClick={() => setConstanciasModalOpen(true)}
+              className="relative flex items-center gap-1.5 px-2.5 md:px-3 py-1 md:py-1.5 bg-slate-50 text-slate-700 rounded-full border border-slate-200 font-bold text-[10px] md:text-xs hover:bg-slate-100"
+              title="Mis Constancias"
+            >
+              <IconFileText size={13} />
+              <span className="hidden xl:inline">Constancias</span>
+              {constanciasBadge > 0 && (
+                <span className="absolute -top-1 -right-1 h-4 min-w-[16px] px-1 bg-indigo-600 text-white text-[9px] font-bold flex items-center justify-center rounded-full shadow-sm border border-white">
+                  {constanciasBadge > 9 ? "9+" : constanciasBadge}
+                </span>
+              )}
+            </button>
+
+            <button
               onClick={() => setProfileModalOpen(true)}
               className="flex items-center gap-2 group ml-1"
             >
@@ -1614,6 +1664,18 @@ const ProtectedApp = ({ initialTab }) => {
         onClose={() => setProfileModalOpen(false)}
         user={user}
         supabase={supabase}
+      />
+      <ConstanciasModal
+        isOpen={constanciasModalOpen}
+        onClose={() => setConstanciasModalOpen(false)}
+        user={user}
+        supabase={supabase}
+        isEditor={isAdmin || isEditor}
+        pendientesGestion={isAdmin || isEditor ? constanciasBadge : 0}
+        onBadgeChange={refreshConstanciasBadge}
+        onOpenGestion={() => {
+          navigate("/management/constancias");
+        }}
       />
       <CalendarSelectionModal
         isOpen={calendarModalOpen}

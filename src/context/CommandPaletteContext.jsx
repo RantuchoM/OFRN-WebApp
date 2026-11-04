@@ -53,6 +53,8 @@ const MANAGEMENT_SECTION_ICONS = {
   conciertos: IconCalendar,
   audiencia: IconUsers,
   viaticos_seguimiento: IconDollarSign,
+  contrataciones: IconClipboardCheck,
+  constancias: IconFileText,
   horas: IconClock,
 };
 
@@ -63,7 +65,7 @@ function buildManagementPaletteCommands(navigate) {
         ? IconClock
         : entry.slug == null
           ? IconManagement
-          : MANAGEMENT_SECTION_ICONS[entry.slug];
+          : MANAGEMENT_SECTION_ICONS[entry.slug] || IconManagement;
     return {
       id: entry.id,
       label: entry.label,
@@ -449,10 +451,7 @@ export const CommandPaletteProvider = ({ children }) => {
           );
       }
 
-      // --- E) CONTEXTO: GESTIÓN (/management/*) ---
-      if (location.pathname.startsWith('/management') && (isAdmin || isEditor)) {
-          cmds.push(...buildManagementPaletteCommands(navigate));
-      }
+      // Gestión (/management/*): los informes ya van en globalCommands (evitar ids duplicados).
 
       if (currentTab === "giras" && currentGiraId) {
         const programa = programasCatalog.find(

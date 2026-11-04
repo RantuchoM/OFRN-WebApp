@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
+import { useNavigate } from "react-router-dom";
 import {
   IconUsers,
   IconPlus,
@@ -104,6 +105,16 @@ import {
   getRosterInstrumentGroupKey,
   getRosterTableColumnCount,
 } from "../../utils/rosterInstrumentSort";
+import {
+  isGiraEligibleForGestionContrataciones,
+  isInvitadoNoEstable,
+  needsAereoMode,
+} from "../../constants/gestionContrataciones";
+import {
+  getContratacionByGirasIntegrante,
+  listContrataciones,
+  upsertContratacion,
+} from "../../services/gestionContratacionesService";
 
 // --- CONSTANTES ---
 // ROLES_GIRA eliminado en favor de DB
@@ -687,8 +698,13 @@ export default function GiraRoster({
 }) {
   const { confirm, dialog } = useConfirmDialog();
   const { user } = useAuth();
+  const navigate = useNavigate();
   const actorId = user?.id ?? null;
   const [rosterHistorial, setRosterHistorial] = useState([]);
+  const [contratacionAereoByGi, setContratacionAereoByGi] = useState({});
+  const giraContratacionesEligible = isGiraEligibleForGestionContrataciones(
+    gira?.fecha_desde,
+  );
   const {
     roster: rawRoster,
     loading: hookLoading,
@@ -2518,6 +2534,71 @@ export default function GiraRoster({
     await refreshRoster();
   };
 
+  useEffect(() => {
+    if (!giraContratacionesEligible || !gira?.id) {
+      setContratacionAereoByGi({});
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const rows = await listContrataciones({ idGira: gira.id });
+        if (cancelled) return;
+        const map = {};
+        for (const row of rows || []) {
+          map[String(row.id_giras_integrantes)] = row.aereo_modo || null;
+        }
+        setContratacionAereoByGi(map);
+      } catch {
+        if (!cancelled) setContratacionAereoByGi({});
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [giraContratacionesEligible, gira?.id, localRoster.length]);
+
+  const openContratacionFromRoster = async (musician) => {
+    if (!giraContratacionesEligible || musician?.es_simulacion) return;
+    if (!isInvitadoNoEstable(musician)) {
+      toast.info("Solo invitados no estables tienen contratación");
+      return;
+    }
+    try {
+      let giId = musician.giras_integrantes_id;
+      if (!giId) {
+        const upsertPayload = buildGiraIntegranteUpsert(
+          gira.id,
+          musician,
+          {
+            estado: musician.estado_gira || "confirmado",
+            abona_reemplazo: Boolean(musician.abona_reemplazo),
+            abona_licencia: Boolean(musician.abona_licencia),
+          },
+          actorId,
+        );
+        const { data, error } = await supabase
+          .from("giras_integrantes")
+          .upsert(upsertPayload, { onConflict: "id_gira, id_integrante" })
+          .select("id")
+          .single();
+        if (error) throw error;
+        giId = data.id;
+      }
+      const existing = await getContratacionByGirasIntegrante(giId);
+      if (!existing) {
+        await upsertContratacion({
+          id_giras_integrantes: giId,
+          cachet_usd: 0,
+          tasa_cambio: 1,
+        });
+      }
+      navigate(`/management/contrataciones?sub=contrataciones`);
+    } catch (err) {
+      toast.error(err?.message || "No se pudo abrir la contratación");
+    }
+  };
+
   const toggleAbonaReemplazo = async (musician) => {
     if (!isEditor || musician.estado_gira !== "ausente") return;
     const next = !musician.abona_reemplazo;
@@ -3906,6 +3987,33 @@ export default function GiraRoster({
                       onOpenMotivoModal={(musician) =>
                         setMotivoModalMusician(musician)
                       }
+                      showContratacionButton={
+                        giraContratacionesEligible &&
+                        !m.es_simulacion &&
+                        isInvitadoNoEstable(m)
+                      }
+                      contratacionMissing={
+                        !m.giras_integrantes_id ||
+                        !Object.prototype.hasOwnProperty.call(
+                          contratacionAereoByGi,
+                          String(m.giras_integrantes_id),
+                        )
+                      }
+                      contratacionAereoPending={
+                        Boolean(m.giras_integrantes_id) &&
+                        Object.prototype.hasOwnProperty.call(
+                          contratacionAereoByGi,
+                          String(m.giras_integrantes_id),
+                        ) &&
+                        needsAereoMode({
+                          ...m,
+                          funcion: m.funcion_gira || m.funcion,
+                        }) &&
+                        !contratacionAereoByGi[
+                          String(m.giras_integrantes_id)
+                        ]
+                      }
+                      onOpenContratacion={openContratacionFromRoster}
                     />
                   </React.Fragment>
                 );

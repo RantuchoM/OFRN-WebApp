@@ -48,6 +48,19 @@ export {
   lugarNombreDesdeConciertoEntrada,
 } from "../utils/entradasConciertoEvento";
 
+/** Columnas de perfil usadas en sesión / gates (evitar select('*')). */
+const ENTRADA_USUARIO_PROFILE_SELECT =
+  "id, nombre, apellido, email, rol, activo, password_set_at, email_verified_at";
+
+/** Roster admin: solo lo que renderiza la tabla de usuarios. */
+const ENTRADA_USUARIO_ADMIN_LIST_SELECT = "id, nombre, apellido, email, rol";
+
+const ENTRADA_PROGRAMA_ADMIN_SELECT = "id, slug_publico, nombre, detalle_richtext, activo";
+
+/** ~13 filas: columnas de edición admin + embed de evento (sin select('*')). */
+const ENTRADA_CONCIERTO_ADMIN_SELECT =
+  "id, programa_id, slug_publico, nombre, detalle_richtext, imagen_drive_url, capacidad_maxima, reservas_habilitadas, activo, ofrn_programa_id, ofrn_evento_id, limite_recordatorio_at, limite_cierre_reservas_at, limite_encuesta_at, recordatorio_enviado_at, encuesta_enviada_at, encuesta_url, apertura_reservas_at, programa:entrada_programa(id, nombre), evento:eventos!entrada_concierto_ofrn_evento_id_fkey(id, fecha, hora_inicio, id_locacion, descripcion, locaciones(id, nombre, localidades(localidad)), programas(id, nomenclador, subtitulo))";
+
 function programaPdfFieldsFromConcierto(concierto) {
   const ep = concierto?.entrada_programa;
   return {
@@ -64,7 +77,7 @@ export async function getEntradasSessionProfile() {
 
   const { data: profile } = await supabaseEntradasPublic
     .from("entrada_usuario")
-    .select("*")
+    .select(ENTRADA_USUARIO_PROFILE_SELECT)
     .eq("id", session.user.id)
     .maybeSingle();
 
@@ -407,12 +420,12 @@ export async function markEntradasEmailVerified() {
       .update({ email_verified_at: new Date().toISOString() })
       .eq("id", user.id)
       .is("email_verified_at", null)
-      .select("*")
+      .select(ENTRADA_USUARIO_PROFILE_SELECT)
       .maybeSingle();
     if (row) return row;
     const { data: existing } = await supabaseEntradasPublic
       .from("entrada_usuario")
-      .select("*")
+      .select(ENTRADA_USUARIO_PROFILE_SELECT)
       .eq("id", user.id)
       .maybeSingle();
     return existing || null;
@@ -566,7 +579,7 @@ export async function setEntradasPassword(password) {
       .from("entrada_usuario")
       .update({ password_set_at: new Date().toISOString() })
       .eq("id", user.id)
-      .select("*")
+      .select(ENTRADA_USUARIO_PROFILE_SELECT)
       .maybeSingle();
     if (row) return row;
   }
@@ -586,7 +599,7 @@ export async function updateEntradaProfile({ nombre, apellido }) {
     .from("entrada_usuario")
     .update({ nombre: n, apellido: a })
     .eq("id", user.id)
-    .select("*")
+    .select(ENTRADA_USUARIO_PROFILE_SELECT)
     .maybeSingle();
   if (error) throw error;
   if (!data) throw new Error("No se pudo actualizar el perfil.");
@@ -1447,32 +1460,32 @@ export async function fetchRecepcionSnapshot(conciertoId) {
 }
 
 export async function listAdminData() {
-  const [programasRes, conciertosRes, usuariosRes, reservasLocRes] = await Promise.all([
-    supabaseEntradasPublic.from("entrada_programa").select("*").order("id", { ascending: false }),
+  const [programasRes, conciertosRes, usuariosRes, locsRes] = await Promise.all([
+    supabaseEntradasPublic
+      .from("entrada_programa")
+      .select(ENTRADA_PROGRAMA_ADMIN_SELECT)
+      .order("id", { ascending: false }),
     supabaseEntradasPublic
       .from("entrada_concierto")
-      .select(
-        "*, programa:entrada_programa(id, nombre), evento:eventos!entrada_concierto_ofrn_evento_id_fkey(id, fecha, hora_inicio, id_locacion, descripcion, locaciones(id, nombre, localidades(localidad)), programas(id, nomenclador, subtitulo))",
-      )
+      .select(ENTRADA_CONCIERTO_ADMIN_SELECT)
       .order("id", { ascending: false }),
-    supabaseEntradasPublic.from("entrada_usuario").select("*").order("apellido", { ascending: true }),
     supabaseEntradasPublic
-      .from("entrada_reserva")
-      .select(
-        "usuario_id, concierto:entrada_concierto(evento:eventos!entrada_concierto_ofrn_evento_id_fkey(locaciones(localidades(localidad))))",
-      ),
+      .from("entrada_usuario")
+      .select(ENTRADA_USUARIO_ADMIN_LIST_SELECT)
+      .order("apellido", { ascending: true }),
+    // Agregado en SQL: evita bajar ~2k reservas anidadas solo para armar localidades.
+    supabaseEntradasPublic.rpc("entrada_admin_usuarios_localidades"),
   ]);
   if (programasRes.error) throw programasRes.error;
   if (conciertosRes.error) throw conciertosRes.error;
   if (usuariosRes.error) throw usuariosRes.error;
-  if (reservasLocRes.error) throw reservasLocRes.error;
+  if (locsRes.error) throw locsRes.error;
 
   const locByUser = new Map();
-  for (const row of reservasLocRes.data || []) {
-    const uid = row.usuario_id;
-    if (!uid) continue;
-    const loc = localidadDesdeConciertoEntrada(row.concierto);
-    if (!loc) continue;
+  for (const row of locsRes.data || []) {
+    const uid = row?.usuario_id;
+    const loc = String(row?.localidad || "").trim();
+    if (!uid || !loc) continue;
     if (!locByUser.has(uid)) locByUser.set(uid, new Set());
     locByUser.get(uid).add(loc);
   }
