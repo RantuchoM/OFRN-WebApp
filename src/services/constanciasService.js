@@ -609,6 +609,36 @@ export async function denegarConstancia(supabase, {
   return data;
 }
 
+/** Vuelve una denegada a pendiente (sin mail). */
+export async function deshacerDenegacionConstancia(supabase, { solicitudId }) {
+  const { data: row, error } = await supabase
+    .from("constancias_solicitudes")
+    .select(SOLICITUD_SELECT)
+    .eq("id", solicitudId)
+    .single();
+  if (error) throw error;
+  if (row.estado !== CONSTANCIA_ESTADOS.denegada) {
+    throw new Error("Solo se puede deshacer una solicitud denegada");
+  }
+
+  const { data, error: upErr } = await supabase
+    .from("constancias_solicitudes")
+    .update({
+      estado: CONSTANCIA_ESTADOS.pendiente,
+      motivo_denegacion: null,
+      resuelto_at: null,
+      resuelto_por: null,
+      visto_solicitante: false,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", solicitudId)
+    .eq("estado", CONSTANCIA_ESTADOS.denegada)
+    .select(SOLICITUD_SELECT)
+    .single();
+  if (upErr) throw upErr;
+  return data;
+}
+
 export async function aprobarTodasConstanciasPendientes(supabase, { resueltoPorId }) {
   const pendientes = await listConstanciasGestion(supabase, {
     estado: CONSTANCIA_ESTADOS.pendiente,

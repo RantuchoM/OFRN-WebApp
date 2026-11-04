@@ -10,7 +10,9 @@ import {
   IconFileText,
   IconMail,
   IconDownload,
+  IconUndo,
 } from "../../components/ui/Icons";
+import ConfirmModal from "../../components/ui/ConfirmModal";
 import {
   CONSTANCIA_ESTADO_LABEL,
   CONSTANCIA_ESTADOS,
@@ -19,6 +21,7 @@ import {
   listConstanciasGestion,
   aprobarConstancia,
   denegarConstancia,
+  deshacerDenegacionConstancia,
   aprobarTodasConstanciasPendientes,
   reenviarConstanciaAprobada,
   descargarConstanciaPdf,
@@ -55,6 +58,8 @@ export default function ConstanciasHub() {
   const [busyId, setBusyId] = useState(null);
   const [denyTarget, setDenyTarget] = useState(null);
   const [denyMotivo, setDenyMotivo] = useState("");
+  const [undoTarget, setUndoTarget] = useState(null);
+  const [undoBusy, setUndoBusy] = useState(false);
   const [approvingAll, setApprovingAll] = useState(false);
 
   const canManage = isAdmin || isEditor;
@@ -177,6 +182,26 @@ export default function ConstanciasHub() {
     } catch (err) {
       toast.error(err?.message || "No se pudo denegar");
     } finally {
+      setBusyId(null);
+    }
+  };
+
+  const confirmDeshacerDenegacion = async () => {
+    if (!undoTarget) return;
+    setUndoBusy(true);
+    setBusyId(undoTarget.id);
+    try {
+      await deshacerDenegacionConstancia(supabase, {
+        solicitudId: undoTarget.id,
+      });
+      toast.success("Denegación deshecha: vuelve a Pendientes");
+      setUndoTarget(null);
+      await load();
+    } catch (err) {
+      toast.error(err?.message || "No se pudo deshacer");
+      throw err;
+    } finally {
+      setUndoBusy(false);
       setBusyId(null);
     }
   };
@@ -383,10 +408,25 @@ export default function ConstanciasHub() {
                           </div>
                         </div>
                       ) : (
-                        <span className="inline-flex items-center gap-1 text-[10px] text-slate-400">
-                          <IconFileText size={12} />
-                          {formatShortDate(r.resuelto_at)}
-                        </span>
+                        <div className="flex flex-col gap-1">
+                          <span className="inline-flex items-center gap-1 text-[10px] text-slate-400">
+                            <IconFileText size={12} />
+                            {formatShortDate(r.resuelto_at)}
+                          </span>
+                          <button
+                            type="button"
+                            disabled={busyId === r.id}
+                            onClick={() => setUndoTarget(r)}
+                            className="inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] font-bold text-amber-800 hover:bg-amber-100 disabled:opacity-50"
+                          >
+                            {busyId === r.id ? (
+                              <IconLoader size={12} className="animate-spin" />
+                            ) : (
+                              <IconUndo size={12} />
+                            )}
+                            Deshacer
+                          </button>
+                        </div>
                       )}
                     </td>
                   </tr>
@@ -439,6 +479,24 @@ export default function ConstanciasHub() {
           </div>,
           document.body,
         )}
+
+      <ConfirmModal
+        isOpen={Boolean(undoTarget)}
+        onClose={() => {
+          if (undoBusy) return;
+          setUndoTarget(null);
+        }}
+        title="Deshacer denegación"
+        message={
+          undoTarget
+            ? `¿Confirmás volver la solicitud #${undoTarget.id} a Pendientes? No se envía mail.`
+            : ""
+        }
+        confirmText="Deshacer"
+        confirmLoading={undoBusy}
+        confirmClassName="px-4 py-2.5 sm:py-2 text-sm font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-lg shadow-md hover:shadow-lg transition-all active:scale-[0.98]"
+        onConfirm={confirmDeshacerDenegacion}
+      />
     </div>
   );
 }

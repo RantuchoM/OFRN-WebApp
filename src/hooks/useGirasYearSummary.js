@@ -14,6 +14,7 @@ import {
   currentYearBounds,
   isProgramBorrador,
 } from "../utils/girasYearSummary";
+import { fetchVisibleProgramIds } from "./useGirasList";
 
 const GIRAS_YEAR_SELECT = `
   id, nombre_gira, fecha_desde, fecha_hasta, tipo, estado,
@@ -72,24 +73,23 @@ async function fetchYearProgramsForUser(
   const applyPersonalFilter =
     !allPrograms && isIntegranteUser(user, isGuest, isDifusion);
 
-  let myEnsembleMembershipRows = [];
-  let myFamily = null;
-  let isFamiliaSourceApplicable = false;
+  const listReferenceDate = toLocalDateString();
 
   if (applyPersonalFilter) {
-    const { data: me } = await supabase
-      .from("integrantes")
-      .select(
-        "*, instrumentos(familia), integrantes_ensambles(id_ensamble, fecha_desde, fecha_hasta)",
-      )
-      .eq("id", user.id)
-      .single();
-    if (me) {
-      myFamily = me.instrumentos?.familia;
-      myEnsembleMembershipRows = me.integrantes_ensambles || [];
-      const nc = (me.condicion || "").toString().toLowerCase().trim();
-      isFamiliaSourceApplicable = nc === "estable" || nc === "contratado";
-    }
+    const ids = await fetchVisibleProgramIds(supabase, {
+      integranteId: user.id,
+      filterDateStart: desde,
+      filterDateEnd: hasta,
+      coordinatedEnsembleIds: [],
+      incluirAusenteConAbono: true,
+    });
+    if (!ids.length) return [];
+    const programs = await fetchProgramsByIds(supabase, ids);
+    const result = programs.filter((g) =>
+      programOverlapsDateRange(g, desde, hasta, listReferenceDate),
+    );
+    result.sort((a, b) => compareProgramsForList(a, b, listReferenceDate));
+    return result;
   }
 
   const [byProgramDates, concertProgramIds] = await Promise.all([
@@ -102,55 +102,11 @@ async function fetchYearProgramsForUser(
   const extraByConcerts = await fetchProgramsByIds(supabase, extraIds);
 
   let merged = mergeProgramsById([byProgramDates, extraByConcerts]);
-  const listReferenceDate = toLocalDateString();
 
   let result = merged.filter((g) =>
     programOverlapsDateRange(g, desde, hasta, listReferenceDate),
   );
   result.sort((a, b) => compareProgramsForList(a, b, listReferenceDate));
-
-  if (applyPersonalFilter) {
-    result = result.filter((gira) => {
-      const overrides = gira.giras_integrantes || [];
-      const sources = gira.giras_fuentes || [];
-      const myOverride = overrides.find(
-        (o) => Number(o.id_integrante) === Number(user.id),
-      );
-      if (
-        myOverride &&
-        myOverride.estado === "ausente" &&
-        !myOverride.abona_reemplazo &&
-        !myOverride.abona_licencia
-      ) {
-        return false;
-      }
-      if (myOverride) return true;
-      const progRef = gira.fecha_desde;
-      const ensembleActiveOnProgram = (valorId) =>
-        myEnsembleMembershipRows.some(
-          (ie) =>
-            Number(ie.id_ensamble) === Number(valorId) &&
-            membershipActiveOnProgramDate(ie, progRef),
-        );
-      const isIncluded = sources.some(
-        (s) =>
-          (s.tipo === "ENSAMBLE" && ensembleActiveOnProgram(s.valor_id)) ||
-          (s.tipo === "FAMILIA" &&
-            s.valor_texto === myFamily &&
-            isFamiliaSourceApplicable),
-      );
-      if (!isIncluded) return false;
-      const excludedEnsembles = sources
-        .filter((s) => s.tipo === "EXCL_ENSAMBLE")
-        .map((s) => s.valor_id);
-      if (
-        excludedEnsembles.some((exclId) => ensembleActiveOnProgram(exclId))
-      ) {
-        return false;
-      }
-      return true;
-    });
-  }
 
   return result;
 }

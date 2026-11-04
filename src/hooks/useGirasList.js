@@ -1,5 +1,4 @@
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
-import { membershipActiveOnProgramDate } from "../utils/ensembleMembership";
 import {
   applyConcertDateOverlapFilter,
   applyProgramOverlapDateFilter,
@@ -9,7 +8,7 @@ import {
   toLocalDateString,
 } from "../utils/giraDateRange";
 
-/** Select liviano para tarjetas en LIST (sin joins redundantes). */
+/** Select completo (editores / management): nómina anidada para tarjetas densas. */
 export const GIRAS_LIST_SELECT = `
   *,
   giras_localidades(id_localidad, localidades(localidad)),
@@ -30,12 +29,30 @@ export const GIRAS_LIST_SELECT = `
   )
 `;
 
+/**
+ * Select liviano para rol personal: sin expandir toda la orquesta.
+ * GiraCard resuelve el perfil propio vía meConvocadoFallback si hace falta.
+ */
+export const GIRAS_LIST_SELECT_PERSONAL = `
+  *,
+  giras_localidades(id_localidad, localidades(localidad)),
+  giras_integrantes(id_integrante, rol, estado),
+  giras_fuentes(*),
+  eventos(
+    id, fecha, hora_inicio, hora_fin, id_tipo_evento, id_locacion, id_gira, convocados, is_deleted,
+    tipos_evento(id, nombre, color, id_categoria),
+    locaciones(id, nombre, localidades(localidad)),
+    eventos_asistencia(id, id_integrante, estado)
+  )
+`;
+
 async function fetchProgramsByProgramDates(
   supabase,
   filterDateStart,
   filterDateEnd,
+  select = GIRAS_LIST_SELECT,
 ) {
-  let query = supabase.from("programas").select(GIRAS_LIST_SELECT);
+  let query = supabase.from("programas").select(select);
   query = applyProgramOverlapDateFilter(
     query,
     filterDateStart,
@@ -65,15 +82,57 @@ async function fetchProgramIdsWithConcertsInRange(
   return [...new Set((data || []).map((p) => p.id).filter((id) => id != null))];
 }
 
-/** Programa completo para ids que solo entraron por fecha de concierto o deep-link (Ctrl+K). */
-export async function fetchProgramsByIds(supabase, ids) {
+/** Programa completo para ids (deep-link / hydrate personal). */
+export async function fetchProgramsByIds(
+  supabase,
+  ids,
+  select = GIRAS_LIST_SELECT,
+) {
   if (!ids?.length) return [];
   const { data, error } = await supabase
     .from("programas")
-    .select(GIRAS_LIST_SELECT)
+    .select(select)
     .in("id", ids);
   if (error) throw error;
   return data || [];
+}
+
+function normalizeCoordIds(coordinatedEnsembleIds) {
+  return [...(coordinatedEnsembleIds || [])]
+    .map(Number)
+    .filter(Number.isFinite);
+}
+
+/**
+ * IDs de programas visibles para un integrante (RPC server-side).
+ * @param {object} [opts]
+ * @param {boolean} [opts.incluirAusenteConAbono] year summary: ausente + abona_* sigue contando
+ */
+export async function fetchVisibleProgramIds(
+  supabase,
+  {
+    integranteId,
+    filterDateStart,
+    filterDateEnd,
+    coordinatedEnsembleIds = [],
+    incluirAusenteConAbono = false,
+  },
+) {
+  const uid = Number(integranteId);
+  if (!Number.isFinite(uid)) return [];
+
+  const { data, error } = await supabase.rpc("list_programa_ids_visibles", {
+    p_integrante_id: uid,
+    p_fecha_desde: filterDateStart || null,
+    p_fecha_hasta: filterDateEnd || null,
+    p_coord_ensamble_ids: normalizeCoordIds(coordinatedEnsembleIds),
+    p_incluir_ausente_con_abono: Boolean(incluirAusenteConAbono),
+  });
+  if (error) throw error;
+  return (data || [])
+    .map((row) => (typeof row === "object" && row != null ? row.id ?? row : row))
+    .map(Number)
+    .filter(Number.isFinite);
 }
 
 async function fetchGuestGira(supabase, user) {
@@ -116,6 +175,38 @@ async function fetchGuestGira(supabase, user) {
   ];
 }
 
+async function fetchPersonalGiras(
+  supabase,
+  { user, coordinatedEnsembleIds, filterDateStart, filterDateEnd },
+) {
+  const ids = await fetchVisibleProgramIds(supabase, {
+    integranteId: user.id,
+    filterDateStart,
+    filterDateEnd,
+    coordinatedEnsembleIds,
+    incluirAusenteConAbono: false,
+  });
+  if (!ids.length) return [];
+
+  const programs = await fetchProgramsByIds(
+    supabase,
+    ids,
+    GIRAS_LIST_SELECT_PERSONAL,
+  );
+
+  const listReferenceDate = toLocalDateString();
+  const result = programs.filter((g) =>
+    programOverlapsDateRange(
+      g,
+      filterDateStart,
+      filterDateEnd,
+      listReferenceDate,
+    ),
+  );
+  result.sort((a, b) => compareProgramsForList(a, b, listReferenceDate));
+  return result;
+}
+
 async function fetchAuthenticatedGiras(
   supabase,
   {
@@ -132,25 +223,13 @@ async function fetchAuthenticatedGiras(
     user.id !== "guest-general" &&
     !isDifusion;
 
-  let myEnsembleMembershipRows = [];
-  let myFamily = null;
-  let isFamiliaSourceApplicable = false;
-  const coordinatedSet = new Set(coordinatedEnsembleIds || []);
-
   if (isPersonalRoleForDB) {
-    const { data: me } = await supabase
-      .from("integrantes")
-      .select(
-        "*, instrumentos(familia), integrantes_ensambles(id_ensamble, fecha_desde, fecha_hasta)",
-      )
-      .eq("id", user.id)
-      .single();
-    if (me) {
-      myFamily = me.instrumentos?.familia;
-      myEnsembleMembershipRows = me.integrantes_ensambles || [];
-      const nc = (me.condicion || "").toString().toLowerCase().trim();
-      isFamiliaSourceApplicable = nc === "estable" || nc === "contratado";
-    }
+    return fetchPersonalGiras(supabase, {
+      user,
+      coordinatedEnsembleIds,
+      filterDateStart,
+      filterDateEnd,
+    });
   }
 
   const [byProgramDates, concertProgramIds] = await Promise.all([
@@ -184,43 +263,6 @@ async function fetchAuthenticatedGiras(
   result.sort((a, b) =>
     compareProgramsForList(a, b, listReferenceDate),
   );
-  if (isPersonalRoleForDB) {
-    result = result.filter((gira) => {
-      const overrides = gira.giras_integrantes || [];
-      const sources = gira.giras_fuentes || [];
-      const myOverride = overrides.find((o) => o.id_integrante === user.id);
-      if (myOverride && myOverride.estado === "ausente") return false;
-      if (myOverride) return true;
-      const progRef = gira.fecha_desde;
-      const ensembleActiveOnProgram = (valorId) =>
-        myEnsembleMembershipRows.some(
-          (ie) =>
-            Number(ie.id_ensamble) === Number(valorId) &&
-            membershipActiveOnProgramDate(ie, progRef),
-        );
-      const isIncluded = sources.some(
-        (s) =>
-          (s.tipo === "ENSAMBLE" &&
-            (ensembleActiveOnProgram(s.valor_id) ||
-              coordinatedSet.has(s.valor_id))) ||
-          (s.tipo === "FAMILIA" &&
-            s.valor_texto === myFamily &&
-            isFamiliaSourceApplicable),
-      );
-      if (isIncluded) {
-        const excludedEnsembles = sources
-          .filter((s) => s.tipo === "EXCL_ENSAMBLE")
-          .map((s) => s.valor_id);
-        if (
-          excludedEnsembles.some((exclId) => ensembleActiveOnProgram(exclId))
-        ) {
-          return false;
-        }
-        return true;
-      }
-      return false;
-    });
-  }
 
   return result;
 }

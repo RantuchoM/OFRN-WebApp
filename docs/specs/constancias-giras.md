@@ -11,7 +11,7 @@ Los integrantes pueden solicitar una **constancia** de convocatoria a giras **Si
 | Header (junto a Mi Perfil) | Botón **Constancias** → modal «Mis Constancias» |
 | Badge (músico) | Solicitudes propias aprobadas/denegadas aún no vistas |
 | Badge (editor/admin) | Cantidad de solicitudes **pendientes** (abiertas) |
-| Gestión `/management/constancias` | Lista, aprobar, denegar (con motivo), **Aprobar todas**; en aprobadas: **Reenviar** (mail) y **Descargar** PDF |
+| Gestión `/management/constancias` | Lista, aprobar, denegar (modal con motivo), **Aprobar todas**; en aprobadas: **Reenviar** / **Descargar**; en denegadas: **Deshacer** (vuelve a pendiente, sin mail) |
 
 En Mis Constancias el estado **pendiente** deja claro que hay que esperar la resolución.
 

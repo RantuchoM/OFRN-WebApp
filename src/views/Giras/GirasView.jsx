@@ -695,8 +695,13 @@ export default function GirasView({ supabase, trigger = 0 }) {
   useEffect(() => {
     fetchLocationsList();
     fetchEnsemblesList();
-    fetchIntegrantesList();
-  }, [user?.id]);
+    // Catálogo completo (~500) solo si puede crear/editar; personal puro no lo usa en lista.
+    if (isEditor || isAdmin || isCoordGeneral || coordinatedEnsembles.size > 0) {
+      fetchIntegrantesList();
+    } else {
+      setAllIntegrantes([]);
+    }
+  }, [user?.id, isEditor, isAdmin, isCoordGeneral, coordinatedEnsembles.size]);
 
   useEffect(() => {
     if (isGuest && user?.active_gira_id) {
