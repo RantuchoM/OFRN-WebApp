@@ -16,6 +16,9 @@ import ConfirmModal from "../../components/ui/ConfirmModal";
 import {
   CONSTANCIA_ESTADO_LABEL,
   CONSTANCIA_ESTADOS,
+  CONSTANCIA_TIPO_LABEL,
+  CONSTANCIA_TIPO_LABEL_SHORT,
+  CONSTANCIA_TIPOS,
 } from "../../constants/constancias";
 import {
   listConstanciasGestion,
@@ -55,6 +58,8 @@ export default function ConstanciasHub() {
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState([]);
   const [filtro, setFiltro] = useState("pendiente");
+  /** todas | convocatoria | participacion */
+  const [filtroTipo, setFiltroTipo] = useState("todas");
   const [busyId, setBusyId] = useState(null);
   const [denyTarget, setDenyTarget] = useState(null);
   const [denyMotivo, setDenyMotivo] = useState("");
@@ -64,12 +69,21 @@ export default function ConstanciasHub() {
 
   const canManage = isAdmin || isEditor;
 
+  const tipoFilterParam =
+    filtroTipo === CONSTANCIA_TIPOS.convocatoria ||
+    filtroTipo === CONSTANCIA_TIPOS.participacion
+      ? filtroTipo
+      : undefined;
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const estado =
         filtro === "todas" ? undefined : filtro || CONSTANCIA_ESTADOS.pendiente;
-      const data = await listConstanciasGestion(supabase, { estado });
+      const data = await listConstanciasGestion(supabase, {
+        estado,
+        tipo: tipoFilterParam,
+      });
       setRows(data);
     } catch (err) {
       console.error("[ConstanciasHub] load:", err);
@@ -78,7 +92,7 @@ export default function ConstanciasHub() {
     } finally {
       setLoading(false);
     }
-  }, [filtro]);
+  }, [filtro, tipoFilterParam]);
 
   useEffect(() => {
     load();
@@ -150,8 +164,11 @@ export default function ConstanciasHub() {
     try {
       const res = await aprobarTodasConstanciasPendientes(supabase, {
         resueltoPorId: user?.id,
+        tipo: tipoFilterParam,
       });
-      if (res.fail === 0) {
+      if (res.ok === 0 && res.fail === 0) {
+        toast.message("No hay pendientes en este filtro");
+      } else if (res.fail === 0) {
         toast.success(`Se aprobaron ${res.ok} solicitud${res.ok === 1 ? "" : "es"}`);
       } else {
         toast.warning(
@@ -165,6 +182,13 @@ export default function ConstanciasHub() {
       setApprovingAll(false);
     }
   };
+
+  const aprobarTodasLabel =
+    filtroTipo === CONSTANCIA_TIPOS.participacion
+      ? "Aprobar todas (participación realizada)"
+      : filtroTipo === CONSTANCIA_TIPOS.convocatoria
+        ? "Aprobar todas (convocatoria)"
+        : "Aprobar todas";
 
   const confirmDenegar = async () => {
     if (!denyTarget) return;
@@ -217,26 +241,54 @@ export default function ConstanciasHub() {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap items-center gap-1.5">
-          {[
-            { id: "pendiente", label: "Pendientes" },
-            { id: "aprobada", label: "Aprobadas" },
-            { id: "denegada", label: "Denegadas" },
-            { id: "todas", label: "Todas" },
-          ].map((f) => (
-            <button
-              key={f.id}
-              type="button"
-              onClick={() => setFiltro(f.id)}
-              className={`rounded-full border px-2.5 py-1 text-[11px] font-bold ${
-                filtro === f.id
-                  ? "border-indigo-300 bg-indigo-50 text-indigo-700"
-                  : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-              }`}
-            >
-              {f.label}
-            </button>
-          ))}
+        <div className="flex min-w-0 flex-col gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
+            {[
+              { id: "pendiente", label: "Pendientes" },
+              { id: "aprobada", label: "Aprobadas" },
+              { id: "denegada", label: "Denegadas" },
+              { id: "todas", label: "Todas" },
+            ].map((f) => (
+              <button
+                key={f.id}
+                type="button"
+                onClick={() => setFiltro(f.id)}
+                className={`rounded-full border px-2.5 py-1 text-[11px] font-bold ${
+                  filtro === f.id
+                    ? "border-indigo-300 bg-indigo-50 text-indigo-700"
+                    : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {[
+              { id: "todas", label: "Todos los tipos" },
+              {
+                id: CONSTANCIA_TIPOS.convocatoria,
+                label: CONSTANCIA_TIPO_LABEL_SHORT.convocatoria,
+              },
+              {
+                id: CONSTANCIA_TIPOS.participacion,
+                label: CONSTANCIA_TIPO_LABEL_SHORT.participacion,
+              },
+            ].map((f) => (
+              <button
+                key={f.id}
+                type="button"
+                onClick={() => setFiltroTipo(f.id)}
+                className={`rounded-full border px-2.5 py-1 text-[11px] font-bold ${
+                  filtroTipo === f.id
+                    ? "border-violet-300 bg-violet-50 text-violet-800"
+                    : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
         </div>
         <div className="flex items-center gap-1.5">
           <button
@@ -252,6 +304,11 @@ export default function ConstanciasHub() {
               type="button"
               disabled={approvingAll || (filtro === "pendiente" && pendientesCount === 0)}
               onClick={handleAprobarTodas}
+              title={
+                filtroTipo === "todas"
+                  ? "Aprueba todas las pendientes visibles en este listado"
+                  : `Aprueba las pendientes de ${CONSTANCIA_TIPO_LABEL[filtroTipo] || filtroTipo}`
+              }
               className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-1.5 text-xs font-bold text-white hover:bg-emerald-700 disabled:opacity-50"
             >
               {approvingAll ? (
@@ -259,7 +316,7 @@ export default function ConstanciasHub() {
               ) : (
                 <IconCheck size={14} />
               )}
-              Aprobar todas
+              {aprobarTodasLabel}
             </button>
           )}
         </div>
@@ -281,6 +338,7 @@ export default function ConstanciasHub() {
               <tr>
                 <th className="px-3 py-2 font-bold">#</th>
                 <th className="px-3 py-2 font-bold">Solicitante</th>
+                <th className="px-3 py-2 font-bold">Tipo</th>
                 <th className="px-3 py-2 font-bold">Gira</th>
                 <th className="px-3 py-2 font-bold">Instrumento</th>
                 <th className="px-3 py-2 font-bold">Fechas</th>
@@ -308,6 +366,21 @@ export default function ConstanciasHub() {
                       <div className="font-bold text-slate-800">{nombre || "—"}</div>
                       <div className="text-[10px] text-slate-500">
                         DNI {r.snap_dni || "—"} · {r.integrantes?.mail || "sin mail"}
+                      </div>
+                    </td>
+                    <td className="px-3 py-2">
+                      <span
+                        className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-bold ${
+                          r.tipo === CONSTANCIA_TIPOS.participacion
+                            ? "border-sky-200 bg-sky-50 text-sky-800"
+                            : "border-violet-200 bg-violet-50 text-violet-800"
+                        }`}
+                      >
+                        {CONSTANCIA_TIPO_LABEL_SHORT[r.tipo] ||
+                          CONSTANCIA_TIPO_LABEL_SHORT.convocatoria}
+                      </span>
+                      <div className="mt-0.5 hidden text-[9px] text-slate-400 sm:block">
+                        {CONSTANCIA_TIPO_LABEL[r.tipo] || ""}
                       </div>
                     </td>
                     <td className="px-3 py-2">

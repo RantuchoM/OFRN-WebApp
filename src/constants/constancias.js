@@ -1,5 +1,22 @@
 export const CONSTANCIAS_TIPOS_GIRA = ["Sinfónico", "Camerata Filarmónica"];
 
+/** Tipos de documento (uno de cada por persona + gira). */
+export const CONSTANCIA_TIPOS = {
+  convocatoria: "convocatoria",
+  participacion: "participacion",
+};
+
+export const CONSTANCIA_TIPO_LABEL = {
+  convocatoria: "Constancia de convocatoria",
+  participacion: "Constancia de participación realizada",
+};
+
+/** Etiqueta corta para chips / filtros. */
+export const CONSTANCIA_TIPO_LABEL_SHORT = {
+  convocatoria: "Convocatoria",
+  participacion: "Participación realizada",
+};
+
 export const CONSTANCIA_ESTADOS = {
   pendiente: "pendiente",
   aprobada: "aprobada",

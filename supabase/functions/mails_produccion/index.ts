@@ -885,6 +885,9 @@
         const idSol = d?.solicitud_id != null ? String(d.solicitud_id) : "";
         const link = escapeHtmlMail(String(d?.link_solicitud || "").trim());
         const giraLabel = escapeHtmlMail(String(gira || d?.gira_nombre || "gira"));
+        const tipoConstanciaLabel = escapeHtmlMail(
+          String(d?.tipo_constancia_label || (d?.tipo_constancia === "participacion" ? "Constancia de participación realizada" : "Constancia de convocatoria")),
+        );
         const cta = link
           ? `<div style="margin:18px 0; padding:16px; background:#eef2ff; border:1px solid #c7d2fe; border-radius:8px; text-align:center;">
               <p style="margin:0 0 10px 0; font-size:13px; color:#312e81;">Abrí la solicitud en Gestión:</p>
@@ -907,6 +910,7 @@
             <p>Hay una <strong>solicitud de constancia</strong> pendiente de revisión.</p>
             <div class="box">
               <h2 style="margin-top:0; color:#111;">Solicitud de constancia${idSol ? ` #${escapeHtmlMail(idSol)}` : ""}</h2>
+              <p style="margin:0 0 6px 0;"><strong>Tipo:</strong> ${tipoConstanciaLabel}</p>
               <p style="margin:0 0 6px 0;"><strong>Solicitante:</strong> ${solicitante}</p>
               <p style="margin:0 0 6px 0;"><strong>DNI:</strong> ${dni}</p>
               <p style="margin:0 0 6px 0;"><strong>Email:</strong> ${mail}</p>
@@ -929,6 +933,9 @@
           : "";
         const saludo = String(nombre || "").trim() ? `Hola ${escapeHtmlMail(String(nombre).trim())},` : "Hola,";
         const giraLabel = escapeHtmlMail(String(gira || d?.gira_nombre || "la gira"));
+        const tipoConstanciaLabel = escapeHtmlMail(
+          String(d?.tipo_constancia_label || (d?.tipo_constancia === "participacion" ? "constancia de participación realizada" : "constancia de convocatoria")),
+        );
         return `
           <!DOCTYPE html>
           <html>
@@ -943,7 +950,7 @@
             <p>${saludo}</p>
             <div class="box">
               <h2 style="margin-top:0; color:#111;">Constancia aprobada</h2>
-              <p style="margin:0;">Tu solicitud de constancia para la gira <strong>${giraLabel}</strong> fue <strong>aprobada</strong>.</p>
+              <p style="margin:0;">Tu solicitud de <strong>${tipoConstanciaLabel}</strong> para la gira <strong>${giraLabel}</strong> fue <strong>aprobada</strong>.</p>
             </div>
             <p>Adjuntamos el PDF de la constancia. También podés ver el estado en <strong>Mis Constancias</strong> en la app.</p>
             <p>Cualquier consulta, respondé a este correo.</p>
@@ -961,6 +968,9 @@
           : "";
         const saludo = String(nombre || "").trim() ? `Hola ${escapeHtmlMail(String(nombre).trim())},` : "Hola,";
         const giraLabel = escapeHtmlMail(String(gira || d?.gira_nombre || "la gira"));
+        const tipoConstanciaLabel = escapeHtmlMail(
+          String(d?.tipo_constancia_label || (d?.tipo_constancia === "participacion" ? "constancia de participación realizada" : "constancia de convocatoria")),
+        );
         const motivo = escapeHtmlMail(String(d?.motivo_denegacion || "").trim());
         const motivoBlock = motivo
           ? `<p style="margin: 10px 0; padding: 10px; background: #fef3c7; border-left: 4px solid #f59e0b; border-radius: 4px; font-size: 13px;"><strong>Motivo:</strong> ${motivo}</p>`
@@ -979,7 +989,7 @@
             <p>${saludo}</p>
             <div class="box">
               <h2 style="margin-top:0; color:#111;">Constancia denegada</h2>
-              <p style="margin:0;">Tu solicitud de constancia para la gira <strong>${giraLabel}</strong> fue <strong>denegada</strong>.</p>
+              <p style="margin:0;">Tu solicitud de <strong>${tipoConstanciaLabel}</strong> para la gira <strong>${giraLabel}</strong> fue <strong>denegada</strong>.</p>
             </div>
             ${motivoBlock}
             <p>Podés ver el detalle en <strong>Mis Constancias</strong>. Si corresponde, podés volver a solicitar.</p>
@@ -1090,21 +1100,37 @@
                   "",
               ).trim();
               const giraAsunto = nombreGira || detalle?.gira_nombre || "OFRN";
+              const tipoAsunto =
+                detalle?.tipo_constancia === "participacion"
+                  ? "participación realizada"
+                  : "convocatoria";
               const cola = solicitanteAsunto
                 ? `${solicitanteAsunto} | ${giraAsunto}`
                 : giraAsunto;
               subject = detalle?.es_modelo
-                ? `[MODELO] Solicitud de constancia | ${cola}`
-                : `Solicitud de constancia | ${cola}`;
+                ? `[MODELO] Solicitud de constancia (${tipoAsunto}) | ${cola}`
+                : `Solicitud de constancia (${tipoAsunto}) | ${cola}`;
             }
           } else if (tid === "constancia_aprobada") {
-            subject = detalle?.es_modelo
-              ? `[MODELO] Constancia aprobada | ${nombreGira || "OFRN"}`
-              : `Constancia aprobada | ${nombreGira || "OFRN"}`;
+            {
+              const tipoAsunto =
+                detalle?.tipo_constancia === "participacion"
+                  ? "participación realizada"
+                  : "convocatoria";
+              subject = detalle?.es_modelo
+                ? `[MODELO] Constancia aprobada (${tipoAsunto}) | ${nombreGira || "OFRN"}`
+                : `Constancia aprobada (${tipoAsunto}) | ${nombreGira || "OFRN"}`;
+            }
           } else if (tid === "constancia_denegada") {
-            subject = detalle?.es_modelo
-              ? `[MODELO] Constancia denegada | ${nombreGira || "OFRN"}`
-              : `Constancia denegada | ${nombreGira || "OFRN"}`;
+            {
+              const tipoAsunto =
+                detalle?.tipo_constancia === "participacion"
+                  ? "participación realizada"
+                  : "convocatoria";
+              subject = detalle?.es_modelo
+                ? `[MODELO] Constancia denegada (${tipoAsunto}) | ${nombreGira || "OFRN"}`
+                : `Constancia denegada (${tipoAsunto}) | ${nombreGira || "OFRN"}`;
+            }
           }
 
           const transporter = nodemailer.createTransport({

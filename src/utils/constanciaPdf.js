@@ -1,6 +1,9 @@
 import jsPDF from "jspdf";
 import { PDFDocument } from "pdf-lib";
-import { CONSTANCIA_CIUDAD_EMISION } from "../constants/constancias";
+import {
+  CONSTANCIA_CIUDAD_EMISION,
+  CONSTANCIA_TIPOS,
+} from "../constants/constancias";
 
 /** Assets del modelo Word (header CULTURA RN + firma Spelzini). */
 export const CONSTANCIA_LOGO_URL = "/plantillas/constancia/image2.png";
@@ -107,6 +110,7 @@ export function tratamientoConstancia(genero) {
 
 /**
  * @param {object} data
+ * @param {string} [data.tipo] convocatoria | participacion
  */
 export function buildConstanciaTexto(data) {
   const tr = tratamientoConstancia(data.genero);
@@ -129,10 +133,17 @@ export function buildConstanciaTexto(data) {
     emision.getFullYear(),
   );
 
-  const cuerpo =
-    `Por medio de la presente dejo constancia de que ${nombreCompleto}, DNI ${dni}, ` +
-    `ha sido ${tr.participio} como ${instrumento} a participar de los ensayos y conciertos ` +
-    `de la Orquesta Filarmónica de Río Negro ${rango} en ${locs}.`;
+  const esParticipacion =
+    String(data.tipo || CONSTANCIA_TIPOS.convocatoria) ===
+    CONSTANCIA_TIPOS.participacion;
+
+  const cuerpo = esParticipacion
+    ? `Por medio de la presente dejo constancia de que ${nombreCompleto}, DNI ${dni}, ` +
+      `participó de los ensayos y conciertos ` +
+      `de la Orquesta Filarmónica de Río Negro ${rango} en ${locs}.`
+    : `Por medio de la presente dejo constancia de que ${nombreCompleto}, DNI ${dni}, ` +
+      `ha sido ${tr.participio} como ${instrumento} a participar de los ensayos y conciertos ` +
+      `de la Orquesta Filarmónica de Río Negro ${rango} en ${locs}.`;
 
   return {
     encabezado: `${ciudad},  ${formatFechaLargaEs(emision)}`,
@@ -379,7 +390,11 @@ export async function generateConstanciaPdf(data) {
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^\w.-]+/g, "_")
     .slice(0, 60);
-  const filename = `Constancia_${safeName || "OFRN"}.pdf`;
+  const tipoSlug =
+    String(data.tipo || "") === CONSTANCIA_TIPOS.participacion
+      ? "Participacion_realizada"
+      : "Convocatoria";
+  const filename = `Constancia_${tipoSlug}_${safeName || "OFRN"}.pdf`;
 
   return { blob, base64, filename, texto };
 }

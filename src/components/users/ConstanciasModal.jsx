@@ -11,6 +11,9 @@ import {
 import {
   CONSTANCIA_ESTADO_LABEL,
   CONSTANCIA_ESTADOS,
+  CONSTANCIA_TIPOS,
+  CONSTANCIA_TIPO_LABEL,
+  CONSTANCIA_TIPO_LABEL_SHORT,
 } from "../../constants/constancias";
 import {
   listGirasElegiblesConstancia,
@@ -38,6 +41,10 @@ function formatShortDate(iso) {
   return `${day}/${m}/${y}`;
 }
 
+function solicitudKey(idGira, tipo) {
+  return `${idGira}:${tipo || CONSTANCIA_TIPOS.convocatoria}`;
+}
+
 export default function ConstanciasModal({
   isOpen,
   onClose,
@@ -52,23 +59,24 @@ export default function ConstanciasModal({
   const [saving, setSaving] = useState(false);
   const [giras, setGiras] = useState([]);
   const [solicitudes, setSolicitudes] = useState([]);
+  const [tipo, setTipo] = useState(CONSTANCIA_TIPOS.convocatoria);
   const [idGira, setIdGira] = useState("");
 
   const yaPedidas = useMemo(() => {
     const map = new Map();
     (solicitudes || []).forEach((s) => {
-      map.set(String(s.id_gira), s);
+      map.set(solicitudKey(s.id_gira, s.tipo), s);
     });
     return map;
   }, [solicitudes]);
 
   const girasDisponibles = useMemo(() => {
     return (giras || []).filter((g) => {
-      const prev = yaPedidas.get(String(g.id));
+      const prev = yaPedidas.get(solicitudKey(g.id, tipo));
       if (!prev) return true;
       return prev.estado === CONSTANCIA_ESTADOS.denegada;
     });
-  }, [giras, yaPedidas]);
+  }, [giras, yaPedidas, tipo]);
 
   useEffect(() => {
     if (!isOpen || !user?.id || !supabase) return undefined;
@@ -77,7 +85,7 @@ export default function ConstanciasModal({
       setLoading(true);
       try {
         const [g, s] = await Promise.all([
-          listGirasElegiblesConstancia(supabase, user.id),
+          listGirasElegiblesConstancia(supabase, user.id, { tipo }),
           listMisConstancias(supabase, user.id),
         ]);
         if (cancelled) return;
@@ -95,7 +103,11 @@ export default function ConstanciasModal({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, user?.id, supabase, onBadgeChange]);
+  }, [isOpen, user?.id, supabase, onBadgeChange, tipo]);
+
+  useEffect(() => {
+    setIdGira("");
+  }, [tipo]);
 
   if (!isOpen) return null;
 
@@ -106,19 +118,31 @@ export default function ConstanciasModal({
     }
     setSaving(true);
     try {
-      await solicitarConstancia(supabase, { user, idGira: Number(idGira) });
+      await solicitarConstancia(supabase, {
+        user,
+        idGira: Number(idGira),
+        tipo,
+      });
       toast.success(
         "Solicitud enviada. Queda pendiente de revisión: vas a recibir el PDF por mail cuando la aprueben.",
       );
       setIdGira("");
-      const s = await listMisConstancias(supabase, user.id);
+      const [g, s] = await Promise.all([
+        listGirasElegiblesConstancia(supabase, user.id, { tipo }),
+        listMisConstancias(supabase, user.id),
+      ]);
+      setGiras(g);
       setSolicitudes(s);
       onBadgeChange?.();
     } catch (err) {
       if (err?.mailFailed && err?.solicitud) {
         toast.warning(err.message);
         setIdGira("");
-        const s = await listMisConstancias(supabase, user.id);
+        const [g, s] = await Promise.all([
+          listGirasElegiblesConstancia(supabase, user.id, { tipo }),
+          listMisConstancias(supabase, user.id),
+        ]);
+        setGiras(g);
         setSolicitudes(s);
         onBadgeChange?.();
       } else {
@@ -171,11 +195,32 @@ export default function ConstanciasModal({
               Nueva solicitud
             </h3>
             <p className="text-[11px] leading-snug text-slate-500">
-              Solo giras sinfónicas o cameratas filarmónicas a las que asististe
-              o vas a asistir. Al enviar, queda{" "}
-              <strong>pendiente de revisión</strong>: te avisamos por mail y en
-              esta lista cuando se resuelva.
+              Podés pedir una de convocatoria y una de participación realizada
+              por gira (sinfónico / camerata). La de participación realizada
+              solo para giras ya finalizadas. Al enviar queda{" "}
+              <strong>pendiente de revisión</strong>.
             </p>
+
+            <div className="flex flex-wrap gap-1.5">
+              {[
+                CONSTANCIA_TIPOS.convocatoria,
+                CONSTANCIA_TIPOS.participacion,
+              ].map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setTipo(t)}
+                  className={`rounded-full border px-2.5 py-1 text-[11px] font-bold ${
+                    tipo === t
+                      ? "border-indigo-300 bg-indigo-50 text-indigo-700"
+                      : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                  }`}
+                >
+                  {CONSTANCIA_TIPO_LABEL_SHORT[t] || t}
+                </button>
+              ))}
+            </div>
+
             {loading ? (
               <div className="flex items-center gap-2 text-xs text-slate-500">
                 <IconLoader size={14} className="animate-spin" /> Cargando giras…
@@ -199,7 +244,9 @@ export default function ConstanciasModal({
                 </select>
                 {girasDisponibles.length === 0 && (
                   <p className="text-[11px] text-slate-400">
-                    No hay giras elegibles pendientes de solicitar.
+                    {tipo === CONSTANCIA_TIPOS.participacion
+                      ? "No hay giras finalizadas elegibles pendientes de solicitar."
+                      : "No hay giras elegibles pendientes de solicitar."}
                   </p>
                 )}
                 <button
@@ -213,7 +260,9 @@ export default function ConstanciasModal({
                   ) : (
                     <IconFileText size={14} />
                   )}
-                  Solicitar constancia
+                  Solicitar{" "}
+                  {CONSTANCIA_TIPO_LABEL_SHORT[tipo]?.toLowerCase() ||
+                    "constancia"}
                 </button>
               </>
             )}
@@ -231,7 +280,7 @@ export default function ConstanciasModal({
                 {solicitudes.map((s) => (
                   <li
                     key={s.id}
-                    className="rounded-lg border border-slate-150 border-slate-200 bg-slate-50 px-3 py-2"
+                    className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
@@ -241,7 +290,9 @@ export default function ConstanciasModal({
                             `Gira #${s.id_gira}`}
                         </p>
                         <p className="text-[11px] text-slate-500">
-                          {s.snap_instrumento || "—"} · pedida{" "}
+                          {CONSTANCIA_TIPO_LABEL[s.tipo] ||
+                            "Constancia de convocatoria"}{" "}
+                          · {s.snap_instrumento || "—"} · pedida{" "}
                           {formatShortDate(s.solicitado_at)}
                         </p>
                       </div>
