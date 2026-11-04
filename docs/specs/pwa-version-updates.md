@@ -11,7 +11,8 @@ El control **«Actualizar versión»** (banner) a menudo **no hacía nada en el 
 3. **Chunks hasheados**: sesión vieja + navigate a lazy route → `vite:preloadError` (404 del `.js` viejo).
 4. Sin `Cache-Control` explícito en `/version.json` e `/index.html`, CDN/browser podían retrasar la detección.
 5. **Rewrite SPA catch-all en Vercel** (`/(.*) → index.html`): si un chunk hasheado ya no existe, la petición `GET /assets/index-*.js` recibía **HTML** → error de consola *«Expected a JavaScript module script but the server responded with MIME type text/html»* (antes de montar React; `vite:preloadError` no aplica al entry).
-6. **Tap no-op (2026-09)**: el banner se mostraba por `needRefresh` (evento Workbox `waiting`) **o** por `version.json` desfasado, pero el click hacía `if (!registration?.waiting && !buildOutdated) { registration?.update(); return; }`. Sin `waiting` en el ref (register() aún pendiente, `onRegistered` tarde, `update()` en curso) el tap era silencio. Un `location.reload()` **antes** de que el SW nuevo controle sigue sirviendo el precache viejo. `updateServiceWorker(true)` de vite-plugin-pwa 1.2 solo hace `messageSkipWaiting()`: sin waiting, no-op. iOS PWA a menudo no dispara `controllerchange` / `controlling` (`event.isUpdate`).
+6. **Reload del mismo documento (2026-11):** con el SW viejo en control, `location.reload()` vuelve a servir el `index.html` precacheado y los chunks siguen en 404. Varios `vite:preloadError` en la misma carga hacían `removeItem` del contador, así que el tope no frenaba: el cartel titilaba unos segundos y el navegador terminaba cortando la navegación (pantalla gris, la app no monta).
+7. **Tap no-op (2026-09)**: el banner se mostraba por `needRefresh` (evento Workbox `waiting`) **o** por `version.json` desfasado, pero el click hacía `if (!registration?.waiting && !buildOutdated) { registration?.update(); return; }`. Sin `waiting` en el ref (register() aún pendiente, `onRegistered` tarde, `update()` en curso) el tap era silencio. Un `location.reload()` **antes** de que el SW nuevo controle sigue sirviendo el precache viejo. `updateServiceWorker(true)` de vite-plugin-pwa 1.2 solo hace `messageSkipWaiting()`: sin waiting, no-op. iOS PWA a menudo no dispara `controllerchange` / `controlling` (`event.isUpdate`).
 
 ## Comportamiento actual (producto)
 | Contexto | Qué pasa |
@@ -22,8 +23,8 @@ El control **«Actualizar versión»** (banner) a menudo **no hacía nada en el 
 | Staff cambia de ruta o pulsa Actualizar **con dirty** | No auto-aplica; confirm si el usuario fuerza Actualizar |
 | `/entradas/*`, `/viaticos-manual`, `/rendiciones-manual` (público) | Al cargar, si `version.json` o el service worker traen un build nuevo, se aplica y se recarga la página sin banner, overlay ni toast. Mismo camino si el build nuevo aparece con la pestaña abierta. Tope anti-bucle: 2 recargas en 15 s. |
 | `/transporte-scrn` | Al cargar (o al detectar build nuevo con la pestaña abierta), si hay versión nueva se dispara el **mismo** `beginApplyUpdate` / `applyPwaUpdate` del botón, sin esperar el click. El botón queda para reintentar, con estética SCRN (borde `#c5d0dc`, azul `#0054a6`, `IconRefresh`, `scrn-btn-primary`). Viáticos y rendiciones no usan este banner. Anti-bucle: sello `sessionStorage` `ofrn:transporte-auto-apply-at` (60 s, se limpia al salir de la ruta o cuando el build coincide) más el tope de 2 recargas en 15 s. No se hace unregister si la versión ya está al día. |
-| `vite:preloadError` | Overlay «Hay una versión nueva. Recargando…» + reload (tope anti-bucle) |
-| Entry `/assets/index-*.js` 404/MIME tras deploy | Rewrite Vercel solo si `Accept` incluye `text/html`; SW `navigateFallbackDenylist` incluye `/assets/`; script inline en `index.html` recarga una vez |
+| `vite:preloadError` o el entry `/assets/*.js` no carga | Un aviso y se abre `/refrescar.html?next=` (suelta el SW). Si esta sesión ya lo intentó hace menos de 60 s, el aviso queda quieto con **Abrir de nuevo**, sin recargar. Sin conexión no navega ni borra caché. |
+| Entry `/assets/index-*.js` 404/MIME tras deploy | Rewrite Vercel solo si `Accept` incluye `text/html`; SW `navigateFallbackDenylist` incluye `/assets/`. El script inline de `index.html` no recarga el mismo documento: va a `/refrescar.html`. |
 | Pantalla trabada (shell viejo) | Abrir `/refrescar.html` (opcional `?next=/ruta`). Muestra cada paso, desregistra el SW, borra Cache Storage, activa el SW nuevo y entra a esa versión sin el botón «Actualizar versión». No toca `localStorage` ni IndexedDB. |
 
 ### Ruta de apply (un tap)
@@ -50,12 +51,13 @@ Detección de build: `VITE_APP_BUILD_ID` embebido + poll de `/version.json` (foc
 - `src/components/ui/ReloadPrompt.jsx`
 - `src/utils/pwaApplyUpdate.js`
 - `src/utils/unsavedWork.js`
-- `src/main.jsx` (`vite:preloadError`)
+- `src/utils/chunkLoadRecovery.js` (script inline de `index.html`; no recarga el mismo documento)
 - `vite.config.js` (`appVersionPlugin`, PWA `skipWaiting: false`)
 - `src/utils/freshStart.js` (`/refrescar.html`)
 - `vercel.json` (headers `version.json`, `index.html`, `refrescar.html`, `assets` immutable)
 - `scripts/verify-pwa-apply-update.mjs`
 - `scripts/verify-fresh-start.mjs`
+- `scripts/verify-chunk-recovery.mjs`
 
 ## Nota operativa (deploys)
 - Preferir deploys cuando el staff no esté en picos de edición masiva; igual ya no se fuerza mid-form.
@@ -69,16 +71,18 @@ Detección de build: `VITE_APP_BUILD_ID` embebido + poll de `/version.json` (foc
 ## Dev local (`npm run dev`)
 - `ReloadPrompt` **no corre** en DEV (`import.meta.env.DEV`): el poll de `/version.json` + auto-reload al navegar era un falso positivo cuando Vite reiniciaba con un `APP_BUILD_ID` nuevo (`Date.now()`).
 - `APP_BUILD_ID` en `vite` serve es estable (`local-dev`); en `vite build` sigue siendo único por build.
-- `vite:preloadError` hard-reload y el script inline de recovery del entry **solo aplican fuera de DEV**.
+- El script inline de chunks rotos **solo se inyecta en el build** (en DEV el HMR no debe mandar a `/refrescar.html`). `src/main.jsx` ya no recarga por `vite:preloadError`.
 - Remounts “tipo restart” por HMR: ver Fast Refresh (no mezclar helpers no-componente en el mismo `.jsx` que UI); `AuthProvider` hidrata sesión desde `localStorage` sin desmontar el árbol.
 - El flujo de apply se verifica con `node scripts/verify-pwa-apply-update.mjs` (SW de producción no corre en `vite` serve).
 - La página de rescate se verifica con `node scripts/verify-fresh-start.mjs`. En `vite` serve y en el build responde `GET /refrescar.html`.
+- El corte del titileo se verifica con `node scripts/verify-chunk-recovery.mjs`.
 
 ## Estado
 - [x] Sin auto-reload mid-sesión en staff
 - [x] Banner ES + respeto dirty FIMBA
 - [x] Apply en navegación limpia
 - [x] Mensaje en preloadError
+- [x] **Sin titileo (2026-11-04):** un chunk 404 no recarga el mismo documento. Abre `/refrescar.html?next=` una vez por minuto; si ya se intentó, queda el aviso con «Abrir de nuevo». El sello `ofrn:chunk-rescue-at` no lo borran `/refrescar.html` ni el match de `version.json`.
 - [x] Headers Vercel para version/index/assets
 - [x] Rewrite SPA condicionado por `Accept: text/html` (no devolver HTML en peticiones de chunks)
 - [x] Recuperación inline si falla el entry script hasheado

@@ -4,6 +4,7 @@ import { VitePWA } from "vite-plugin-pwa";
 import fs from "fs";
 import path from "path";
 import { renderFreshStartHtml } from "./src/utils/freshStartPage.js";
+import { renderChunkRescueInlineScript } from "./src/utils/chunkLoadRecovery.js";
 
 // Solución para __dirname en módulos ES
 const __dirname = path.resolve();
@@ -115,7 +116,7 @@ export default defineConfig(({ command }) => {
 
   function appVersionPlugin(buildId) {
     const versionPayload = JSON.stringify({ buildId });
-    const mainChunkRecoveryScript = `<script>(function(){var k="ofrn:main-chunk-reload";window.addEventListener("error",function(ev){var t=ev.target;if(!t||t.tagName!=="SCRIPT"||!t.src||t.src.indexOf("/assets/")===-1)return;try{var n=Number(sessionStorage.getItem(k)||0);if(n>=2)return;sessionStorage.setItem(k,String(n+1))}catch(e){}window.location.reload()},true)})();</script>`;
+    const mainChunkRecoveryScript = renderChunkRescueInlineScript();
     return {
       name: "app-version",
       transformIndexHtml(html) {

@@ -52,6 +52,8 @@ function clearReloadGuards() {
   try {
     sessionStorage.removeItem(RELOAD_GUARD_KEY);
     sessionStorage.removeItem(PRELOAD_RELOAD_KEY);
+    // No borrar `ofrn:chunk-rescue-at`: si el build coincide y un chunk sigue
+    // en 404, el próximo preload volvería a abrir /refrescar.html en bucle.
   } catch {
     /* ignore */
   }

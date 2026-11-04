@@ -124,6 +124,8 @@ const SHELL_SESSION_KEYS = [
   "ofrn:preload-reload",
   "ofrn:main-chunk-reload",
   "ofrn:transporte-auto-apply-at",
+  // No incluir `ofrn:chunk-rescue-at`. Si esta página lo borra, un chunk que
+  // sigue faltando vuelve a entrar solo y la app titila entre / y /refrescar.html.
 ];
 
 /**
