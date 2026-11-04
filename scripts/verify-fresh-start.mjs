@@ -101,7 +101,10 @@ assert(freshStartDestination("?next=/%2e%2e/secreto") === "/", "rechaza ..");
 {
   registration.calls = 0;
   const caches = cacheBox();
-  const storage = memoryStorage({ "ofrn:pwa-reload-guard": "1" });
+  const storage = memoryStorage({
+    "ofrn:pwa-reload-guard": "1",
+    "ofrn:chunk-rescue-at": "1700000000000",
+  });
   const status = watchStatus();
   let replaced = "";
   const plan = await runFreshStart({
@@ -125,6 +128,7 @@ assert(freshStartDestination("?next=/%2e%2e/secreto") === "/", "rechaza ..");
   assert(registration.calls === 1, "desregistra igual");
   assert(caches.deleted.includes("precache"), "borra Cache Storage");
   assert(!storage.dump()["ofrn:pwa-reload-guard"], "limpia el tope de recargas");
+  assert(!storage.dump()["ofrn:chunk-rescue-at"], "limpia el sello del cartel para no dejarlo trabado");
   assert(!storage.dump()[FRESH_START_STORAGE_KEY], "limpia el paso");
   assert(!storage.dump()[FRESH_START_LOG_KEY], "al abrir la app no deja el historial");
   assert(storage.dump()[FRESH_OPEN_KEY] === "1", "marca la entrada para no mostrar Actualizar");
@@ -137,7 +141,7 @@ assert(freshStartDestination("?next=/%2e%2e/secreto") === "/", "rechaza ..");
 {
   registration.calls = 0;
   const caches = cacheBox();
-  const storage = memoryStorage();
+  const storage = memoryStorage({ "ofrn:chunk-rescue-at": "9" });
   const status = watchStatus();
   let reloaded = 0;
   const plan = await runFreshStart({
@@ -161,6 +165,10 @@ assert(freshStartDestination("?next=/%2e%2e/secreto") === "/", "rechaza ..");
   assert(registration.calls === 1, "desregistra antes de recargar");
   assert(caches.deleted.length === 0, "no borra la caché mientras el SW controla");
   assert(storage.dump()[FRESH_START_STORAGE_KEY] === "1", "cuenta el intento");
+  assert(
+    storage.dump()["ofrn:chunk-rescue-at"] === "9",
+    "mientras el SW controla no borra el sello",
+  );
   assert(
     status.codes.join(",") === "check,release,reload",
     "avisa revisar, soltar y confirmar",

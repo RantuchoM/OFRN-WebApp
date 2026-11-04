@@ -21,6 +21,15 @@ function assert(cond, msg) {
   }
 }
 
+function isRescueUrl(url, next) {
+  const prefix = "/refrescar.html?next=" + encodeURIComponent(next) + "&r=";
+  return typeof url === "string" && url.startsWith(prefix);
+}
+
+function rescueHtml() {
+  return `<!doctype html><html><body><main><h1>Un momento</h1><p id="msg">listo</p></main></body></html>`;
+}
+
 function createHost({
   pathname = "/giras",
   search = "",
@@ -35,13 +44,23 @@ function createHost({
       tagName: String(tag || "").toUpperCase(),
       id: "",
       src: "",
+      href: "",
       style: {},
       attrs: {},
       children: [],
       _text: "",
       _href: "",
+      _listeners: [],
       setAttribute(name, value) {
         this.attrs[name] = value;
+      },
+      addEventListener(type, fn) {
+        this._listeners.push({ type, fn });
+      },
+      dispatchEvent(event) {
+        for (const item of this._listeners) {
+          if (item.type === event.type) item.fn(event);
+        }
       },
       appendChild(child) {
         this.children.push(child);
@@ -77,6 +96,7 @@ function createHost({
   if (stamp != null) storage.set(CHUNK_RESCUE_KEY, String(stamp));
   const listeners = [];
   const replaced = [];
+  const written = [];
   const host = {
     document: {
       body,
@@ -84,6 +104,16 @@ function createHost({
       getElementById: (id) => nodes.get(id) || null,
       createElement: (tag) => makeEl(tag),
       createTextNode: (text) => ({ textContent: String(text), children: [] }),
+      open() {},
+      write(html) {
+        written.push(String(html));
+      },
+      close() {},
+    },
+    history: {
+      replaceState(_state, _title, url) {
+        host.historyUrl = url;
+      },
     },
     location: {
       pathname,
@@ -111,6 +141,7 @@ function createHost({
       }
     },
     replaced,
+    written,
     storage,
     listeners,
   };
@@ -132,6 +163,10 @@ function scriptError(src) {
   return { target: { tagName: "SCRIPT", src } };
 }
 
+function flush() {
+  return new Promise((resolve) => setImmediate(resolve));
+}
+
 {
   const host = createHost({ pathname: "/transporte-scrn", search: "?tab=viajes" });
   installChunkRescue(host);
@@ -151,8 +186,7 @@ function scriptError(src) {
   assert(prevented === 2, "cada preloadError se previene");
   assert(host.replaced.length === 1, "varios chunks rotos navegan una sola vez");
   assert(
-    host.replaced[0] ===
-      "/refrescar.html?next=" + encodeURIComponent("/transporte-scrn?tab=viajes"),
+    isRescueUrl(host.replaced[0], "/transporte-scrn?tab=viajes"),
     "el destino conserva la ruta",
   );
   assert(
@@ -165,7 +199,7 @@ function scriptError(src) {
     "avisa antes de salir",
   );
   assert(host.storage.get(CHUNK_RESCUE_KEY) === "1700000000000", "deja el sello anti-bucle");
-  assert(!overlayLink(host), "la salida automática no espera un click");
+  assert(overlayLink(host)?.textContent === "Abrir de nuevo", "el recargando también deja el botón");
 }
 
 {
@@ -176,9 +210,10 @@ function scriptError(src) {
   host.fire("error", scriptError("https://ofrn.example/assets/vendor-old.js"));
   assert(host.replaced.length === 0, "si ya se intentó, no vuelve a navegar");
   assert(overlayText(host).includes("No se pudo cargar la versión nueva."), "el aviso queda quieto");
+  assert(overlayText(host).includes("cerrá la app del todo"), "explica cómo destrabar en el celular");
   assert(overlayLink(host)?.textContent === "Abrir de nuevo", "ofrece abrir de nuevo");
   assert(
-    overlayLink(host)?.href === "/refrescar.html?next=" + encodeURIComponent("/entradas"),
+    isRescueUrl(overlayLink(host)?.href, "/entradas"),
     "el enlace manual también va a refrescar",
   );
   assert(host.storage.get(CHUNK_RESCUE_KEY) === String(now - 1_000), "no borra el sello al frenar");
@@ -222,11 +257,19 @@ function scriptError(src) {
 }
 
 {
+  const host = createHost({ pathname: "/refrescar.html", search: "?next=/giras" });
+  installChunkRescue(host);
+  assert(host.replaced.length === 1, "si el SW sirvió el shell en /refrescar.html, se rescata");
+  assert(isRescueUrl(host.replaced[0], "/giras"), "conserva el next original");
+}
+
+{
   const inline = renderChunkRescueInlineScript();
   assert(inline.startsWith("<script>(") && inline.endsWith(")(window);</script>"), "el inline llama al instalador");
   assert(!inline.includes("location.reload"), "el inline no recarga el mismo documento");
   assert(!/<\/script/i.test(inline.slice(8, -9)), "el cuerpo no cierra el tag");
   assert(inline.includes(CHUNK_RESCUE_KEY), "el inline lleva el mismo sello");
+  assert(inline.includes("fetch"), "el inline pide el HTML de rescate sin navegar");
 
   const host = createHost({ pathname: "/manual", search: "?p=2" });
   const code = inline.replace(/^<script>/, "").replace(/<\/script>$/, "");
@@ -236,6 +279,7 @@ function scriptError(src) {
     Date,
     Number,
     String,
+    Promise,
   });
   host.fire("error", scriptError("/assets/index-abc.js"));
   assert(host.replaced.length === 1, "el script inyectado navega sin depender del módulo");
@@ -252,12 +296,60 @@ function scriptError(src) {
   assert(!vite.includes("ofrn:main-chunk-reload"), "ya no está el reload ciego del entry");
 
   const fresh = fs.readFileSync(new URL("../src/utils/freshStart.js", import.meta.url), "utf8");
-  const shell = fresh.slice(fresh.indexOf("const SHELL_SESSION_KEYS"), fresh.indexOf("];"));
-  assert(!shell.includes(`"${CHUNK_RESCUE_KEY}"`), "refrescar no borra el sello");
+  const shellStart = fresh.indexOf("const SHELL_SESSION_KEYS");
+  const shell = fresh.slice(shellStart, fresh.indexOf("];", shellStart));
+  assert(shell.includes(`"${CHUNK_RESCUE_KEY}"`), "refrescar borra el sello al soltar el SW");
 
   const prompt = fs.readFileSync(new URL("../src/components/ui/ReloadPrompt.jsx", import.meta.url), "utf8");
   const clear = prompt.slice(prompt.indexOf("function clearReloadGuards"), prompt.indexOf("function readTransporteAutoStamp"));
   assert(!clear.includes(`removeItem("${CHUNK_RESCUE_KEY}")`), "el match de versión no borra el sello");
+}
+
+{
+  const host = createHost({ pathname: "/giras" });
+  host.fetch = async () => ({ ok: true, text: async () => rescueHtml() });
+  installChunkRescue(host);
+  host.fire("vite:preloadError", { preventDefault() {} });
+  await flush();
+  await flush();
+  assert(host.replaced.length === 0, "si llega el HTML de rescate, no navega");
+  assert(host.written.some((html) => html.includes("Un momento")), "escribe la página de rescate");
+  assert(String(host.historyUrl || "").startsWith("/refrescar.html"), "deja la URL en refrescar");
+}
+
+{
+  const host = createHost({ pathname: "/giras" });
+  host.fetch = async () => ({
+    ok: true,
+    text: async () => `<!doctype html><html><body><div id="root"></div></body></html>`,
+  });
+  installChunkRescue(host);
+  host.fire("vite:preloadError", { preventDefault() {} });
+  await flush();
+  await flush();
+  assert(host.written.length === 0, "no escribe el shell SPA como si fuera el rescate");
+  assert(isRescueUrl(host.replaced[0], "/giras"), "si el fetch trae el SPA, navega igual");
+}
+
+{
+  const now = 1_700_000_000_000;
+  const host = createHost({ now, stamp: now - 1_000, pathname: "/entradas" });
+  host.fetch = async () => ({ ok: true, text: async () => rescueHtml() });
+  installChunkRescue(host);
+  host.fire("error", scriptError("https://ofrn.example/assets/index-old.js"));
+  assert(host.replaced.length === 0 && host.written.length === 0, "el cartel quieto no dispara solo");
+  let prevented = false;
+  overlayLink(host).dispatchEvent({
+    type: "click",
+    preventDefault() {
+      prevented = true;
+    },
+  });
+  await flush();
+  await flush();
+  assert(prevented, "el tap no deja que el SW hijackee el href");
+  assert(host.written.some((html) => html.includes('id="msg"')), "Abrir de nuevo escribe el rescate");
+  assert(host.replaced.length === 0, "el tap no recarga el mismo shell");
 }
 
 if (process.exitCode) process.exit(process.exitCode);
