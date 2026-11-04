@@ -541,6 +541,102 @@ function AgendaEventSelectCheck({ checked, onToggle, compact = false }) {
   );
 }
 
+/** Una o varias locaciones de hotel en check-in/out (editores: multi-hotel). */
+function AgendaStayLocacionesBlock({
+  entries,
+  agendaSearchQuery,
+  isDeleted,
+  eventId,
+  idEstadoVenue,
+  venueLabel,
+  supabase,
+  pinSize = 14,
+  nameClassName = "text-xs font-semibold",
+  addressClassName = "text-[10px] text-blue-600 hover:underline truncate block w-full",
+}) {
+  const list = Array.isArray(entries) ? entries.filter(Boolean) : [];
+  if (!list.length) return null;
+
+  return (
+    <div
+      className={`flex min-w-0 items-start gap-1 ${isDeleted ? "text-orange-700" : "text-slate-500"}`}
+    >
+      <VenueStatusPin
+        eventId={eventId}
+        idEstadoVenue={idEstadoVenue}
+        label={venueLabel}
+        supabase={supabase}
+        className="mt-0.5"
+        size={pinSize}
+      />
+      <div className="flex flex-col min-w-0 gap-1.5">
+        {list.map((entry, idx) => {
+          const loc = entry?.locaciones || entry;
+          const locId = entry?.id_locacion ?? loc?.id ?? null;
+          const locName = loc?.nombre || entry?.hotelNombre || "";
+          const locCity = loc?.localidades?.localidad;
+          const locDisplayName = resolveLocacionNombre({
+            nombre: locName,
+            idLocacion: locId,
+            locacion: loc,
+          });
+          const key =
+            locId != null
+              ? `loc-${locId}`
+              : `loc-${idx}-${locDisplayName}`;
+          return (
+            <div key={key} className="flex flex-col min-w-0">
+              <span
+                className={`block min-w-0 truncate ${nameClassName} ${
+                  isDeleted ? "text-orange-700" : "text-slate-700"
+                }`}
+              >
+                {agendaSearchQuery?.trim() ? (
+                  <AgendaSearchHighlight
+                    text={locDisplayName}
+                    query={agendaSearchQuery}
+                  />
+                ) : (
+                  <LocacionNombreSpan
+                    nombre={locName}
+                    idLocacion={locId}
+                    locacion={loc}
+                  />
+                )}
+                {locCity ? (
+                  <>
+                    {" ("}
+                    <AgendaSearchHighlight
+                      text={locCity}
+                      query={agendaSearchQuery}
+                    />
+                    )
+                  </>
+                ) : null}
+              </span>
+              {loc?.direccion ? (
+                <a
+                  href={getGoogleMapsUrl(loc)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={addressClassName}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <AgendaSearchHighlight
+                    text={loc.direccion}
+                    query={agendaSearchQuery}
+                  />{" "}
+                  ↗
+                </a>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 /** Hora + check: el tilde queda centrado bajo el texto de la hora (p. ej. 20:00). */
 function AgendaEventTimeCluster({
   horaInicio,
@@ -931,6 +1027,12 @@ export default function UnifiedAgenda({
   /** Filtro / Tag de grupos: solo editores y admins, y solo si la gira ya tiene grupos. */
   const canManageGiraGrupos =
     !!giraId && (isEditor || isAdmin) && giraGrupos.length > 0;
+  /**
+   * Check-in/out con varios hoteles: editores/admins ven todas las locaciones
+   * de rooming (no en «Ver como» músico ni con «Solo mi hotelería»).
+   */
+  const canSeeEditorialStayLocaciones =
+    (isEditor || isAdmin || isManagement) && !isViewAsMode;
 
   /** Opciones para asignar grupos a un evento (sin sentinel Tutti). */
   const grupoFilterOptions = useMemo(
@@ -3581,14 +3683,51 @@ export default function UnifiedAgenda({
                     const isStayAjeno = Boolean(
                       stayGiraEvaluated && !isStayPropio,
                     );
+                    // Solo mi hotelería + Propio → locación personal.
+                    // Staff: multi-hotel de rooming (evento o gira), aunque
+                    // el filtro personal esté on y la gira no esté evaluada.
+                    const wantPersonalStayLoc = Boolean(
+                      showOnlyMyStay &&
+                        isStayPropio &&
+                        (stayMeta?.locaciones || stayMeta?.id_locacion != null),
+                    );
+                    const editorialStayLocs =
+                      canSeeEditorialStayLocaciones &&
+                      isStayEvent &&
+                      !wantPersonalStayLoc
+                        ? myStayLogistics?.editorialByEventId?.[String(evt.id)]
+                            ?.locaciones || null
+                        : null;
+                    const useEditorialStayLocs =
+                      Array.isArray(editorialStayLocs) &&
+                      editorialStayLocs.length > 0;
                     const displayLocacion =
-                      isStayPropio && stayMeta?.locaciones
-                        ? stayMeta.locaciones
-                        : evt.locaciones;
+                      useEditorialStayLocs
+                        ? editorialStayLocs[0]?.locaciones || null
+                        : wantPersonalStayLoc && stayMeta?.locaciones
+                          ? stayMeta.locaciones
+                          : isStayPropio && stayMeta?.locaciones
+                            ? stayMeta.locaciones
+                            : evt.locaciones;
                     const displayLocId =
-                      isStayPropio && stayMeta?.id_locacion != null
-                        ? stayMeta.id_locacion
-                        : evt.id_locacion;
+                      useEditorialStayLocs
+                        ? editorialStayLocs[0]?.id_locacion ?? null
+                        : wantPersonalStayLoc && stayMeta?.id_locacion != null
+                          ? stayMeta.id_locacion
+                          : isStayPropio && stayMeta?.id_locacion != null
+                            ? stayMeta.id_locacion
+                            : evt.id_locacion;
+                    const displayLocacionEntries = useEditorialStayLocs
+                      ? editorialStayLocs
+                      : displayLocacion || displayLocId
+                        ? [
+                            {
+                              id_locacion: displayLocId,
+                              locaciones: displayLocacion,
+                              hotelNombre: displayLocacion?.nombre || null,
+                            },
+                          ]
+                        : [];
                     let debugReason = null;
 
                     if (isTransportEvent && !isMyTransport) {
@@ -3629,18 +3768,14 @@ export default function UnifiedAgenda({
                     const showDay = evt.fecha !== lastDateRendered;
                     if (showDay) lastDateRendered = evt.fecha;
 
-                    const locName = displayLocacion?.nombre || "";
-                    const locCity = displayLocacion?.localidades?.localidad;
-                    const locDisplayName = resolveLocacionNombre({
-                      nombre: locName,
-                      idLocacion: displayLocId,
-                      locacion: displayLocacion,
-                    });
-                    const showLocacion = shouldShowLocacionEnEvento({
-                      ...evt,
-                      id_locacion: displayLocId,
-                      locaciones: displayLocacion,
-                    });
+                    const showLocacion =
+                      displayLocacionEntries.length > 0 ||
+                      shouldShowLocacionEnEvento({
+                        ...evt,
+                        id_locacion: displayLocId,
+                        locaciones: displayLocacion,
+                      });
+                    const stayVenueLabel = `${evt.tipos_evento?.nombre || "Evento"} ${evt.fecha || ""} ${evt.hora_inicio?.slice(0, 5) || ""}`;
                     const isConcertEvent =
                       Number(evt.id_tipo_evento) === 1 ||
                       isConcertHistoryEvent(evt);
@@ -4107,64 +4242,18 @@ export default function UnifiedAgenda({
                                       </span>
                                     )}
                                     {showLocacion && (
-                                      <div
-                                        className={`flex min-w-0 items-start gap-1 text-xs mt-0.5 ${isDeleted ? "text-orange-700" : "text-slate-500"}`}
-                                      >
-                                        <VenueStatusPin
+                                      <div className="mt-0.5">
+                                        <AgendaStayLocacionesBlock
+                                          entries={displayLocacionEntries}
+                                          agendaSearchQuery={agendaSearchQuery}
+                                          isDeleted={isDeleted}
                                           eventId={evt.id}
                                           idEstadoVenue={evt.id_estado_venue}
-                                          label={`${evt.tipos_evento?.nombre || "Evento"} ${evt.fecha || ""} ${evt.hora_inicio?.slice(0, 5) || ""}`}
+                                          venueLabel={stayVenueLabel}
                                           supabase={supabase}
-                                          className="mt-0.5"
-                                          size={14}
+                                          nameClassName="text-xs font-semibold"
+                                          addressClassName="text-[10px] text-blue-600 hover:underline truncate block w-full"
                                         />
-                                        <div className="flex flex-col min-w-0">
-                                          <span
-                                            className={`block min-w-0 font-semibold truncate ${isDeleted ? "text-orange-700" : "text-slate-700"}`}
-                                          >
-                                            {agendaSearchQuery.trim() ? (
-                                              <AgendaSearchHighlight
-                                                text={locDisplayName}
-                                                query={agendaSearchQuery}
-                                              />
-                                            ) : (
-                                              <LocacionNombreSpan
-                                                nombre={locName}
-                                                idLocacion={displayLocId}
-                                                locacion={displayLocacion}
-                                              />
-                                            )}
-                                            {locCity ? (
-                                              <>
-                                                {" ("}
-                                                <AgendaSearchHighlight
-                                                  text={locCity}
-                                                  query={agendaSearchQuery}
-                                                />
-                                                )
-                                              </>
-                                            ) : null}
-                                          </span>
-                                          {displayLocacion?.direccion && (
-                                            <a
-                                              href={getGoogleMapsUrl(
-                                                displayLocacion,
-                                              )}
-                                              target="_blank"
-                                              rel="noopener noreferrer"
-                                              className="text-[10px] text-blue-600 hover:underline truncate block w-full"
-                                              onClick={(e) =>
-                                                e.stopPropagation()
-                                              }
-                                            >
-                                              <AgendaSearchHighlight
-                                                text={displayLocacion.direccion}
-                                                query={agendaSearchQuery}
-                                              />{" "}
-                                              ↗
-                                            </a>
-                                          )}
-                                        </div>
                                       </div>
                                     )}
                                   </div>
@@ -4697,63 +4786,17 @@ export default function UnifiedAgenda({
                                   className={`${showGruposColumn ? "col-span-2" : "col-span-3"} min-w-0`}
                                 >
                                   {showLocacion && (
-                                    <div
-                                      className={`flex items-start gap-1.5 ${isDeleted ? "text-orange-700" : ""}`}
-                                    >
-                                      <VenueStatusPin
-                                        eventId={evt.id}
-                                        idEstadoVenue={evt.id_estado_venue}
-                                        label={`${evt.tipos_evento?.nombre || "Evento"} ${evt.fecha || ""} ${evt.hora_inicio?.slice(0, 5) || ""}`}
-                                        supabase={supabase}
-                                        className="mt-0.5"
-                                        size={14}
-                                      />
-                                      <div className="flex flex-col min-w-0">
-                                        <span
-                                          className={`text-xs font-semibold truncate block ${isDeleted ? "text-orange-700" : "text-slate-700"}`}
-                                        >
-                                          {agendaSearchQuery.trim() ? (
-                                            <AgendaSearchHighlight
-                                              text={locDisplayName}
-                                              query={agendaSearchQuery}
-                                            />
-                                          ) : (
-                                            <LocacionNombreSpan
-                                              nombre={locName}
-                                              idLocacion={displayLocId}
-                                              locacion={displayLocacion}
-                                            />
-                                          )}
-                                          {locCity ? (
-                                            <>
-                                              {" ("}
-                                              <AgendaSearchHighlight
-                                                text={locCity}
-                                                query={agendaSearchQuery}
-                                              />
-                                              )
-                                            </>
-                                          ) : null}
-                                        </span>
-                                        {displayLocacion?.direccion && (
-                                          <a
-                                            href={getGoogleMapsUrl(
-                                              displayLocacion,
-                                            )}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="text-[10px] text-blue-600 hover:underline truncate block w-full mt-0.5"
-                                            onClick={(e) => e.stopPropagation()}
-                                          >
-                                            <AgendaSearchHighlight
-                                              text={displayLocacion.direccion}
-                                              query={agendaSearchQuery}
-                                            />{" "}
-                                            ↗
-                                          </a>
-                                        )}
-                                      </div>
-                                    </div>
+                                    <AgendaStayLocacionesBlock
+                                      entries={displayLocacionEntries}
+                                      agendaSearchQuery={agendaSearchQuery}
+                                      isDeleted={isDeleted}
+                                      eventId={evt.id}
+                                      idEstadoVenue={evt.id_estado_venue}
+                                      venueLabel={stayVenueLabel}
+                                      supabase={supabase}
+                                      nameClassName="text-xs font-semibold"
+                                      addressClassName="text-[10px] text-blue-600 hover:underline truncate block w-full mt-0.5"
+                                    />
                                   )}
                                 </div>
 

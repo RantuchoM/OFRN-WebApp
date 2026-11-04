@@ -54,7 +54,7 @@ Texto común:
 
 | Evento | Template | Destinatario | Contenido |
 |--------|----------|--------------|-----------|
-| Solicitud creada | `constancia_solicitud` | `filarmonica.scrn+constancias@gmail.com` | Asunto: `Solicitud de constancia ({tipo}) \| {nombre} \| {gira}`; cuerpo con Tipo + datos + mes/nomenclador/zona + fechas + CTA |
+| Solicitud creada | `constancia_solicitud` | `filarmonica.scrn+constancias@gmail.com` | Asunto: `Solicitud de constancia ({tipo}) \| {nombre} \| {gira}`; cuerpo con Tipo + datos + mes/nomenclador/zona + fechas + CTA a `/management/constancias` (sin `?solicitud=`, sin fila resaltada) |
 | Aprobación | `constancia_aprobada` | mail del integrante | Aviso + PDF aplanado adjunto |
 | Denegación | `constancia_denegada` | mail del integrante | Motivo |
 

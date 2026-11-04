@@ -856,7 +856,7 @@ const InitialOrderReportModal = ({
                         )}
                         <h3 className="desglose-heading">Desglose por Fechas y Categoría</h3>
                         <p className="print-note text-[10px] text-slate-400 mb-2 italic">
-                          * Referencia: (Pax × Noches) = Total Camas Noche. Noches = calendario (check-out − check-in) + 0,5 early + 0,5 late. Un check-out a las 17:00 cuenta como late. Las cunas no se facturan; se informan para el hotel.
+                          * Referencia: (Pax × Noches) = Total Camas Noche. Noches = calendario (check-out − check-in) + 0,5 early + 0,5 late (solo con tilde / tipo 40 o 41). Las cunas no se facturan; se informan para el hotel.
                         </p>
 
                         {hotelBlocks.map((block, blockIdx) => (

@@ -898,8 +898,8 @@
         );
         const cta = link
           ? `<div style="margin:18px 0; padding:16px; background:#eef2ff; border:1px solid #c7d2fe; border-radius:8px; text-align:center;">
-              <p style="margin:0 0 10px 0; font-size:13px; color:#312e81;">Abrí la solicitud en Gestión:</p>
-              <a href="${link}" style="display:inline-block; background:#4f46e5; color:#ffffff; text-decoration:none; font-weight:bold; font-size:14px; padding:12px 22px; border-radius:6px;">Ver solicitud</a>
+              <p style="margin:0 0 10px 0; font-size:13px; color:#312e81;">Abrí el panel de constancias en Gestión:</p>
+              <a href="${link}" style="display:inline-block; background:#4f46e5; color:#ffffff; text-decoration:none; font-weight:bold; font-size:14px; padding:12px 22px; border-radius:6px;">Abrir Gestión</a>
               <p style="margin:12px 0 0 0; font-size:11px; color:#64748b; word-break:break-all;">Si el botón no funciona:<br><a href="${link}" style="color:#4f46e5;">${link}</a></p>
             </div>`
           : "";

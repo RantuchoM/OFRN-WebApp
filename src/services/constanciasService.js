@@ -295,11 +295,15 @@ export async function countMisConstanciasNoVistas(supabase, integranteId) {
   return count || 0;
 }
 
-export async function countConstanciasPendientes(supabase) {
-  const { count, error } = await supabase
+export async function countConstanciasPendientes(supabase, { tipo } = {}) {
+  let q = supabase
     .from("constancias_solicitudes")
     .select("id", { count: "exact", head: true })
     .eq("estado", CONSTANCIA_ESTADOS.pendiente);
+  if (tipo === CONSTANCIA_TIPOS.convocatoria || tipo === CONSTANCIA_TIPOS.participacion) {
+    q = q.eq("tipo", tipo);
+  }
+  const { count, error } = await q;
   if (error) throw error;
   return count || 0;
 }
@@ -529,7 +533,8 @@ export async function notificarOficinaSolicitudConstancia(
       fechas_rango_corto: fechasRangoCorto,
       fechas_label: fechas,
       localidades: solicitud.snap_localidades,
-      link_solicitud: constanciaGestionLink(solicitud.id),
+      // Sin ?solicitud= : abre el panel sin resaltar una fila.
+      link_solicitud: constanciaGestionLink(),
       tipo_constancia: tipoNorm,
       tipo_constancia_label: CONSTANCIA_TIPO_LABEL[tipoNorm] || tipoNorm,
     },
@@ -846,7 +851,7 @@ export async function enviarModelosConstanciaArchivo(supabase, {
   email = CONSTANCIA_MAIL_MODELOS,
 } = {}) {
   const sampleGira = "W.A Mozart";
-  const sampleLink = constanciaGestionLink(999);
+  const sampleLink = constanciaGestionLink();
   const { base64, filename } = await generateConstanciaPdf({
     nombre: "Martin",
     apellido: "Pike",

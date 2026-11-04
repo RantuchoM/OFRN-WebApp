@@ -315,13 +315,17 @@ function toStayDate(value) {
 }
 
 /**
- * Early: tipo 40, FK extra, o hora &lt; 14:00 (no el 12:00 de logística).
- * Late: tipo 41, FK extra, o hora &gt; 10:00 (no el 12:00 de logística).
+ * Early/Late explícitos: tilde (FK extra) o tipo 40/41.
+ * Tipo 22/23 habitual = no early/late aunque la hora no sea 14:00/10:00
+ * (p. ej. check-out 11:30 sin tilde). Heurística de hora solo si no hay tipo
+ * (legado / fechas manuales sin evento).
  */
 function isEarlyFromHit(hit, { linkedCounts = false } = {}) {
   if (!hit || typeof hit !== "object") return false;
   if (linkedCounts && hitHasStayExtra(hit)) return true;
-  if (isEarlyCheckInTipo(hitTipoEventoId(hit))) return true;
+  const tipo = hitTipoEventoId(hit);
+  if (isEarlyCheckInTipo(tipo)) return true;
+  if (tipo === TIPO_EVENTO_CHECKIN) return false;
   const mins = hitHoraMinutes(hit);
   if (mins == null) return false;
   const habitual = timeToMinutes(HORA_CHECKIN_HABITUAL);
@@ -332,7 +336,9 @@ function isEarlyFromHit(hit, { linkedCounts = false } = {}) {
 function isLateFromHit(hit, { linkedCounts = false } = {}) {
   if (!hit || typeof hit !== "object") return false;
   if (linkedCounts && hitHasStayExtra(hit)) return true;
-  if (isLateCheckOutTipo(hitTipoEventoId(hit))) return true;
+  const tipo = hitTipoEventoId(hit);
+  if (isLateCheckOutTipo(tipo)) return true;
+  if (tipo === TIPO_EVENTO_CHECKOUT) return false;
   const mins = hitHoraMinutes(hit);
   if (mins == null) return false;
   const habitual = timeToMinutes(HORA_CHECKOUT_HABITUAL);
@@ -382,15 +388,25 @@ export function stayExtraFlagsFromLogistics(log) {
   };
 }
 
-/** 0, 0.5 o 1.0 según early / late (tipo, FK extra o hora). */
+/** 0, 0.5 o 1.0 según early / late (tipo 40/41 o FK extra). */
 export function extraHotelNightsFromLogistics(log) {
   return stayExtraFlagsFromLogistics(log).extraNights;
 }
 
 /**
- * Extra 0,5 también si el instante de estadía es early/late y el log no lo marcó
- * (p. ej. Check-Out 17:00 sin tilde / tipo 41).
+ * Si el log ya resolvió check-in/out (evento o fecha de regla), la tilde/tipo
+ * mandan: no reinventar early/late por la hora del instante (evita marcar
+ * Late a todo el roster por un Check-Out 23 a las 11:30).
+ * Sin hito de log, la heurística de hora cubre bookings/legado.
  */
+function hourFallbackAllowed(log, side) {
+  if (!log) return true;
+  if (side === "checkin") {
+    return !(hitHasStayExtra(log.checkin) || hitHasStayExtra(log.checkin_early));
+  }
+  return !(hitHasStayExtra(log.checkout) || hitHasStayExtra(log.checkout_late));
+}
+
 export function extraHotelNightsFromStay({
   dateIn,
   dateOut,
@@ -400,10 +416,18 @@ export function extraHotelNightsFromStay({
   if (ocupaCama === false) return 0;
   const flags = stayExtraFlagsFromLogistics(log);
   let extra = flags.extraNights;
-  if (!flags.early && isEarlyFromMinutes(dateHoraMinutes(dateIn))) {
+  if (
+    !flags.early &&
+    hourFallbackAllowed(log, "checkin") &&
+    isEarlyFromMinutes(dateHoraMinutes(dateIn))
+  ) {
     extra += HALF_NIGHT_EXTRA;
   }
-  if (!flags.late && isLateFromMinutes(dateHoraMinutes(dateOut))) {
+  if (
+    !flags.late &&
+    hourFallbackAllowed(log, "checkout") &&
+    isLateFromMinutes(dateHoraMinutes(dateOut))
+  ) {
     extra += HALF_NIGHT_EXTRA;
   }
   return extra;
@@ -420,8 +444,13 @@ export function stayExtraFlagsFromStay({
   }
   const fromLog = stayExtraFlagsFromLogistics(log);
   const early =
-    fromLog.early || isEarlyFromMinutes(dateHoraMinutes(dateIn));
-  const late = fromLog.late || isLateFromMinutes(dateHoraMinutes(dateOut));
+    fromLog.early ||
+    (hourFallbackAllowed(log, "checkin") &&
+      isEarlyFromMinutes(dateHoraMinutes(dateIn)));
+  const late =
+    fromLog.late ||
+    (hourFallbackAllowed(log, "checkout") &&
+      isLateFromMinutes(dateHoraMinutes(dateOut)));
   return {
     early,
     late,
@@ -573,7 +602,7 @@ export function ruleEventColumn(field) {
 }
 
 export const STAY_EVENT_FOOTNOTE =
-  "Noches facturadas = (check-out − check-in) + 0,5 early + 0,5 late (se acumulan). Late: tipo 41, tilde/FK extra, o check-out después de las 10:00 (el 12:00 de logística no cuenta). Early: tipo 40, tilde/FK extra, o check-in antes de las 14:00 (el 12:00 de logística no cuenta). Cunas no facturan.";
+  "Noches facturadas = (check-out − check-in) + 0,5 early + 0,5 late (se acumulan). Late: solo tipo 41 o tilde/FK extra (un Check-Out 23 a otra hora no suma). Early: solo tipo 40 o tilde/FK extra. Cunas no facturan.";
 
 const STAY_LOGISTICS_FIELDS = [
   "checkin",
@@ -637,4 +666,121 @@ export function collectOwnStayAgendaMeta(person) {
     };
   }
   return own;
+}
+
+function uniqueStayLocacionEntries(entries) {
+  const byKey = new Map();
+  for (const entry of entries || []) {
+    if (!entry) continue;
+    const id =
+      entry.id_locacion != null && entry.id_locacion !== ""
+        ? Number(entry.id_locacion)
+        : entry.locaciones?.id != null
+          ? Number(entry.locaciones.id)
+          : null;
+    const nombre = String(
+      entry.locaciones?.nombre || entry.hotelNombre || "",
+    ).trim();
+    const key =
+      Number.isFinite(id) && id != null
+        ? `id:${id}`
+        : nombre
+          ? `name:${nombre.toLowerCase()}`
+          : null;
+    if (!key || byKey.has(key)) continue;
+    byKey.set(key, {
+      id_locacion: Number.isFinite(id) ? id : null,
+      locaciones: entry.locaciones || null,
+      hotelNombre: entry.hotelNombre || entry.locaciones?.nombre || null,
+    });
+  }
+  return Array.from(byKey.values()).sort((a, b) =>
+    String(a.locaciones?.nombre || a.hotelNombre || "").localeCompare(
+      String(b.locaciones?.nombre || b.hotelNombre || ""),
+      "es",
+      { sensitivity: "base" },
+    ),
+  );
+}
+
+function stayHotelEntryFromPerson(person) {
+  const hotel = hotelLocacionFromHabitacion(person?.habitacion);
+  const hotelRow =
+    person?.habitacion?._hospedaje?.hoteles ||
+    person?.habitacion?.hoteles ||
+    null;
+  const hotelNombre =
+    hotelRow?.nombre || hotel.locaciones?.nombre || null;
+  if (!hotel.id_locacion && !hotel.locaciones && !hotelNombre) return null;
+  const locaciones =
+    hotel.locaciones ||
+    (hotelNombre || hotel.id_locacion
+      ? {
+          id: hotel.id_locacion,
+          nombre: hotelNombre || "Hotel",
+          direccion: hotelRow?.direccion || null,
+          link_mapa: hotelRow?.link_mapa || null,
+          localidades: hotelRow?.locaciones?.localidades || null,
+        }
+      : null);
+  return {
+    id_locacion: hotel.id_locacion,
+    locaciones,
+    hotelNombre,
+  };
+}
+
+/**
+ * Locaciones de hotel por evento de estadía, para editores/admins.
+ * Agrega el hotel de rooming de cada persona en los check-in/out de su
+ * regla ganadora. Un evento solo lista varios hoteles si hay gente de esa
+ * estadía alojada en lugares distintos.
+ *
+ * @param {Array<object>} people - filas de `calculateLogisticsSummary` (con habitacion + logistics)
+ * @returns {Record<string, { locaciones: Array<{ id_locacion: number|null, locaciones: object|null, hotelNombre: string|null }> }>}
+ */
+export function collectEditorialStayLocacionesFromPeople(people = []) {
+  const byEventId = {};
+  for (const person of people || []) {
+    if (!person) continue;
+    const estado = String(person.estado_gira || person.estado || "")
+      .toLowerCase()
+      .trim();
+    if (["ausente", "baja", "no_convocado"].includes(estado)) continue;
+
+    const entry = stayHotelEntryFromPerson(person);
+    if (!entry) continue;
+
+    for (const field of STAY_LOGISTICS_FIELDS) {
+      const hit = person.logistics?.[field] || person[field];
+      if (!hit || hit.isLinked !== true) continue;
+      const eid = hit.id_evento ?? hit.id;
+      if (eid == null || eid === "") continue;
+      const key = String(eid);
+      const prev = byEventId[key]?.locaciones || [];
+      byEventId[key] = {
+        locaciones: uniqueStayLocacionEntries([...prev, entry]),
+      };
+    }
+  }
+  return byEventId;
+}
+
+/** IDs de integrantes asignados en habitaciones (lista + asignaciones_config). */
+export function collectAssignedIntegranteIdsFromRooms(rooms = []) {
+  const ids = new Set();
+  for (const room of rooms || []) {
+    for (const id of room.id_integrantes_asignados || []) {
+      if (id == null || id === "") continue;
+      ids.add(String(id));
+    }
+    const configs = Array.isArray(room.asignaciones_config)
+      ? room.asignaciones_config
+      : [];
+    for (const cfg of configs) {
+      if (cfg?.id == null || cfg.id === "") continue;
+      ids.add(String(cfg.id));
+    }
+  }
+  return Array.from(ids);
 }

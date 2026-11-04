@@ -29,6 +29,7 @@ import {
   reenviarConstanciaAprobada,
   descargarConstanciaPdf,
   updateConstanciaSnapFuncion,
+  countConstanciasPendientes,
 } from "../../services/constanciasService";
 import { supabase } from "../../services/supabase";
 import { useAuth } from "../../context/AuthContext";
@@ -51,6 +52,40 @@ function estadoClass(estado) {
   return "bg-amber-50 text-amber-800 border-amber-200";
 }
 
+function filtroEstadoChipClass(id, active) {
+  const map = {
+    pendiente: active
+      ? "border-amber-400 bg-amber-100 text-amber-950 shadow-sm shadow-amber-200/60"
+      : "border-amber-200 bg-amber-50/70 text-amber-800 hover:bg-amber-100",
+    aprobada: active
+      ? "border-emerald-400 bg-emerald-100 text-emerald-950 shadow-sm shadow-emerald-200/60"
+      : "border-emerald-200 bg-emerald-50/70 text-emerald-800 hover:bg-emerald-100",
+    denegada: active
+      ? "border-rose-400 bg-rose-100 text-rose-950 shadow-sm shadow-rose-200/60"
+      : "border-rose-200 bg-rose-50/70 text-rose-800 hover:bg-rose-100",
+    todas: active
+      ? "border-slate-400 bg-slate-200 text-slate-900 shadow-sm"
+      : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50",
+  };
+  return map[id] || map.todas;
+}
+
+function filtroTipoChipClass(id, active) {
+  if (id === CONSTANCIA_TIPOS.convocatoria) {
+    return active
+      ? "border-violet-400 bg-violet-100 text-violet-950 shadow-sm shadow-violet-200/60"
+      : "border-violet-200 bg-violet-50/70 text-violet-800 hover:bg-violet-100";
+  }
+  if (id === CONSTANCIA_TIPOS.participacion) {
+    return active
+      ? "border-sky-400 bg-sky-100 text-sky-950 shadow-sm shadow-sky-200/60"
+      : "border-sky-200 bg-sky-50/70 text-sky-800 hover:bg-sky-100";
+  }
+  return active
+    ? "border-indigo-400 bg-indigo-100 text-indigo-950 shadow-sm shadow-indigo-200/60"
+    : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50";
+}
+
 export default function ConstanciasHub() {
   const { user, isEditor, isAdmin } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -69,6 +104,7 @@ export default function ConstanciasHub() {
   const [approvingAll, setApprovingAll] = useState(false);
   /** Borradores del texto «como …» por solicitud (convocatoria). */
   const [comoById, setComoById] = useState({});
+  const [pendientesTotal, setPendientesTotal] = useState(0);
 
   const canManage = isAdmin || isEditor;
 
@@ -83,11 +119,15 @@ export default function ConstanciasHub() {
     try {
       const estado =
         filtro === "todas" ? undefined : filtro || CONSTANCIA_ESTADOS.pendiente;
-      const data = await listConstanciasGestion(supabase, {
-        estado,
-        tipo: tipoFilterParam,
-      });
+      const [data, pendientes] = await Promise.all([
+        listConstanciasGestion(supabase, {
+          estado,
+          tipo: tipoFilterParam,
+        }),
+        countConstanciasPendientes(supabase, { tipo: tipoFilterParam }),
+      ]);
       setRows(data);
+      setPendientesTotal(pendientes);
     } catch (err) {
       console.error("[ConstanciasHub] load:", err);
       toast.error(err?.message || "Error al cargar solicitudes");
@@ -126,11 +166,12 @@ export default function ConstanciasHub() {
     });
   }, [rows]);
 
-  const pendientesCount = useMemo(
-    () =>
-      rows.filter((r) => r.estado === CONSTANCIA_ESTADOS.pendiente).length,
-    [rows],
-  );
+  const pendientesCount = useMemo(() => {
+    if (filtro === CONSTANCIA_ESTADOS.pendiente) {
+      return rows.length;
+    }
+    return pendientesTotal;
+  }, [filtro, rows, pendientesTotal]);
 
   const persistComoIfNeeded = async (row) => {
     if (!row || row.estado !== CONSTANCIA_ESTADOS.pendiente) {
@@ -287,29 +328,39 @@ export default function ConstanciasHub() {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex min-w-0 flex-col gap-1.5">
-          <div className="flex flex-wrap items-center gap-1.5">
+        <div className="flex min-w-0 flex-col gap-2">
+          <div className="inline-flex flex-wrap items-center gap-1 rounded-xl border border-slate-200/80 bg-slate-50/80 p-1">
             {[
               { id: "pendiente", label: "Pendientes" },
               { id: "aprobada", label: "Aprobadas" },
               { id: "denegada", label: "Denegadas" },
               { id: "todas", label: "Todas" },
-            ].map((f) => (
-              <button
-                key={f.id}
-                type="button"
-                onClick={() => setFiltro(f.id)}
-                className={`rounded-full border px-2.5 py-1 text-[11px] font-bold ${
-                  filtro === f.id
-                    ? "border-indigo-300 bg-indigo-50 text-indigo-700"
-                    : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-                }`}
-              >
-                {f.label}
-              </button>
-            ))}
+            ].map((f) => {
+              const active = filtro === f.id;
+              return (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => setFiltro(f.id)}
+                  className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-bold transition-colors ${filtroEstadoChipClass(f.id, active)}`}
+                >
+                  {f.label}
+                  {f.id === "pendiente" ? (
+                    <span
+                      className={`inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-black tabular-nums ${
+                        active
+                          ? "bg-amber-600 text-white"
+                          : "bg-amber-200/90 text-amber-950"
+                      }`}
+                    >
+                      {pendientesCount}
+                    </span>
+                  ) : null}
+                </button>
+              );
+            })}
           </div>
-          <div className="flex flex-wrap items-center gap-1.5">
+          <div className="inline-flex flex-wrap items-center gap-1 rounded-xl border border-slate-200/80 bg-white p-1">
             {[
               { id: "todas", label: "Todos los tipos" },
               {
@@ -320,20 +371,19 @@ export default function ConstanciasHub() {
                 id: CONSTANCIA_TIPOS.participacion,
                 label: CONSTANCIA_TIPO_LABEL_SHORT.participacion,
               },
-            ].map((f) => (
-              <button
-                key={f.id}
-                type="button"
-                onClick={() => setFiltroTipo(f.id)}
-                className={`rounded-full border px-2.5 py-1 text-[11px] font-bold ${
-                  filtroTipo === f.id
-                    ? "border-violet-300 bg-violet-50 text-violet-800"
-                    : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-                }`}
-              >
-                {f.label}
-              </button>
-            ))}
+            ].map((f) => {
+              const active = filtroTipo === f.id;
+              return (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => setFiltroTipo(f.id)}
+                  className={`rounded-lg border px-2.5 py-1.5 text-[11px] font-bold transition-colors ${filtroTipoChipClass(f.id, active)}`}
+                >
+                  {f.label}
+                </button>
+              );
+            })}
           </div>
         </div>
         <div className="flex items-center gap-1.5">

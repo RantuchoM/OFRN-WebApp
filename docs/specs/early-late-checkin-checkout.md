@@ -42,6 +42,14 @@ Ausente = cero habitaciones (sin cambio). Vacantes: las noches siguen la logíst
   - Resto de estadías de la misma gira evaluada: tag **No propio**, tarjeta atenuada (respeta «Sin gris»).
   - Helpers: `collectOwnStayAgendaMeta` / `hotelLocacionFromHabitacion` en `hotelStayEvents.js`.
   - Filtro **Solo mi hotelería** (`showOnlyMyStay`): mismo default que transporte/comidas (`defaultPersonalFilter`); oculta check-in/out no propios (`eventPassesOnlyMyStayFilter` — un solo export en `agendaHelpers.js`; Vite falla si se declara dos veces).
+- **Agenda (editores / admins / gestión)** — locaciones de hotel en check-in/out:
+  - **Por evento, no por gira:** se listan los hoteles de rooming de las personas cuya regla ganadora de estadía apunta a ese CI/CO (`calculateLogisticsSummary` + habitación). Solo aparece más de un hotel si esa estadía concreta tiene gente en hoteles distintos.
+  - Caso gira 14: Check-In Producción (5041) → Amucan + Bariloche Ski; Check-In Orquesta (5043) → solo Ski. Un CO compartido que junta ambos grupos puede listar ambos.
+  - Fuente: `collectEditorialStayLocacionesFromPeople` sobre el roster alojado, **solo giras con ≥2 hoteles** y solo staff. Stub de nombre si falta embed de `locaciones`.
+  - Enrichment editorial va **diferido** (~600ms) y con queries en serie, para no saturar el lock de auth de Supabase tras el pintado de agenda.
+  - Con **Solo mi hotelería** + tag Propio: locación personal. Si no hay Propio, staff usa el mapa editorial del evento.
+  - No aplica en «Ver como».
+  - UI: `AgendaStayLocacionesBlock` en `UnifiedAgenda.jsx`.
 
 ## Reportes hotel
 
@@ -49,10 +57,12 @@ Un solo cálculo: `hotelNightsFromStay` / `stayExtraFlagsFromStay` en `src/utils
 
 Noches calendario = check-out − check-in (días civiles). **+0,5** early y **+0,5** late (se acumulan). Cunas no facturan. Ausente = 0 habitaciones. Vacantes: noches del ocupante de la cama.
 
-**Cuándo hay extra** (cualquiera alcanza):
+**Cuándo hay extra** (solo marca explícita):
 
-- Early: tipo 40, FK `id_evento_checkin_early` (tilde), o check-in **antes de las 14:00** (el **12:00** de logística no cuenta).
-- Late: tipo 41, FK `id_evento_checkout_late` (tilde), o check-out **después de las 10:00** (el **12:00** de logística no cuenta). Un check-out **17:00** suma 0,5 aunque el evento siga siendo tipo 23.
+- Early: tipo **40** o FK `id_evento_checkin_early` (tilde). Un Check-in **22** a otra hora (p. ej. 11:00) **no** suma 0,5.
+- Late: tipo **41** o FK `id_evento_checkout_late` (tilde). Un Check-Out **23** a otra hora (p. ej. 11:30) **no** suma 0,5 ni muestra tag Late en rooming.
+- El prompt «¿Es early/late?» al guardar hora fuera de 14:00/10:00 existe para convertir a 40/41; si el usuario dice No, queda 22/23 y **no** hay extra.
+- Heurística de hora solo como fallback cuando no hay hito de logística tipado (booking/legado sin evento).
 
 La celda de noches muestra el total con medio (p. ej. **3,5**) y marca `Early +0,5` / `Late +0,5`. Superficies: pedido inicial (tabla, PDF, ajuste de plazas), rooming PDF/Excel (`ofrnRoomingExport.js`, `RoomingReport.jsx`), badges en rooming, **Mi Alojamiento**.
 
@@ -83,3 +93,5 @@ FIMBA sigue con sus flags booleanos propios; no comparte este helper OFRN.
 - [x] Validación CI&gt;CO y comida inicial&gt;final
 - [x] Agenda: tag Propio/No propio + locación hotel/regla en eventos propios
 - [x] Filtro «Solo mi hotelería» (mismo default que transporte/comidas personales)
+- [x] Agenda editores/admins: multi-locación solo cuando el CI/CO concreto tiene gente en hoteles distintos (agregación por regla ganadora + rooming)
+- [x] Fix gira 14: Check-Out 23 a las 11:30 ya no marca Late a todo el roster; solo tilde/tipo 41 (ensamble)

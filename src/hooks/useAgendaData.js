@@ -14,7 +14,12 @@ import {
   resolveLocalidadResidencia,
 } from "../utils/integranteDomicilioViaticos";
 import { isAssignedVehicleAgendaStop } from "../utils/agendaHelpers";
-import { collectOwnStayAgendaMeta } from "../utils/hotelStayEvents";
+import {
+  collectAssignedIntegranteIdsFromRooms,
+  collectEditorialStayLocacionesFromPeople,
+  collectOwnStayAgendaMeta,
+} from "../utils/hotelStayEvents";
+import { enrichRosterWithGrupoIds } from "../services/giraGruposService";
 
 /** tipos_evento.id — Ensayo de ensamble (independiente o en programa). */
 const ID_TIPO_ENSAYO_ENSAMBLE = 13;
@@ -525,9 +530,228 @@ async function fetchAssociatedEnsembleRehearsals(
  * @param {boolean} [opts.includeAssociatedEnsembleRehearsals=false] - agenda de programa Ensamble: incluye ensayos de ensamble vinculados por eventos_programas_asociados
  */
 
+function emptyStayLogistics(editorialByEventId = {}) {
+  return {
+    byEventId: {},
+    evaluatedGiraIds: {},
+    editorialByEventId,
+    hotelsByGiraId: {},
+  };
+}
+
+function hotelCountByGira(hospRows = []) {
+  const byGira = new Map();
+  for (const h of hospRows || []) {
+    if (h?.id_programa == null || h?.id_hotel == null) continue;
+    const gKey = String(h.id_programa);
+    if (!byGira.has(gKey)) byGira.set(gKey, new Set());
+    byGira.get(gKey).add(String(h.id_hotel));
+  }
+  return byGira;
+}
+
 /**
- * Segundo paso: regla ganadora de estadía + hotel de rooming para tags Propio/No propio.
- * No debe bloquear ni invalidar el pintado principal de agenda.
+ * Multi-hotel editorial: diferido y solo giras con ≥2 hoteles.
+ * No debe competir con el fetch principal ni con el lock de auth.
+ */
+async function enrichEditorialStayLocaciones({
+  supabase,
+  signal,
+  multiHotelTourIds,
+  rulesByGira,
+  roomsByGira,
+  eventsByGira,
+  allLocalities,
+  setMyStayLogistics,
+}) {
+  if (!multiHotelTourIds?.length) return;
+  try {
+    const roomsForEditorial = multiHotelTourIds.flatMap(
+      (gId) => roomsByGira[gId] || roomsByGira[String(gId)] || [],
+    );
+    const assignedIds = collectAssignedIntegranteIdsFromRooms(roomsForEditorial)
+      .map((id) => Number(id))
+      .filter((id) => Number.isFinite(id));
+    if (!assignedIds.length) return;
+    if (signal?.aborted) return;
+
+    // Queries en serie (evita saturar gotrue lock).
+    const giRoomRes = await supabase
+      .from("giras_integrantes")
+      .select("id_gira, id_integrante, rol, estado")
+      .in("id_gira", multiHotelTourIds)
+      .in("id_integrante", assignedIds);
+    if (signal?.aborted) return;
+    if (giRoomRes.error) {
+      console.warn(
+        "Estadía editorial roster:",
+        giRoomRes.error.message || giRoomRes.error,
+      );
+      return;
+    }
+
+    const intRoomRes = await supabase
+      .from("integrantes")
+      .select(
+        `id, condicion, id_localidad, id_loc_viaticos, id_domicilio_laboral,
+         instrumentos(familia),
+         residencia:localidades!id_localidad(id, localidad, id_region),
+         viaticos:localidades!id_loc_viaticos(id, localidad, id_region)`,
+      )
+      .in("id", assignedIds);
+    if (signal?.aborted) return;
+    if (intRoomRes.error) {
+      console.warn(
+        "Estadía editorial integrantes:",
+        intRoomRes.error.message || intRoomRes.error,
+      );
+      return;
+    }
+
+    const needsGrupos = multiHotelTourIds.some((gId) =>
+      (rulesByGira[gId] || rulesByGira[String(gId)] || []).some(
+        (r) => String(r.alcance || "").toLowerCase() === "grupo",
+      ),
+    );
+    let gruposByGira = {};
+    if (needsGrupos) {
+      const gruposRoomRes = await supabase
+        .from("giras_grupos")
+        .select("id, id_gira, giras_grupos_integrantes(id_integrante)")
+        .in("id_gira", multiHotelTourIds);
+      if (signal?.aborted) return;
+      (gruposRoomRes.data || []).forEach((g) => {
+        const gKey = String(g.id_gira);
+        if (!gruposByGira[gKey]) gruposByGira[gKey] = [];
+        gruposByGira[gKey].push(g);
+      });
+    }
+
+    const integrantesById = Object.fromEntries(
+      (intRoomRes.data || []).map((row) => [String(row.id), row]),
+    );
+    const giByGira = {};
+    (giRoomRes.data || []).forEach((row) => {
+      const gKey = String(row.id_gira);
+      if (!giByGira[gKey]) giByGira[gKey] = [];
+      giByGira[gKey].push(row);
+    });
+
+    const editorialPeople = [];
+    for (const gId of multiHotelTourIds) {
+      if (signal?.aborted) return;
+      const currentRules = rulesByGira[gId] || rulesByGira[String(gId)] || [];
+      if (!currentRules.length) continue;
+      const giRows = giByGira[String(gId)] || [];
+      if (!giRows.length) continue;
+
+      const rawRoster = giRows
+        .map((gi) => {
+          const intRow = integrantesById[String(gi.id_integrante)];
+          if (!intRow) return null;
+          const estado = String(gi.estado || "")
+            .toLowerCase()
+            .trim();
+          if (["baja", "no_convocado", "ausente"].includes(estado)) return null;
+          const withLocMeta = {
+            ...intRow,
+            _loc_residencia: intRow.residencia || null,
+            residencia: intRow.residencia || null,
+            _loc_viaticos: intRow.viaticos || null,
+            viaticos: intRow.viaticos || null,
+          };
+          const locViaticos = resolveLocalidadEfectivaViaticos(withLocMeta);
+          const locResidencia = resolveLocalidadResidencia(withLocMeta);
+          const locId =
+            locViaticos.id != null && locViaticos.id !== ""
+              ? String(locViaticos.id)
+              : intRow.id_localidad != null && intRow.id_localidad !== ""
+                ? String(intRow.id_localidad)
+                : "";
+          const locObj =
+            allLocalities.find((l) => String(l.id) === locId) ||
+            locViaticos.objeto;
+          const residenciaId =
+            locResidencia.id != null && locResidencia.id !== ""
+              ? String(locResidencia.id)
+              : intRow.id_localidad != null && intRow.id_localidad !== ""
+                ? String(intRow.id_localidad)
+                : "";
+          const residenciaObj =
+            (residenciaId
+              ? allLocalities.find((l) => String(l.id) === residenciaId)
+              : null) ||
+            locResidencia.objeto ||
+            intRow.residencia ||
+            null;
+          return {
+            ...withLocMeta,
+            id: intRow.id,
+            id_integrante: intRow.id,
+            condicion: intRow.condicion,
+            id_localidad: locId || residenciaId,
+            localidades: locObj || {
+              id: locId || residenciaId,
+              id_region:
+                locResidencia.regionId ?? residenciaObj?.id_region ?? null,
+            },
+            ...(residenciaId ? { id_localidad_residencia: residenciaId } : {}),
+            localidades_residencia: residenciaObj,
+            id_region_residencia:
+              locResidencia.regionId ?? residenciaObj?.id_region ?? null,
+            instrumentos: intRow.instrumentos || {},
+            rol_gira: gi.rol || "musico",
+            rol: gi.rol || "musico",
+            estado_gira: gi.estado,
+            es_adicional: false,
+            logistics: {},
+          };
+        })
+        .filter(Boolean);
+
+      if (!rawRoster.length) continue;
+      const roster = enrichRosterWithGrupoIds(
+        rawRoster,
+        gruposByGira[String(gId)] || [],
+      );
+      const summary = calculateLogisticsSummary(
+        roster,
+        currentRules,
+        [],
+        [],
+        [],
+        roomsByGira[gId] || roomsByGira[String(gId)] || [],
+        allLocalities,
+        eventsByGira[gId] || eventsByGira[String(gId)] || [],
+      );
+      editorialPeople.push(...(summary || []));
+      // Ceder el event loop entre giras (no congelar UI / auth).
+      await new Promise((r) => setTimeout(r, 0));
+    }
+
+    if (signal?.aborted) return;
+    const editorialByEventId =
+      collectEditorialStayLocacionesFromPeople(editorialPeople);
+    setMyStayLogistics((prev) => ({
+      ...(prev || emptyStayLogistics()),
+      editorialByEventId,
+    }));
+  } catch (err) {
+    if (
+      err?.name === "AbortError" ||
+      err?.code === 20 ||
+      String(err?.message || "").includes("AbortError") ||
+      signal?.aborted
+    ) {
+      return;
+    }
+    console.warn("Estadía editorial omitida:", err);
+  }
+}
+
+/**
+ * Segundo paso liviano: Propio/No propio del viewer.
+ * Editorial multi-hotel se agenda aparte (staff + giras con ≥2 hoteles).
  */
 async function enrichStayLogisticsAfterPaint({
   supabase,
@@ -540,21 +764,27 @@ async function enrichStayLogisticsAfterPaint({
   todayStr,
   myGruposRes,
   setMyStayLogistics,
+  includeEditorialStay = false,
 }) {
   const stayByEventId = {};
   const stayEvaluatedGiraIds = {};
   try {
-    if (signal?.aborted || !profile || !activeTourIds?.size) {
-      setMyStayLogistics({ byEventId: {}, evaluatedGiraIds: {} });
+    if (signal?.aborted || !activeTourIds?.size) {
+      setMyStayLogistics(emptyStayLogistics());
       return;
     }
 
-    let ensamblesRows = profile.integrantes_ensambles;
-    if (!ensamblesRows?.length && effectiveUserId !== "guest-general") {
+    let ensamblesRows = profile?.integrantes_ensambles;
+    if (
+      profile &&
+      !ensamblesRows?.length &&
+      effectiveUserId !== "guest-general"
+    ) {
       const { data: ieData } = await supabase
         .from("integrantes_ensambles")
         .select("id_ensamble, fecha_desde, fecha_hasta")
-        .eq("id_integrante", effectiveUserId);
+        .eq("id_integrante", effectiveUserId)
+        .abortSignal(signal);
       if (signal?.aborted) return;
       ensamblesRows = ieData || [];
     }
@@ -564,33 +794,48 @@ async function enrichStayLogisticsAfterPaint({
       supabase
         .from("giras_logistica_reglas")
         .select("*")
-        .in("id_gira", tourIdList),
+        .in("id_gira", tourIdList)
+        .abortSignal(signal),
       supabase
         .from("programas_hospedajes")
         .select(
           "id, id_programa, id_hotel, hoteles(id, nombre, id_locacion, locaciones(id, nombre, direccion, link_mapa, localidades(localidad)))",
         )
-        .in("id_programa", tourIdList),
-      supabase.from("localidades").select("id, localidad, id_region"),
+        .in("id_programa", tourIdList)
+        .abortSignal(signal),
+      supabase
+        .from("localidades")
+        .select("id, localidad, id_region")
+        .abortSignal(signal),
     ]);
     if (signal?.aborted) return;
+
+    if (rulesRes.error) {
+      console.warn("Estadía reglas:", rulesRes.error.message || rulesRes.error);
+    }
+    if (hospRes.error) {
+      console.warn(
+        "Estadía hospedajes:",
+        hospRes.error.message || hospRes.error,
+      );
+    }
 
     const logisticsRulesData = rulesRes.data || [];
     const hospRows = hospRes.data || [];
     const allLocalities = locsRes.data || [];
-    if (logisticsRulesData.length === 0) {
-      setMyStayLogistics({ byEventId: {}, evaluatedGiraIds: {} });
-      return;
-    }
 
     const hospIds = hospRows.map((h) => h.id).filter(Boolean);
     let roomsData = [];
     if (hospIds.length > 0) {
-      const { data: rData } = await supabase
+      const { data: rData, error: roomsErr } = await supabase
         .from("hospedaje_habitaciones")
         .select("*")
-        .in("id_hospedaje", hospIds);
+        .in("id_hospedaje", hospIds)
+        .abortSignal(signal);
       if (signal?.aborted) return;
+      if (roomsErr) {
+        console.warn("Estadía habitaciones:", roomsErr.message || roomsErr);
+      }
       const hospById = Object.fromEntries(
         hospRows.map((h) => [String(h.id), h]),
       );
@@ -615,6 +860,39 @@ async function enrichStayLogisticsAfterPaint({
       if (!roomsByGira[gId]) roomsByGira[gId] = [];
       roomsByGira[gId].push(room);
     });
+
+    const eventsByGira = {};
+    (eventsData || []).forEach((e) => {
+      if (e.id_gira == null) return;
+      if (!eventsByGira[e.id_gira]) eventsByGira[e.id_gira] = [];
+      eventsByGira[e.id_gira].push(e);
+    });
+
+    const hotelCounts = hotelCountByGira(hospRows);
+    const multiHotelTourIds = tourIdList.filter(
+      (gId) => (hotelCounts.get(String(gId))?.size || 0) >= 2,
+    );
+
+    if (logisticsRulesData.length === 0 || !profile) {
+      if (signal?.aborted) return;
+      setMyStayLogistics(emptyStayLogistics());
+      if (includeEditorialStay && multiHotelTourIds.length > 0) {
+        window.setTimeout(() => {
+          if (signal?.aborted) return;
+          void enrichEditorialStayLocaciones({
+            supabase,
+            signal,
+            multiHotelTourIds,
+            rulesByGira,
+            roomsByGira,
+            eventsByGira,
+            allLocalities,
+            setMyStayLogistics,
+          });
+        }, 600);
+      }
+      return;
+    }
 
     const grupoIdsByGira = {};
     (myGruposRes?.data || []).forEach((row) => {
@@ -657,13 +935,6 @@ async function enrichStayLogisticsAfterPaint({
       profile.datos_residencia ||
       profile.residencia ||
       null;
-
-    const eventsByGira = {};
-    (eventsData || []).forEach((e) => {
-      if (e.id_gira == null) return;
-      if (!eventsByGira[e.id_gira]) eventsByGira[e.id_gira] = [];
-      eventsByGira[e.id_gira].push(e);
-    });
 
     activeTourIds.forEach((gId) => {
       const currentRules = rulesByGira[gId] || [];
@@ -737,7 +1008,25 @@ async function enrichStayLogisticsAfterPaint({
     setMyStayLogistics({
       byEventId: stayByEventId,
       evaluatedGiraIds: stayEvaluatedGiraIds,
+      editorialByEventId: {},
+      hotelsByGiraId: {},
     });
+
+    if (includeEditorialStay && multiHotelTourIds.length > 0) {
+      window.setTimeout(() => {
+        if (signal?.aborted) return;
+        void enrichEditorialStayLocaciones({
+          supabase,
+          signal,
+          multiHotelTourIds,
+          rulesByGira,
+          roomsByGira,
+          eventsByGira,
+          allLocalities,
+          setMyStayLogistics,
+        });
+      }, 600);
+    }
   } catch (err) {
     if (
       err?.name === "AbortError" ||
@@ -789,10 +1078,12 @@ export function useAgendaData({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [feriados, setFeriados] = useState([]);
   const [myTransportLogistics, setMyTransportLogistics] = useState({});
-  /** Stay events: own IDs + locación (hotel/regla) y giras evaluadas para tag Propio/No propio. */
+  /** Stay events: own IDs + locación (hotel/regla), giras evaluadas y locaciones editoriales (multi-hotel). */
   const [myStayLogistics, setMyStayLogistics] = useState({
     byEventId: {},
     evaluatedGiraIds: {},
+    editorialByEventId: {},
+    hotelsByGiraId: {},
   });
   const [toursWithRules, setToursWithRules] = useState(() => new Set());
   const [recentlyUpdatedEventIds, setRecentlyUpdatedEventIds] = useState(
@@ -1430,8 +1721,8 @@ export function useAgendaData({
           });
         }, 0);
 
-        // Estadía Propio/No propio: segundo paso, no bloquea ni aborta el pintado.
-        if (activeTourIds.size > 0 && profile) {
+        // Estadía Propio/No propio (liviano). Editorial multi-hotel: diferido, solo staff.
+        if (activeTourIds.size > 0) {
           void enrichStayLogisticsAfterPaint({
             supabase,
             signal,
@@ -1443,9 +1734,11 @@ export function useAgendaData({
             todayStr,
             myGruposRes,
             setMyStayLogistics,
+            includeEditorialStay:
+              Boolean(isEditor) || Boolean(isManagement),
           });
         } else {
-          setMyStayLogistics({ byEventId: {}, evaluatedGiraIds: {} });
+          setMyStayLogistics(emptyStayLogistics());
         }
       } catch (err) {
         if (
