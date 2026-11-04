@@ -879,6 +879,7 @@
         const dni = escapeHtmlMail(String(d?.dni || "—"));
         const mail = escapeHtmlMail(String(d?.mail || "—"));
         const instrumento = escapeHtmlMail(String(d?.instrumento || "—"));
+        const funcion = escapeHtmlMail(String(d?.funcion || "").trim());
         const tipo = escapeHtmlMail(String(d?.gira_tipo || ""));
         const fechas = escapeHtmlMail(String(d?.fechas_label || "—"));
         const localidades = escapeHtmlMail(String(d?.localidades || "—"));
@@ -915,6 +916,7 @@
               <p style="margin:0 0 6px 0;"><strong>DNI:</strong> ${dni}</p>
               <p style="margin:0 0 6px 0;"><strong>Email:</strong> ${mail}</p>
               <p style="margin:0 0 6px 0;"><strong>Instrumento:</strong> ${instrumento}</p>
+              ${funcion ? `<p style="margin:0 0 6px 0;"><strong>Como:</strong> ${funcion}</p>` : ""}
               <p style="margin:0 0 6px 0;"><strong>Gira:</strong> ${giraLabel}${tipo ? ` (${tipo})` : ""}</p>
               <p style="margin:0 0 6px 0;"><strong>Fechas:</strong> ${fechas}</p>
               <p style="margin:0;"><strong>Localidades:</strong> ${localidades}</p>

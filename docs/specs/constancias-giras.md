@@ -6,8 +6,8 @@ Los integrantes pueden solicitar **constancias** de giras **Sinfónico** y **Cam
 
 | Tipo | Texto clave | Elegibilidad extra |
 |------|-------------|--------------------|
-| **Convocatoria** | «ha sido convocado/a como {instrumento} a participar…» | Gira elegible (pasada o futura) |
-| **Participación realizada** (`Constancia de participación realizada`) | «participó de los ensayos y conciertos…» (sin instrumento) | Solo giras **pasadas** (`fecha_hasta` &lt; hoy) |
+| **Convocatoria** | «ha sido convocado/a como {función} a participar…» (p.ej. violinista; editable en Gestión) | Gira elegible (pasada o futura) |
+| **Participación realizada** (`Constancia de participación realizada`) | «participó como {función} de los ensayos y conciertos…» (editable en Gestión) | Solo giras **pasadas** (`fecha_hasta` &lt; hoy) |
 
 Una persona puede pedir **una de cada tipo por gira** (`UNIQUE (id_integrante, id_gira, tipo)`).
 
@@ -18,8 +18,8 @@ Una persona puede pedir **una de cada tipo por gira** (`UNIQUE (id_integrante, i
 | Header (junto a Mi Perfil) | Botón **Constancias** → modal «Mis Constancias» |
 | Badge (músico) | Solicitudes propias aprobadas/denegadas aún no vistas |
 | Badge (editor/admin) | Cantidad de solicitudes **pendientes** (abiertas) |
-| Modal | Selector **Convocatoria / Participación realizada** + gira filtrada |
-| Gestión `/management/constancias` | Lista (columna Tipo), filtros por estado y por tipo (Todos / Convocatoria / Participación realizada), aprobar, denegar (modal con motivo), **Aprobar todas** (= pendientes del filtro de tipo actual); en aprobadas: **Reenviar** / **Descargar**; en denegadas: **Deshacer** (vuelve a pendiente, sin mail) |
+| Modal | Primero carga **Mis solicitudes** (orden: pendiente → aprobada → denegada); el desplegable de giras solo se carga al elegir tipo (**Convocatoria / Participación realizada**) |
+| Gestión `/management/constancias` | Lista (Tipo + columna **como…** editable en convocatoria), filtros estado/tipo, aprobar, denegar, **Aprobar todas** (respeta filtro de tipo y el «como…» editado); en aprobadas: **Reenviar** / **Descargar**; en denegadas: **Deshacer** |
 
 En Mis Constancias el estado **pendiente** deja claro que hay que esperar la resolución.
 
@@ -44,10 +44,10 @@ Texto común:
 > {cuerpo según tipo}  
 > Sin otro particular…
 
-- **Instrumento** solo en convocatoria (no rol tipo concertino)
+- **Instrumento / función**: al solicitar, se toma el instrumento **efectivo de la gira** (`giras_integrantes.id_instr` si el Roster lo modificó respecto al perfil; si no, `integrantes.id_instr`). De ahí se lee `instrumentos.funcion` → `snap_funcion` (editable en Gestión, p.ej. «concertino»). Ambos PDFs: convocatoria «como {snap_funcion} a participar…»; participación «participó como {snap_funcion} de…».
 - **Localidades** concatenadas de tramos / `giras_localidades`
 - **Emisión**: `Viedma, {fecha de aprobación}`
-- Generación: **jsPDF** (logo + **Calibri** 13pt embebida + firma) → re-save pdf-lib **aplanado**. Fecha a la **derecha**; cuerpo/cierre **justificados**, interlineado **1.5**, sangría 1ª línea ~40 mm. Sin «el Sr.» / «la Sra.»; coma tras el nombre; sin coma tras el instrumento (convocatoria); participio según género en convocatoria.
+- Generación: **jsPDF** (logo + **Calibri** 13pt embebida + firma) → re-save pdf-lib **aplanado**. Fecha a la **derecha**; cuerpo/cierre **justificados**, interlineado **1.5**, sangría 1ª línea ~40 mm. Sin «el Sr.» / «la Sra.»; coma tras el nombre; participio según género en convocatoria.
 - Fuente: `public/fonts/Calibri.ttf`
 
 ## Mail (`mails_produccion`, mismo estilo que convocatoria Pike / `es_modelo`)
@@ -62,7 +62,9 @@ Modelos de revisión (`es_modelo: true`) → `ofrn.archivo@gmail.com`.
 
 ## Datos
 
-Tabla `constancias_solicitudes`: `tipo` (`convocatoria` \| `participacion`) + snapshot PDF + `estado` (`pendiente` \| `aprobada` \| `denegada`) + `motivo_denegacion` + `visto_solicitante` + auditoría de resolución. Unique `(id_integrante, id_gira, tipo)`.
+Tabla `constancias_solicitudes`: `tipo` (`convocatoria` \| `participacion`) + snapshot PDF (`snap_instrumento`, `snap_funcion`, …) + `estado` + `motivo_denegacion` + `visto_solicitante` + auditoría. Unique `(id_integrante, id_gira, tipo)`.
+
+Tabla `instrumentos`: columna `funcion` (rol formal precompletado; editable en UniversalTable / Datos → Instrumentos).
 
 ## Estado de implementación
 
@@ -72,3 +74,4 @@ Tabla `constancias_solicitudes`: `tipo` (`convocatoria` \| `participacion`) + sn
 - [x] Service + PDF + mail
 - [x] Modal Mis Constancias + botón header + badges
 - [x] Hub Gestión (aprobar / denegar / aprobar todas / deshacer denegación)
+- [x] `instrumentos.funcion` + columna editable «como…» en Gestión

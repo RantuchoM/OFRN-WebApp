@@ -39,8 +39,8 @@ import {
 } from "../../services/giraService";
 import { useGiraRoster } from "../../hooks/useGiraRosterQuery";
 import { toast } from "sonner";
-import { matchesMultiTokenSearch } from "../../utils/sanitize";
 import { effectiveRepertorioObraTitle } from "../../utils/repertorioRowDisplay";
+import { searchProgramasForAssign } from "../../services/repertorioPlaceholderOpciones";
 
 function sortArcos(arcos) {
   return [...(arcos || [])].sort((a, b) => Number(a.id) - Number(b.id));
@@ -191,6 +191,8 @@ const ArcoDefaultNameModal = ({
 };
 
 // --- MODAL AVANZADO DE IMPORTACIÓN ---
+const IMPORT_PROGRAMAS_LIMIT = 150;
+
 const AdvancedImportModal = ({
   supabase,
   currentGiraId,
@@ -209,27 +211,36 @@ const AdvancedImportModal = ({
   const [loadingBlocks, setLoadingBlocks] = useState(false);
   const [importing, setImporting] = useState(false);
 
-  // Cargar lista de programas inicial
+  // Lista inicial + búsqueda server-side (cubre giras antiguas fuera del tope de browse)
   useEffect(() => {
-    const fetchPrograms = async () => {
+    let cancelled = false;
+    const delay = searchTerm.trim().length >= 2 ? 250 : 0;
+    const timer = setTimeout(async () => {
+      setLoading(true);
       try {
-        const { data, error } = await supabase
-          .from("programas")
-          .select("id, nombre_gira, mes_letra, nomenclador")
-          .neq("id", currentGiraId)
-          .order("created_at", { ascending: false })
-          .limit(100);
-
-        if (error) throw error;
-        setPrograms(data || []);
+        const data = await searchProgramasForAssign(
+          supabase,
+          searchTerm,
+          IMPORT_PROGRAMAS_LIMIT,
+        );
+        if (cancelled) return;
+        setPrograms(
+          (data || []).filter(
+            (p) => String(p.id) !== String(currentGiraId),
+          ),
+        );
       } catch (err) {
         console.error("Error cargando programas:", err);
+        if (!cancelled) setPrograms([]);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
+    }, delay);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
     };
-    fetchPrograms();
-  }, [supabase, currentGiraId]);
+  }, [supabase, currentGiraId, searchTerm]);
 
   // Cargar bloques cuando se elige un programa
   const handleSelectProgram = async (prog) => {
@@ -283,14 +294,6 @@ const AdvancedImportModal = ({
     onClose();
   };
 
-  // Filtrado en cliente para el buscador de giras
-  const filteredPrograms = programs.filter((p) =>
-    matchesMultiTokenSearch(
-      [p.nombre_gira, p.nomenclador, p.mes_letra],
-      searchTerm,
-    ),
-  );
-
   const selectedBlockObj = blocks.find((b) => b.id === selectedBlockId);
 
   return (
@@ -329,12 +332,16 @@ const AdvancedImportModal = ({
                 />
                 <input
                   type="text"
-                  placeholder="Buscar por nombre, mes o nomenclador..."
+                  placeholder="Buscar por nombre, mes o nomenclador (incluye giras antiguas)..."
                   className="w-full pl-10 pr-4 py-3 rounded-lg border border-slate-300 focus:ring-2 focus:ring-indigo-500 outline-none shadow-sm"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   autoFocus
                 />
+                <p className="mt-2 text-[11px] text-slate-400">
+                  Con 2+ caracteres la búsqueda cubre todo el historial, no solo
+                  las {IMPORT_PROGRAMAS_LIMIT} más recientes.
+                </p>
               </div>
 
               <div className="flex-1 overflow-y-auto bg-white rounded-lg border border-slate-200 shadow-sm">
@@ -343,13 +350,13 @@ const AdvancedImportModal = ({
                     <IconLoader className="animate-spin inline mr-2" />{" "}
                     Cargando giras...
                   </div>
-                ) : filteredPrograms.length === 0 ? (
+                ) : programs.length === 0 ? (
                   <div className="p-8 text-center text-slate-400 italic">
                     No se encontraron giras.
                   </div>
                 ) : (
                   <div className="divide-y divide-slate-100">
-                    {filteredPrograms.map((prog) => (
+                    {programs.map((prog) => (
                       <button
                         key={prog.id}
                         onClick={() => handleSelectProgram(prog)}

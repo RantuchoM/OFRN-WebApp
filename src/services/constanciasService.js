@@ -21,11 +21,12 @@ const SOLICITUD_SELECT = `
   solicitado_at, resuelto_at, resuelto_por, visto_solicitante,
   mail_enviado_at, mail_error,
   snap_nombre, snap_apellido, snap_dni, snap_genero, snap_instrumento,
+  snap_funcion,
   snap_fecha_desde, snap_fecha_hasta, snap_localidades,
   snap_gira_nombre, snap_gira_tipo,
   integrantes!constancias_solicitudes_id_integrante_fkey (
     id, nombre, apellido, mail, dni, genero, id_instr,
-    instrumentos ( instrumento )
+    instrumentos ( instrumento, funcion )
   ),
   programas!constancias_solicitudes_id_gira_fkey (
     id, nombre_gira, nomenclador, mes_letra, zona, tipo,
@@ -135,48 +136,74 @@ async function fetchLocalidadesGira(supabase, idGira) {
   return names;
 }
 
-async function resolveInstrumentoLabel(supabase, integrante, idGira) {
+function pickInstrumentoRow(row) {
+  if (!row) return null;
+  const instrumento = String(row.instrumento || "").trim();
+  const funcion = String(row.funcion || "").trim();
+  if (!instrumento && !funcion) return null;
+  return {
+    instrumento: instrumento || "integrante",
+    funcion: funcion || (instrumento ? instrumento.toLowerCase() : "integrante"),
+  };
+}
+
+/**
+ * Instrumento/función para la constancia.
+ * Misma regla que GiraRoster: `giras_integrantes.id_instr` solo se guarda si
+ * el instrumento de la gira difiere del de perfil; si está seteado, manda ese.
+ */
+async function resolveInstrumentoYFuncion(supabase, integrante, idGira) {
   const idInt = integranteIdForDb(integrante.id);
   const { data: ov } = await supabase
     .from("giras_integrantes")
-    .select("id_instr, instrumentos ( instrumento )")
+    .select("id_instr")
     .eq("id_gira", idGira)
     .eq("id_integrante", idInt)
     .maybeSingle();
 
-  if (ov?.instrumentos?.instrumento) return String(ov.instrumentos.instrumento).trim();
-  if (ov?.id_instr) {
+  const idInstrGira =
+    ov?.id_instr != null && String(ov.id_instr).trim() !== ""
+      ? ov.id_instr
+      : null;
+  const idInstrPerfil =
+    integrante?.id_instr != null && String(integrante.id_instr).trim() !== ""
+      ? integrante.id_instr
+      : null;
+  const idInstrEfectivo = idInstrGira ?? idInstrPerfil;
+
+  if (idInstrEfectivo != null) {
     const { data: instr } = await supabase
       .from("instrumentos")
-      .select("instrumento")
-      .eq("id", ov.id_instr)
+      .select("instrumento, funcion")
+      .eq("id", idInstrEfectivo)
       .maybeSingle();
-    if (instr?.instrumento) return String(instr.instrumento).trim();
+    const picked = pickInstrumentoRow(instr);
+    if (picked) return picked;
   }
 
-  if (integrante?.instrumentos?.instrumento) {
-    return String(integrante.instrumentos.instrumento).trim();
+  // Fallback si el join de perfil ya vino en el integrante
+  if (!idInstrGira) {
+    const fromInt = pickInstrumentoRow(integrante?.instrumentos);
+    if (fromInt) return fromInt;
   }
-  if (integrante?.id_instr) {
-    const { data: instr } = await supabase
-      .from("instrumentos")
-      .select("instrumento")
-      .eq("id", integrante.id_instr)
-      .maybeSingle();
-    if (instr?.instrumento) return String(instr.instrumento).trim();
-  }
-  return "integrante";
+
+  return { instrumento: "integrante", funcion: "integrante" };
 }
 
 export async function buildConstanciaSnapshot(supabase, integrante, programa) {
   const localidades = await fetchLocalidadesGira(supabase, programa.id);
-  const instrumento = await resolveInstrumentoLabel(supabase, integrante, programa.id);
+  const { instrumento, funcion } = await resolveInstrumentoYFuncion(
+    supabase,
+    integrante,
+    programa.id,
+  );
   return {
     snap_nombre: legalNombre(integrante),
     snap_apellido: legalApellido(integrante),
     snap_dni: String(integrante.dni || "").replace(/\s+/g, ""),
     snap_genero: integrante.genero || null,
     snap_instrumento: instrumento,
+    snap_funcion: funcion,
     snap_fecha_desde: programa.fecha_desde || null,
     snap_fecha_hasta: programa.fecha_hasta || null,
     snap_localidades: formatLocalidadesConstancia(localidades),
@@ -352,7 +379,7 @@ export async function solicitarConstancia(supabase, { user, idGira, tipo }) {
   const { data: integrante, error: intErr } = await supabase
     .from("integrantes")
     .select(
-      "id, nombre, apellido, mail, dni, genero, id_instr, instrumentos ( instrumento )",
+      "id, nombre, apellido, mail, dni, genero, id_instr, instrumentos ( instrumento, funcion )",
     )
     .eq("id", idInt)
     .single();
@@ -472,6 +499,7 @@ export async function notificarOficinaSolicitudConstancia(
       dni: solicitud.snap_dni,
       mail: integranteMail || solicitud.integrantes?.mail || "",
       instrumento: solicitud.snap_instrumento,
+      funcion: solicitud.snap_funcion,
       gira_tipo: solicitud.snap_gira_tipo,
       gira_nombre: solicitud.snap_gira_nombre,
       fechas_label: fechas,
@@ -484,18 +512,44 @@ export async function notificarOficinaSolicitudConstancia(
 }
 
 function snapshotToPdfData(row, fechaEmision = new Date()) {
+  const como =
+    String(row.snap_funcion || "").trim() ||
+    String(row.snap_instrumento || "").trim().toLowerCase() ||
+    "integrante";
   return {
     nombre: row.snap_nombre,
     apellido: row.snap_apellido,
     dni: row.snap_dni,
     genero: row.snap_genero,
     instrumento: row.snap_instrumento,
+    como,
     fechaDesde: row.snap_fecha_desde,
     fechaHasta: row.snap_fecha_hasta,
     localidades: row.snap_localidades,
     fechaEmision,
     tipo: normalizeConstanciaTipo(row.tipo),
   };
+}
+
+/** Persiste el texto editable «como …» (solo pendientes). */
+export async function updateConstanciaSnapFuncion(
+  supabase,
+  { solicitudId, snapFuncion },
+) {
+  const texto = String(snapFuncion || "").trim();
+  if (!texto) throw new Error("Indicá el texto «como …»");
+  const { data, error } = await supabase
+    .from("constancias_solicitudes")
+    .update({
+      snap_funcion: texto,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", solicitudId)
+    .eq("estado", CONSTANCIA_ESTADOS.pendiente)
+    .select(SOLICITUD_SELECT)
+    .single();
+  if (error) throw error;
+  return data;
 }
 
 function fechaEmisionDesdeSolicitud(row) {
@@ -593,7 +647,10 @@ async function sendDenegacionMail(supabase, row, motivo) {
   });
 }
 
-export async function aprobarConstancia(supabase, { solicitudId, resueltoPorId }) {
+export async function aprobarConstancia(
+  supabase,
+  { solicitudId, resueltoPorId, snapFuncion },
+) {
   const { data: row, error } = await supabase
     .from("constancias_solicitudes")
     .select(SOLICITUD_SELECT)
@@ -604,9 +661,32 @@ export async function aprobarConstancia(supabase, { solicitudId, resueltoPorId }
     throw new Error("La solicitud ya fue resuelta");
   }
 
+  const como = String(
+    snapFuncion !== undefined && snapFuncion !== null
+      ? snapFuncion
+      : row.snap_funcion || "",
+  ).trim();
+
+  let rowForPdf = row;
+  if (como && como !== String(row.snap_funcion || "").trim()) {
+    const { data: updatedSnap, error: snapErr } = await supabase
+      .from("constancias_solicitudes")
+      .update({
+        snap_funcion: como,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", solicitudId)
+      .select(SOLICITUD_SELECT)
+      .single();
+    if (snapErr) throw snapErr;
+    rowForPdf = updatedSnap;
+  } else if (como) {
+    rowForPdf = { ...row, snap_funcion: como };
+  }
+
   let mailError = null;
   try {
-    await sendAprobacionMail(supabase, row);
+    await sendAprobacionMail(supabase, rowForPdf);
   } catch (err) {
     mailError = String(err?.message || err);
     console.error("[constancias] mail aprobación:", err);
@@ -616,6 +696,7 @@ export async function aprobarConstancia(supabase, { solicitudId, resueltoPorId }
     .from("constancias_solicitudes")
     .update({
       estado: CONSTANCIA_ESTADOS.aprobada,
+      snap_funcion: rowForPdf.snap_funcion || como || null,
       motivo_denegacion: null,
       resuelto_at: new Date().toISOString(),
       resuelto_por: integranteIdForDb(resueltoPorId) || null,

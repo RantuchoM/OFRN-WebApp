@@ -291,6 +291,12 @@ export default function DataView({ supabase }) {
         },
         { key: "instrumento", label: "Instrumento", type: "text" },
         {
+          key: "funcion",
+          label: "Función",
+          type: "text",
+          placeholder: "Ej: violinista",
+        },
+        {
           key: "familia",
           label: "Familia",
           type: "select",

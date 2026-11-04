@@ -45,6 +45,21 @@ function solicitudKey(idGira, tipo) {
   return `${idGira}:${tipo || CONSTANCIA_TIPOS.convocatoria}`;
 }
 
+const ESTADO_SORT = {
+  [CONSTANCIA_ESTADOS.pendiente]: 0,
+  [CONSTANCIA_ESTADOS.aprobada]: 1,
+  [CONSTANCIA_ESTADOS.denegada]: 2,
+};
+
+function sortSolicitudesPriority(list) {
+  return [...(list || [])].sort((a, b) => {
+    const ea = ESTADO_SORT[a.estado] ?? 9;
+    const eb = ESTADO_SORT[b.estado] ?? 9;
+    if (ea !== eb) return ea - eb;
+    return String(b.solicitado_at || "").localeCompare(String(a.solicitado_at || ""));
+  });
+}
+
 export default function ConstanciasModal({
   isOpen,
   onClose,
@@ -55,11 +70,13 @@ export default function ConstanciasModal({
   onOpenGestion,
   onBadgeChange,
 }) {
-  const [loading, setLoading] = useState(false);
+  const [loadingSolicitudes, setLoadingSolicitudes] = useState(false);
+  const [loadingGiras, setLoadingGiras] = useState(false);
   const [saving, setSaving] = useState(false);
   const [giras, setGiras] = useState([]);
   const [solicitudes, setSolicitudes] = useState([]);
-  const [tipo, setTipo] = useState(CONSTANCIA_TIPOS.convocatoria);
+  /** Vacío hasta que elija Convocatoria / Participación realizada. */
+  const [tipo, setTipo] = useState("");
   const [idGira, setIdGira] = useState("");
 
   const yaPedidas = useMemo(() => {
@@ -71,6 +88,7 @@ export default function ConstanciasModal({
   }, [solicitudes]);
 
   const girasDisponibles = useMemo(() => {
+    if (!tipo) return [];
     return (giras || []).filter((g) => {
       const prev = yaPedidas.get(solicitudKey(g.id, tipo));
       if (!prev) return true;
@@ -78,18 +96,23 @@ export default function ConstanciasModal({
     });
   }, [giras, yaPedidas, tipo]);
 
+  const solicitudesOrdenadas = useMemo(
+    () => sortSolicitudesPriority(solicitudes),
+    [solicitudes],
+  );
+
+  // Al abrir: solo solicitudes (pendientes/aprobadas primero en el listado).
   useEffect(() => {
     if (!isOpen || !user?.id || !supabase) return undefined;
     let cancelled = false;
+    setTipo("");
+    setIdGira("");
+    setGiras([]);
     (async () => {
-      setLoading(true);
+      setLoadingSolicitudes(true);
       try {
-        const [g, s] = await Promise.all([
-          listGirasElegiblesConstancia(supabase, user.id, { tipo }),
-          listMisConstancias(supabase, user.id),
-        ]);
+        const s = await listMisConstancias(supabase, user.id);
         if (cancelled) return;
-        setGiras(g);
         setSolicitudes(s);
         await markConstanciasVistas(supabase, user.id);
         onBadgeChange?.();
@@ -97,21 +120,61 @@ export default function ConstanciasModal({
         console.error(err);
         toast.error(err?.message || "No se pudieron cargar las constancias");
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) setLoadingSolicitudes(false);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [isOpen, user?.id, supabase, onBadgeChange, tipo]);
+  }, [isOpen, user?.id, supabase, onBadgeChange]);
 
+  // Giras solo cuando eligió tipo.
   useEffect(() => {
+    if (!isOpen || !user?.id || !supabase || !tipo) {
+      setGiras([]);
+      setLoadingGiras(false);
+      return undefined;
+    }
+    let cancelled = false;
     setIdGira("");
-  }, [tipo]);
+    (async () => {
+      setLoadingGiras(true);
+      try {
+        const g = await listGirasElegiblesConstancia(supabase, user.id, { tipo });
+        if (cancelled) return;
+        setGiras(g);
+      } catch (err) {
+        console.error(err);
+        toast.error(err?.message || "No se pudieron cargar las giras");
+        if (!cancelled) setGiras([]);
+      } finally {
+        if (!cancelled) setLoadingGiras(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, user?.id, supabase, tipo]);
 
   if (!isOpen) return null;
 
+  const refreshSolicitudes = async () => {
+    const s = await listMisConstancias(supabase, user.id);
+    setSolicitudes(s);
+    onBadgeChange?.();
+  };
+
+  const refreshGiras = async () => {
+    if (!tipo) return;
+    const g = await listGirasElegiblesConstancia(supabase, user.id, { tipo });
+    setGiras(g);
+  };
+
   const handleSolicitar = async () => {
+    if (!tipo) {
+      toast.error("Elegí el tipo de constancia");
+      return;
+    }
     if (!idGira) {
       toast.error("Elegí una gira");
       return;
@@ -127,24 +190,14 @@ export default function ConstanciasModal({
         "Solicitud enviada. Queda pendiente de revisión: vas a recibir el PDF por mail cuando la aprueben.",
       );
       setIdGira("");
-      const [g, s] = await Promise.all([
-        listGirasElegiblesConstancia(supabase, user.id, { tipo }),
-        listMisConstancias(supabase, user.id),
-      ]);
-      setGiras(g);
-      setSolicitudes(s);
-      onBadgeChange?.();
+      await refreshSolicitudes();
+      await refreshGiras();
     } catch (err) {
       if (err?.mailFailed && err?.solicitud) {
         toast.warning(err.message);
         setIdGira("");
-        const [g, s] = await Promise.all([
-          listGirasElegiblesConstancia(supabase, user.id, { tipo }),
-          listMisConstancias(supabase, user.id),
-        ]);
-        setGiras(g);
-        setSolicitudes(s);
-        onBadgeChange?.();
+        await refreshSolicitudes();
+        await refreshGiras();
       } else {
         toast.error(err?.message || "No se pudo solicitar");
       }
@@ -192,13 +245,82 @@ export default function ConstanciasModal({
 
           <section className="space-y-2">
             <h3 className="text-xs font-black uppercase tracking-wide text-slate-500">
+              Mis solicitudes
+            </h3>
+            {loadingSolicitudes && solicitudesOrdenadas.length === 0 ? (
+              <div className="flex items-center gap-2 text-xs text-slate-500">
+                <IconLoader size={14} className="animate-spin" /> Cargando
+                solicitudes…
+              </div>
+            ) : solicitudesOrdenadas.length === 0 ? (
+              <p className="text-xs text-slate-400">Todavía no pediste ninguna.</p>
+            ) : (
+              <ul className="space-y-2">
+                {solicitudesOrdenadas.map((s) => (
+                  <li
+                    key={s.id}
+                    className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-bold text-slate-800">
+                          {s.snap_gira_nombre ||
+                            s.programas?.nombre_gira ||
+                            `Gira #${s.id_gira}`}
+                        </p>
+                        <p className="text-[11px] text-slate-500">
+                          {CONSTANCIA_TIPO_LABEL[s.tipo] ||
+                            "Constancia de convocatoria"}{" "}
+                          ·{" "}
+                          {s.snap_funcion
+                            ? `como ${s.snap_funcion}`
+                            : s.snap_instrumento || "—"}{" "}
+                          · pedida {formatShortDate(s.solicitado_at)}
+                        </p>
+                      </div>
+                      <span
+                        className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold ${estadoBadgeClass(s.estado)}`}
+                      >
+                        {CONSTANCIA_ESTADO_LABEL[s.estado] || s.estado}
+                      </span>
+                    </div>
+                    {s.estado === CONSTANCIA_ESTADOS.pendiente && (
+                      <p className="mt-1.5 flex items-center gap-1 text-[11px] font-medium text-amber-700">
+                        <IconAlertCircle size={12} />
+                        En espera de aprobación. Te llegará el PDF por mail.
+                      </p>
+                    )}
+                    {s.estado === CONSTANCIA_ESTADOS.aprobada && (
+                      <p className="mt-1.5 flex items-center gap-1 text-[11px] text-emerald-700">
+                        <IconCheck size={12} />
+                        Aprobada
+                        {s.mail_enviado_at
+                          ? " · PDF enviado por mail"
+                          : s.mail_error
+                            ? ` · aviso mail: ${s.mail_error}`
+                            : ""}
+                      </p>
+                    )}
+                    {s.estado === CONSTANCIA_ESTADOS.denegada && (
+                      <p className="mt-1.5 text-[11px] text-rose-700">
+                        Motivo: {s.motivo_denegacion || "—"}
+                      </p>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          <section className="space-y-2">
+            <h3 className="text-xs font-black uppercase tracking-wide text-slate-500">
               Nueva solicitud
             </h3>
             <p className="text-[11px] leading-snug text-slate-500">
-              Podés pedir una de convocatoria y una de participación realizada
-              por gira (sinfónico / camerata). La de participación realizada
-              solo para giras ya finalizadas. Al enviar queda{" "}
-              <strong>pendiente de revisión</strong>.
+              Elegí el tipo: recién ahí se cargan las giras disponibles. Podés
+              pedir una de convocatoria y una de participación realizada por
+              gira. La de participación realizada solo para giras ya
+              finalizadas.
             </p>
 
             <div className="flex flex-wrap gap-1.5">
@@ -221,7 +343,12 @@ export default function ConstanciasModal({
               ))}
             </div>
 
-            {loading ? (
+            {!tipo ? (
+              <p className="text-[11px] text-slate-400">
+                Seleccioná Convocatoria o Participación realizada para ver el
+                desplegable de giras.
+              </p>
+            ) : loadingGiras ? (
               <div className="flex items-center gap-2 text-xs text-slate-500">
                 <IconLoader size={14} className="animate-spin" /> Cargando giras…
               </div>
@@ -265,68 +392,6 @@ export default function ConstanciasModal({
                     "constancia"}
                 </button>
               </>
-            )}
-          </section>
-
-          <section className="space-y-2">
-            <h3 className="text-xs font-black uppercase tracking-wide text-slate-500">
-              Mis solicitudes
-            </h3>
-            {loading && solicitudes.length === 0 ? null : solicitudes.length ===
-              0 ? (
-              <p className="text-xs text-slate-400">Todavía no pediste ninguna.</p>
-            ) : (
-              <ul className="space-y-2">
-                {solicitudes.map((s) => (
-                  <li
-                    key={s.id}
-                    className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-bold text-slate-800">
-                          {s.snap_gira_nombre ||
-                            s.programas?.nombre_gira ||
-                            `Gira #${s.id_gira}`}
-                        </p>
-                        <p className="text-[11px] text-slate-500">
-                          {CONSTANCIA_TIPO_LABEL[s.tipo] ||
-                            "Constancia de convocatoria"}{" "}
-                          · {s.snap_instrumento || "—"} · pedida{" "}
-                          {formatShortDate(s.solicitado_at)}
-                        </p>
-                      </div>
-                      <span
-                        className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold ${estadoBadgeClass(s.estado)}`}
-                      >
-                        {CONSTANCIA_ESTADO_LABEL[s.estado] || s.estado}
-                      </span>
-                    </div>
-                    {s.estado === CONSTANCIA_ESTADOS.pendiente && (
-                      <p className="mt-1.5 flex items-center gap-1 text-[11px] font-medium text-amber-700">
-                        <IconAlertCircle size={12} />
-                        En espera de aprobación. Te llegará el PDF por mail.
-                      </p>
-                    )}
-                    {s.estado === CONSTANCIA_ESTADOS.aprobada && (
-                      <p className="mt-1.5 flex items-center gap-1 text-[11px] text-emerald-700">
-                        <IconCheck size={12} />
-                        Aprobada
-                        {s.mail_enviado_at
-                          ? " · PDF enviado por mail"
-                          : s.mail_error
-                            ? ` · aviso mail: ${s.mail_error}`
-                            : ""}
-                      </p>
-                    )}
-                    {s.estado === CONSTANCIA_ESTADOS.denegada && (
-                      <p className="mt-1.5 text-[11px] text-rose-700">
-                        Motivo: {s.motivo_denegacion || "—"}
-                      </p>
-                    )}
-                  </li>
-                ))}
-              </ul>
             )}
           </section>
         </div>

@@ -28,6 +28,7 @@ import {
   aprobarTodasConstanciasPendientes,
   reenviarConstanciaAprobada,
   descargarConstanciaPdf,
+  updateConstanciaSnapFuncion,
 } from "../../services/constanciasService";
 import { supabase } from "../../services/supabase";
 import { useAuth } from "../../context/AuthContext";
@@ -66,6 +67,8 @@ export default function ConstanciasHub() {
   const [undoTarget, setUndoTarget] = useState(null);
   const [undoBusy, setUndoBusy] = useState(false);
   const [approvingAll, setApprovingAll] = useState(false);
+  /** Borradores del texto «como …» por solicitud (convocatoria). */
+  const [comoById, setComoById] = useState({});
 
   const canManage = isAdmin || isEditor;
 
@@ -106,18 +109,51 @@ export default function ConstanciasHub() {
     }
   }, [highlightId, rows]);
 
+  useEffect(() => {
+    setComoById((prev) => {
+      const next = { ...prev };
+      (rows || []).forEach((r) => {
+        if (next[r.id] === undefined) {
+          next[r.id] =
+            String(r.snap_funcion || "").trim() ||
+            String(r.snap_instrumento || "")
+              .trim()
+              .toLowerCase() ||
+            "";
+        }
+      });
+      return next;
+    });
+  }, [rows]);
+
   const pendientesCount = useMemo(
     () =>
       rows.filter((r) => r.estado === CONSTANCIA_ESTADOS.pendiente).length,
     [rows],
   );
 
+  const persistComoIfNeeded = async (row) => {
+    if (!row || row.estado !== CONSTANCIA_ESTADOS.pendiente) {
+      return;
+    }
+    const val = String(comoById[row.id] ?? "").trim();
+    if (!val) return;
+    if (val === String(row.snap_funcion || "").trim()) return;
+    await updateConstanciaSnapFuncion(supabase, {
+      solicitudId: row.id,
+      snapFuncion: val,
+    });
+  };
+
   const handleAprobar = async (id) => {
     setBusyId(id);
     try {
+      const row = rows.find((r) => r.id === id);
+      if (row) await persistComoIfNeeded(row);
       await aprobarConstancia(supabase, {
         solicitudId: id,
         resueltoPorId: user?.id,
+        snapFuncion: String(comoById[id] ?? "").trim() || undefined,
       });
       toast.success("Constancia aprobada y PDF enviado");
       if (highlightId && String(highlightId) === String(id)) {
@@ -162,6 +198,16 @@ export default function ConstanciasHub() {
   const handleAprobarTodas = async () => {
     setApprovingAll(true);
     try {
+      const pendientes = rows.filter(
+        (r) => r.estado === CONSTANCIA_ESTADOS.pendiente,
+      );
+      for (const row of pendientes) {
+        try {
+          await persistComoIfNeeded(row);
+        } catch (err) {
+          console.error("[ConstanciasHub] persist como:", err);
+        }
+      }
       const res = await aprobarTodasConstanciasPendientes(supabase, {
         resueltoPorId: user?.id,
         tipo: tipoFilterParam,
@@ -340,7 +386,7 @@ export default function ConstanciasHub() {
                 <th className="px-3 py-2 font-bold">Solicitante</th>
                 <th className="px-3 py-2 font-bold">Tipo</th>
                 <th className="px-3 py-2 font-bold">Gira</th>
-                <th className="px-3 py-2 font-bold">Instrumento</th>
+                <th className="px-3 py-2 font-bold">como…</th>
                 <th className="px-3 py-2 font-bold">Fechas</th>
                 <th className="px-3 py-2 font-bold">Estado</th>
                 <th className="px-3 py-2 font-bold">Acciones</th>
@@ -391,8 +437,46 @@ export default function ConstanciasHub() {
                         {r.snap_gira_tipo || ""} · {r.snap_localidades || ""}
                       </div>
                     </td>
-                    <td className="px-3 py-2 text-slate-700">
-                      {r.snap_instrumento || "—"}
+                    <td className="px-3 py-2 align-top text-slate-700">
+                      {r.estado === CONSTANCIA_ESTADOS.pendiente ? (
+                        <div className="min-w-[8.5rem]">
+                          <input
+                            type="text"
+                            value={comoById[r.id] ?? ""}
+                            onChange={(e) =>
+                              setComoById((prev) => ({
+                                ...prev,
+                                [r.id]: e.target.value,
+                              }))
+                            }
+                            onBlur={() => {
+                              persistComoIfNeeded(r).catch((err) => {
+                                toast.error(
+                                  err?.message || "No se pudo guardar «como…»",
+                                );
+                              });
+                            }}
+                            placeholder="violinista"
+                            className="w-full rounded-md border border-slate-200 px-2 py-1 text-[11px] text-slate-800 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                            aria-label={`como ${nombre || r.id}`}
+                          />
+                          <div className="mt-0.5 text-[9px] text-slate-400">
+                            {r.snap_instrumento || ""}
+                          </div>
+                        </div>
+                      ) : (
+                        <div>
+                          <div className="font-medium text-slate-800">
+                            {r.snap_funcion ||
+                              String(r.snap_instrumento || "")
+                                .toLowerCase() ||
+                              "—"}
+                          </div>
+                          <div className="text-[9px] text-slate-400">
+                            {r.snap_instrumento || ""}
+                          </div>
+                        </div>
+                      )}
                     </td>
                     <td className="px-3 py-2 text-slate-600">
                       {formatShortDate(r.snap_fecha_desde)} –{" "}
@@ -416,7 +500,10 @@ export default function ConstanciasHub() {
                         <div className="flex flex-wrap gap-1">
                           <button
                             type="button"
-                            disabled={busyId === r.id}
+                            disabled={
+                              busyId === r.id ||
+                              !String(comoById[r.id] || "").trim()
+                            }
                             onClick={() => handleAprobar(r.id)}
                             className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2 py-1 text-[10px] font-bold text-white hover:bg-emerald-700 disabled:opacity-50"
                           >

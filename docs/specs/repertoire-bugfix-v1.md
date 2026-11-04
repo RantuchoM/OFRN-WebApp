@@ -60,9 +60,22 @@ Estado de carga infinito ("Cargando...") y chips de arcos vacíos en WorkForm y 
 
 ---
 
-## 4. Archivos modificados
+## 4. Importar Repertorio — giras antiguas (2026-11-04)
+
+### Problema
+`AdvancedImportModal` en `ProgramRepertoire.jsx` listaba solo `.limit(100)` ordenado por `created_at`, y el buscador filtraba **en cliente** sobre ese subset. Las giras pasadas fuera del tope no aparecían aunque se buscaran por nombre/nomenclador.
+
+### Solución aplicada
+- Reutiliza `searchProgramasForAssign` (mismo motor que AssignProgramModal): orden por `fecha_desde`, ILIKE multi-token en servidor cuando hay ≥2 caracteres.
+- Browse inicial: 150 más recientes por fecha; con búsqueda, el filtro corre en DB (cubre historial completo).
+- Excluye la gira actual; hint en UI sobre el alcance de la búsqueda.
+
+---
+
+## 5. Archivos modificados
 
 | Archivo | Cambios |
 |--------|--------|
 | `src/components/repertoire/BowingSetManager.jsx` | Inicialización de loading/arcosList según mode/workId; try/finally y fetchError en fetchArcos; mensaje "Guarda la obra primero"; IconAlertCircle para error; console.log de debug en desarrollo. |
 | `src/components/repertoire/RepertoireManager.jsx` | DragOverlay con fila ghost; SortableContext con verticalListSortingStrategy; activeDragId y activeDragItemData; overflow-visible/z-index en bloques y tabla durante arrastre; onDragEnd con detección explícita de cambio de bloque (movedToOtherBlock) y normalización de ambos bloques. |
+| `src/views/Giras/ProgramRepertoire.jsx` | `AdvancedImportModal`: búsqueda server-side de programas vía `searchProgramasForAssign` (sin tope ciego de 100 por `created_at`). |
