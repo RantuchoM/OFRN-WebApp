@@ -1,9 +1,18 @@
 import jsPDF from "jspdf";
 import { PDFDocument } from "pdf-lib";
+import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.js?url";
 import {
   CONSTANCIA_CIUDAD_EMISION,
   CONSTANCIA_TIPOS,
 } from "../constants/constancias";
+
+/**
+ * jsPDF no arma AcroForm, así que `form.flatten()` no saca el texto:
+ * hay que rasterizar la página con pdf.js (misma 3.11 que el resto de la app).
+ */
+
+/** 72 dpi × 3 ≈ 216 dpi: nítido al imprimir, y el texto deja de ser seleccionable. */
+const FLATTEN_SCALE = 3;
 
 /** Assets del modelo Word (header CULTURA RN + firma Spelzini). */
 export const CONSTANCIA_LOGO_URL = "/plantillas/constancia/image2.png";
@@ -282,6 +291,80 @@ function drawJustifiedParagraph(doc, text, x, y, fullW, firstIndent, lineH) {
   return cursorY;
 }
 
+async function loadPdfJs() {
+  const pdfjsLib = await import("pdfjs-dist");
+  if (typeof window !== "undefined") {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+  }
+  return pdfjsLib;
+}
+
+function canvasToPngBytes(canvas) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        reject(new Error("No se pudo rasterizar la constancia"));
+        return;
+      }
+      blob.arrayBuffer().then(
+        (buf) => resolve(new Uint8Array(buf)),
+        (err) => reject(err),
+      );
+    }, "image/png");
+  });
+}
+
+/**
+ * Reescribe el PDF vectorial como una imagen por página.
+ * Sin esto el certificado se descarga con texto seleccionable (editable).
+ * @param {ArrayBuffer | Uint8Array} raw
+ * @returns {Promise<Uint8Array>}
+ */
+async function flattenPdfToImageBytes(raw) {
+  if (typeof document === "undefined") {
+    throw new Error("El PDF de la constancia solo se aplana en el navegador");
+  }
+  const pdfjsLib = await loadPdfJs();
+  const src = raw instanceof Uint8Array ? raw : new Uint8Array(raw);
+  const task = pdfjsLib.getDocument({ data: src.slice() });
+  const out = await PDFDocument.create();
+  try {
+    const pdf = await task.promise;
+    for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+      const page = await pdf.getPage(pageNumber);
+      const base = page.getViewport({ scale: 1 });
+      const viewport = page.getViewport({ scale: FLATTEN_SCALE });
+      const canvas = document.createElement("canvas");
+      const width = Math.ceil(viewport.width);
+      const height = Math.ceil(viewport.height);
+      canvas.width = width;
+      canvas.height = height;
+      const ctx =
+        canvas.getContext("2d", { alpha: false }) || canvas.getContext("2d");
+      if (!ctx) {
+        throw new Error("No se pudo rasterizar la constancia");
+      }
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, width, height);
+      await page.render({ canvasContext: ctx, viewport }).promise;
+      const pngBytes = await canvasToPngBytes(canvas);
+      const image = await out.embedPng(pngBytes);
+      const pdfPage = out.addPage([base.width, base.height]);
+      pdfPage.drawImage(image, {
+        x: 0,
+        y: 0,
+        width: base.width,
+        height: base.height,
+      });
+      page.cleanup();
+    }
+  } finally {
+    await task.destroy();
+  }
+  const saved = await out.save();
+  return saved instanceof Uint8Array ? saved : new Uint8Array(saved);
+}
+
 /**
  * PDF aplanado con logo + texto + firma (modelo Word).
  * @returns {Promise<{ blob: Blob, base64: string, filename: string, texto: object }>}
@@ -366,22 +449,7 @@ export async function generateConstanciaPdf(data) {
   doc.addImage(firmaDataUrl, "PNG", firmaX, firmaY, firmaW, firmaH);
 
   const raw = doc.output("arraybuffer");
-  const flatDoc = await PDFDocument.load(raw);
-  try {
-    const form = flatDoc.getForm();
-    if (form) {
-      try {
-        form.flatten();
-      } catch {
-        /* sin campos */
-      }
-    }
-  } catch {
-    /* sin AcroForm */
-  }
-  const flatBytes = await flatDoc.save({ updateFieldAppearances: false });
-  const bytes =
-    flatBytes instanceof Uint8Array ? flatBytes : new Uint8Array(flatBytes);
+  const bytes = await flattenPdfToImageBytes(raw);
   const base64 = uint8ToBase64(bytes);
   const blob = new Blob([bytes], { type: "application/pdf" });
 

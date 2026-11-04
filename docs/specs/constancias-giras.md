@@ -47,7 +47,7 @@ Texto común:
 - **Instrumento / función**: al solicitar, se toma el instrumento **efectivo de la gira** (`giras_integrantes.id_instr` si el Roster lo modificó respecto al perfil; si no, `integrantes.id_instr`). De ahí se lee `instrumentos.funcion` → `snap_funcion` (editable en Gestión, p.ej. «concertino»). Ambos PDFs: convocatoria «como {snap_funcion} a participar…»; participación «participó como {snap_funcion} de…».
 - **Localidades** concatenadas de tramos / `giras_localidades`
 - **Emisión**: `Viedma, {fecha de aprobación}`
-- Generación: **jsPDF** (logo + **Calibri** 13pt embebida + firma) → re-save pdf-lib **aplanado**. Fecha a la **derecha**; cuerpo/cierre **justificados**, interlineado **1.5**, sangría 1ª línea ~40 mm. Sin «el Sr.» / «la Sra.»; coma tras el nombre; participio según género en convocatoria.
+- Generación: **jsPDF** (logo + **Calibri** 13pt embebida + firma) y después **aplanado real**: cada página se rasteriza con pdf.js (~216 dpi) y pdf-lib la guarda como una sola imagen. El PDF de **Descargar** y el adjunto del mail no tienen texto seleccionable ni campos. `form.flatten()` no alcanza: jsPDF no crea AcroForm, así que el archivo seguía editable. Fecha a la **derecha**; cuerpo/cierre **justificados**, interlineado **1.5**, sangría 1ª línea ~40 mm. Sin «el Sr.» / «la Sra.»; coma tras el nombre; participio según género en convocatoria.
 - Fuente: `public/fonts/Calibri.ttf`
 
 ## Mail (`mails_produccion`, mismo estilo que convocatoria Pike / `es_modelo`)
@@ -75,3 +75,4 @@ Tabla `instrumentos`: columna `funcion` (rol formal precompletado; editable en U
 - [x] Modal Mis Constancias + botón header + badges
 - [x] Hub Gestión (aprobar / denegar / aprobar todas / deshacer denegación)
 - [x] `instrumentos.funcion` + columna editable «como…» en Gestión
+- [x] Descarga y mail con PDF aplanado (imagen, sin texto extraíble) (2026-11-04)
