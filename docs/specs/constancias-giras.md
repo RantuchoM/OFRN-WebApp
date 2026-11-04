@@ -18,7 +18,7 @@ Una persona puede pedir **una de cada tipo por gira** (`UNIQUE (id_integrante, i
 | Header (junto a Mi Perfil) | Botón **Constancias** → modal «Mis Constancias» |
 | Badge (músico) | Solicitudes propias aprobadas/denegadas aún no vistas |
 | Badge (editor/admin) | Cantidad de solicitudes **pendientes** (abiertas) |
-| Modal | Primero carga **Mis solicitudes** (orden: pendiente → aprobada → denegada); el desplegable de giras solo se carga al elegir tipo (**Convocatoria / Participación realizada**) |
+| Modal | Primero carga **Mis solicitudes** (más recientes primero; muestra 5 y «Mostrar más»; cada ítem con mes_letra \| nomenclador \| zona + fechas); en **aprobadas**: **Reenviar** (mail propio) y **Descargar** PDF; el desplegable de giras solo se carga al elegir tipo |
 | Gestión `/management/constancias` | Lista (Tipo + columna **como…** editable en convocatoria), filtros estado/tipo, aprobar, denegar, **Aprobar todas** (respeta filtro de tipo y el «como…» editado); en aprobadas: **Reenviar** / **Descargar**; en denegadas: **Deshacer** |
 
 En Mis Constancias el estado **pendiente** deja claro que hay que esperar la resolución.
@@ -54,7 +54,7 @@ Texto común:
 
 | Evento | Template | Destinatario | Contenido |
 |--------|----------|--------------|-----------|
-| Solicitud creada | `constancia_solicitud` | `filarmonica.scrn+constancias@gmail.com` | Asunto: `Solicitud de constancia ({tipo}) \| {nombre} \| {gira}`; cuerpo con Tipo + datos + CTA |
+| Solicitud creada | `constancia_solicitud` | `filarmonica.scrn+constancias@gmail.com` | Asunto: `Solicitud de constancia ({tipo}) \| {nombre} \| {gira}`; cuerpo con Tipo + datos + mes/nomenclador/zona + fechas + CTA |
 | Aprobación | `constancia_aprobada` | mail del integrante | Aviso + PDF aplanado adjunto |
 | Denegación | `constancia_denegada` | mail del integrante | Motivo |
 

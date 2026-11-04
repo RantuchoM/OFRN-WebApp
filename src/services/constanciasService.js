@@ -486,6 +486,26 @@ export async function notificarOficinaSolicitudConstancia(
       solicitud.snap_fecha_hasta,
     );
   const tipoNorm = normalizeConstanciaTipo(solicitud.tipo);
+  const prog = solicitud.programas || {};
+  const mesLetra = String(prog.mes_letra || "").trim();
+  const nomenclador = String(prog.nomenclador || "").trim();
+  const zona = String(prog.zona || "").trim();
+  const giraMetaParts = [mesLetra, nomenclador, zona].filter(Boolean);
+  const giraMeta = giraMetaParts.join(" | ");
+  const fechaDesdeIso = solicitud.snap_fecha_desde || prog.fecha_desde || "";
+  const fechaHastaIso = solicitud.snap_fecha_hasta || prog.fecha_hasta || "";
+  const fechasRangoCorto = (() => {
+    const fmt = (iso) => {
+      const d = String(iso || "").slice(0, 10);
+      const [y, m, day] = d.split("-");
+      if (!y || !m || !day) return "";
+      return `${day}/${m}/${y}`;
+    };
+    const a = fmt(fechaDesdeIso);
+    const b = fmt(fechaHastaIso);
+    if (a && b) return `${a}–${b}`;
+    return a || b || "";
+  })();
   await invokeConstanciaMail(supabase, {
     templateId: "constancia_solicitud",
     email: CONSTANCIA_MAIL_OFICINA,
@@ -502,6 +522,11 @@ export async function notificarOficinaSolicitudConstancia(
       funcion: solicitud.snap_funcion,
       gira_tipo: solicitud.snap_gira_tipo,
       gira_nombre: solicitud.snap_gira_nombre,
+      mes_letra: mesLetra,
+      nomenclador,
+      zona,
+      gira_meta: giraMeta,
+      fechas_rango_corto: fechasRangoCorto,
       fechas_label: fechas,
       localidades: solicitud.snap_localidades,
       link_solicitud: constanciaGestionLink(solicitud.id),

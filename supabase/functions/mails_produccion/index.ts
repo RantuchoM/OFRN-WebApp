@@ -882,7 +882,14 @@
         const funcion = escapeHtmlMail(String(d?.funcion || "").trim());
         const tipo = escapeHtmlMail(String(d?.gira_tipo || ""));
         const fechas = escapeHtmlMail(String(d?.fechas_label || "—"));
+        const fechasCorto = escapeHtmlMail(String(d?.fechas_rango_corto || "").trim());
         const localidades = escapeHtmlMail(String(d?.localidades || "—"));
+        const mesLetra = escapeHtmlMail(String(d?.mes_letra || "").trim());
+        const nomenclador = escapeHtmlMail(String(d?.nomenclador || "").trim());
+        const zona = escapeHtmlMail(String(d?.zona || "").trim());
+        const giraMeta = escapeHtmlMail(
+          String(d?.gira_meta || [d?.mes_letra, d?.nomenclador, d?.zona].filter(Boolean).join(" | ") || "").trim(),
+        );
         const idSol = d?.solicitud_id != null ? String(d.solicitud_id) : "";
         const link = escapeHtmlMail(String(d?.link_solicitud || "").trim());
         const giraLabel = escapeHtmlMail(String(gira || d?.gira_nombre || "gira"));
@@ -918,7 +925,13 @@
               <p style="margin:0 0 6px 0;"><strong>Instrumento:</strong> ${instrumento}</p>
               ${funcion ? `<p style="margin:0 0 6px 0;"><strong>Como:</strong> ${funcion}</p>` : ""}
               <p style="margin:0 0 6px 0;"><strong>Gira:</strong> ${giraLabel}${tipo ? ` (${tipo})` : ""}</p>
-              <p style="margin:0 0 6px 0;"><strong>Fechas:</strong> ${fechas}</p>
+              ${giraMeta ? `<p style="margin:0 0 6px 0;"><strong>Mes / nomenclador / zona:</strong> ${giraMeta}</p>` : [
+                mesLetra ? `<p style="margin:0 0 6px 0;"><strong>Mes:</strong> ${mesLetra}</p>` : "",
+                nomenclador ? `<p style="margin:0 0 6px 0;"><strong>Nomenclador:</strong> ${nomenclador}</p>` : "",
+                zona ? `<p style="margin:0 0 6px 0;"><strong>Zona:</strong> ${zona}</p>` : "",
+              ].join("")}
+              <p style="margin:0 0 6px 0;"><strong>Fechas:</strong> ${fechasCorto || fechas}</p>
+              ${fechasCorto && fechas ? `<p style="margin:0 0 6px 0;"><strong>Fechas (texto):</strong> ${fechas}</p>` : ""}
               <p style="margin:0;"><strong>Localidades:</strong> ${localidades}</p>
             </div>
             ${cta}
