@@ -22,13 +22,13 @@ import {
   partitionInstrumentosByStagePlotIcon,
   prepareInstrumentSvgIconForSave,
   reloadStagePlotInstrumentIcons,
+  saveInstrumentoSvgIcon,
   applyStagePlotInstrumentSizeOverride,
   resolveInstrumentStagePlotType,
   setInstrumentoStagePlotRaster,
   clearInstrumentoStagePlotRaster,
   STAGE_PLOT_INSTRUMENT_TYPE_OPTIONS,
 } from "../../services/stagePlotInstrumentIconsService";
-import { removeStagePlotRasterByUrl } from "../../services/stagePlotRasterStorage";
 import {
   classifyStagePlotIconUpload,
   validateStagePlotRasterFile,
@@ -1191,33 +1191,30 @@ export default function StagePlotInstrumentsPanel({
       return;
     }
     setSavingSvg(true);
-    const clearsRaster = Boolean(
-      pendingSvg.nextSvg && selected.stage_plot_raster_url,
-    );
-    const previousRaster = selected.stage_plot_raster_url || null;
-    const patch = { svg_icon: pendingSvg.nextSvg };
-    if (clearsRaster) patch.stage_plot_raster_url = null;
-    const { error } = await supabase
-      .from("instrumentos")
-      .update(patch)
-      .eq("id", selected.id);
-    setSavingSvg(false);
-    if (error) {
-      toast.error(error.message || "No se pudo guardar el SVG");
-      throw error;
+    try {
+      const saved = await saveInstrumentoSvgIcon(selected.id, pendingSvg.nextSvg, {
+        previousRasterUrl: selected.stage_plot_raster_url,
+        client: supabase,
+      });
+      patchRowLocal(selected.id, {
+        svg_icon: saved.svg,
+        ...(saved.clearedRaster ? { stage_plot_raster_url: null } : {}),
+      });
+      setPendingSvg(null);
+      onCatalogReload?.();
+      toast.success(
+        pendingSvg.nextSvg
+          ? saved.clearedRaster
+            ? "Ícono SVG actualizado. Se quitó el PNG para que se vea este dibujo."
+            : "Ícono SVG actualizado"
+          : "SVG personalizado quitado",
+      );
+    } catch (err) {
+      toast.error(err?.message || "No se pudo guardar el SVG");
+      throw err;
+    } finally {
+      setSavingSvg(false);
     }
-    if (clearsRaster) await removeStagePlotRasterByUrl(previousRaster);
-    patchRowLocal(selected.id, patch);
-    setPendingSvg(null);
-    await reloadStagePlotInstrumentIcons().catch(() => {});
-    onCatalogReload?.();
-    toast.success(
-      pendingSvg.nextSvg
-        ? clearsRaster
-          ? "Ícono SVG actualizado. Se quitó el PNG para que se vea este dibujo."
-          : "Ícono SVG actualizado"
-        : "SVG personalizado quitado",
-    );
   };
 
   const uploadRaster = async (file) => {

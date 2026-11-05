@@ -28,6 +28,7 @@ import {
   clearInstrumentoStagePlotRaster,
   reloadStagePlotInstrumentIcons,
   resolveInstrumentStagePlotType,
+  saveInstrumentoSvgIcon,
   setInstrumentoStagePlotRaster,
 } from "../../services/stagePlotInstrumentIconsService";
 import {
@@ -110,7 +111,7 @@ const labelForSelectValue = (value, options) => {
 };
 
 /** Campo SVG: file input + textarea + preview (Datos → Instrumentos). */
-function SvgIconField({ value, onChange, fieldClass }) {
+function SvgIconField({ value, onChange, fieldClass, clearsRasterOnSave = false }) {
   const [error, setError] = useState("");
   const [hint, setHint] = useState("");
   const preview = useMemo(() => {
@@ -210,6 +211,9 @@ function SvgIconField({ value, onChange, fieldClass }) {
           pegar o subir se limpia automáticamente (Illustrator/Inkscape OK). Sin
           script / eventos. Se conservan los colores; usá currentColor solo si
           querés silueta mono tintable.
+          {clearsRasterOnSave
+            ? " Guardar un SVG nuevo quita el PNG para que el plano muestre este dibujo."
+            : ""}
         </p>
       )}
       {preview ? (
@@ -334,6 +338,7 @@ function RowEditModal({
   onSaveNewRow,
   getDraftSnapshotFromForm,
   isSavingNew,
+  onRasterPersisted,
 }) {
   const [form, setForm] = useState({});
   const [applying, setApplying] = useState(false);
@@ -379,6 +384,7 @@ function RowEditModal({
 
   const applyFormToRow = async () => {
     if (!row) return;
+    let svgClearedRaster = false;
     for (const col of columns) {
       if (col.key === "id" && !isDraft) continue;
 
@@ -425,6 +431,16 @@ function RowEditModal({
           oldVal === "" || oldVal === undefined || oldVal === null
             ? null
             : String(oldVal);
+        if (String(nv ?? "") === String(ov ?? "")) continue;
+        const saved = await onFieldSave(rowId, col.key, nv);
+        if (saved?.clearedRaster) svgClearedRaster = true;
+        continue;
+      }
+
+      if (col.type === "stagePlotRaster") {
+        if (svgClearedRaster) continue;
+        const nv = newVal === "" ? null : newVal;
+        const ov = oldVal === "" || oldVal === undefined ? null : oldVal;
         if (String(nv ?? "") === String(ov ?? "")) continue;
         await onFieldSave(rowId, col.key, nv);
         continue;
@@ -602,6 +618,9 @@ function RowEditModal({
                   <SvgIconField
                     value={v ?? ""}
                     fieldClass={fieldClass}
+                    clearsRasterOnSave={Boolean(
+                      String(form.stage_plot_raster_url || "").trim(),
+                    )}
                     onChange={(next) =>
                       setForm((f) => ({ ...f, [col.key]: next }))
                     }
@@ -611,9 +630,10 @@ function RowEditModal({
                   <StagePlotRasterField
                     value={v ?? ""}
                     rowId={rowId}
-                    onChange={(next) =>
-                      setForm((f) => ({ ...f, [col.key]: next }))
-                    }
+                    onChange={(next) => {
+                      setForm((f) => ({ ...f, [col.key]: next }));
+                      onRasterPersisted?.(next);
+                    }}
                   />
                 )}
                 {!readOnlyId &&
@@ -1580,6 +1600,26 @@ export default function UniversalTable({
     if (key === 'id') return false; 
 
     try {
+      if (tableName === "instrumentos" && key === "svg_icon") {
+        const current = data.find((row) => getRowId(row) === id);
+        const saved = await saveInstrumentoSvgIcon(id, cleanValue, {
+          previousRasterUrl: current?.stage_plot_raster_url || null,
+        });
+        setData((prev) =>
+          prev.map((row) =>
+            getRowId(row) === id
+              ? {
+                  ...row,
+                  svg_icon: saved.svg,
+                  ...(saved.clearedRaster ? { stage_plot_raster_url: null } : {}),
+                }
+              : row,
+          ),
+        );
+        if (onDataChange) onDataChange();
+        return { ok: true, clearedRaster: saved.clearedRaster };
+      }
+
       const { error } = await supabase
         .from(tableName)
         .update({ [key]: cleanValue })
@@ -2081,6 +2121,16 @@ export default function UniversalTable({
         onSaveNewRow={handleSaveNewRow}
         getDraftSnapshotFromForm={getDraftSnapshotFromForm}
         isSavingNew={isSavingNew}
+        onRasterPersisted={(url) => {
+          if (modalRowId == null) return;
+          setData((prev) =>
+            prev.map((row) =>
+              getRowId(row) === modalRowId
+                ? { ...row, stage_plot_raster_url: url || null }
+                : row,
+            ),
+          );
+        }}
       />
 
       {allowMergeLocaciones && (
