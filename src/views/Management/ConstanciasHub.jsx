@@ -12,6 +12,7 @@ import {
   IconDownload,
   IconUndo,
   IconPlus,
+  IconRepeat,
 } from "../../components/ui/Icons";
 import ConfirmModal from "../../components/ui/ConfirmModal";
 import {
@@ -36,14 +37,22 @@ import {
   generarConstanciaGestion,
   previewConstanciaGestion,
   suggestConstanciaFechasFromLogistics,
+  reemitirConstanciaAprobada,
 } from "../../services/constanciasService";
 import { supabase } from "../../services/supabase";
 import { useAuth } from "../../context/AuthContext";
 import {
   seatingApellidoNombre,
+  seatingApellidoInicial,
   legalApellidoNombre,
 } from "../../utils/integranteDisplayName";
 import { formatProgramSelectLabel } from "../../utils/giraUtils";
+
+function labelResueltoPor(row) {
+  const ref = row?.resuelto_por_ref;
+  if (!ref) return null;
+  return seatingApellidoInicial(ref) || seatingApellidoNombre(ref) || null;
+}
 
 function formatShortDate(iso) {
   if (!iso) return "—";
@@ -244,9 +253,18 @@ export default function ConstanciasHub() {
     );
   };
 
+  /** Pendiente/denegada: autosave. Aprobada: solo draft local hasta Reemitir. */
   const canEditFechas = (estado) =>
     estado === CONSTANCIA_ESTADOS.pendiente ||
-    estado === CONSTANCIA_ESTADOS.denegada;
+    estado === CONSTANCIA_ESTADOS.denegada ||
+    estado === CONSTANCIA_ESTADOS.aprobada;
+
+  const canEditComo = (estado) =>
+    estado === CONSTANCIA_ESTADOS.pendiente ||
+    estado === CONSTANCIA_ESTADOS.aprobada;
+
+  const isAprobadaDraftOnly = (estado) =>
+    estado === CONSTANCIA_ESTADOS.aprobada;
 
   const handleAprobar = async (id) => {
     setBusyId(id);
@@ -284,6 +302,39 @@ export default function ConstanciasHub() {
       await load();
     } catch (err) {
       toast.error(err?.message || "No se pudo reenviar");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleReemitir = async (row) => {
+    setBusyId(row.id);
+    try {
+      const draftFechas = fechasById[row.id] || {
+        desde: String(row.snap_fecha_desde || "").slice(0, 10),
+        hasta: String(row.snap_fecha_hasta || "").slice(0, 10),
+      };
+      const como =
+        String(comoById[row.id] ?? "").trim() ||
+        String(row.snap_funcion || "").trim();
+      await reemitirConstanciaAprobada(supabase, {
+        solicitudId: row.id,
+        snapFuncion: como,
+        fechaDesde: draftFechas.desde,
+        fechaHasta: draftFechas.hasta,
+        resueltoPorId: user?.id,
+      });
+      toast.success(
+        `Constancia reemitida y enviada a ${row.integrantes?.mail || "el solicitante"}`,
+      );
+      await load();
+    } catch (err) {
+      if (err?.mailFailed && err?.solicitud) {
+        toast.warning(err.message);
+        await load();
+      } else {
+        toast.error(err?.message || "No se pudo reemitir");
+      }
     } finally {
       setBusyId(null);
     }
@@ -391,7 +442,8 @@ export default function ConstanciasHub() {
   }
 
   const renderComoField = (r, nombre, { large = false } = {}) => {
-    if (r.estado === CONSTANCIA_ESTADOS.pendiente) {
+    if (canEditComo(r.estado)) {
+      const draftOnly = isAprobadaDraftOnly(r.estado);
       return (
         <div className={large ? "w-full" : "min-w-[8.5rem]"}>
           {large ? (
@@ -409,6 +461,7 @@ export default function ConstanciasHub() {
               }))
             }
             onBlur={() => {
+              if (draftOnly) return;
               persistComoIfNeeded(r).catch((err) => {
                 toast.error(err?.message || "No se pudo guardar «como…»");
               });
@@ -423,6 +476,9 @@ export default function ConstanciasHub() {
             className={`mt-0.5 text-slate-400 ${large ? "text-[11px]" : "text-[9px]"}`}
           >
             {r.snap_instrumento || ""}
+            {draftOnly ? (
+              <span className="ml-1 text-indigo-600">· Reemitir para aplicar</span>
+            ) : null}
           </div>
         </div>
       );
@@ -463,6 +519,7 @@ export default function ConstanciasHub() {
         </div>
       );
     }
+    const draftOnly = isAprobadaDraftOnly(r.estado);
     const draft = fechasById[r.id] || {
       desde: String(r.snap_fecha_desde || "").slice(0, 10),
       hasta: String(r.snap_fecha_hasta || "").slice(0, 10),
@@ -474,23 +531,31 @@ export default function ConstanciasHub() {
         hasta={draft.hasta}
         idIntegrante={r.id_integrante}
         idGira={r.id_gira}
+        hintExtra={
+          draftOnly ? "Cambios locales · Reemitir para aplicar" : null
+        }
         onChange={(next) =>
           setFechasById((prev) => ({
             ...prev,
             [r.id]: next,
           }))
         }
-        onPersist={() =>
+        onPersist={() => {
+          if (draftOnly) return;
           persistFechasIfNeeded(r).catch((err) => {
             toast.error(err?.message || "No se pudieron guardar las fechas");
-          })
-        }
+          });
+        }}
         onApplySuggestion={(sug) => {
           const next = {
             desde: sug.fechaDesde || draft.desde,
             hasta: sug.fechaHasta || sug.fechaDesde || draft.hasta,
           };
           setFechasById((prev) => ({ ...prev, [r.id]: next }));
+          if (draftOnly) {
+            toast.message("Fechas de logística listas · Reemitir para aplicar");
+            return;
+          }
           updateConstanciaSnapFechas(supabase, {
             solicitudId: r.id,
             fechaDesde: next.desde,
@@ -547,13 +612,44 @@ export default function ConstanciasHub() {
       );
     }
     if (r.estado === CONSTANCIA_ESTADOS.aprobada) {
+      const comoOk = Boolean(String(comoById[r.id] ?? r.snap_funcion ?? "").trim());
+      const fechasDraft = fechasById[r.id] || {
+        desde: String(r.snap_fecha_desde || "").slice(0, 10),
+        hasta: String(r.snap_fecha_hasta || "").slice(0, 10),
+      };
+      const fechasOk = Boolean(fechasDraft.desde);
+      const por = labelResueltoPor(r);
       return (
         <div className={`flex flex-col gap-1 ${large ? "w-full" : ""}`}>
-          <span className="inline-flex items-center gap-1 text-[10px] text-slate-400">
-            <IconFileText size={12} />
-            {formatShortDate(r.resuelto_at)}
-          </span>
-          <div className={`flex gap-2 ${large ? "w-full" : "flex-wrap"}`}>
+          <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-slate-400">
+            <span className="inline-flex items-center gap-1">
+              <IconFileText size={12} />
+              {formatShortDate(r.reemitida_at || r.resuelto_at)}
+              {por
+                ? ` · ${r.reemitida_at ? "reemitió" : "emitió"} ${por}`
+                : ""}
+            </span>
+            {r.reemitida_at ? (
+              <span className="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-1.5 py-0.5 font-bold text-indigo-700">
+                Reemitida
+              </span>
+            ) : null}
+          </div>
+          <div className={`flex gap-2 ${large ? "w-full flex-wrap" : "flex-wrap"}`}>
+            <button
+              type="button"
+              disabled={busyId === r.id || !r.integrantes?.mail || !comoOk || !fechasOk}
+              title="Guarda fechas/rol, regenera el PDF y avisa al músico"
+              onClick={() => handleReemitir(r)}
+              className={`inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-indigo-600 font-bold text-white hover:bg-indigo-700 disabled:opacity-50 ${btnPad}`}
+            >
+              {busyId === r.id ? (
+                <IconLoader size={iconSz} className="animate-spin" />
+              ) : (
+                <IconRepeat size={iconSz} />
+              )}
+              Reemitir
+            </button>
             <button
               type="button"
               disabled={busyId === r.id || !r.integrantes?.mail}
@@ -589,11 +685,13 @@ export default function ConstanciasHub() {
         </div>
       );
     }
+    const porDenegacion = labelResueltoPor(r);
     return (
       <div className={`flex flex-col gap-1 ${large ? "w-full" : ""}`}>
         <span className="inline-flex items-center gap-1 text-[10px] text-slate-400">
           <IconFileText size={12} />
           {formatShortDate(r.resuelto_at)}
+          {porDenegacion ? ` · denegó ${porDenegacion}` : ""}
         </span>
         <button
           type="button"
@@ -997,6 +1095,7 @@ function FechasConstanciaEditor({
   onPersist,
   onApplySuggestion,
   autoSuggest = true,
+  hintExtra = null,
 }) {
   const [logBusy, setLogBusy] = useState(false);
   const [suggestion, setSuggestion] = useState(null);
@@ -1080,6 +1179,9 @@ function FechasConstanciaEditor({
       <div
         className={`mt-1 text-slate-500 ${large ? "text-[11px]" : "text-[9px]"}`}
       >
+        {hintExtra ? (
+          <div className="mb-0.5 font-medium text-indigo-600">{hintExtra}</div>
+        ) : null}
         {logBusy ? (
           <span className="inline-flex items-center gap-1">
             <IconLoader size={11} className="animate-spin" />

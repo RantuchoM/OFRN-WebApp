@@ -372,9 +372,14 @@ export default function ConstanciasModal({
                         )}
                         {s.estado === CONSTANCIA_ESTADOS.aprobada && (
                           <div className="mt-1.5 space-y-1.5">
-                            <p className="flex items-center gap-1 text-[11px] text-emerald-700">
+                            <p className="flex flex-wrap items-center gap-1 text-[11px] text-emerald-700">
                               <IconCheck size={12} />
                               Aprobada
+                              {s.reemitida_at ? (
+                                <span className="rounded-full border border-indigo-200 bg-indigo-50 px-1.5 py-0.5 text-[10px] font-bold text-indigo-700">
+                                  Reemitida {formatShortDate(s.reemitida_at)}
+                                </span>
+                              ) : null}
                               {s.mail_enviado_at
                                 ? " · PDF enviado por mail"
                                 : s.mail_error

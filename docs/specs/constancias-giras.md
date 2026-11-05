@@ -19,7 +19,7 @@ Una persona puede pedir **una de cada tipo por gira** (`UNIQUE (id_integrante, i
 | Badge (músico) | Solicitudes propias aprobadas/denegadas aún no vistas |
 | Badge (editor/admin) | Cantidad de solicitudes **pendientes** (abiertas) |
 | Modal | Primero carga **Mis solicitudes** (más recientes primero; muestra 5 y «Mostrar más»; cada ítem con mes_letra \| nomenclador \| zona + fechas); en **aprobadas**: **Reenviar** (mail propio) y **Descargar** PDF; el desplegable de giras solo se carga al elegir tipo |
-| Gestión `/management/constancias` | Lista (Tipo + columna **como…** editable), filtros estado/tipo, aprobar, denegar, **Aprobar todas**; **fechas del PDF** editables en pendientes/denegadas (`snap_fecha_desde` / `snap_fecha_hasta`); si la persona **no es local**, se calcula la logística (primera ↑ / última ↓) como referencia con botón «Usar fechas de logística». **Generar** (editor/admin): persona + tipo + gira + «como…» + fechas (prellena logística si aplica), crea **ya aprobada**, mail al músico y Mis Constancias. En aprobadas: **Reenviar** / **Descargar** (fechas congeladas); en denegadas: **Deshacer**. Móvil: tarjetas; tabla desde `md` |
+| Gestión `/management/constancias` | Lista (Tipo + columna **como…** editable), filtros estado/tipo, aprobar, denegar, **Aprobar todas**; **fechas del PDF** editables en pendientes/denegadas; logística no local como sugerencia. **Generar** preaprobada. En **aprobadas**: editar fechas/rol en borrador local + **Reemitir**; muestra quién emitió/reemitió (`resuelto_por`). Denegadas: quién denegó + **Deshacer**. **Reenviar** / **Descargar**. Móvil: tarjetas; tabla desde `md`. Mis Constancias **no** muestra el resolutor |
 
 En Mis Constancias el estado **pendiente** deja claro que hay que esperar la resolución.
 
@@ -48,7 +48,7 @@ Texto común:
 - **Fechas del cuerpo**: por defecto `programas.fecha_desde` / `fecha_hasta`. En Gestión (solo no aprobadas) se pueden editar. Sugerencia para no locales: ventana de viaje de logística (primera subida ↑ / última bajada ↓ a/desde origen). Locales: sin sugerencia de viaje.
 - **Instrumento / función**: al solicitar, se toma el instrumento **efectivo de la gira** (`giras_integrantes.id_instr` si el Roster lo modificó respecto al perfil; si no, `integrantes.id_instr`). De ahí se lee `instrumentos.funcion` → `snap_funcion` (editable en Gestión, p.ej. «concertino»). Ambos PDFs: convocatoria «como {snap_funcion} a participar…»; participación «participó como {snap_funcion} de…».
 - **Localidades** concatenadas de tramos / `giras_localidades`
-- **Emisión**: `Viedma, {fecha de aprobación}`
+- **Emisión**: `Viedma, {reemitida_at || fecha de aprobación}`
 - Generación: **jsPDF** (logo + **Calibri** 13pt embebida + firma) y después **aplanado real**: cada página se rasteriza con pdf.js (~216 dpi) y pdf-lib la guarda como una sola imagen. El PDF de **Descargar** y el adjunto del mail no tienen texto seleccionable ni campos. `form.flatten()` no alcanza: jsPDF no crea AcroForm, así que el archivo seguía editable. Fecha a la **derecha**; cuerpo/cierre **justificados**, interlineado **1.5**, sangría 1ª línea ~40 mm. Sin «el Sr.» / «la Sra.»; coma tras el nombre; participio según género en convocatoria.
 - Fuente: `public/fonts/Calibri.ttf`
 
@@ -58,13 +58,14 @@ Texto común:
 |--------|----------|--------------|-----------|
 | Solicitud creada | `constancia_solicitud` | `filarmonica.scrn+constancias@gmail.com` | Asunto: `Solicitud de constancia ({tipo}) \| {nombre} \| {gira}`; cuerpo con Tipo + datos + mes/nomenclador/zona + fechas + CTA a `/management/constancias` (sin `?solicitud=`, sin fila resaltada) |
 | Aprobación | `constancia_aprobada` | mail del integrante | Aviso + PDF aplanado adjunto |
+| Reemisión | `constancia_modificada` | mail del integrante | «Tu constancia fue modificada» + PDF vigente adjunto |
 | Denegación | `constancia_denegada` | mail del integrante | Motivo |
 
 Modelos de revisión (`es_modelo: true`) → `ofrn.archivo@gmail.com`.
 
 ## Datos
 
-Tabla `constancias_solicitudes`: `tipo` (`convocatoria` \| `participacion`) + snapshot PDF (`snap_instrumento`, `snap_funcion`, …) + `estado` + `motivo_denegacion` + `visto_solicitante` + auditoría. Unique `(id_integrante, id_gira, tipo)`.
+Tabla `constancias_solicitudes`: `tipo` (`convocatoria` \| `participacion`) + snapshot PDF (`snap_instrumento`, `snap_funcion`, `snap_fecha_*`, …) + `estado` + `motivo_denegacion` + `visto_solicitante` + `reemitida_at` (última reemisión in-place; sin historial) + auditoría. Unique `(id_integrante, id_gira, tipo)`.
 
 Tabla `instrumentos`: columna `funcion` (rol formal precompletado; editable en UniversalTable / Datos → Instrumentos).
 
@@ -81,3 +82,4 @@ Tabla `instrumentos`: columna `funcion` (rol formal precompletado; editable en U
 - [x] Descarga y mail con PDF aplanado (imagen, sin texto extraíble) (2026-11-04)
 - [x] Generar desde Gestión (preaprobada + mail al músico + panel Mis Constancias)
 - [x] Fechas del PDF editables (no aprobadas) + sugerencia logística no locales
+- [x] Reemitir aprobada (fechas/rol + mail `constancia_modificada` + `reemitida_at`)

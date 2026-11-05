@@ -19,7 +19,7 @@ import { formatProgramSelectLabel } from "../utils/giraUtils";
 const SOLICITUD_SELECT = `
   id, id_integrante, id_gira, tipo, estado, motivo_denegacion,
   solicitado_at, resuelto_at, resuelto_por, visto_solicitante,
-  mail_enviado_at, mail_error,
+  mail_enviado_at, mail_error, reemitida_at,
   snap_nombre, snap_apellido, snap_dni, snap_genero, snap_instrumento,
   snap_funcion,
   snap_fecha_desde, snap_fecha_hasta, snap_localidades,
@@ -27,6 +27,9 @@ const SOLICITUD_SELECT = `
   integrantes!constancias_solicitudes_id_integrante_fkey (
     id, nombre, apellido, mail, dni, genero, id_instr,
     instrumentos ( instrumento, funcion )
+  ),
+  resuelto_por_ref:integrantes!constancias_solicitudes_resuelto_por_fkey (
+    id, nombre, apellido, nombre_preferencia, apellido_preferencia
   ),
   programas!constancias_solicitudes_id_gira_fkey (
     id, nombre_gira, nomenclador, mes_letra, zona, tipo,
@@ -868,14 +871,15 @@ export async function updateConstanciaSnapFechas(
 export { suggestConstanciaFechasFromLogistics } from "./constanciaLogisticsFechas";
 
 function fechaEmisionDesdeSolicitud(row) {
-  if (row?.resuelto_at) {
-    const d = new Date(row.resuelto_at);
+  const iso = row?.reemitida_at || row?.resuelto_at;
+  if (iso) {
+    const d = new Date(iso);
     if (!Number.isNaN(d.getTime())) return d;
   }
   return new Date();
 }
 
-/** Genera el PDF de una solicitud (usa fecha de resolución si ya fue aprobada). */
+/** Genera el PDF de una solicitud (usa reemitida_at o resuelto_at). */
 export async function buildConstanciaPdfFromSolicitud(row) {
   return generateConstanciaPdf(
     snapshotToPdfData(row, fechaEmisionDesdeSolicitud(row)),
@@ -894,6 +898,31 @@ async function sendAprobacionMail(supabase, row) {
   const tipoNorm = normalizeConstanciaTipo(row.tipo);
   await invokeConstanciaMail(supabase, {
     templateId: "constancia_aprobada",
+    email: mail,
+    nombre: nombreSaludo,
+    gira: row.snap_gira_nombre,
+    detalle: {
+      gira_nombre: row.snap_gira_nombre,
+      pdf_base64: base64,
+      pdf_filename: filename,
+      tipo_constancia: tipoNorm,
+      tipo_constancia_label: CONSTANCIA_TIPO_LABEL[tipoNorm] || tipoNorm,
+    },
+  });
+}
+
+async function sendModificacionMail(supabase, row) {
+  const { base64, filename } = await buildConstanciaPdfFromSolicitud(row);
+  const mail = row.integrantes?.mail || "";
+  if (!mail) throw new Error("El solicitante no tiene email cargado");
+  const legal = legalNombreApellidoConstancia(row.integrantes);
+  const nombreSaludo =
+    String(row.snap_nombre || "").trim() ||
+    legal.nombre ||
+    "Participante";
+  const tipoNorm = normalizeConstanciaTipo(row.tipo);
+  await invokeConstanciaMail(supabase, {
+    templateId: "constancia_modificada",
     email: mail,
     nombre: nombreSaludo,
     gira: row.snap_gira_nombre,
@@ -931,6 +960,98 @@ export async function reenviarConstanciaAprobada(supabase, { solicitudId }) {
     .single();
   if (upErr) throw upErr;
   return data;
+}
+
+/**
+ * Reemite una constancia aprobada: actualiza fechas/rol, regenera PDF,
+ * marca reemitida_at y avisa al músico («Tu constancia fue modificada»).
+ * Sin historial: sobrescribe la misma fila.
+ */
+export async function reemitirConstanciaAprobada(
+  supabase,
+  { solicitudId, snapFuncion, fechaDesde, fechaHasta, resueltoPorId },
+) {
+  const { data: row, error } = await supabase
+    .from("constancias_solicitudes")
+    .select(SOLICITUD_SELECT)
+    .eq("id", solicitudId)
+    .single();
+  if (error) throw error;
+  if (row.estado !== CONSTANCIA_ESTADOS.aprobada) {
+    throw new Error("Solo se puede reemitir una constancia aprobada");
+  }
+
+  const como = String(
+    snapFuncion !== undefined && snapFuncion !== null
+      ? snapFuncion
+      : row.snap_funcion || "",
+  ).trim();
+  if (!como) throw new Error("Indicá el texto «como …»");
+
+  const desde = normalizeSnapFecha(
+    fechaDesde !== undefined ? fechaDesde : row.snap_fecha_desde,
+  );
+  const hasta =
+    normalizeSnapFecha(
+      fechaHasta !== undefined ? fechaHasta : row.snap_fecha_hasta,
+    ) || desde;
+  if (!desde) throw new Error("Indicá la fecha desde");
+  if (hasta < desde) {
+    throw new Error("La fecha hasta no puede ser anterior a la desde");
+  }
+
+  const now = new Date().toISOString();
+  const { data: updated, error: upErr } = await supabase
+    .from("constancias_solicitudes")
+    .update({
+      snap_funcion: como,
+      snap_fecha_desde: desde,
+      snap_fecha_hasta: hasta,
+      reemitida_at: now,
+      visto_solicitante: false,
+      mail_enviado_at: null,
+      mail_error: null,
+      updated_at: now,
+      ...(integranteIdForDb(resueltoPorId)
+        ? { resuelto_por: integranteIdForDb(resueltoPorId) }
+        : {}),
+    })
+    .eq("id", solicitudId)
+    .eq("estado", CONSTANCIA_ESTADOS.aprobada)
+    .select(SOLICITUD_SELECT)
+    .single();
+  if (upErr) throw upErr;
+
+  let mailError = null;
+  try {
+    await sendModificacionMail(supabase, updated);
+  } catch (err) {
+    mailError = String(err?.message || err);
+    console.error("[constancias] mail reemisión:", err);
+  }
+
+  const { data: finalRow, error: mailUpErr } = await supabase
+    .from("constancias_solicitudes")
+    .update({
+      mail_enviado_at: mailError ? null : new Date().toISOString(),
+      mail_error: mailError,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", solicitudId)
+    .select(SOLICITUD_SELECT)
+    .single();
+  if (mailUpErr) throw mailUpErr;
+
+  if (mailError) {
+    const soft = new Error(
+      `Constancia #${finalRow.id} reemitida, pero falló el mail: ${mailError}`,
+    );
+    soft.solicitud = finalRow;
+    soft.mailFailed = true;
+    throw soft;
+  }
+
+  return finalRow;
 }
 
 /** Descarga el PDF en el navegador. */

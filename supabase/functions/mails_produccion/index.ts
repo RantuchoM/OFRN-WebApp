@@ -976,7 +976,42 @@
         `;
       },
 
-      // 14. Constancia denegada (al músico, con motivo)
+      // 14. Constancia modificada / reemitida (al músico, con PDF adjunto)
+      constancia_modificada: (nombre: string, gira: string, d: any) => {
+        const bannerModelo = d?.es_modelo
+          ? `<p style="margin:0 0 14px 0; padding:10px 12px; background:#fef3c7; border:1px solid #f59e0b; border-radius:6px; font-size:12px; color:#92400e;"><strong>MODELO PARA REVISIÓN</strong> — borrador del mail de modificación. No es una reemisión real.</p>`
+          : "";
+        const saludo = String(nombre || "").trim() ? `Hola ${escapeHtmlMail(String(nombre).trim())},` : "Hola,";
+        const giraLabel = escapeHtmlMail(String(gira || d?.gira_nombre || "la gira"));
+        const tipoConstanciaLabel = escapeHtmlMail(
+          String(d?.tipo_constancia_label || (d?.tipo_constancia === "participacion" ? "constancia de participación realizada" : "constancia de convocatoria")),
+        );
+        return `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <style>
+              body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #333; line-height: 1.6; font-size: 14px; }
+              .box { border-left: 4px solid #4f46e5; background-color: #eef2ff; padding: 15px; margin: 20px 0; border-radius: 4px; }
+            </style>
+          </head>
+          <body>
+            ${bannerModelo}
+            <p>${saludo}</p>
+            <div class="box">
+              <h2 style="margin-top:0; color:#111;">Tu constancia fue modificada</h2>
+              <p style="margin:0;">Actualizamos tu <strong>${tipoConstanciaLabel}</strong> de la gira <strong>${giraLabel}</strong>. Adjuntamos el PDF vigente.</p>
+            </div>
+            <p>Podés verla también en <strong>Mis Constancias</strong> en la app. Si tenías una versión anterior, usá este PDF.</p>
+            <p>Cualquier consulta, respondé a este correo.</p>
+            <p>¡Saludos!<br>Orquesta Filarmónica de Río Negro</p>
+            <p style="color: #666; font-size: 12px;">Orquesta Filarmónica de Río Negro – Sistema de Gestión</p>
+          </body>
+          </html>
+        `;
+      },
+
+      // 15. Constancia denegada (al músico, con motivo)
       constancia_denegada: (nombre: string, gira: string, d: any) => {
         const bannerModelo = d?.es_modelo
           ? `<p style="margin:0 0 14px 0; padding:10px 12px; background:#fef3c7; border:1px solid #f59e0b; border-radius:6px; font-size:12px; color:#92400e;"><strong>MODELO PARA REVISIÓN</strong> — borrador del mail de denegación. No es una denegación real.</p>`
@@ -1135,6 +1170,16 @@
               subject = detalle?.es_modelo
                 ? `[MODELO] Constancia aprobada (${tipoAsunto}) | ${nombreGira || "OFRN"}`
                 : `Constancia aprobada (${tipoAsunto}) | ${nombreGira || "OFRN"}`;
+            }
+          } else if (tid === "constancia_modificada") {
+            {
+              const tipoAsunto =
+                detalle?.tipo_constancia === "participacion"
+                  ? "participación realizada"
+                  : "convocatoria";
+              subject = detalle?.es_modelo
+                ? `[MODELO] Tu constancia fue modificada (${tipoAsunto}) | ${nombreGira || "OFRN"}`
+                : `Tu constancia fue modificada (${tipoAsunto}) | ${nombreGira || "OFRN"}`;
             }
           } else if (tid === "constancia_denegada") {
             {
