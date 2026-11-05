@@ -13,6 +13,7 @@ import {
   IconUndo,
   IconPlus,
   IconRepeat,
+  IconChevronDown,
 } from "../../components/ui/Icons";
 import ConfirmModal from "../../components/ui/ConfirmModal";
 import {
@@ -60,6 +61,46 @@ function formatShortDate(iso) {
   const [y, m, day] = d.split("-");
   if (!y || !m || !day) return d;
   return `${day}/${m}/${y}`;
+}
+
+/** Rango de fechas del programa (columna Gira en Gestión). */
+function formatGiraRango(row) {
+  const prog = row?.programas || {};
+  const desde = prog.fecha_desde;
+  const hasta = prog.fecha_hasta || desde;
+  if (!desde) return null;
+  if (!hasta || String(hasta).slice(0, 10) === String(desde).slice(0, 10)) {
+    return formatShortDate(desde);
+  }
+  return `${formatShortDate(desde)} – ${formatShortDate(hasta)}`;
+}
+
+function renderGiraCell(r, { large = false } = {}) {
+  const rango = formatGiraRango(r);
+  return (
+    <div>
+      <div
+        className={`font-medium text-slate-800 ${large ? "text-sm font-semibold" : ""}`}
+      >
+        {r.snap_gira_nombre || "—"}
+      </div>
+      {rango ? (
+        <div
+          className={`mt-0.5 inline-flex w-fit items-center rounded-md border border-slate-200 bg-white px-1.5 py-0.5 font-bold tabular-nums text-slate-800 shadow-sm ${
+            large ? "text-[12px]" : "text-[11px]"
+          }`}
+          title="Fechas del programa (gira)"
+        >
+          {rango}
+        </div>
+      ) : null}
+      <div
+        className={`text-slate-500 ${large ? "mt-1 text-[11px]" : "mt-0.5 text-[10px]"}`}
+      >
+        {[r.snap_gira_tipo, r.snap_localidades].filter(Boolean).join(" · ")}
+      </div>
+    </div>
+  );
 }
 
 function estadoClass(estado) {
@@ -223,17 +264,19 @@ export default function ConstanciasHub() {
       return;
     }
     const val = String(comoById[row.id] ?? "").trim();
-    if (!val) return;
     if (val === String(row.snap_funcion || "").trim()) return;
-    await updateConstanciaSnapFuncion(supabase, {
+    const updated = await updateConstanciaSnapFuncion(supabase, {
       solicitudId: row.id,
       snapFuncion: val,
     });
+    setRows((prev) =>
+      (prev || []).map((x) => (x.id === row.id ? { ...x, ...updated } : x)),
+    );
   };
 
-  const persistFechasIfNeeded = async (row) => {
+  const persistFechasIfNeeded = async (row, override = null) => {
     if (!row || row.estado === CONSTANCIA_ESTADOS.aprobada) return;
-    const draft = fechasById[row.id];
+    const draft = override || fechasById[row.id];
     if (!draft?.desde) return;
     const desde = String(draft.desde).slice(0, 10);
     const hasta = String(draft.hasta || draft.desde).slice(0, 10);
@@ -277,7 +320,7 @@ export default function ConstanciasHub() {
       await aprobarConstancia(supabase, {
         solicitudId: id,
         resueltoPorId: user?.id,
-        snapFuncion: String(comoById[id] ?? "").trim() || undefined,
+        snapFuncion: String(comoById[id] ?? "").trim(),
       });
       toast.success("Constancia aprobada y PDF enviado");
       if (highlightId && String(highlightId) === String(id)) {
@@ -315,8 +358,9 @@ export default function ConstanciasHub() {
         hasta: String(row.snap_fecha_hasta || "").slice(0, 10),
       };
       const como =
-        String(comoById[row.id] ?? "").trim() ||
-        String(row.snap_funcion || "").trim();
+        comoById[row.id] !== undefined
+          ? String(comoById[row.id] ?? "").trim()
+          : String(row.snap_funcion || "").trim();
       await reemitirConstanciaAprobada(supabase, {
         solicitudId: row.id,
         snapFuncion: como,
@@ -466,7 +510,7 @@ export default function ConstanciasHub() {
                 toast.error(err?.message || "No se pudo guardar «como…»");
               });
             }}
-            placeholder="violinista"
+            placeholder="vacío = sin «como…» en el PDF"
             className={`w-full rounded-md border border-slate-200 text-slate-800 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400 ${
               large ? "px-3 py-2.5 text-sm" : "px-2 py-1 text-[11px]"
             }`}
@@ -540,38 +584,11 @@ export default function ConstanciasHub() {
             [r.id]: next,
           }))
         }
-        onPersist={() => {
+        onPersist={(override) => {
           if (draftOnly) return;
-          persistFechasIfNeeded(r).catch((err) => {
+          persistFechasIfNeeded(r, override || null).catch((err) => {
             toast.error(err?.message || "No se pudieron guardar las fechas");
           });
-        }}
-        onApplySuggestion={(sug) => {
-          const next = {
-            desde: sug.fechaDesde || draft.desde,
-            hasta: sug.fechaHasta || sug.fechaDesde || draft.hasta,
-          };
-          setFechasById((prev) => ({ ...prev, [r.id]: next }));
-          if (draftOnly) {
-            toast.message("Fechas de logística listas · Reemitir para aplicar");
-            return;
-          }
-          updateConstanciaSnapFechas(supabase, {
-            solicitudId: r.id,
-            fechaDesde: next.desde,
-            fechaHasta: next.hasta,
-          })
-            .then((updated) => {
-              setRows((prev) =>
-                (prev || []).map((x) =>
-                  x.id === r.id ? { ...x, ...updated } : x,
-                ),
-              );
-              toast.success("Fechas actualizadas desde logística");
-            })
-            .catch((err) => {
-              toast.error(err?.message || "No se pudieron guardar las fechas");
-            });
         }}
       />
     );
@@ -585,7 +602,7 @@ export default function ConstanciasHub() {
         <div className={`flex gap-2 ${large ? "w-full" : "flex-wrap"}`}>
           <button
             type="button"
-            disabled={busyId === r.id || !String(comoById[r.id] || "").trim()}
+            disabled={busyId === r.id}
             onClick={() => handleAprobar(r.id)}
             className={`inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-emerald-600 font-bold text-white hover:bg-emerald-700 disabled:opacity-50 ${btnPad}`}
           >
@@ -612,7 +629,6 @@ export default function ConstanciasHub() {
       );
     }
     if (r.estado === CONSTANCIA_ESTADOS.aprobada) {
-      const comoOk = Boolean(String(comoById[r.id] ?? r.snap_funcion ?? "").trim());
       const fechasDraft = fechasById[r.id] || {
         desde: String(r.snap_fecha_desde || "").slice(0, 10),
         hasta: String(r.snap_fecha_hasta || "").slice(0, 10),
@@ -638,7 +654,7 @@ export default function ConstanciasHub() {
           <div className={`flex gap-2 ${large ? "w-full flex-wrap" : "flex-wrap"}`}>
             <button
               type="button"
-              disabled={busyId === r.id || !r.integrantes?.mail || !comoOk || !fechasOk}
+              disabled={busyId === r.id || !r.integrantes?.mail || !fechasOk}
               title="Guarda fechas/rol, regenera el PDF y avisa al músico"
               onClick={() => handleReemitir(r)}
               className={`inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-indigo-600 font-bold text-white hover:bg-indigo-700 disabled:opacity-50 ${btnPad}`}
@@ -876,14 +892,7 @@ export default function ConstanciasHub() {
                     </div>
 
                     <div className="mt-2 rounded-lg bg-slate-50 px-2.5 py-2">
-                      <div className="text-sm font-semibold text-slate-800">
-                        {r.snap_gira_nombre || "—"}
-                      </div>
-                      <div className="text-[11px] text-slate-500">
-                        {[r.snap_gira_tipo, r.snap_localidades]
-                          .filter(Boolean)
-                          .join(" · ")}
-                      </div>
+                      {renderGiraCell(r, { large: true })}
                     </div>
 
                     {r.estado === CONSTANCIA_ESTADOS.denegada &&
@@ -965,13 +974,8 @@ export default function ConstanciasHub() {
                           {CONSTANCIA_TIPO_LABEL[r.tipo] || ""}
                         </div>
                       </td>
-                      <td className="px-3 py-2">
-                        <div className="font-medium text-slate-800">
-                          {r.snap_gira_nombre || "—"}
-                        </div>
-                        <div className="text-[10px] text-slate-500">
-                          {r.snap_gira_tipo || ""} · {r.snap_localidades || ""}
-                        </div>
+                      <td className="px-3 py-2 align-top">
+                        {renderGiraCell(r)}
                       </td>
                       <td className="px-3 py-2 align-top text-slate-700">
                         {renderComoField(r, nombre)}
@@ -1085,6 +1089,161 @@ function foldSearch(s) {
     .toLowerCase();
 }
 
+/** Alineación de una fecha del PDF vs gira / logística (prioridad gira). */
+function resolveFechaAlign(value, { programaIso, logisticaIso }) {
+  const v = String(value || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return null;
+  const prog = String(programaIso || "").slice(0, 10);
+  const log = String(logisticaIso || "").slice(0, 10);
+  if (prog && v === prog) return "gira";
+  if (log && v === log) return "logistica";
+  return "ninguna";
+}
+
+const FECHA_ALIGN_META = {
+  gira: {
+    label: "Gira",
+    className: "border-slate-300 bg-slate-50 text-slate-700 hover:bg-slate-100",
+  },
+  logistica: {
+    label: "Logística",
+    className:
+      "border-indigo-300 bg-indigo-50 text-indigo-800 hover:bg-indigo-100",
+  },
+  ninguna: {
+    label: "Ninguna",
+    className:
+      "border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100",
+  },
+};
+
+/** Chip «Igual a: …» con menú para elegir fecha de Gira o Logística. */
+function FechaAlignPicker({
+  align,
+  large = false,
+  programaIso,
+  logisticaIso,
+  onPick,
+}) {
+  const [open, setOpen] = useState(false);
+  const btnRef = React.useRef(null);
+  const menuIdRef = React.useRef(
+    `fecha-align-menu-${Math.random().toString(36).slice(2, 9)}`,
+  );
+  const [menuPos, setMenuPos] = useState(null);
+
+  const prog = String(programaIso || "").slice(0, 10);
+  const log = String(logisticaIso || "").slice(0, 10);
+  const options = [];
+  if (/^\d{4}-\d{2}-\d{2}$/.test(prog)) {
+    options.push({ id: "gira", label: "Gira", iso: prog });
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(log)) {
+    options.push({ id: "logistica", label: "Logística", iso: log });
+  }
+
+  const meta = FECHA_ALIGN_META[align] || FECHA_ALIGN_META.ninguna;
+  const canOpen = options.length > 0;
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDoc = (e) => {
+      if (btnRef.current?.contains(e.target)) return;
+      const menu = document.getElementById(menuIdRef.current);
+      if (menu?.contains(e.target)) return;
+      setOpen(false);
+    };
+    const onKey = (e) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const toggle = () => {
+    if (!canOpen) return;
+    if (open) {
+      setOpen(false);
+      return;
+    }
+    const rect = btnRef.current?.getBoundingClientRect();
+    if (rect) {
+      setMenuPos({
+        top: rect.bottom + 4,
+        left: Math.min(rect.left, window.innerWidth - 180),
+      });
+    }
+    setOpen(true);
+  };
+
+  if (!align) return null;
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        type="button"
+        disabled={!canOpen}
+        onClick={toggle}
+        className={`inline-flex w-fit max-w-full items-center gap-0.5 rounded border px-1 py-0.5 font-semibold tracking-wide transition-colors disabled:cursor-default disabled:opacity-70 ${
+          large ? "text-[9px]" : "text-[8px]"
+        } ${meta.className}`}
+        title={
+          canOpen
+            ? "Elegir fecha de gira o de logística"
+            : "Sin fechas de gira/logística para elegir"
+        }
+        aria-haspopup="menu"
+        aria-expanded={open}
+      >
+        <span className="font-medium opacity-70">Igual a:</span>
+        <span className="uppercase">{meta.label}</span>
+        {canOpen ? <IconChevronDown size={large ? 11 : 10} /> : null}
+      </button>
+      {open && menuPos
+        ? createPortal(
+            <div
+              id={menuIdRef.current}
+              role="menu"
+              className="fixed z-[110] min-w-[10.5rem] overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-lg"
+              style={{ top: menuPos.top, left: menuPos.left }}
+            >
+              {options.map((opt) => {
+                const active = align === opt.id;
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      onPick?.(opt.iso);
+                      setOpen(false);
+                    }}
+                    className={`flex w-full items-center justify-between gap-3 px-2.5 py-1.5 text-left text-[11px] hover:bg-slate-50 ${
+                      active
+                        ? "bg-slate-50 font-bold text-slate-900"
+                        : "font-medium text-slate-700"
+                    }`}
+                  >
+                    <span>{opt.label}</span>
+                    <span className="tabular-nums text-slate-500">
+                      {formatShortDate(opt.iso)}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>,
+            document.body,
+          )
+        : null}
+    </>
+  );
+}
+
 function FechasConstanciaEditor({
   large = false,
   desde,
@@ -1093,7 +1252,6 @@ function FechasConstanciaEditor({
   idGira,
   onChange,
   onPersist,
-  onApplySuggestion,
   autoSuggest = true,
   hintExtra = null,
 }) {
@@ -1120,6 +1278,10 @@ function FechasConstanciaEditor({
             isLocal: null,
             label: "No se pudo calcular la logística.",
             reason: "error",
+            programaFechaDesde: null,
+            programaFechaHasta: null,
+            fechaDesde: null,
+            fechaHasta: null,
           });
         }
       } finally {
@@ -1131,14 +1293,29 @@ function FechasConstanciaEditor({
     };
   }, [autoSuggest, idIntegrante, idGira]);
 
-  const canApply =
-    suggestion &&
-    suggestion.isLocal === false &&
-    (suggestion.fechaDesde || suggestion.fechaHasta);
+  const alignDesde = resolveFechaAlign(desde, {
+    programaIso: suggestion?.programaFechaDesde,
+    logisticaIso: suggestion?.fechaDesde,
+  });
+  const alignHasta = resolveFechaAlign(hasta, {
+    programaIso: suggestion?.programaFechaHasta,
+    logisticaIso: suggestion?.fechaHasta,
+  });
+
+  const applyDesde = (iso) => {
+    const next = { desde: iso, hasta: hasta || iso };
+    onChange(next);
+    onPersist?.(next);
+  };
+  const applyHasta = (iso) => {
+    const next = { desde: desde || iso, hasta: iso };
+    onChange(next);
+    onPersist?.(next);
+  };
 
   const inputClass = large
-    ? "w-full rounded-md border border-slate-200 px-2.5 py-2 text-sm text-slate-800 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400"
-    : "w-[8.5rem] rounded-md border border-slate-200 px-1.5 py-1 text-[11px] text-slate-800 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400";
+    ? "w-full min-w-0 rounded-md border border-slate-200 px-2.5 py-2 text-sm text-slate-800 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+    : "w-[8.5rem] shrink-0 rounded-md border border-slate-200 px-1.5 py-1 text-[11px] text-slate-800 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400";
 
   return (
     <div className={large ? "w-full" : "min-w-[11rem]"}>
@@ -1147,34 +1324,56 @@ function FechasConstanciaEditor({
           Fechas del PDF
         </label>
       ) : null}
-      <div className={`flex ${large ? "flex-col gap-2 sm:flex-row sm:items-center" : "flex-col gap-1"}`}>
-        <input
-          type="date"
-          value={desde || ""}
-          onChange={(e) =>
-            onChange({
-              desde: e.target.value,
-              hasta: hasta || e.target.value,
-            })
-          }
-          onBlur={onPersist}
-          className={inputClass}
-          aria-label="Fecha desde"
-        />
-        <span className="hidden text-slate-400 sm:inline">–</span>
-        <input
-          type="date"
-          value={hasta || ""}
-          onChange={(e) =>
-            onChange({
-              desde: desde || e.target.value,
-              hasta: e.target.value,
-            })
-          }
-          onBlur={onPersist}
-          className={inputClass}
-          aria-label="Fecha hasta"
-        />
+      <div className="flex flex-row items-start gap-1.5">
+        <div className={`flex flex-col gap-0.5 ${large ? "min-w-0 flex-1" : ""}`}>
+          <input
+            type="date"
+            value={desde || ""}
+            onChange={(e) =>
+              onChange({
+                desde: e.target.value,
+                hasta: hasta || e.target.value,
+              })
+            }
+            onBlur={() => onPersist?.()}
+            className={inputClass}
+            aria-label="Fecha desde"
+          />
+          {!logBusy && suggestion ? (
+            <FechaAlignPicker
+              align={alignDesde}
+              large={large}
+              programaIso={suggestion.programaFechaDesde}
+              logisticaIso={suggestion.fechaDesde}
+              onPick={applyDesde}
+            />
+          ) : null}
+        </div>
+        <span className="shrink-0 pt-2 text-slate-400">–</span>
+        <div className={`flex flex-col gap-0.5 ${large ? "min-w-0 flex-1" : ""}`}>
+          <input
+            type="date"
+            value={hasta || ""}
+            onChange={(e) =>
+              onChange({
+                desde: desde || e.target.value,
+                hasta: e.target.value,
+              })
+            }
+            onBlur={() => onPersist?.()}
+            className={inputClass}
+            aria-label="Fecha hasta"
+          />
+          {!logBusy && suggestion ? (
+            <FechaAlignPicker
+              align={alignHasta}
+              large={large}
+              programaIso={suggestion.programaFechaHasta}
+              logisticaIso={suggestion.fechaHasta}
+              onPick={applyHasta}
+            />
+          ) : null}
+        </div>
       </div>
       <div
         className={`mt-1 text-slate-500 ${large ? "text-[11px]" : "text-[9px]"}`}
@@ -1188,18 +1387,7 @@ function FechasConstanciaEditor({
             Calculando logística…
           </span>
         ) : suggestion?.label ? (
-          <div className="flex flex-col gap-1">
-            <span>{suggestion.label}</span>
-            {canApply ? (
-              <button
-                type="button"
-                onClick={() => onApplySuggestion?.(suggestion)}
-                className="w-fit text-left font-bold text-indigo-700 hover:underline"
-              >
-                Usar fechas de logística
-              </button>
-            ) : null}
-          </div>
+          <span>{suggestion.label}</span>
         ) : null}
       </div>
     </div>
@@ -1358,17 +1546,13 @@ function GenerarConstanciaModal({ resueltoPorId, onClose, onCreated }) {
       toast.error("Elegí una gira");
       return;
     }
-    if (!String(como || "").trim()) {
-      toast.error("Indicá el texto «como …»");
-      return;
-    }
     setSaving(true);
     try {
       const row = await generarConstanciaGestion(supabase, {
         idIntegrante: persona.id,
         idGira: Number(idGira),
         tipo,
-        snapFuncion: como,
+        snapFuncion: String(como || "").trim(),
         resueltoPorId,
         fechaDesde,
         fechaHasta,
@@ -1558,7 +1742,7 @@ function GenerarConstanciaModal({ resueltoPorId, onClose, onCreated }) {
                 value={como}
                 onChange={(e) => setComo(e.target.value)}
                 disabled={!idGira || previewBusy}
-                placeholder="violinista"
+                placeholder="vacío = sin «como…» en el PDF"
                 className="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400 disabled:bg-slate-50"
               />
               {previewBusy ? (
@@ -1587,12 +1771,6 @@ function GenerarConstanciaModal({ resueltoPorId, onClose, onCreated }) {
                 setFechaHasta(hasta);
               }}
               onPersist={() => {}}
-              onApplySuggestion={(sug) => {
-                setFechaDesde(sug.fechaDesde || fechaDesde);
-                setFechaHasta(
-                  sug.fechaHasta || sug.fechaDesde || fechaHasta,
-                );
-              }}
             />
           ) : null}
         </div>
@@ -1608,13 +1786,7 @@ function GenerarConstanciaModal({ resueltoPorId, onClose, onCreated }) {
           </button>
           <button
             type="button"
-            disabled={
-              saving ||
-              !persona ||
-              !idGira ||
-              !String(como || "").trim() ||
-              previewBusy
-            }
+            disabled={saving || !persona || !idGira || previewBusy}
             onClick={handleGenerar}
             className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-3 text-sm font-bold text-white hover:bg-indigo-700 disabled:opacity-50 sm:py-2 sm:text-xs"
           >

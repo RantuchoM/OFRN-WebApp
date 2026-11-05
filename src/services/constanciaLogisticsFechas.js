@@ -183,9 +183,28 @@ async function loadGiraLogisticsBundle(supabase, idGira) {
   }
 }
 
+function emptyLogisticsSuggestion(extra = {}) {
+  return {
+    isLocal: null,
+    fechaDesde: null,
+    fechaHasta: null,
+    horaSalida: null,
+    horaLlegada: null,
+    lugarSalida: null,
+    lugarLlegada: null,
+    label: null,
+    reason: null,
+    programaFechaDesde: null,
+    programaFechaHasta: null,
+    ...extra,
+  };
+}
+
 /**
  * Sugiere fechas de constancia desde la logística de transporte
  * (primera subida ↑ / última bajada ↓), solo si la persona no es local.
+ * Siempre incluye fechas del programa cuando la gira se pudo cargar
+ * (para alinear desde/hasta en Gestión: gira / logística / ninguna).
  *
  * @returns {{
  *   isLocal: boolean|null,
@@ -197,6 +216,8 @@ async function loadGiraLogisticsBundle(supabase, idGira) {
  *   lugarLlegada: string|null,
  *   label: string|null,
  *   reason: string|null,
+ *   programaFechaDesde: string|null,
+ *   programaFechaHasta: string|null,
  * }}
  */
 export async function suggestConstanciaFechasFromLogistics(
@@ -205,91 +226,53 @@ export async function suggestConstanciaFechasFromLogistics(
 ) {
   const idInt = integranteIdForDb(idIntegrante);
   if (!idInt) {
-    return {
-      isLocal: null,
-      fechaDesde: null,
-      fechaHasta: null,
-      horaSalida: null,
-      horaLlegada: null,
-      lugarSalida: null,
-      lugarLlegada: null,
-      label: null,
-      reason: "invalid_person",
-    };
+    return emptyLogisticsSuggestion({ reason: "invalid_person" });
   }
   if (!idGira) {
-    return {
-      isLocal: null,
-      fechaDesde: null,
-      fechaHasta: null,
-      horaSalida: null,
-      horaLlegada: null,
-      lugarSalida: null,
-      lugarLlegada: null,
-      label: null,
-      reason: "invalid_gira",
-    };
+    return emptyLogisticsSuggestion({ reason: "invalid_gira" });
   }
 
   const bundle = await loadGiraLogisticsBundle(supabase, idGira);
+  const programaFechaDesde = isoDate(bundle.programa?.fecha_desde);
+  const programaFechaHasta =
+    isoDate(bundle.programa?.fecha_hasta) || programaFechaDesde;
+  const withProg = { programaFechaDesde, programaFechaHasta };
+
   const entry = bundle.byKey.get(integranteKey(idInt));
   if (!entry) {
-    return {
-      isLocal: null,
-      fechaDesde: null,
-      fechaHasta: null,
-      horaSalida: null,
-      horaLlegada: null,
-      lugarSalida: null,
-      lugarLlegada: null,
-      label: null,
+    return emptyLogisticsSuggestion({
+      ...withProg,
       reason: "not_in_roster",
-    };
+    });
   }
 
   if (entry.estado === "ausente") {
-    return {
+    return emptyLogisticsSuggestion({
+      ...withProg,
       isLocal: entry.is_local,
-      fechaDesde: null,
-      fechaHasta: null,
-      horaSalida: null,
-      horaLlegada: null,
-      lugarSalida: null,
-      lugarLlegada: null,
-      label: null,
       reason: "ausente",
-    };
+    });
   }
 
   if (entry.is_local) {
-    return {
+    return emptyLogisticsSuggestion({
+      ...withProg,
       isLocal: true,
-      fechaDesde: null,
-      fechaHasta: null,
-      horaSalida: null,
-      horaLlegada: null,
-      lugarSalida: null,
-      lugarLlegada: null,
       label: "Persona local de la gira: no aplica ventana de viaje.",
       reason: "local",
-    };
+    });
   }
 
   const travel = entry.travel;
   const fechaDesde = isoDate(travel?.fecha_salida);
   const fechaHasta = isoDate(travel?.fecha_llegada);
   if (!fechaDesde && !fechaHasta) {
-    return {
+    return emptyLogisticsSuggestion({
+      ...withProg,
       isLocal: false,
-      fechaDesde: null,
-      fechaHasta: null,
-      horaSalida: null,
-      horaLlegada: null,
-      lugarSalida: null,
-      lugarLlegada: null,
       label: "Sin subida/bajada de transporte asignada en logística.",
       reason: "no_transport",
-    };
+    });
   }
 
   const horaSalida = travel?.hora_salida || null;
@@ -314,6 +297,7 @@ export async function suggestConstanciaFechasFromLogistics(
   }
 
   return {
+    ...withProg,
     isLocal: false,
     fechaDesde,
     fechaHasta,

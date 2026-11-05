@@ -128,9 +128,9 @@ export function buildConstanciaTexto(data) {
     .join(" ")
     .trim();
   const dni = String(data.dni || "").replace(/\s+/g, "");
-  const como =
-    String(data.como || data.funcion || data.instrumento || "integrante")
-      .trim() || "integrante";
+  // Vacío = omitir «como {función}» en el cuerpo (no cae a instrumento).
+  const como = String(data.como ?? data.funcion ?? "")
+    .trim();
   const emision =
     data.fechaEmision instanceof Date ? data.fechaEmision : new Date();
   const ciudad = data.ciudadEmision || CONSTANCIA_CIUDAD_EMISION;
@@ -149,12 +149,20 @@ export function buildConstanciaTexto(data) {
     CONSTANCIA_TIPOS.participacion;
 
   const cuerpo = esParticipacion
-    ? `Por medio de la presente dejo constancia de que ${nombreCompleto}, DNI ${dni}, ` +
-      `participó como ${como} de los ensayos y conciertos ` +
-      `de la Orquesta Filarmónica de Río Negro ${rango} en ${locs}.`
-    : `Por medio de la presente dejo constancia de que ${nombreCompleto}, DNI ${dni}, ` +
-      `ha sido ${tr.participio} como ${como} a participar de los ensayos y conciertos ` +
-      `de la Orquesta Filarmónica de Río Negro ${rango} en ${locs}.`;
+    ? como
+      ? `Por medio de la presente dejo constancia de que ${nombreCompleto}, DNI ${dni}, ` +
+        `participó como ${como} de los ensayos y conciertos ` +
+        `de la Orquesta Filarmónica de Río Negro ${rango} en ${locs}.`
+      : `Por medio de la presente dejo constancia de que ${nombreCompleto}, DNI ${dni}, ` +
+        `participó de los ensayos y conciertos ` +
+        `de la Orquesta Filarmónica de Río Negro ${rango} en ${locs}.`
+    : como
+      ? `Por medio de la presente dejo constancia de que ${nombreCompleto}, DNI ${dni}, ` +
+        `ha sido ${tr.participio} como ${como} a participar de los ensayos y conciertos ` +
+        `de la Orquesta Filarmónica de Río Negro ${rango} en ${locs}.`
+      : `Por medio de la presente dejo constancia de que ${nombreCompleto}, DNI ${dni}, ` +
+        `ha sido ${tr.participio} a participar de los ensayos y conciertos ` +
+        `de la Orquesta Filarmónica de Río Negro ${rango} en ${locs}.`;
 
   return {
     encabezado: `${ciudad},  ${formatFechaLargaEs(emision)}`,

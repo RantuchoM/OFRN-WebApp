@@ -23,11 +23,17 @@ import {
   solicitarConstancia,
   reenviarConstanciaAprobada,
   descargarConstanciaPdf,
+  suggestConstanciaFechasFromLogistics,
 } from "../../services/constanciasService";
 import {
   formatProgramNomenMes,
   formatProgramSelectLabel,
 } from "../../utils/giraUtils";
+
+function isoDay(value) {
+  const s = String(value || "").slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
+}
 
 const SOLICITUDES_PAGE_SIZE = 5;
 
@@ -105,6 +111,10 @@ export default function ConstanciasModal({
     SOLICITUDES_PAGE_SIZE,
   );
   const [busySolicitudId, setBusySolicitudId] = useState(null);
+  const [logistica, setLogistica] = useState(null);
+  const [loadingLogistica, setLoadingLogistica] = useState(false);
+  const [incluirDiaSalida, setIncluirDiaSalida] = useState(false);
+  const [incluirDiaRegreso, setIncluirDiaRegreso] = useState(false);
 
   const yaPedidas = useMemo(() => {
     const map = new Map();
@@ -143,6 +153,9 @@ export default function ConstanciasModal({
     setTipo("");
     setIdGira("");
     setGiras([]);
+    setLogistica(null);
+    setIncluirDiaSalida(false);
+    setIncluirDiaRegreso(false);
     setVisibleSolicitudes(SOLICITUDES_PAGE_SIZE);
     (async () => {
       setLoadingSolicitudes(true);
@@ -174,6 +187,9 @@ export default function ConstanciasModal({
     }
     let cancelled = false;
     setIdGira("");
+    setLogistica(null);
+    setIncluirDiaSalida(false);
+    setIncluirDiaRegreso(false);
     (async () => {
       setLoadingGiras(true);
       try {
@@ -192,6 +208,58 @@ export default function ConstanciasModal({
       cancelled = true;
     };
   }, [isOpen, user?.id, supabase, tipo]);
+
+  // Logística de viaje al elegir gira (solo no locales con ↑/↓ fuera del rango del programa).
+  useEffect(() => {
+    if (!isOpen || !user?.id || !supabase || !idGira) {
+      setLogistica(null);
+      setIncluirDiaSalida(false);
+      setIncluirDiaRegreso(false);
+      setLoadingLogistica(false);
+      return undefined;
+    }
+    let cancelled = false;
+    setIncluirDiaSalida(false);
+    setIncluirDiaRegreso(false);
+    (async () => {
+      setLoadingLogistica(true);
+      try {
+        const gira = (giras || []).find(
+          (g) => String(g.id) === String(idGira),
+        );
+        const sug = await suggestConstanciaFechasFromLogistics(supabase, {
+          idIntegrante: user.id,
+          idGira: Number(idGira),
+        });
+        if (cancelled) return;
+        const progDesde = isoDay(gira?.fecha_desde);
+        const progHasta = isoDay(gira?.fecha_hasta) || progDesde;
+        const logDesde = isoDay(sug?.fechaDesde);
+        const logHasta = isoDay(sug?.fechaHasta);
+        const puedeSalida =
+          sug?.isLocal === false &&
+          Boolean(logDesde && progDesde && logDesde < progDesde);
+        const puedeRegreso =
+          sug?.isLocal === false &&
+          Boolean(logHasta && progHasta && logHasta > progHasta);
+        setLogistica({
+          ...sug,
+          progDesde,
+          progHasta,
+          puedeSalida,
+          puedeRegreso,
+        });
+      } catch (err) {
+        console.error(err);
+        if (!cancelled) setLogistica(null);
+      } finally {
+        if (!cancelled) setLoadingLogistica(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, user?.id, supabase, idGira, giras]);
 
   if (!isOpen) return null;
 
@@ -222,17 +290,25 @@ export default function ConstanciasModal({
         user,
         idGira: Number(idGira),
         tipo,
+        incluirDiaSalida:
+          Boolean(incluirDiaSalida) && Boolean(logistica?.puedeSalida),
+        incluirDiaRegreso:
+          Boolean(incluirDiaRegreso) && Boolean(logistica?.puedeRegreso),
       });
       toast.success(
         "Solicitud enviada. Queda pendiente de revisión: vas a recibir el PDF por mail cuando la aprueben.",
       );
       setIdGira("");
+      setIncluirDiaSalida(false);
+      setIncluirDiaRegreso(false);
       await refreshSolicitudes();
       await refreshGiras();
     } catch (err) {
       if (err?.mailFailed && err?.solicitud) {
         toast.warning(err.message);
         setIdGira("");
+        setIncluirDiaSalida(false);
+        setIncluirDiaRegreso(false);
         await refreshSolicitudes();
         await refreshGiras();
       } else {
@@ -557,9 +633,68 @@ export default function ConstanciasModal({
                       : "No hay giras elegibles pendientes de solicitar."}
                   </p>
                 )}
+                {idGira && loadingLogistica ? (
+                  <p className="inline-flex items-center gap-1.5 text-[11px] text-slate-500">
+                    <IconLoader size={12} className="animate-spin" />
+                    Revisando tu logística de viaje…
+                  </p>
+                ) : null}
+                {idGira &&
+                !loadingLogistica &&
+                logistica &&
+                (logistica.puedeSalida || logistica.puedeRegreso) ? (
+                  <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
+                    <p className="text-[11px] font-bold text-slate-700">
+                      Tu viaje según logística
+                    </p>
+                    {logistica.label ? (
+                      <p className="text-[11px] text-slate-500">
+                        {logistica.label}
+                      </p>
+                    ) : null}
+                    <p className="text-[11px] text-slate-500">
+                      Fechas base de la gira:{" "}
+                      {formatShortDate(logistica.progDesde)}–
+                      {formatShortDate(logistica.progHasta)}. Podés incluir el
+                      día extra de viaje:
+                    </p>
+                    {logistica.puedeSalida ? (
+                      <label className="flex cursor-pointer items-start gap-2 text-[12px] text-slate-800">
+                        <input
+                          type="checkbox"
+                          className="mt-0.5"
+                          checked={incluirDiaSalida}
+                          onChange={(e) =>
+                            setIncluirDiaSalida(e.target.checked)
+                          }
+                        />
+                        <span>
+                          Incluir el día de salida (
+                          {formatShortDate(logistica.fechaDesde)})
+                        </span>
+                      </label>
+                    ) : null}
+                    {logistica.puedeRegreso ? (
+                      <label className="flex cursor-pointer items-start gap-2 text-[12px] text-slate-800">
+                        <input
+                          type="checkbox"
+                          className="mt-0.5"
+                          checked={incluirDiaRegreso}
+                          onChange={(e) =>
+                            setIncluirDiaRegreso(e.target.checked)
+                          }
+                        />
+                        <span>
+                          Incluir el día de regreso (
+                          {formatShortDate(logistica.fechaHasta)})
+                        </span>
+                      </label>
+                    ) : null}
+                  </div>
+                ) : null}
                 <button
                   type="button"
-                  disabled={saving || !idGira}
+                  disabled={saving || !idGira || loadingLogistica}
                   onClick={handleSolicitar}
                   className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-bold text-white hover:bg-indigo-700 disabled:opacity-50"
                 >

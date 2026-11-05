@@ -15,6 +15,7 @@ import {
   formatLocalidadesConstancia,
 } from "../utils/constanciaPdf";
 import { formatProgramSelectLabel } from "../utils/giraUtils";
+import { suggestConstanciaFechasFromLogistics } from "./constanciaLogisticsFechas";
 
 const SOLICITUD_SELECT = `
   id, id_integrante, id_gira, tipo, estado, motivo_denegacion,
@@ -448,7 +449,55 @@ async function assertConstanciaElegibilidad(
   return { idInt, programa };
 }
 
-export async function solicitarConstancia(supabase, { user, idGira, tipo }) {
+/**
+ * Fechas de solicitud del músico: base = programa.
+ * Solo amplía a la logística (no local) si tildó día de salida / regreso.
+ */
+async function resolveFechasSolicitudMusico(
+  supabase,
+  { idIntegrante, idGira, programa, incluirDiaSalida, incluirDiaRegreso },
+) {
+  const progDesde = normalizeSnapFecha(programa?.fecha_desde);
+  const progHasta =
+    normalizeSnapFecha(programa?.fecha_hasta) || progDesde;
+  let desde = progDesde;
+  let hasta = progHasta;
+
+  if (!incluirDiaSalida && !incluirDiaRegreso) {
+    return { desde, hasta };
+  }
+
+  const sug = await suggestConstanciaFechasFromLogistics(supabase, {
+    idIntegrante,
+    idGira,
+  });
+  if (sug?.isLocal === false) {
+    const logDesde = normalizeSnapFecha(sug.fechaDesde);
+    const logHasta = normalizeSnapFecha(sug.fechaHasta);
+    if (
+      incluirDiaSalida &&
+      logDesde &&
+      progDesde &&
+      logDesde < progDesde
+    ) {
+      desde = logDesde;
+    }
+    if (
+      incluirDiaRegreso &&
+      logHasta &&
+      progHasta &&
+      logHasta > progHasta
+    ) {
+      hasta = logHasta;
+    }
+  }
+  return { desde, hasta };
+}
+
+export async function solicitarConstancia(
+  supabase,
+  { user, idGira, tipo, incluirDiaSalida = false, incluirDiaRegreso = false },
+) {
   const idInt = integranteIdForDb(user?.id);
   if (!idInt) throw new Error("Usuario inválido");
   const tipoNorm = normalizeConstanciaTipo(tipo);
@@ -464,6 +513,16 @@ export async function solicitarConstancia(supabase, { user, idGira, tipo }) {
   const integrante = await loadIntegranteForConstancia(supabase, idInt);
   const snap = await buildConstanciaSnapshot(supabase, integrante, programa);
   const { _localidades_list, ...snapRow } = snap;
+
+  const fechasMusico = await resolveFechasSolicitudMusico(supabase, {
+    idIntegrante: idInt,
+    idGira,
+    programa,
+    incluirDiaSalida: Boolean(incluirDiaSalida),
+    incluirDiaRegreso: Boolean(incluirDiaRegreso),
+  });
+  if (fechasMusico.desde) snapRow.snap_fecha_desde = fechasMusico.desde;
+  if (fechasMusico.hasta) snapRow.snap_fecha_hasta = fechasMusico.hasta;
 
   const rowBase = {
     id_integrante: idInt,
@@ -587,7 +646,6 @@ export async function generarConstanciaGestion(
       ? snapFuncion
       : snapRow.snap_funcion || "",
   ).trim();
-  if (!como) throw new Error("Indicá el texto «como …»");
 
   const now = new Date().toISOString();
   const { data: existing } = await supabase
@@ -621,7 +679,7 @@ export async function generarConstanciaGestion(
     mail_error: null,
     updated_at: now,
     ...snapRow,
-    snap_funcion: como,
+    snap_funcion: como || null,
     ...(desdeOverride
       ? {
           snap_fecha_desde: desdeOverride,
@@ -775,10 +833,8 @@ export async function notificarOficinaSolicitudConstancia(
 }
 
 function snapshotToPdfData(row, fechaEmision = new Date()) {
-  const como =
-    String(row.snap_funcion || "").trim() ||
-    String(row.snap_instrumento || "").trim().toLowerCase() ||
-    "integrante";
+  // Vacío = el PDF omite «como {función}». No completar con instrumento.
+  const como = String(row.snap_funcion || "").trim();
   // Preferir snap (congelado al solicitar/aprobar). Fallback legal del join,
   // nunca preferencia de seating.
   const fromJoin = legalNombreApellidoConstancia(row.integrantes);
@@ -801,17 +857,16 @@ function snapshotToPdfData(row, fechaEmision = new Date()) {
   };
 }
 
-/** Persiste el texto editable «como …» (solo pendientes). */
+/** Persiste el texto editable «como …» (solo pendientes). Vacío = sin función en el PDF. */
 export async function updateConstanciaSnapFuncion(
   supabase,
   { solicitudId, snapFuncion },
 ) {
-  const texto = String(snapFuncion || "").trim();
-  if (!texto) throw new Error("Indicá el texto «como …»");
+  const texto = String(snapFuncion ?? "").trim();
   const { data, error } = await supabase
     .from("constancias_solicitudes")
     .update({
-      snap_funcion: texto,
+      snap_funcion: texto || null,
       updated_at: new Date().toISOString(),
     })
     .eq("id", solicitudId)
@@ -868,7 +923,7 @@ export async function updateConstanciaSnapFechas(
   return data;
 }
 
-export { suggestConstanciaFechasFromLogistics } from "./constanciaLogisticsFechas";
+export { suggestConstanciaFechasFromLogistics };
 
 function fechaEmisionDesdeSolicitud(row) {
   const iso = row?.reemitida_at || row?.resuelto_at;
@@ -986,7 +1041,6 @@ export async function reemitirConstanciaAprobada(
       ? snapFuncion
       : row.snap_funcion || "",
   ).trim();
-  if (!como) throw new Error("Indicá el texto «como …»");
 
   const desde = normalizeSnapFecha(
     fechaDesde !== undefined ? fechaDesde : row.snap_fecha_desde,
@@ -1004,7 +1058,7 @@ export async function reemitirConstanciaAprobada(
   const { data: updated, error: upErr } = await supabase
     .from("constancias_solicitudes")
     .update({
-      snap_funcion: como,
+      snap_funcion: como || null,
       snap_fecha_desde: desde,
       snap_fecha_hasta: hasta,
       reemitida_at: now,
@@ -1105,10 +1159,9 @@ export async function aprobarConstancia(
     throw new Error("La solicitud ya fue resuelta");
   }
 
+  const comoExplicit = snapFuncion !== undefined && snapFuncion !== null;
   const como = String(
-    snapFuncion !== undefined && snapFuncion !== null
-      ? snapFuncion
-      : row.snap_funcion || "",
+    comoExplicit ? snapFuncion : row.snap_funcion || "",
   ).trim();
 
   // Antes del PDF: forzar nombre/apellido legales actuales (no preferencia).
@@ -1119,7 +1172,7 @@ export async function aprobarConstancia(
   const snapPatch = {
     snap_nombre: legal.nombre || row.snap_nombre,
     snap_apellido: legal.apellido || row.snap_apellido,
-    ...(como ? { snap_funcion: como } : {}),
+    ...(comoExplicit ? { snap_funcion: como || null } : {}),
     updated_at: new Date().toISOString(),
   };
 
@@ -1146,7 +1199,9 @@ export async function aprobarConstancia(
       estado: CONSTANCIA_ESTADOS.aprobada,
       snap_nombre: rowForPdf.snap_nombre,
       snap_apellido: rowForPdf.snap_apellido,
-      snap_funcion: rowForPdf.snap_funcion || como || null,
+      snap_funcion: comoExplicit
+        ? como || null
+        : rowForPdf.snap_funcion || null,
       motivo_denegacion: null,
       resuelto_at: new Date().toISOString(),
       resuelto_por: integranteIdForDb(resueltoPorId) || null,

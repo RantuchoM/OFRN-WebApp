@@ -6,8 +6,8 @@ Los integrantes pueden solicitar **constancias** de giras **Sinfónico** y **Cam
 
 | Tipo | Texto clave | Elegibilidad extra |
 |------|-------------|--------------------|
-| **Convocatoria** | «ha sido convocado/a como {función} a participar…» (p.ej. violinista; editable en Gestión) | Gira elegible (pasada o futura) |
-| **Participación realizada** (`Constancia de participación realizada`) | «participó como {función} de los ensayos y conciertos…» (editable en Gestión) | Solo giras **pasadas** (`fecha_hasta` &lt; hoy) |
+| **Convocatoria** | «ha sido convocado/a como {función} a participar…» (o sin «como {función}» si el campo está vacío) | Gira elegible (pasada o futura) |
+| **Participación realizada** (`Constancia de participación realizada`) | «participó como {función} de los ensayos…» (o «participó de los ensayos…» si vacío) | Solo giras **pasadas** (`fecha_hasta` &lt; hoy) |
 
 Una persona puede pedir **una de cada tipo por gira** (`UNIQUE (id_integrante, id_gira, tipo)`).
 
@@ -18,8 +18,8 @@ Una persona puede pedir **una de cada tipo por gira** (`UNIQUE (id_integrante, i
 | Header (junto a Mi Perfil) | Botón **Constancias** → modal «Mis Constancias» |
 | Badge (músico) | Solicitudes propias aprobadas/denegadas aún no vistas |
 | Badge (editor/admin) | Cantidad de solicitudes **pendientes** (abiertas) |
-| Modal | Primero carga **Mis solicitudes** (más recientes primero; muestra 5 y «Mostrar más»; cada ítem con mes_letra \| nomenclador \| zona + fechas); en **aprobadas**: **Reenviar** (mail propio) y **Descargar** PDF; el desplegable de giras solo se carga al elegir tipo |
-| Gestión `/management/constancias` | Lista (Tipo + columna **como…** editable), filtros estado/tipo, aprobar, denegar, **Aprobar todas**; **fechas del PDF** editables en pendientes/denegadas; logística no local como sugerencia. **Generar** preaprobada. En **aprobadas**: editar fechas/rol en borrador local + **Reemitir**; muestra quién emitió/reemitió (`resuelto_por`). Denegadas: quién denegó + **Deshacer**. **Reenviar** / **Descargar**. Móvil: tarjetas; tabla desde `md`. Mis Constancias **no** muestra el resolutor |
+| Modal | Primero carga **Mis solicitudes** (más recientes primero; muestra 5 y «Mostrar más»; cada ítem con mes_letra \| nomenclador \| zona + fechas); en **aprobadas**: **Reenviar** / **Descargar**; al elegir gira, si no es local y la logística sale **antes** / vuelve **después** del rango del programa, ofrece tildes «Incluir día de salida/regreso» (el servidor valida contra logística) |
+| Gestión `/management/constancias` | Lista (Tipo + columna **como…** editable), filtros estado/tipo, aprobar, denegar, **Aprobar todas**; columna **Gira** con nombre + **desde–hasta del programa**; **fechas del PDF** editables (también a mano); chip **Igual a: Gira|Logística|Ninguna** por extremo abre menú para aplicar esa fecha; sin botón «Usar fechas de logística». **Generar** preaprobada. En **aprobadas**: editar fechas/rol en borrador local + **Reemitir**; muestra quién emitió/reemitió (`resuelto_por`). Denegadas: quién denegó + **Deshacer**. **Reenviar** / **Descargar**. Móvil: tarjetas; tabla desde `md`. Mis Constancias **no** muestra el resolutor |
 
 En Mis Constancias el estado **pendiente** deja claro que hay que esperar la resolución.
 
@@ -45,8 +45,8 @@ Texto común:
 > Sin otro particular…
 
 - **Nombre / apellido**: siempre el **legal** (`integrantes.nombre` / `apellido`), nunca `nombre_preferencia` / `apellido_preferencia`. Se congela en `snap_nombre` / `snap_apellido` al solicitar y se revalida al aprobar antes de generar el PDF.
-- **Fechas del cuerpo**: por defecto `programas.fecha_desde` / `fecha_hasta`. En Gestión (solo no aprobadas) se pueden editar. Sugerencia para no locales: ventana de viaje de logística (primera subida ↑ / última bajada ↓ a/desde origen). Locales: sin sugerencia de viaje.
-- **Instrumento / función**: al solicitar, se toma el instrumento **efectivo de la gira** (`giras_integrantes.id_instr` si el Roster lo modificó respecto al perfil; si no, `integrantes.id_instr`). De ahí se lee `instrumentos.funcion` → `snap_funcion` (editable en Gestión, p.ej. «concertino»). Ambos PDFs: convocatoria «como {snap_funcion} a participar…»; participación «participó como {snap_funcion} de…».
+- **Fechas del cuerpo**: por defecto `programas.fecha_desde` / `fecha_hasta`. El músico puede tildar día de salida/regreso si la logística (↑/↓, no local) cae fuera de ese rango; el server solo amplía hasta esas fechas de logística. En Gestión se editan a mano (aprobadas en borrador hasta Reemitir); chip **Igual a:** por extremo (Gira / Logística / Ninguna) permite elegir fecha de programa o de logística.
+- **Instrumento / función**: al solicitar, se toma el instrumento **efectivo de la gira** → `instrumentos.funcion` → `snap_funcion` (editable en Gestión; puede quedar **vacío**). Si hay texto: convocatoria «como {snap_funcion} a participar…»; participación «participó como {snap_funcion} de…». Si está vacío: se omite «como …» y queda «ha sido convocado/a a participar…» / «participó de los ensayos…».
 - **Localidades** concatenadas de tramos / `giras_localidades`
 - **Emisión**: `Viedma, {reemitida_at || fecha de aprobación}`
 - Generación: **jsPDF** (logo + **Calibri** 13pt embebida + firma) y después **aplanado real**: cada página se rasteriza con pdf.js (~216 dpi) y pdf-lib la guarda como una sola imagen. El PDF de **Descargar** y el adjunto del mail no tienen texto seleccionable ni campos. `form.flatten()` no alcanza: jsPDF no crea AcroForm, así que el archivo seguía editable. Fecha a la **derecha**; cuerpo/cierre **justificados**, interlineado **1.5**, sangría 1ª línea ~40 mm. Sin «el Sr.» / «la Sra.»; coma tras el nombre; participio según género en convocatoria.
@@ -83,3 +83,5 @@ Tabla `instrumentos`: columna `funcion` (rol formal precompletado; editable en U
 - [x] Generar desde Gestión (preaprobada + mail al músico + panel Mis Constancias)
 - [x] Fechas del PDF editables (no aprobadas) + sugerencia logística no locales
 - [x] Reemitir aprobada (fechas/rol + mail `constancia_modificada` + `reemitida_at`)
+- [x] Mis Constancias: tildes día salida/regreso según logística (no local)
+- [x] Gestión: chip «Igual a:» por extremo (elige Gira / Logística; edición manual sigue)
