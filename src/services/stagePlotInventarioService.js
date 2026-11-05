@@ -11,8 +11,14 @@ import {
 import {
   mergeStagePlotDbIconOverrides,
   mergeStagePlotDbSizeOverrides,
+  setStagePlotElementoRasterOverrides,
   clearStagePlotImageCache,
 } from "../utils/stagePlotIconAssets";
+import {
+  uploadStagePlotRasterFile,
+  removeStagePlotRasterByPath,
+  removeStagePlotRasterByUrl,
+} from "./stagePlotRasterStorage";
 import { STAGE_PLOT_CM_TO_PX } from "../utils/stagePlotConstants";
 
 export const INVENTARIO_CATEGORIAS = [
@@ -48,13 +54,14 @@ export const INVENTARIO_TARIMA_FORMAS = [
  * @property {string} nombre
  * @property {string|null} stage_plot_type
  * @property {string|null} svg_icon
+ * @property {string|null} stage_plot_raster_url
  * @property {number|null} width_cm
  * @property {number|null} height_cm
  * @property {boolean} activo
  */
 
 const ITEM_SELECT =
-  "id, categoria, nombre, cantidad, ancho_cm, profundo_cm, forma, elemento_escenario_id, notas, created_at, updated_at, elementos_escenario(id, nombre, stage_plot_type, svg_icon, width_cm, height_cm, activo)";
+  "id, categoria, nombre, cantidad, ancho_cm, profundo_cm, forma, elemento_escenario_id, notas, created_at, updated_at, elementos_escenario(id, nombre, stage_plot_type, svg_icon, stage_plot_raster_url, width_cm, height_cm, activo)";
 
 /** @param {string} raw */
 export function slugifyStagePlotType(raw) {
@@ -81,10 +88,13 @@ export function applyElementosEscenarioToStagePlot(rows = []) {
   );
 
   const svgMap = new Map();
+  const rasterMap = new Map();
   const sizeMap = new Map();
   for (const row of active) {
     const type = String(row.stage_plot_type || "").trim();
     if (!type) continue;
+    const rasterUrl = String(row.stage_plot_raster_url || "").trim();
+    if (rasterUrl) rasterMap.set(type, rasterUrl);
     if (row.svg_icon) {
       const sanitized = sanitizeStagePlotSvgMarkup(row.svg_icon);
       if (sanitized.ok && sanitized.svg) svgMap.set(type, sanitized.svg);
@@ -99,6 +109,7 @@ export function applyElementosEscenarioToStagePlot(rows = []) {
     }
   }
   mergeStagePlotDbIconOverrides(svgMap);
+  setStagePlotElementoRasterOverrides(rasterMap);
   mergeStagePlotDbSizeOverrides(sizeMap);
   clearStagePlotImageCache();
   return active.length;
@@ -113,6 +124,7 @@ export async function loadAndApplyElementosEscenario() {
   } catch (err) {
     console.warn("[elementos_escenario]", err?.message || err);
     setStagePlotDynamicCatalogItems([]);
+    setStagePlotElementoRasterOverrides(new Map());
     return [];
   }
 }
@@ -133,7 +145,7 @@ export async function listElementosEscenario({ onlyActive = true } = {}) {
   let q = supabase
     .from("elementos_escenario")
     .select(
-      "id, nombre, stage_plot_type, svg_icon, width_cm, height_cm, activo, created_at, updated_at",
+      "id, nombre, stage_plot_type, svg_icon, stage_plot_raster_url, width_cm, height_cm, activo, created_at, updated_at",
     )
     .order("nombre", { ascending: true });
   if (onlyActive) q = q.eq("activo", true);
@@ -293,6 +305,10 @@ export async function upsertElementoEscenario(row, meta = {}) {
     activo: row.activo !== false,
     updated_at: new Date().toISOString(),
   };
+  if (row.stage_plot_raster_url !== undefined) {
+    const url = String(row.stage_plot_raster_url || "").trim();
+    payload.stage_plot_raster_url = url || null;
+  }
 
   if (row.id) {
     const { data, error } = await supabase
@@ -315,6 +331,55 @@ export async function upsertElementoEscenario(row, meta = {}) {
   if (error) throw error;
   await loadAndApplyElementosEscenario();
   return data;
+}
+
+/**
+ * Sube PNG/WebP y lo deja activo en el elemento. El SVG no se borra.
+ * @param {number|string} id
+ * @param {File|Blob} file
+ * @param {{ previousUrl?: string|null }} [opts]
+ * @returns {Promise<string>}
+ */
+export async function setElementoStagePlotRaster(id, file, opts = {}) {
+  const uploaded = await uploadStagePlotRasterFile(file, {
+    scope: "elementos",
+    ownerId: id,
+  });
+  const { error } = await supabase
+    .from("elementos_escenario")
+    .update({
+      stage_plot_raster_url: uploaded.url,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id);
+  if (error) {
+    await removeStagePlotRasterByPath(uploaded.path);
+    throw new Error(error.message || "No se pudo guardar el PNG");
+  }
+  const previous = String(opts.previousUrl || "").trim();
+  if (previous && previous !== uploaded.url) {
+    await removeStagePlotRasterByUrl(previous);
+  }
+  await loadAndApplyElementosEscenario().catch(() => {});
+  return uploaded.url;
+}
+
+/**
+ * Quita el PNG/WebP del elemento. El plano vuelve al SVG.
+ * @param {number|string} id
+ * @param {{ previousUrl?: string|null }} [opts]
+ */
+export async function clearElementoStagePlotRaster(id, opts = {}) {
+  const { error } = await supabase
+    .from("elementos_escenario")
+    .update({
+      stage_plot_raster_url: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id);
+  if (error) throw new Error(error.message || "No se pudo quitar el PNG");
+  await removeStagePlotRasterByUrl(opts.previousUrl);
+  await loadAndApplyElementosEscenario().catch(() => {});
 }
 
 async function appendInventarioLog(entry) {

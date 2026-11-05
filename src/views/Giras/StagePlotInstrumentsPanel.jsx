@@ -24,8 +24,16 @@ import {
   reloadStagePlotInstrumentIcons,
   applyStagePlotInstrumentSizeOverride,
   resolveInstrumentStagePlotType,
+  setInstrumentoStagePlotRaster,
+  clearInstrumentoStagePlotRaster,
   STAGE_PLOT_INSTRUMENT_TYPE_OPTIONS,
 } from "../../services/stagePlotInstrumentIconsService";
+import { removeStagePlotRasterByUrl } from "../../services/stagePlotRasterStorage";
+import {
+  classifyStagePlotIconUpload,
+  validateStagePlotRasterFile,
+  STAGE_PLOT_RASTER_HINT,
+} from "../../utils/stagePlotRaster";
 import { getStagePlotCatalogItem } from "../../utils/stagePlotCatalog";
 import {
   resolveStagePlotIconSvgMarkup,
@@ -84,12 +92,30 @@ function previewSrcFromMarkup(svg) {
   return stagePlotSvgToDataUrl(r.svg, "#1e293b");
 }
 
-/** Thumbnail: DB SVG → estático → silueta. */
-function InstrumentSvgThumb({ type, svgIcon, className = "h-10 w-10" }) {
+/** Etiqueta corta del dibujo que el plano muestra hoy. */
+function stagePlotIconStatusLabel(row, typeLabel) {
+  const hasType = Boolean(String(row?.stage_plot_type || "").trim());
+  const hasRaster = Boolean(String(row?.stage_plot_raster_url || "").trim());
+  const hasSvg = Boolean(String(row?.svg_icon || "").trim());
+  if (hasRaster && hasType) return "PNG";
+  if (hasSvg && hasType) return "SVG";
+  if (hasType && instrumentHasStagePlotIcon(row)) return typeLabel(row.stage_plot_type);
+  if (!hasType && hasRaster) return "PNG sin clave";
+  if (!hasType && hasSvg) return "SVG sin clave";
+  if (hasType) return "sin visual";
+  return "sin ícono";
+}
+
+/** Thumbnail: PNG/WebP de la fila → SVG de la fila → estático → silueta. */
+function InstrumentSvgThumb({ type, svgIcon, rasterUrl, className = "h-10 w-10" }) {
   const [src, setSrc] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
+    if (rasterUrl) {
+      setSrc(rasterUrl);
+      return undefined;
+    }
     const fromRow = previewSrcFromMarkup(svgIcon);
     if (fromRow) {
       setSrc(fromRow);
@@ -110,7 +136,7 @@ function InstrumentSvgThumb({ type, svgIcon, className = "h-10 w-10" }) {
     return () => {
       cancelled = true;
     };
-  }, [type, svgIcon]);
+  }, [type, svgIcon, rasterUrl]);
 
   if (!src) {
     return (
@@ -178,6 +204,8 @@ function InstrumentRowList({
   saveType,
   saveFamilia,
   requestSvgChange,
+  uploadRaster,
+  clearRaster,
 }) {
   if (rows.length === 0) return null;
   const groups = groupInstrumentosByFamilia(rows);
@@ -214,6 +242,7 @@ function InstrumentRowList({
                     <InstrumentSvgThumb
                       type={row.stage_plot_type}
                       svgIcon={row.svg_icon}
+                      rasterUrl={row.stage_plot_raster_url}
                       className="h-8 w-8 shrink-0"
                     />
                     <span className="min-w-0 flex-1">
@@ -222,13 +251,8 @@ function InstrumentRowList({
                       </span>
                       <span className="block truncate text-[9px] text-slate-400">
                         {famLabel}
-                        {hasIcon
-                          ? ` · ${row.svg_icon ? "SVG" : typeLabel(row.stage_plot_type)}`
-                          : row.stage_plot_type
-                            ? " · sin visual"
-                            : row.svg_icon
-                              ? " · SVG sin clave"
-                              : " · sin ícono"}
+                        {" · "}
+                        {stagePlotIconStatusLabel(row, typeLabel)}
                       </span>
                     </span>
                     <IconChevronDown
@@ -245,6 +269,7 @@ function InstrumentRowList({
                         <InstrumentSvgThumb
                           type={row.stage_plot_type}
                           svgIcon={row.svg_icon}
+                          rasterUrl={row.stage_plot_raster_url}
                           className="h-14 w-14 shrink-0"
                         />
                         <div className="min-w-0 flex-1">
@@ -252,11 +277,15 @@ function InstrumentRowList({
                             Vista previa
                           </p>
                           <p className="text-[9px] leading-snug text-slate-400">
-                            {row.svg_icon
-                              ? "SVG personalizado en DB"
-                              : hasIcon
-                                ? "Ícono estático / silueta"
-                                : "Sin ícono — asigná SVG y/o clave de ícono"}
+                            {row.stage_plot_raster_url
+                              ? row.svg_icon
+                                ? "PNG/WebP activo. El SVG queda de reserva."
+                                : "PNG/WebP activo."
+                              : row.svg_icon
+                                ? "SVG personalizado en DB"
+                                : hasIcon
+                                  ? "Ícono estático / silueta"
+                                  : "Sin ícono — asigná SVG, PNG o clave de ícono"}
                           </p>
                         </div>
                       </div>
@@ -371,6 +400,38 @@ function InstrumentRowList({
                               <IconX size={12} /> Quitar SVG
                             </button>
                           ) : null}
+                          <label className="inline-flex cursor-pointer items-center gap-1 rounded border border-slate-200 bg-white px-2 py-1 text-[10px] font-semibold text-slate-700 hover:bg-slate-50">
+                            <IconUpload size={12} />
+                            Subir PNG/WebP
+                            <input
+                              type="file"
+                              accept=".png,.webp,image/png,image/webp"
+                              className="sr-only"
+                              disabled={savingSvg}
+                              onChange={async (e) => {
+                                const file = e.target.files?.[0];
+                                e.target.value = "";
+                                if (!file) return;
+                                if (classifyStagePlotIconUpload(file) !== "raster") {
+                                  toast.error(
+                                    "Ese archivo no es PNG ni WebP.",
+                                  );
+                                  return;
+                                }
+                                await uploadRaster(file);
+                              }}
+                            />
+                          </label>
+                          {row.stage_plot_raster_url ? (
+                            <button
+                              type="button"
+                              disabled={savingSvg}
+                              onClick={() => clearRaster()}
+                              className="inline-flex items-center gap-1 rounded border border-slate-200 bg-white px-2 py-1 text-[10px] font-semibold text-slate-600 hover:bg-slate-50"
+                            >
+                              <IconX size={12} /> Quitar PNG
+                            </button>
+                          ) : null}
                           <button
                             type="button"
                             disabled={savingSize}
@@ -384,6 +445,9 @@ function InstrumentRowList({
                       ) : (
                         <p className="text-[10px] text-slate-400">Solo lectura</p>
                       )}
+                      <p className="text-[9px] leading-snug text-slate-400">
+                        {STAGE_PLOT_RASTER_HINT} Subir un SVG nuevo quita el PNG para que se vea el dibujo vectorial.
+                      </p>
 
                       <details className="rounded border border-slate-200 bg-white/80 px-2 py-1.5">
                         <summary className="cursor-pointer text-[9px] font-semibold text-slate-500">
@@ -459,6 +523,8 @@ function CreateInstrumentoModal({
   const [allowShared, setAllowShared] = useState(false);
   const [svgText, setSvgText] = useState("");
   const [svgPreview, setSvgPreview] = useState(null);
+  const [rasterFile, setRasterFile] = useState(null);
+  const [rasterPreview, setRasterPreview] = useState(null);
   const [saving, setSaving] = useState(false);
   const [sharedHint, setSharedHint] = useState(null);
 
@@ -474,6 +540,11 @@ function CreateInstrumentoModal({
     setAllowShared(false);
     setSvgText("");
     setSvgPreview(null);
+    setRasterFile(null);
+    setRasterPreview((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
     setSharedHint(null);
   }, [open, familias]);
 
@@ -514,6 +585,13 @@ function CreateInstrumentoModal({
     e?.preventDefault();
     setSaving(true);
     try {
+      if (rasterFile) {
+        const checked = await validateStagePlotRasterFile(rasterFile);
+        if (!checked.ok) {
+          toast.error(checked.error);
+          return;
+        }
+      }
       const created = await createInstrumento(
         {
           id,
@@ -527,8 +605,26 @@ function CreateInstrumentoModal({
         },
         { client: supabase },
       );
-      await reloadStagePlotInstrumentIcons().catch(() => {});
-      toast.success(`Instrumento «${created.instrumento}» creado`);
+      let rasterOk = !rasterFile;
+      if (rasterFile) {
+        try {
+          const url = await setInstrumentoStagePlotRaster(created.id, rasterFile, {
+            client: supabase,
+          });
+          created.stage_plot_raster_url = url;
+          rasterOk = true;
+        } catch (err) {
+          toast.error(
+            err?.message ||
+              "El instrumento se creó, pero el PNG no se pudo subir. Podés subirlo desde el editor.",
+          );
+        }
+      } else {
+        await reloadStagePlotInstrumentIcons().catch(() => {});
+      }
+      if (rasterOk) {
+        toast.success(`Instrumento «${created.instrumento}» creado`);
+      }
       onCreated?.(created);
       onClose();
     } catch (err) {
@@ -562,8 +658,8 @@ function CreateInstrumentoModal({
             </h3>
             <p className="mt-1 text-[11px] leading-snug text-slate-500">
               Alta en la tabla <code className="text-[10px]">instrumentos</code>
-              . SVG de material de escenario (no instrumento) → Inventario /
-              elementos_escenario.
+              . El ícono puede ser SVG o PNG/WebP. Material que no es un
+              instrumento → Inventario / elementos_escenario.
             </p>
           </div>
           <button
@@ -686,7 +782,7 @@ function CreateInstrumentoModal({
 
           <div>
             <p className="mb-1 text-[10px] font-medium text-slate-500">
-              SVG (opcional)
+              Ícono (opcional, SVG o PNG/WebP)
             </p>
             <div className="flex flex-wrap items-center gap-2">
               <label className="inline-flex cursor-pointer items-center gap-1 rounded border border-slate-200 bg-white px-2 py-1 text-[10px] font-semibold text-slate-700 hover:bg-slate-50">
@@ -743,7 +839,60 @@ function CreateInstrumentoModal({
                   className="h-10 w-10 rounded border border-slate-100 bg-slate-50 object-contain p-0.5"
                 />
               ) : null}
+              <label className="inline-flex cursor-pointer items-center gap-1 rounded border border-slate-200 bg-white px-2 py-1 text-[10px] font-semibold text-slate-700 hover:bg-slate-50">
+                <IconUpload size={12} />
+                Subir PNG/WebP
+                <input
+                  type="file"
+                  accept=".png,.webp,image/png,image/webp"
+                  className="sr-only"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = "";
+                    if (!file) return;
+                    if (classifyStagePlotIconUpload(file) !== "raster") {
+                      toast.error("Ese archivo no es PNG ni WebP.");
+                      return;
+                    }
+                    const checked = await validateStagePlotRasterFile(file);
+                    if (!checked.ok) {
+                      toast.error(checked.error);
+                      return;
+                    }
+                    setRasterFile(file);
+                    setRasterPreview((prev) => {
+                      if (prev) URL.revokeObjectURL(prev);
+                      return URL.createObjectURL(file);
+                    });
+                  }}
+                />
+              </label>
+              {rasterFile ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRasterFile(null);
+                    setRasterPreview((prev) => {
+                      if (prev) URL.revokeObjectURL(prev);
+                      return null;
+                    });
+                  }}
+                  className="text-[10px] font-semibold text-slate-500 hover:text-slate-700"
+                >
+                  Quitar PNG
+                </button>
+              ) : null}
+              {rasterPreview ? (
+                <img
+                  src={rasterPreview}
+                  alt=""
+                  className="h-10 w-10 rounded border border-slate-100 bg-slate-50 object-contain p-0.5"
+                />
+              ) : null}
             </div>
+            <p className="mt-1 text-[9px] leading-snug text-slate-400">
+              {STAGE_PLOT_RASTER_HINT} Si subís los dos, el plano muestra el PNG.
+            </p>
           </div>
 
           <div className="flex justify-end gap-2 pt-2">
@@ -815,7 +964,7 @@ export default function StagePlotInstrumentsPanel({
       supabase
         .from("instrumentos")
         .select(
-          "id, instrumento, familia, stage_plot_type, stage_plot_width_cm, stage_plot_height_cm, svg_icon",
+          "id, instrumento, familia, stage_plot_type, stage_plot_width_cm, stage_plot_height_cm, svg_icon, stage_plot_raster_url",
         )
         .order("instrumento", { ascending: true }),
       listInstrumentosFamilias(supabase),
@@ -1042,22 +1191,69 @@ export default function StagePlotInstrumentsPanel({
       return;
     }
     setSavingSvg(true);
+    const clearsRaster = Boolean(
+      pendingSvg.nextSvg && selected.stage_plot_raster_url,
+    );
+    const previousRaster = selected.stage_plot_raster_url || null;
+    const patch = { svg_icon: pendingSvg.nextSvg };
+    if (clearsRaster) patch.stage_plot_raster_url = null;
     const { error } = await supabase
       .from("instrumentos")
-      .update({ svg_icon: pendingSvg.nextSvg })
+      .update(patch)
       .eq("id", selected.id);
     setSavingSvg(false);
     if (error) {
       toast.error(error.message || "No se pudo guardar el SVG");
       throw error;
     }
-    patchRowLocal(selected.id, { svg_icon: pendingSvg.nextSvg });
+    if (clearsRaster) await removeStagePlotRasterByUrl(previousRaster);
+    patchRowLocal(selected.id, patch);
     setPendingSvg(null);
     await reloadStagePlotInstrumentIcons().catch(() => {});
     onCatalogReload?.();
     toast.success(
-      pendingSvg.nextSvg ? "Ícono SVG actualizado" : "SVG personalizado quitado",
+      pendingSvg.nextSvg
+        ? clearsRaster
+          ? "Ícono SVG actualizado. Se quitó el PNG para que se vea este dibujo."
+          : "Ícono SVG actualizado"
+        : "SVG personalizado quitado",
     );
+  };
+
+  const uploadRaster = async (file) => {
+    if (!canEdit || !selected || !supabase) return;
+    setSavingSvg(true);
+    try {
+      const url = await setInstrumentoStagePlotRaster(selected.id, file, {
+        previousUrl: selected.stage_plot_raster_url,
+        client: supabase,
+      });
+      patchRowLocal(selected.id, { stage_plot_raster_url: url });
+      onCatalogReload?.();
+      toast.success("Ícono PNG/WebP actualizado");
+    } catch (err) {
+      toast.error(err?.message || "No se pudo subir el PNG");
+    } finally {
+      setSavingSvg(false);
+    }
+  };
+
+  const clearRaster = async () => {
+    if (!canEdit || !selected?.stage_plot_raster_url || !supabase) return;
+    setSavingSvg(true);
+    try {
+      await clearInstrumentoStagePlotRaster(selected.id, {
+        previousUrl: selected.stage_plot_raster_url,
+        client: supabase,
+      });
+      patchRowLocal(selected.id, { stage_plot_raster_url: null });
+      onCatalogReload?.();
+      toast.success("PNG quitado. El plano vuelve al SVG.");
+    } catch (err) {
+      toast.error(err?.message || "No se pudo quitar el PNG");
+    } finally {
+      setSavingSvg(false);
+    }
   };
 
   const typeLabel = (type) =>
@@ -1083,12 +1279,14 @@ export default function StagePlotInstrumentsPanel({
     saveType,
     saveFamilia,
     requestSvgChange,
+    uploadRaster,
+    clearRaster,
   };
 
   return (
     <div className="flex flex-col gap-2">
       <p className="px-1 text-[10px] leading-snug text-slate-400">
-        Editor de instrumentos: familia, tamaño de huella (catálogo) y SVG. Agrupados por
+        Editor de instrumentos: familia, tamaño de huella (catálogo) y ícono SVG o PNG/WebP. Agrupados por
         familia. Material sin instrumento → Inventario (elementos_escenario).
       </p>
 
@@ -1171,7 +1369,11 @@ export default function StagePlotInstrumentsPanel({
         }}
         onConfirm={confirmSvgChange}
         title="¿Seguro que deseás cambiar por este nuevo ícono?"
-        message="Se reemplazará el SVG del instrumento en el catálogo. Los ítems ya colocados usan el ícono al redibujar."
+        message={
+          pendingSvg?.nextSvg && selected?.stage_plot_raster_url
+            ? "Se reemplaza el SVG y se quita el PNG/WebP, para que el plano muestre este dibujo. Los ítems ya colocados se redibujan."
+            : "Se reemplazará el SVG del instrumento en el catálogo. Los ítems ya colocados usan el ícono al redibujar."
+        }
         confirmText={pendingSvg?.nextSvg ? "Cambiar ícono" : "Quitar SVG"}
         cancelText="Cancelar"
         confirmLoading={savingSvg}

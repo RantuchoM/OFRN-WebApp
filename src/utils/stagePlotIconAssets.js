@@ -55,9 +55,34 @@ const imageCache = new Map();
 
 /** Overrides desde `instrumentos.svg_icon` (tipo catálogo → markup). */
 let dbSvgByType = new Map();
+/**
+ * PNG/WebP por tipo. El de elementos pisa al de instrumentos si comparten slug.
+ * URL pública; el lienzo la prefiere sobre el SVG.
+ */
+let instrumentRasterByType = new Map();
+let elementoRasterByType = new Map();
 /** Overrides de tamaño default (cm) desde `instrumentos.stage_plot_*_cm`. */
 let dbSizeByType = new Map();
 let dbIconsEnsurePromise = null;
+
+/**
+ * @param {Map<string, string>|Record<string, string>|null|undefined} map
+ * @returns {Map<string, string>}
+ */
+function rasterMapFrom(map) {
+  /** @type {Map<string, string>} */
+  const next = new Map();
+  const entries =
+    map instanceof Map
+      ? map.entries()
+      : map && typeof map === "object"
+        ? Object.entries(map)
+        : [];
+  for (const [k, v] of entries) {
+    if (k && typeof v === "string" && v.trim()) next.set(k, v.trim());
+  }
+  return next;
+}
 
 /**
  * Registra SVGs de DB. Preferidos sobre `public/stage-plot/icons/`.
@@ -72,6 +97,7 @@ export function setStagePlotDbIconOverrides(map) {
     dbSvgByType = new Map();
   }
   imageCache.clear();
+  bumpStagePlotCatalogEpoch();
 }
 
 /**
@@ -85,10 +111,42 @@ export function mergeStagePlotDbIconOverrides(map) {
       : map && typeof map === "object"
         ? Object.entries(map)
         : [];
+  let changed = false;
   for (const [k, v] of entries) {
-    if (k && v) dbSvgByType.set(k, v);
+    if (k && v) {
+      dbSvgByType.set(k, v);
+      changed = true;
+    }
   }
   imageCache.clear();
+  if (changed) bumpStagePlotCatalogEpoch();
+}
+
+/**
+ * Reemplaza las URLs raster de instrumentos (no toca elementos).
+ * @param {Map<string, string>|Record<string, string>|null|undefined} map
+ */
+export function setStagePlotDbRasterOverrides(map) {
+  instrumentRasterByType = rasterMapFrom(map);
+  imageCache.clear();
+  bumpStagePlotCatalogEpoch();
+}
+
+/**
+ * Reemplaza las URLs raster de elementos_escenario.
+ * Una fila sin URL saca el tipo del mapa (el plano vuelve al SVG).
+ * @param {Map<string, string>|Record<string, string>|null|undefined} map
+ */
+export function setStagePlotElementoRasterOverrides(map) {
+  elementoRasterByType = rasterMapFrom(map);
+  imageCache.clear();
+  bumpStagePlotCatalogEpoch();
+}
+
+/** @param {string} type @returns {string|null} */
+export function getStagePlotDbRasterUrl(type) {
+  if (!type) return null;
+  return elementoRasterByType.get(type) || instrumentRasterByType.get(type) || null;
 }
 
 /**
@@ -173,6 +231,7 @@ export async function ensureStagePlotDbIconsLoaded() {
     } catch (err) {
       console.warn("[stagePlotIconAssets] DB icons:", err);
       dbSvgByType = new Map();
+      instrumentRasterByType = new Map();
     }
   })();
   return dbIconsEnsurePromise;
@@ -242,20 +301,35 @@ export function prepareStagePlotSvgMarkupForRaster(svg, color = "#1e293b") {
  * @param {string} svg
  * @param {string} color
  */
+/**
+ * @param {string} src
+ * @param {{ crossOrigin?: string, revoke?: boolean }} [opts]
+ * @returns {Promise<HTMLImageElement>}
+ */
+function loadHtmlImage(src, opts = {}) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    if (opts.crossOrigin) image.crossOrigin = opts.crossOrigin;
+    image.onload = () => {
+      if (opts.revoke) URL.revokeObjectURL(src);
+      resolve(image);
+    };
+    image.onerror = () => {
+      if (opts.revoke) URL.revokeObjectURL(src);
+      reject(new Error("No se pudo decodificar la imagen"));
+    };
+    image.src = src;
+  });
+}
+
 async function svgMarkupToImage(type, svg, color) {
   const prepared = prepareStagePlotSvgMarkupForRaster(svg, color);
   const blob = new Blob([prepared], { type: "image/svg+xml;charset=utf-8" });
   const objUrl = URL.createObjectURL(blob);
   try {
-    return await new Promise((resolve, reject) => {
-      const image = new Image();
-      image.onload = () => resolve(image);
-      image.onerror = () =>
-        reject(new Error(`No se pudo decodificar ${type}`));
-      image.src = objUrl;
-    });
-  } finally {
-    URL.revokeObjectURL(objUrl);
+    return await loadHtmlImage(objUrl, { revoke: true });
+  } catch (err) {
+    throw new Error(`No se pudo decodificar ${type}: ${err?.message || err}`);
   }
 }
 
@@ -269,6 +343,20 @@ async function svgMarkupToImage(type, svg, color) {
 export async function loadStagePlotIconImage(type, color = "#1e293b") {
   if (!type || typeof fetch === "undefined") return null;
   await ensureStagePlotDbIconsLoaded();
+
+  const rasterUrl = getStagePlotDbRasterUrl(type);
+  if (rasterUrl) {
+    const key = `${type}|raster|${rasterUrl}`;
+    if (imageCache.has(key)) return imageCache.get(key);
+    const p = loadHtmlImage(rasterUrl, { crossOrigin: "anonymous" }).catch((err) => {
+      console.warn(err);
+      imageCache.delete(key);
+      return null;
+    });
+    imageCache.set(key, p);
+    return p;
+  }
+
   const dbSvg = getStagePlotDbIconSvg(type);
   const url = dbSvg ? null : getStagePlotIconUrl(type);
   if (!dbSvg && !url) return null;

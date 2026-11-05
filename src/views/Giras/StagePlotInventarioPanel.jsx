@@ -21,7 +21,13 @@ import {
   loadAndApplyElementosEscenario,
   updateInventarioItem,
   upsertElementoEscenario,
+  setElementoStagePlotRaster,
 } from "../../services/stagePlotInventarioService";
+import {
+  classifyStagePlotIconUpload,
+  validateStagePlotRasterFile,
+  STAGE_PLOT_RASTER_HINT,
+} from "../../utils/stagePlotRaster";
 import {
   sanitizeStagePlotSvgMarkup,
   stagePlotSvgToDataUrl,
@@ -644,6 +650,8 @@ function ElementoEscenarioQuickAdd({ busy, setBusy, onCreated }) {
   const [heightCm, setHeightCm] = useState(40);
   const [svg, setSvg] = useState("");
   const [svgError, setSvgError] = useState("");
+  const [rasterFile, setRasterFile] = useState(null);
+  const [rasterPreview, setRasterPreview] = useState(null);
 
   const svgPreview = useMemo(() => {
     if (!svg) return null;
@@ -689,6 +697,13 @@ function ElementoEscenarioQuickAdd({ busy, setBusy, onCreated }) {
       }
       svgToSave = prepared.svg || null;
     }
+    if (rasterFile) {
+      const checked = await validateStagePlotRasterFile(rasterFile);
+      if (!checked.ok) {
+        toast.error(checked.error);
+        return;
+      }
+    }
     setBusy(true);
     try {
       const el = await upsertElementoEscenario({
@@ -699,11 +714,31 @@ function ElementoEscenarioQuickAdd({ busy, setBusy, onCreated }) {
         svg_icon: svgToSave,
         activo: true,
       });
-      toast.success("Elemento creado");
+      let rasterOk = !rasterFile;
+      if (rasterFile) {
+        try {
+          el.stage_plot_raster_url = await setElementoStagePlotRaster(
+            el.id,
+            rasterFile,
+          );
+          rasterOk = true;
+        } catch (err) {
+          toast.error(
+            err?.message ||
+              "El elemento se creó, pero el PNG no se pudo subir.",
+          );
+        }
+      }
+      if (rasterOk) toast.success("Elemento creado");
       setNombre("");
       setSlug("");
       setSvg("");
       setSvgError("");
+      setRasterFile(null);
+      setRasterPreview((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return null;
+      });
       onCreated?.(el);
     } catch (err) {
       toast.error(err?.message || "Error al crear elemento");
@@ -746,21 +781,33 @@ function ElementoEscenarioQuickAdd({ busy, setBusy, onCreated }) {
       <div className="flex flex-wrap items-center gap-1">
         <label className="inline-flex cursor-pointer items-center gap-1 rounded border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-700 hover:bg-slate-50">
           <IconUpload size={12} />
-          Subir SVG
+          Subir SVG o PNG
           <input
             type="file"
-            accept=".svg,image/svg+xml"
+            accept=".svg,.png,.webp,image/svg+xml,image/png,image/webp"
             className="sr-only"
             onChange={async (e) => {
               const file = e.target.files?.[0];
               e.target.value = "";
               if (!file) return;
-              if (
-                !/\.svg$/i.test(file.name || "") &&
-                file.type &&
-                file.type !== "image/svg+xml"
-              ) {
-                toast.error("Solo se aceptan archivos SVG (no PNG/JPG).");
+              const kind = classifyStagePlotIconUpload(file);
+              if (kind === "raster") {
+                const checked = await validateStagePlotRasterFile(file);
+                if (!checked.ok) {
+                  toast.error(checked.error);
+                  return;
+                }
+                setRasterFile(file);
+                setRasterPreview((prev) => {
+                  if (prev) URL.revokeObjectURL(prev);
+                  return URL.createObjectURL(file);
+                });
+                return;
+              }
+              if (kind !== "svg") {
+                toast.error(
+                  "Subí un SVG, o un PNG/WebP con fondo transparente.",
+                );
                 return;
               }
               if (file.size > STAGE_PLOT_SVG_MAX_CHARS) {
@@ -796,6 +843,28 @@ function ElementoEscenarioQuickAdd({ busy, setBusy, onCreated }) {
             className="h-8 w-8 rounded border border-slate-100 bg-slate-50 object-contain p-0.5"
           />
         ) : null}
+        {rasterPreview ? (
+          <img
+            src={rasterPreview}
+            alt=""
+            className="h-8 w-8 rounded border border-slate-100 bg-slate-50 object-contain p-0.5"
+          />
+        ) : null}
+        {rasterFile ? (
+          <button
+            type="button"
+            onClick={() => {
+              setRasterFile(null);
+              setRasterPreview((prev) => {
+                if (prev) URL.revokeObjectURL(prev);
+                return null;
+              });
+            }}
+            className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-slate-500 hover:text-slate-700"
+          >
+            <IconX size={12} /> Quitar PNG
+          </button>
+        ) : null}
       </div>
       <textarea
         className="w-full rounded border border-slate-200 px-1.5 py-0.5 font-mono text-[9px]"
@@ -815,8 +884,7 @@ function ElementoEscenarioQuickAdd({ busy, setBusy, onCreated }) {
         <p className="text-[9px] text-red-600">{svgError}</p>
       ) : (
         <p className="text-[9px] text-slate-400">
-          Máx. {formatStagePlotSvgMaxChars()} caracteres. Se sanitiza al pegar /
-          subir (Illustrator OK).
+          SVG: máx. {formatStagePlotSvgMaxChars()} caracteres. {STAGE_PLOT_RASTER_HINT} Si hay PNG y SVG, el plano muestra el PNG.
         </p>
       )}
       <button
