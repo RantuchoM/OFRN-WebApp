@@ -7,10 +7,16 @@ import {
 import {
   STAGE_PLOT_ICON_FILES,
   setStagePlotDbIconOverrides,
+  setStagePlotDbRasterOverrides,
   setStagePlotDbSizeOverrides,
   mergeStagePlotDbSizeOverrides,
   clearStagePlotDbIconCache,
 } from "../utils/stagePlotIconAssets";
+import {
+  uploadStagePlotRasterFile,
+  removeStagePlotRasterByUrl,
+  removeStagePlotRasterByPath,
+} from "./stagePlotRasterStorage";
 import { getStagePlotCatalogItem } from "../utils/stagePlotCatalog";
 import { STAGE_PLOT_SILHOUETTES } from "../utils/stagePlotSilhouettes";
 import { slugifyStagePlotType } from "./stagePlotInventarioService";
@@ -115,6 +121,23 @@ export function buildStagePlotSvgByType(rows = []) {
 }
 
 /**
+ * Map tipo → URL pública PNG/WebP. La última fila con URL gana si comparten tipo.
+ * Una fila sin URL no borra la de otra fila del mismo tipo.
+ * @param {Array<{ id?: string, stage_plot_type?: string|null, stage_plot_raster_url?: string|null }>} rows
+ * @returns {Map<string, string>}
+ */
+export function buildStagePlotRasterByType(rows = []) {
+  const map = new Map();
+  for (const row of rows) {
+    const type = resolveInstrumentStagePlotType(row);
+    if (!type) continue;
+    const url = String(row?.stage_plot_raster_url || "").trim();
+    if (url) map.set(type, url);
+  }
+  return map;
+}
+
+/**
  * Map tipo → { widthCm, heightCm } desde filas con stage_plot_type / id_instr.
  * Última fila gana si varias comparten el mismo tipo (p. ej. tras editar tamaño).
  * @param {Array<{ id?: string, stage_plot_type?: string|null, stage_plot_width_cm?: number|null, stage_plot_height_cm?: number|null }>} rows
@@ -183,20 +206,23 @@ export async function loadAndApplyStagePlotInstrumentIcons() {
   const { data, error } = await supabase
     .from("instrumentos")
     .select(
-      "id, stage_plot_type, svg_icon, stage_plot_width_cm, stage_plot_height_cm",
+      "id, stage_plot_type, svg_icon, stage_plot_raster_url, stage_plot_width_cm, stage_plot_height_cm",
     );
 
   if (error) {
     console.warn("[stagePlotInstrumentIcons]", error.message);
     setStagePlotDbIconOverrides(new Map());
+    setStagePlotDbRasterOverrides(new Map());
     setStagePlotDbSizeOverrides(new Map());
     return new Map();
   }
 
   const rows = data || [];
   const svgMap = buildStagePlotSvgByType(rows.filter((r) => r.svg_icon));
+  const rasterMap = buildStagePlotRasterByType(rows);
   const sizeMap = buildStagePlotSizeByType(rows);
   setStagePlotDbIconOverrides(svgMap);
+  setStagePlotDbRasterOverrides(rasterMap);
   setStagePlotDbSizeOverrides(sizeMap);
   return svgMap;
 }
@@ -212,11 +238,14 @@ export async function reloadStagePlotInstrumentIcons() {
  * Requiere clave `stage_plot_type` y al menos uno de: SVG en DB,
  * archivo estático, silueta, o entrada de catálogo.
  * Sin clave y/o sin visual → "Instrumentos sin ícono".
- * @param {{ stage_plot_type?: string|null, svg_icon?: string|null }} row
+ * @param {{ stage_plot_type?: string|null, svg_icon?: string|null, stage_plot_raster_url?: string|null }} row
  */
 export function instrumentHasStagePlotIcon(row) {
   const type = String(row?.stage_plot_type || "").trim();
   if (!type) return false;
+  if (typeof row?.stage_plot_raster_url === "string" && row.stage_plot_raster_url.trim()) {
+    return true;
+  }
   if (typeof row?.svg_icon === "string" && row.svg_icon.trim()) return true;
   if (STAGE_PLOT_ICON_FILES[type]) return true;
   if (STAGE_PLOT_SILHOUETTES[type]) return true;
@@ -279,6 +308,58 @@ export function prepareInstrumentSvgIconForSave(raw) {
     };
   }
   return { ok: true, value: result.svg, cleaned: Boolean(result.cleaned) };
+}
+
+/**
+ * Sube un PNG/WebP y lo deja como ícono activo del instrumento.
+ * El SVG de la fila no se borra: queda de reserva hasta que se quite el raster.
+ * El archivo anterior del bucket se borra después de guardar la URL nueva.
+ *
+ * @param {string} id
+ * @param {File|Blob} file
+ * @param {{ previousUrl?: string|null, client?: import("@supabase/supabase-js").SupabaseClient }} [opts]
+ * @returns {Promise<string>} URL pública
+ */
+export async function setInstrumentoStagePlotRaster(id, file, opts = {}) {
+  const ownerId = String(id ?? "").trim();
+  if (!ownerId) throw new Error("Instrumento sin id");
+  const client = opts.client || supabase;
+  const uploaded = await uploadStagePlotRasterFile(file, {
+    scope: "instrumentos",
+    ownerId,
+  });
+  const { error } = await client
+    .from("instrumentos")
+    .update({ stage_plot_raster_url: uploaded.url })
+    .eq("id", ownerId);
+  if (error) {
+    await removeStagePlotRasterByPath(uploaded.path);
+    throw new Error(error.message || "No se pudo guardar el PNG");
+  }
+  const previous = String(opts.previousUrl || "").trim();
+  if (previous && previous !== uploaded.url) {
+    await removeStagePlotRasterByUrl(previous);
+  }
+  await reloadStagePlotInstrumentIcons().catch(() => {});
+  return uploaded.url;
+}
+
+/**
+ * Quita el PNG/WebP. El plano vuelve al SVG (DB, archivo estático o silueta).
+ * @param {string} id
+ * @param {{ previousUrl?: string|null, client?: import("@supabase/supabase-js").SupabaseClient }} [opts]
+ */
+export async function clearInstrumentoStagePlotRaster(id, opts = {}) {
+  const ownerId = String(id ?? "").trim();
+  if (!ownerId) throw new Error("Instrumento sin id");
+  const client = opts.client || supabase;
+  const { error } = await client
+    .from("instrumentos")
+    .update({ stage_plot_raster_url: null })
+    .eq("id", ownerId);
+  if (error) throw new Error(error.message || "No se pudo quitar el PNG");
+  await removeStagePlotRasterByUrl(opts.previousUrl);
+  await reloadStagePlotInstrumentIcons().catch(() => {});
 }
 
 /**
@@ -426,7 +507,7 @@ export async function createInstrumento(input, opts = {}) {
     .from("instrumentos")
     .insert([payload])
     .select(
-      "id, instrumento, familia, stage_plot_type, stage_plot_width_cm, stage_plot_height_cm, svg_icon",
+      "id, instrumento, familia, stage_plot_type, stage_plot_width_cm, stage_plot_height_cm, svg_icon, stage_plot_raster_url",
     )
     .single();
 

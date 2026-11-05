@@ -83,8 +83,10 @@ import {
   getStagePlotImageNaturalSize,
   getStagePlotItemVisualBounds,
   formatStagePlotItemRealSize,
+  getStagePlotDbRasterUrl,
   loadStagePlotIconImage,
   resolveStagePlotIconSvgMarkup,
+  ensureStagePlotDbIconsLoaded,
 } from "../../utils/stagePlotIconAssets";
 import {
   STAGE_PLOT_DEFAULT_HEIGHT_CM,
@@ -1271,11 +1273,13 @@ function resolveGroupDragFormation(prev, selectedFormationId, dragIds) {
   return formations.find((f) => String(f.id) === bestId) || null;
 }
 
-function useStagePlotIcon(type, color) {
+function useStagePlotIcon(type, color, iconEpoch = 0) {
   const [image, setImage] = useState(null);
   useEffect(() => {
-    let cancelled = false;
     setImage(null);
+  }, [type]);
+  useEffect(() => {
+    let cancelled = false;
     if (!type) return undefined;
     loadStagePlotIconImage(type, color).then((img) => {
       if (!cancelled) setImage(img);
@@ -1283,7 +1287,7 @@ function useStagePlotIcon(type, color) {
     return () => {
       cancelled = true;
     };
-  }, [type, color]);
+  }, [type, color, iconEpoch]);
   return image;
 }
 
@@ -2433,6 +2437,7 @@ const ItemShape = React.memo(function ItemShape({
   const iconImage = useStagePlotIcon(
     isText || isTarima ? null : item.type,
     fill,
+    catalogEpoch,
   );
   /** Selección: índigo (alineado al Transformer); visible sin depender de asas. */
   const stroke = selected ? "#4f46e5" : "#0f172a";
@@ -2964,7 +2969,7 @@ function FormationPaletteIcon({ kind, size = 18 }) {
   }
 }
 
-function PaletteIcon({ type, color }) {
+function PaletteIcon({ type, color, epoch = 0 }) {
   const [src, setSrc] = useState(null);
   const fill = color || "#334155";
   // Tarimas: silueta sync (rect vs elipse) — no fallback cuadrado redondeado.
@@ -2985,9 +2990,18 @@ function PaletteIcon({ type, color }) {
       return undefined;
     }
     let cancelled = false;
-    resolveStagePlotIconSvgMarkup(type)
+    ensureStagePlotDbIconsLoaded()
+      .then(() => {
+        if (cancelled) return null;
+        const raster = getStagePlotDbRasterUrl(type);
+        if (raster) {
+          setSrc(raster);
+          return { handled: true };
+        }
+        return resolveStagePlotIconSvgMarkup(type);
+      })
       .then((svg) => {
-        if (cancelled) return;
+        if (cancelled || svg?.handled) return;
         if (svg) {
           const prepared = /currentColor/i.test(svg)
             ? svg.replace(/currentColor/gi, fill)
@@ -3016,7 +3030,7 @@ function PaletteIcon({ type, color }) {
     return () => {
       cancelled = true;
     };
-  }, [type, fill]);
+  }, [type, fill, epoch]);
 
   if (type === "text") return null;
 
@@ -4523,7 +4537,7 @@ export default function ProgramStagePlot({
             ? supabase
                 .from("instrumentos")
                 .select(
-                  "id, instrumento, familia, stage_plot_type, svg_icon",
+                  "id, instrumento, familia, stage_plot_type, svg_icon, stage_plot_raster_url",
                 )
                 .order("instrumento", { ascending: true })
             : Promise.resolve({ data: [], error: null }),
@@ -7593,7 +7607,7 @@ export default function ProgramStagePlot({
                   ? "bg-white text-slate-800 shadow-sm"
                   : "text-slate-500 hover:text-slate-700"
               }`}
-              title="Editor: familia, tamaño de huella e ícono SVG de instrumentos"
+              title="Editor: familia, tamaño de huella e ícono SVG o PNG"
             >
               <IconPencil size={11} /> Editor
             </button>
@@ -7673,7 +7687,7 @@ export default function ProgramStagePlot({
                           }
                           className="inline-flex cursor-grab touch-none items-center gap-1.5 rounded border border-slate-200 bg-slate-50 px-1.5 py-1 text-[10px] font-medium text-slate-700 hover:border-indigo-300 hover:bg-indigo-50 active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-40"
                         >
-                          <PaletteIcon type={it.type} color={it.color} />
+                          <PaletteIcon type={it.type} color={it.color} epoch={catalogEpoch} />
                           {it.name}
                         </button>
                       ))}
@@ -8222,6 +8236,7 @@ export default function ProgramStagePlot({
                 <PaletteIcon
                   type={paletteDrag.type}
                   color={paletteDrag.color}
+                  epoch={catalogEpoch}
                 />
               )}
               {paletteDrag.name}

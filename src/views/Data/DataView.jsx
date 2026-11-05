@@ -367,9 +367,14 @@ export default function DataView({ supabase }) {
           label: "SVG Escenario",
           type: "svg",
         },
+        {
+          key: "stage_plot_raster_url",
+          label: "PNG/WebP Escenario",
+          type: "stagePlotRaster",
+        },
       ],
       warning:
-        "🎭 Rol gira defecto: convocatoria. Escenario: familia = clasificación; clave de ícono (plano) = slug interno; tamaño de huella (cm, vacío=50) aplica a todos los planos + SVG. Material sin instrumento → Inventario.",
+        "🎭 Rol gira defecto: convocatoria. Escenario: familia = clasificación; clave de ícono (plano) = slug interno; tamaño de huella (cm, vacío=50) aplica a todos los planos. SVG o PNG/WebP: si hay PNG, el plano muestra el PNG y el SVG queda de reserva. Material sin instrumento → Inventario.",
     },
     paises: {
       label: "Países",

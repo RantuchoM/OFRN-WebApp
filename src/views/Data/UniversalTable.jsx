@@ -25,9 +25,15 @@ import {
 } from "../../utils/stagePlotSvgSanitize";
 import {
   applyStagePlotInstrumentSizeOverride,
+  clearInstrumentoStagePlotRaster,
   reloadStagePlotInstrumentIcons,
   resolveInstrumentStagePlotType,
+  setInstrumentoStagePlotRaster,
 } from "../../services/stagePlotInstrumentIconsService";
+import {
+  classifyStagePlotIconUpload,
+  STAGE_PLOT_RASTER_HINT,
+} from "../../utils/stagePlotRaster";
 import { mergeLocaciones } from "../../services/mergeLocaciones";
 import { matchesMultiTokenSearch } from "../../utils/sanitize";
 
@@ -214,6 +220,102 @@ function SvgIconField({ value, onChange, fieldClass }) {
             className="h-12 w-12 object-contain"
           />
           <span className="text-[10px] text-slate-500">Vista previa</span>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** PNG/WebP del plano. Se guarda al subir (Storage + columna), no al cerrar el modal. */
+function StagePlotRasterField({ value, rowId, onChange }) {
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const isTemp = String(rowId || "").startsWith("temp-");
+  const url = String(value || "").trim();
+
+  const upload = async (file) => {
+    if (isTemp) {
+      setError("Guardá el instrumento primero y después subí el PNG.");
+      return;
+    }
+    if (classifyStagePlotIconUpload(file) !== "raster") {
+      setError("Ese archivo no es PNG ni WebP.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const next = await setInstrumentoStagePlotRaster(rowId, file, {
+        previousUrl: url || null,
+      });
+      onChange(next);
+    } catch (err) {
+      setError(err?.message || "No se pudo subir el PNG.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const clear = async () => {
+    if (isTemp || !url) {
+      onChange("");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      await clearInstrumentoStagePlotRaster(rowId, { previousUrl: url });
+      onChange("");
+    } catch (err) {
+      setError(err?.message || "No se pudo quitar el PNG.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer min-h-[44px]">
+          {busy ? "Subiendo…" : "Subir PNG/WebP"}
+          <input
+            type="file"
+            accept=".png,.webp,image/png,image/webp"
+            className="sr-only"
+            disabled={busy || isTemp}
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (file) await upload(file);
+            }}
+          />
+        </label>
+        {url ? (
+          <button
+            type="button"
+            disabled={busy}
+            className="px-3 py-2 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50 min-h-[44px]"
+            onClick={clear}
+          >
+            Quitar PNG
+          </button>
+        ) : null}
+      </div>
+      {error ? (
+        <p className="text-xs text-red-600">{error}</p>
+      ) : (
+        <p className="text-[10px] text-slate-400">{STAGE_PLOT_RASTER_HINT}</p>
+      )}
+      {url ? (
+        <div className="flex items-center gap-3 p-2 rounded-lg border border-slate-100 bg-slate-50">
+          <img
+            src={url}
+            alt="Vista previa PNG"
+            className="h-12 w-12 object-contain"
+          />
+          <span className="text-[10px] text-slate-500">
+            Activo en el plano. El SVG queda de reserva.
+          </span>
         </div>
       ) : null}
     </div>
@@ -505,8 +607,17 @@ function RowEditModal({
                     }
                   />
                 )}
+                {!readOnlyId && col.type === "stagePlotRaster" && (
+                  <StagePlotRasterField
+                    value={v ?? ""}
+                    rowId={rowId}
+                    onChange={(next) =>
+                      setForm((f) => ({ ...f, [col.key]: next }))
+                    }
+                  />
+                )}
                 {!readOnlyId &&
-                  !["checkbox", "select", "color", "date", "number", "int", "int8", "svg"].includes(
+                  !["checkbox", "select", "color", "date", "number", "int", "int8", "svg", "stagePlotRaster"].includes(
                     col.type,
                   ) && (
                     <input
@@ -1223,6 +1334,22 @@ const EditableCell = ({ row, col, rowId, onSave, onOpenRowModal }) => {
     );
   }
 
+  if (col.type === "stagePlotRaster") {
+    const has = !!(value && String(value).trim());
+    return (
+      <button
+        type="button"
+        onClick={() => onOpenRowModal?.(row)}
+        className={`w-full h-full min-h-[44px] md:min-h-0 px-2 text-left text-[11px] rounded ${getStatusClass()} ${
+          has ? "text-emerald-700 font-semibold" : "text-slate-400"
+        }`}
+        title="Editar PNG/WebP del plano"
+      >
+        {has ? "PNG ✓" : "—"}
+      </button>
+    );
+  }
+
   // 4. TEXTO — al editar, el mismo input pasa a fixed y se ensancha
   const beginTextEdit = () => {
     const wrap = inputRef.current?.parentElement;
@@ -1463,7 +1590,7 @@ export default function UniversalTable({
       setData((prev) =>
         prev.map((row) => (getRowId(row) === id ? { ...row, [key]: cleanValue } : row))
       );
-      if (key === "svg_icon" || key === "stage_plot_type" || key === "stage_plot_width_cm" || key === "stage_plot_height_cm") {
+      if (key === "svg_icon" || key === "stage_plot_raster_url" || key === "stage_plot_type" || key === "stage_plot_width_cm" || key === "stage_plot_height_cm") {
         const updatedRow = data.find((row) => getRowId(row) === id);
         const nextRow = updatedRow ? { ...updatedRow, [key]: cleanValue } : null;
         if (
