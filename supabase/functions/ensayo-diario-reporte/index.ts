@@ -1,6 +1,6 @@
 /**
  * Cron diario: reporte de asistencia a ensayos de ensamble (día ART).
- * Destinatarios por defecto: filarmonica.scrn@gmail.com, ofrn.archivo@gmail.com
+ * Destinatarios por defecto: filarmonica.scrn+asistencas@gmail.com
  *
  * Cuerpo HTML:
  *  1) Resumen: N ensayos
@@ -43,7 +43,7 @@ const APP_BASE = (
 
 const DEFAULT_TO = (
   Deno.env.get("ENSAYO_DIARIO_TO") ||
-  "filarmonica.scrn@gmail.com,ofrn.archivo@gmail.com"
+  "filarmonica.scrn+asistencas@gmail.com"
 )
   .split(/[,;]+/)
   .map((s) => s.trim())

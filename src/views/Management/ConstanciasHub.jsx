@@ -11,6 +11,7 @@ import {
   IconMail,
   IconDownload,
   IconUndo,
+  IconPlus,
 } from "../../components/ui/Icons";
 import ConfirmModal from "../../components/ui/ConfirmModal";
 import {
@@ -22,6 +23,7 @@ import {
 } from "../../constants/constancias";
 import {
   listConstanciasGestion,
+  listGirasElegiblesConstancia,
   aprobarConstancia,
   denegarConstancia,
   deshacerDenegacionConstancia,
@@ -30,9 +32,16 @@ import {
   descargarConstanciaPdf,
   updateConstanciaSnapFuncion,
   countConstanciasPendientes,
+  generarConstanciaGestion,
+  previewConstanciaGestion,
 } from "../../services/constanciasService";
 import { supabase } from "../../services/supabase";
 import { useAuth } from "../../context/AuthContext";
+import {
+  seatingApellidoNombre,
+  legalApellidoNombre,
+} from "../../utils/integranteDisplayName";
+import { formatProgramSelectLabel } from "../../utils/giraUtils";
 
 function formatShortDate(iso) {
   if (!iso) return "—";
@@ -105,6 +114,7 @@ export default function ConstanciasHub() {
   /** Borradores del texto «como …» por solicitud (convocatoria). */
   const [comoById, setComoById] = useState({});
   const [pendientesTotal, setPendientesTotal] = useState(0);
+  const [createOpen, setCreateOpen] = useState(false);
 
   const canManage = isAdmin || isEditor;
 
@@ -114,28 +124,35 @@ export default function ConstanciasHub() {
       ? filtroTipo
       : undefined;
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const estado =
-        filtro === "todas" ? undefined : filtro || CONSTANCIA_ESTADOS.pendiente;
-      const [data, pendientes] = await Promise.all([
-        listConstanciasGestion(supabase, {
-          estado,
-          tipo: tipoFilterParam,
-        }),
-        countConstanciasPendientes(supabase, { tipo: tipoFilterParam }),
-      ]);
-      setRows(data);
-      setPendientesTotal(pendientes);
-    } catch (err) {
-      console.error("[ConstanciasHub] load:", err);
-      toast.error(err?.message || "Error al cargar solicitudes");
-      setRows([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [filtro, tipoFilterParam]);
+  const load = useCallback(
+    async (overrides = {}) => {
+      setLoading(true);
+      try {
+        const filtroEff =
+          overrides.filtro !== undefined ? overrides.filtro : filtro;
+        const estado =
+          filtroEff === "todas"
+            ? undefined
+            : filtroEff || CONSTANCIA_ESTADOS.pendiente;
+        const [data, pendientes] = await Promise.all([
+          listConstanciasGestion(supabase, {
+            estado,
+            tipo: tipoFilterParam,
+          }),
+          countConstanciasPendientes(supabase, { tipo: tipoFilterParam }),
+        ]);
+        setRows(data);
+        setPendientesTotal(pendientes);
+      } catch (err) {
+        console.error("[ConstanciasHub] load:", err);
+        toast.error(err?.message || "Error al cargar solicitudes");
+        setRows([]);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [filtro, tipoFilterParam],
+  );
 
   useEffect(() => {
     load();
@@ -546,7 +563,15 @@ export default function ConstanciasHub() {
             })}
           </div>
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setCreateOpen(true)}
+            className="inline-flex items-center gap-1 rounded-lg bg-indigo-600 px-2.5 py-1.5 text-xs font-bold text-white hover:bg-indigo-700"
+          >
+            <IconPlus size={14} />
+            Generar
+          </button>
           <button
             type="button"
             onClick={load}
@@ -831,6 +856,407 @@ export default function ConstanciasHub() {
         confirmClassName="px-4 py-2.5 sm:py-2 text-sm font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-lg shadow-md hover:shadow-lg transition-all active:scale-[0.98]"
         onConfirm={confirmDeshacerDenegacion}
       />
+
+      {createOpen && (
+        <GenerarConstanciaModal
+          resueltoPorId={user?.id}
+          onClose={() => setCreateOpen(false)}
+          onCreated={async () => {
+            setCreateOpen(false);
+            setFiltro("aprobada");
+            await load({ filtro: "aprobada" });
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+function foldSearch(s) {
+  return String(s || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+function GenerarConstanciaModal({ resueltoPorId, onClose, onCreated }) {
+  const [people, setPeople] = useState([]);
+  const [loadingPeople, setLoadingPeople] = useState(true);
+  const [query, setQuery] = useState("");
+  const [persona, setPersona] = useState(null);
+  const [tipo, setTipo] = useState(CONSTANCIA_TIPOS.convocatoria);
+  const [giras, setGiras] = useState([]);
+  const [loadingGiras, setLoadingGiras] = useState(false);
+  const [idGira, setIdGira] = useState("");
+  const [como, setComo] = useState("");
+  const [instrumento, setInstrumento] = useState("");
+  const [mail, setMail] = useState("");
+  const [legalLabel, setLegalLabel] = useState("");
+  const [previewBusy, setPreviewBusy] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoadingPeople(true);
+      const { data, error } = await supabase
+        .from("integrantes")
+        .select(
+          "id, nombre, apellido, nombre_preferencia, apellido_preferencia, mail, es_simulacion",
+        )
+        .eq("es_simulacion", false)
+        .order("apellido", { ascending: true });
+      if (cancelled) return;
+      if (error) {
+        toast.error(error.message || "No se pudo cargar el padrón");
+        setPeople([]);
+      } else {
+        setPeople(data || []);
+      }
+      setLoadingPeople(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const filteredPeople = useMemo(() => {
+    const q = foldSearch(query.trim());
+    if (!q) return people.slice(0, 40);
+    return people
+      .filter((p) => {
+        const blob = foldSearch(
+          `${p.apellido || ""} ${p.nombre || ""} ${p.apellido_preferencia || ""} ${p.nombre_preferencia || ""} ${p.mail || ""}`,
+        );
+        return blob.includes(q);
+      })
+      .slice(0, 40);
+  }, [people, query]);
+
+  useEffect(() => {
+    if (!persona?.id || !tipo) {
+      setGiras([]);
+      setIdGira("");
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      setLoadingGiras(true);
+      setIdGira("");
+      setComo("");
+      setInstrumento("");
+      setMail(persona.mail || "");
+      setLegalLabel(legalApellidoNombre(persona));
+      try {
+        const list = await listGirasElegiblesConstancia(supabase, persona.id, {
+          tipo,
+        });
+        if (!cancelled) setGiras(list || []);
+      } catch (err) {
+        if (!cancelled) {
+          toast.error(err?.message || "No se pudieron cargar las giras");
+          setGiras([]);
+        }
+      } finally {
+        if (!cancelled) setLoadingGiras(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [persona?.id, tipo]);
+
+  useEffect(() => {
+    if (!persona?.id || !idGira) {
+      setComo("");
+      setInstrumento("");
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      setPreviewBusy(true);
+      try {
+        const prev = await previewConstanciaGestion(supabase, {
+          idIntegrante: persona.id,
+          idGira: Number(idGira),
+        });
+        if (cancelled) return;
+        setComo(String(prev.snap_funcion || "").trim());
+        setInstrumento(String(prev.snap_instrumento || "").trim());
+        setMail(prev.mail || persona.mail || "");
+        setLegalLabel(
+          [prev.snap_apellido, prev.snap_nombre].filter(Boolean).join(", ") ||
+            legalApellidoNombre(persona),
+        );
+      } catch (err) {
+        if (!cancelled) {
+          toast.error(err?.message || "No se pudo armar el preview");
+        }
+      } finally {
+        if (!cancelled) setPreviewBusy(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [persona?.id, idGira]);
+
+  const handleGenerar = async () => {
+    if (!persona?.id) {
+      toast.error("Elegí una persona");
+      return;
+    }
+    if (!idGira) {
+      toast.error("Elegí una gira");
+      return;
+    }
+    if (!String(como || "").trim()) {
+      toast.error("Indicá el texto «como …»");
+      return;
+    }
+    setSaving(true);
+    try {
+      const row = await generarConstanciaGestion(supabase, {
+        idIntegrante: persona.id,
+        idGira: Number(idGira),
+        tipo,
+        snapFuncion: como,
+        resueltoPorId,
+      });
+      toast.success(
+        `Constancia #${row.id} generada y enviada a ${row.integrantes?.mail || mail}`,
+      );
+      await onCreated?.(row);
+    } catch (err) {
+      if (err?.mailFailed && err?.solicitud) {
+        toast.warning(err.message);
+        await onCreated?.(err.solicitud);
+      } else {
+        toast.error(err?.message || "No se pudo generar");
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return createPortal(
+    <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-3">
+      <div className="flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl border border-slate-200 bg-white shadow-xl sm:rounded-xl">
+        <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+          <div>
+            <h3 className="text-base font-bold text-slate-800 sm:text-sm">
+              Generar constancia
+            </h3>
+            <p className="text-[11px] text-slate-500">
+              Queda aprobada, se envía el PDF por mail y aparece en Mis
+              Constancias.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            aria-label="Cerrar"
+          >
+            <IconX size={18} />
+          </button>
+        </div>
+
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+          <div>
+            <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-slate-500">
+              Persona
+            </label>
+            {persona ? (
+              <div className="flex items-start justify-between gap-2 rounded-lg border border-indigo-200 bg-indigo-50/60 px-3 py-2">
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-bold text-slate-900">
+                    {seatingApellidoNombre(persona)}
+                  </div>
+                  <div className="text-[11px] text-slate-500">
+                    Legal: {legalLabel || legalApellidoNombre(persona)}
+                    {mail ? ` · ${mail}` : " · sin mail"}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPersona(null);
+                    setQuery("");
+                    setIdGira("");
+                    setGiras([]);
+                  }}
+                  className="shrink-0 text-[11px] font-bold text-indigo-700 hover:underline"
+                >
+                  Cambiar
+                </button>
+              </div>
+            ) : (
+              <>
+                <input
+                  type="search"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Buscar por apellido, nombre o mail…"
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                  autoFocus
+                />
+                <div className="mt-1.5 max-h-44 overflow-y-auto rounded-lg border border-slate-200">
+                  {loadingPeople ? (
+                    <div className="flex items-center gap-2 px-3 py-3 text-xs text-slate-500">
+                      <IconLoader size={14} className="animate-spin" />
+                      Cargando padrón…
+                    </div>
+                  ) : filteredPeople.length === 0 ? (
+                    <div className="px-3 py-3 text-xs text-slate-400">
+                      Sin resultados
+                    </div>
+                  ) : (
+                    <ul>
+                      {filteredPeople.map((p) => (
+                        <li key={p.id}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPersona(p);
+                              setQuery("");
+                            }}
+                            className="flex w-full flex-col items-start border-b border-slate-100 px-3 py-2 text-left hover:bg-slate-50 last:border-0"
+                          >
+                            <span className="text-sm font-semibold text-slate-800">
+                              {seatingApellidoNombre(p)}
+                            </span>
+                            <span className="text-[10px] text-slate-400">
+                              {legalApellidoNombre(p)}
+                              {p.mail ? ` · ${p.mail}` : ""}
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+
+          <div>
+            <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-slate-500">
+              Tipo
+            </label>
+            <div className="inline-flex flex-wrap gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1">
+              {[
+                {
+                  id: CONSTANCIA_TIPOS.convocatoria,
+                  label: CONSTANCIA_TIPO_LABEL_SHORT.convocatoria,
+                },
+                {
+                  id: CONSTANCIA_TIPOS.participacion,
+                  label: CONSTANCIA_TIPO_LABEL_SHORT.participacion,
+                },
+              ].map((t) => {
+                const active = tipo === t.id;
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    disabled={!persona}
+                    onClick={() => setTipo(t.id)}
+                    className={`rounded-lg border px-2.5 py-1.5 text-[11px] font-bold transition-colors disabled:opacity-40 ${filtroTipoChipClass(t.id, active)}`}
+                  >
+                    {t.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-slate-500">
+              Gira
+            </label>
+            <select
+              value={idGira}
+              disabled={!persona || loadingGiras}
+              onChange={(e) => setIdGira(e.target.value)}
+              className="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400 disabled:bg-slate-50 disabled:opacity-60"
+            >
+              <option value="">
+                {loadingGiras
+                  ? "Cargando giras…"
+                  : !persona
+                    ? "Elegí primero una persona"
+                    : giras.length === 0
+                      ? "Sin giras elegibles"
+                      : "Elegí una gira…"}
+              </option>
+              {giras.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {formatProgramSelectLabel(g)}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-slate-500">
+              como…
+            </label>
+            <div className="relative">
+              <input
+                type="text"
+                value={como}
+                onChange={(e) => setComo(e.target.value)}
+                disabled={!idGira || previewBusy}
+                placeholder="violinista"
+                className="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400 disabled:bg-slate-50"
+              />
+              {previewBusy ? (
+                <IconLoader
+                  size={14}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-slate-400"
+                />
+              ) : null}
+            </div>
+            {instrumento ? (
+              <div className="mt-0.5 text-[11px] text-slate-400">
+                Instrumento: {instrumento}
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="flex flex-col-reverse gap-2 border-t border-slate-100 p-4 sm:flex-row sm:justify-end">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            className="rounded-lg border border-slate-200 px-3 py-3 text-sm font-bold text-slate-600 hover:bg-slate-50 sm:py-2 sm:text-xs"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            disabled={
+              saving ||
+              !persona ||
+              !idGira ||
+              !String(como || "").trim() ||
+              previewBusy
+            }
+            onClick={handleGenerar}
+            className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-3 text-sm font-bold text-white hover:bg-indigo-700 disabled:opacity-50 sm:py-2 sm:text-xs"
+          >
+            {saving ? (
+              <IconLoader size={14} className="animate-spin" />
+            ) : (
+              <IconCheck size={14} />
+            )}
+            Generar y enviar
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
   );
 }

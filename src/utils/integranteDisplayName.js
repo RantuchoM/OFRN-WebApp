@@ -2,8 +2,8 @@
  * Nombre para mostrar en la interfaz:
  * `nombre_preferencia` / `apellido_preferencia` si hay valor; si no, el legal.
  * Cada campo se resuelve por separado.
- * Las exportaciones de documentación oficial siguen usando `legalNombre` / `legalApellido`
- * (o `nombre` / `apellido` sin pasar por estas funciones).
+ * Documentación oficial (constancias PDF/mail, CNRT, viáticos exportados, etc.)
+ * debe usar `legalNombre` / `legalApellido` — nunca `seatingNombre` / `seatingApellido`.
  */
 
 export const SEATING_INTEGRANTES_EMBED =

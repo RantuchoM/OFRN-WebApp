@@ -19,7 +19,7 @@ Una persona puede pedir **una de cada tipo por gira** (`UNIQUE (id_integrante, i
 | Badge (músico) | Solicitudes propias aprobadas/denegadas aún no vistas |
 | Badge (editor/admin) | Cantidad de solicitudes **pendientes** (abiertas) |
 | Modal | Primero carga **Mis solicitudes** (más recientes primero; muestra 5 y «Mostrar más»; cada ítem con mes_letra \| nomenclador \| zona + fechas); en **aprobadas**: **Reenviar** (mail propio) y **Descargar** PDF; el desplegable de giras solo se carga al elegir tipo |
-| Gestión `/management/constancias` | Lista (Tipo + columna **como…** editable), filtros estado/tipo, aprobar, denegar, **Aprobar todas** (respeta filtro de tipo y el «como…» editado); en aprobadas: **Reenviar** / **Descargar**; en denegadas: **Deshacer**. En **móvil**: listado tipo tarjeta con botones grandes Aprobar/Denegar; tabla desde `md` |
+| Gestión `/management/constancias` | Lista (Tipo + columna **como…** editable), filtros estado/tipo, aprobar, denegar, **Aprobar todas** (respeta filtro de tipo y el «como…» editado); **Generar** (editor/admin): elige persona + tipo + gira + «como…», crea la constancia **ya aprobada**, envía PDF al mail del músico y queda en Mis Constancias (badge no vista). En aprobadas: **Reenviar** / **Descargar**; en denegadas: **Deshacer**. En **móvil**: listado tipo tarjeta con botones grandes Aprobar/Denegar; tabla desde `md` |
 
 En Mis Constancias el estado **pendiente** deja claro que hay que esperar la resolución.
 
@@ -44,6 +44,7 @@ Texto común:
 > {cuerpo según tipo}  
 > Sin otro particular…
 
+- **Nombre / apellido**: siempre el **legal** (`integrantes.nombre` / `apellido`), nunca `nombre_preferencia` / `apellido_preferencia`. Se congela en `snap_nombre` / `snap_apellido` al solicitar y se revalida al aprobar antes de generar el PDF.
 - **Instrumento / función**: al solicitar, se toma el instrumento **efectivo de la gira** (`giras_integrantes.id_instr` si el Roster lo modificó respecto al perfil; si no, `integrantes.id_instr`). De ahí se lee `instrumentos.funcion` → `snap_funcion` (editable en Gestión, p.ej. «concertino»). Ambos PDFs: convocatoria «como {snap_funcion} a participar…»; participación «participó como {snap_funcion} de…».
 - **Localidades** concatenadas de tramos / `giras_localidades`
 - **Emisión**: `Viedma, {fecha de aprobación}`
@@ -74,5 +75,7 @@ Tabla `instrumentos`: columna `funcion` (rol formal precompletado; editable en U
 - [x] Service + PDF + mail
 - [x] Modal Mis Constancias + botón header + badges
 - [x] Hub Gestión (aprobar / denegar / aprobar todas / deshacer denegación; vista móvil en tarjetas)
+- [x] PDF/mail con nombre y apellido **legales** (no preferencia); revalidación al aprobar
 - [x] `instrumentos.funcion` + columna editable «como…» en Gestión
 - [x] Descarga y mail con PDF aplanado (imagen, sin texto extraíble) (2026-11-04)
+- [x] Generar desde Gestión (preaprobada + mail al músico + panel Mis Constancias)

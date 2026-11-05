@@ -66,7 +66,7 @@ Helper: `src/utils/integranteDisplayName.js` (`seatingNombre`, `seatingApellido`
 
 Si hay preferencia, la interfaz la usa (roster, seating e informes de seating, hoteles, comidas, transporte en pantalla, viáticos en pantalla, selects, Concerto Competition, paleta, escenario). Si no hay, queda el nombre legal. No se reescribe `integrantes.nombre` / `apellido` en la base.
 
-Siguen en nombre legal: exportación CNRT (`transportExport.js` / `downloadStyledPassengers`, también FIMBA), hoja de ruta, formularios PDF/Excel de viáticos y rendiciones, padrón exportado del roster (DNI/CUIL) y el resto de planillas oficiales que arman el nombre con `nombre` / `apellido`.
+Siguen en nombre legal: **constancias de gira** (PDF + mail; `snap_nombre` / `snap_apellido`), exportación CNRT (`transportExport.js` / `downloadStyledPassengers`, también FIMBA), hoja de ruta, formularios PDF/Excel de viáticos y rendiciones, padrón exportado del roster (DNI/CUIL) y el resto de planillas oficiales que arman el nombre con `nombre` / `apellido`.
 
 ## Mail
 Edge Function `notify-alimentacion-change` (también hay template `cambio_alimentacion` en `mails_produccion` por si se reutiliza el hub).

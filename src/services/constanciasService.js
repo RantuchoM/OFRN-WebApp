@@ -34,6 +34,32 @@ const SOLICITUD_SELECT = `
   )
 `;
 
+/**
+ * Nombre y apellido legales para el PDF / mail oficial.
+ * Nunca usa `nombre_preferencia` / `apellido_preferencia` (ni seating).
+ * Si el objeto pasó por `applySeatingDisplayNames`, lee `nombre_legal` /
+ * `apellido_legal`; si viene de la tabla, `nombre` / `apellido`.
+ */
+function legalNombreApellidoConstancia(person) {
+  return {
+    nombre: legalNombre(person),
+    apellido: legalApellido(person),
+  };
+}
+
+/** Relee nombre/apellido legales frescos de `integrantes` (sin preferencia). */
+async function fetchIntegranteLegalNombreApellido(supabase, idIntegrante) {
+  const id = integranteIdForDb(idIntegrante);
+  if (!id) return { nombre: "", apellido: "" };
+  const { data, error } = await supabase
+    .from("integrantes")
+    .select("nombre, apellido")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw error;
+  return legalNombreApellidoConstancia(data);
+}
+
 /** YYYY-MM-DD local (sin UTC shift). */
 function todayIsoLocal() {
   const n = new Date();
@@ -197,9 +223,11 @@ export async function buildConstanciaSnapshot(supabase, integrante, programa) {
     integrante,
     programa.id,
   );
+  // Documento oficial: siempre nombre/apellido reales (no preferencia).
+  const legal = legalNombreApellidoConstancia(integrante);
   return {
-    snap_nombre: legalNombre(integrante),
-    snap_apellido: legalApellido(integrante),
+    snap_nombre: legal.nombre,
+    snap_apellido: legal.apellido,
     snap_dni: String(integrante.dni || "").replace(/\s+/g, ""),
     snap_genero: integrante.genero || null,
     snap_instrumento: instrumento,
@@ -332,14 +360,7 @@ export async function markConstanciasVistas(supabase, integranteId) {
   if (error) throw error;
 }
 
-export async function solicitarConstancia(supabase, { user, idGira, tipo }) {
-  const idInt = integranteIdForDb(user?.id);
-  if (!idInt) throw new Error("Usuario inválido");
-  if (!idGira) throw new Error("Elegí una gira");
-  const tipoNorm = normalizeConstanciaTipo(tipo);
-  const tipoLabel =
-    CONSTANCIA_TIPO_LABEL[tipoNorm] || "Constancia de convocatoria";
-
+async function loadProgramaConstancia(supabase, idGira) {
   const { data: programa, error: progErr } = await supabase
     .from("programas")
     .select(
@@ -355,12 +376,45 @@ export async function solicitarConstancia(supabase, { user, idGira, tipo }) {
   if (String(programa.estado || "") === "Borrador") {
     throw new Error("La gira aún no está publicada");
   }
+  return programa;
+}
+
+/** Solo columnas legales (+ instrumento) para armar snapshot de constancia. */
+async function loadIntegranteForConstancia(supabase, idIntegrante) {
+  const idInt = integranteIdForDb(idIntegrante);
+  if (!idInt) throw new Error("Integrante inválido");
+  const { data: integrante, error: intErr } = await supabase
+    .from("integrantes")
+    .select(
+      "id, nombre, apellido, mail, dni, genero, id_instr, instrumentos ( instrumento, funcion )",
+    )
+    .eq("id", idInt)
+    .single();
+  if (intErr) throw intErr;
+  return integrante;
+}
+
+/**
+ * Misma elegibilidad que el músico al solicitar: nómina, no ausente,
+ * participación solo gira pasada.
+ */
+async function assertConstanciaElegibilidad(
+  supabase,
+  { idIntegrante, idGira, tipoNorm, asAdmin = false },
+) {
+  const idInt = integranteIdForDb(idIntegrante);
+  if (!idInt) throw new Error("Integrante inválido");
+  if (!idGira) throw new Error("Elegí una gira");
+
+  const programa = await loadProgramaConstancia(supabase, idGira);
   if (
     tipoNorm === CONSTANCIA_TIPOS.participacion &&
     !isGiraPasadaConstancia(programa)
   ) {
     throw new Error(
-      "La constancia de participación realizada solo se puede pedir de giras ya finalizadas",
+      asAdmin
+        ? "Participación realizada solo aplica a giras ya finalizadas"
+        : "La constancia de participación realizada solo se puede pedir de giras ya finalizadas",
     );
   }
 
@@ -371,24 +425,40 @@ export async function solicitarConstancia(supabase, { user, idGira, tipo }) {
     .eq("id_integrante", idInt)
     .maybeSingle();
   if (String(ov?.estado || "").toLowerCase() === "ausente") {
-    throw new Error("No podés solicitar constancia si figurás ausente en esa gira");
+    throw new Error(
+      asAdmin
+        ? "La persona figura ausente en esa gira"
+        : "No podés solicitar constancia si figurás ausente en esa gira",
+    );
   }
 
   const rosterIds = await resolveGiraRosterIds(supabase, idGira);
   const key = integranteKey(idInt);
   if (!(rosterIds || []).some((x) => integranteKey(x) === key)) {
-    throw new Error("No figurás en la nómina de esa gira");
+    throw new Error(
+      asAdmin
+        ? "La persona no figura en la nómina de esa gira"
+        : "No figurás en la nómina de esa gira",
+    );
   }
 
-  const { data: integrante, error: intErr } = await supabase
-    .from("integrantes")
-    .select(
-      "id, nombre, apellido, mail, dni, genero, id_instr, instrumentos ( instrumento, funcion )",
-    )
-    .eq("id", idInt)
-    .single();
-  if (intErr) throw intErr;
+  return { idInt, programa };
+}
 
+export async function solicitarConstancia(supabase, { user, idGira, tipo }) {
+  const idInt = integranteIdForDb(user?.id);
+  if (!idInt) throw new Error("Usuario inválido");
+  const tipoNorm = normalizeConstanciaTipo(tipo);
+  const tipoLabel =
+    CONSTANCIA_TIPO_LABEL[tipoNorm] || "Constancia de convocatoria";
+
+  const { programa } = await assertConstanciaElegibilidad(supabase, {
+    idIntegrante: idInt,
+    idGira,
+    tipoNorm,
+  });
+
+  const integrante = await loadIntegranteForConstancia(supabase, idInt);
   const snap = await buildConstanciaSnapshot(supabase, integrante, programa);
   const { _localidades_list, ...snapRow } = snap;
 
@@ -475,6 +545,147 @@ export async function solicitarConstancia(supabase, { user, idGira, tipo }) {
   return solicitud;
 }
 
+/**
+ * Editor/admin genera una constancia ya aprobada para un integrante + gira.
+ * Envía el PDF por mail y queda visible en Mis Constancias (badge no vista).
+ */
+export async function generarConstanciaGestion(
+  supabase,
+  { idIntegrante, idGira, tipo, snapFuncion, resueltoPorId },
+) {
+  const tipoNorm = normalizeConstanciaTipo(tipo);
+  const tipoLabel =
+    CONSTANCIA_TIPO_LABEL[tipoNorm] || "Constancia de convocatoria";
+
+  const { idInt, programa } = await assertConstanciaElegibilidad(supabase, {
+    idIntegrante,
+    idGira,
+    tipoNorm,
+    asAdmin: true,
+  });
+
+  const integrante = await loadIntegranteForConstancia(supabase, idInt);
+  if (!integrante.mail) {
+    throw new Error("La persona no tiene email cargado; no se puede enviar el PDF");
+  }
+
+  const snap = await buildConstanciaSnapshot(supabase, integrante, programa);
+  const { _localidades_list, ...snapRow } = snap;
+  const como = String(
+    snapFuncion !== undefined && snapFuncion !== null
+      ? snapFuncion
+      : snapRow.snap_funcion || "",
+  ).trim();
+  if (!como) throw new Error("Indicá el texto «como …»");
+
+  const now = new Date().toISOString();
+  const { data: existing } = await supabase
+    .from("constancias_solicitudes")
+    .select("id, estado, solicitado_at")
+    .eq("id_integrante", idInt)
+    .eq("id_gira", idGira)
+    .eq("tipo", tipoNorm)
+    .maybeSingle();
+
+  if (existing?.estado === CONSTANCIA_ESTADOS.aprobada) {
+    throw new Error(
+      `Ya hay una ${tipoLabel.toLowerCase()} aprobada para esta persona y gira. Usá Reenviar.`,
+    );
+  }
+
+  const rowBase = {
+    id_integrante: idInt,
+    id_gira: Number(idGira),
+    tipo: tipoNorm,
+    estado: CONSTANCIA_ESTADOS.aprobada,
+    motivo_denegacion: null,
+    solicitado_at: existing?.solicitado_at || now,
+    resuelto_at: now,
+    resuelto_por: integranteIdForDb(resueltoPorId) || null,
+    visto_solicitante: false,
+    mail_enviado_at: null,
+    mail_error: null,
+    updated_at: now,
+    ...snapRow,
+    snap_funcion: como,
+  };
+
+  let solicitud;
+  if (existing?.id) {
+    const { data, error } = await supabase
+      .from("constancias_solicitudes")
+      .update(rowBase)
+      .eq("id", existing.id)
+      .select(SOLICITUD_SELECT)
+      .single();
+    if (error) throw error;
+    solicitud = data;
+  } else {
+    const { data, error } = await supabase
+      .from("constancias_solicitudes")
+      .insert(rowBase)
+      .select(SOLICITUD_SELECT)
+      .single();
+    if (error) throw error;
+    solicitud = data;
+  }
+
+  let mailError = null;
+  try {
+    await sendAprobacionMail(supabase, solicitud);
+  } catch (err) {
+    mailError = String(err?.message || err);
+    console.error("[constancias] mail generación gestión:", err);
+  }
+
+  const { data: finalRow, error: upErr } = await supabase
+    .from("constancias_solicitudes")
+    .update({
+      mail_enviado_at: mailError ? null : new Date().toISOString(),
+      mail_error: mailError,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", solicitud.id)
+    .select(SOLICITUD_SELECT)
+    .single();
+  if (upErr) throw upErr;
+
+  if (mailError) {
+    const soft = new Error(
+      `Constancia #${finalRow.id} generada (aprobada), pero falló el mail: ${mailError}`,
+    );
+    soft.solicitud = finalRow;
+    soft.mailFailed = true;
+    throw soft;
+  }
+
+  return finalRow;
+}
+
+/**
+ * Preview del texto «como…» (y datos legales) para el modal de generación.
+ */
+export async function previewConstanciaGestion(
+  supabase,
+  { idIntegrante, idGira },
+) {
+  const idInt = integranteIdForDb(idIntegrante);
+  if (!idInt) throw new Error("Integrante inválido");
+  if (!idGira) throw new Error("Elegí una gira");
+  const programa = await loadProgramaConstancia(supabase, idGira);
+  const integrante = await loadIntegranteForConstancia(supabase, idInt);
+  const snap = await buildConstanciaSnapshot(supabase, integrante, programa);
+  return {
+    snap_nombre: snap.snap_nombre,
+    snap_apellido: snap.snap_apellido,
+    snap_instrumento: snap.snap_instrumento,
+    snap_funcion: snap.snap_funcion,
+    snap_gira_nombre: snap.snap_gira_nombre,
+    mail: integrante.mail || "",
+    programa,
+  };
+}
+
 /** Reenvía / envía el aviso operativo de una solicitud pendiente. */
 export async function notificarOficinaSolicitudConstancia(
   supabase,
@@ -546,9 +757,16 @@ function snapshotToPdfData(row, fechaEmision = new Date()) {
     String(row.snap_funcion || "").trim() ||
     String(row.snap_instrumento || "").trim().toLowerCase() ||
     "integrante";
+  // Preferir snap (congelado al solicitar/aprobar). Fallback legal del join,
+  // nunca preferencia de seating.
+  const fromJoin = legalNombreApellidoConstancia(row.integrantes);
+  const nombre =
+    String(row.snap_nombre || "").trim() || fromJoin.nombre;
+  const apellido =
+    String(row.snap_apellido || "").trim() || fromJoin.apellido;
   return {
-    nombre: row.snap_nombre,
-    apellido: row.snap_apellido,
+    nombre,
+    apellido,
     dni: row.snap_dni,
     genero: row.snap_genero,
     instrumento: row.snap_instrumento,
@@ -601,7 +819,11 @@ async function sendAprobacionMail(supabase, row) {
   const { base64, filename } = await buildConstanciaPdfFromSolicitud(row);
   const mail = row.integrantes?.mail || "";
   if (!mail) throw new Error("El solicitante no tiene email cargado");
-  const nombreSaludo = row.snap_nombre || legalNombre(row.integrantes) || "Participante";
+  const legal = legalNombreApellidoConstancia(row.integrantes);
+  const nombreSaludo =
+    String(row.snap_nombre || "").trim() ||
+    legal.nombre ||
+    "Participante";
   const tipoNorm = normalizeConstanciaTipo(row.tipo);
   await invokeConstanciaMail(supabase, {
     templateId: "constancia_aprobada",
@@ -661,7 +883,11 @@ export async function descargarConstanciaPdf(row) {
 async function sendDenegacionMail(supabase, row, motivo) {
   const mail = row.integrantes?.mail || "";
   if (!mail) return;
-  const nombreSaludo = row.snap_nombre || legalNombre(row.integrantes) || "Participante";
+  const legal = legalNombreApellidoConstancia(row.integrantes);
+  const nombreSaludo =
+    String(row.snap_nombre || "").trim() ||
+    legal.nombre ||
+    "Participante";
   const tipoNorm = normalizeConstanciaTipo(row.tipo);
   await invokeConstanciaMail(supabase, {
     templateId: "constancia_denegada",
@@ -697,22 +923,26 @@ export async function aprobarConstancia(
       : row.snap_funcion || "",
   ).trim();
 
-  let rowForPdf = row;
-  if (como && como !== String(row.snap_funcion || "").trim()) {
-    const { data: updatedSnap, error: snapErr } = await supabase
-      .from("constancias_solicitudes")
-      .update({
-        snap_funcion: como,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", solicitudId)
-      .select(SOLICITUD_SELECT)
-      .single();
-    if (snapErr) throw snapErr;
-    rowForPdf = updatedSnap;
-  } else if (como) {
-    rowForPdf = { ...row, snap_funcion: como };
-  }
+  // Antes del PDF: forzar nombre/apellido legales actuales (no preferencia).
+  const legal = await fetchIntegranteLegalNombreApellido(
+    supabase,
+    row.id_integrante,
+  );
+  const snapPatch = {
+    snap_nombre: legal.nombre || row.snap_nombre,
+    snap_apellido: legal.apellido || row.snap_apellido,
+    ...(como ? { snap_funcion: como } : {}),
+    updated_at: new Date().toISOString(),
+  };
+
+  const { data: updatedSnap, error: snapErr } = await supabase
+    .from("constancias_solicitudes")
+    .update(snapPatch)
+    .eq("id", solicitudId)
+    .select(SOLICITUD_SELECT)
+    .single();
+  if (snapErr) throw snapErr;
+  const rowForPdf = updatedSnap;
 
   let mailError = null;
   try {
@@ -726,6 +956,8 @@ export async function aprobarConstancia(
     .from("constancias_solicitudes")
     .update({
       estado: CONSTANCIA_ESTADOS.aprobada,
+      snap_nombre: rowForPdf.snap_nombre,
+      snap_apellido: rowForPdf.snap_apellido,
       snap_funcion: rowForPdf.snap_funcion || como || null,
       motivo_denegacion: null,
       resuelto_at: new Date().toISOString(),
