@@ -551,7 +551,15 @@ export async function solicitarConstancia(supabase, { user, idGira, tipo }) {
  */
 export async function generarConstanciaGestion(
   supabase,
-  { idIntegrante, idGira, tipo, snapFuncion, resueltoPorId },
+  {
+    idIntegrante,
+    idGira,
+    tipo,
+    snapFuncion,
+    resueltoPorId,
+    fechaDesde,
+    fechaHasta,
+  },
 ) {
   const tipoNorm = normalizeConstanciaTipo(tipo);
   const tipoLabel =
@@ -593,6 +601,9 @@ export async function generarConstanciaGestion(
     );
   }
 
+  const desdeOverride = normalizeSnapFecha(fechaDesde);
+  const hastaOverride = normalizeSnapFecha(fechaHasta) || desdeOverride;
+
   const rowBase = {
     id_integrante: idInt,
     id_gira: Number(idGira),
@@ -608,6 +619,12 @@ export async function generarConstanciaGestion(
     updated_at: now,
     ...snapRow,
     snap_funcion: como,
+    ...(desdeOverride
+      ? {
+          snap_fecha_desde: desdeOverride,
+          snap_fecha_hasta: hastaOverride || desdeOverride,
+        }
+      : {}),
   };
 
   let solicitud;
@@ -680,6 +697,8 @@ export async function previewConstanciaGestion(
     snap_apellido: snap.snap_apellido,
     snap_instrumento: snap.snap_instrumento,
     snap_funcion: snap.snap_funcion,
+    snap_fecha_desde: snap.snap_fecha_desde,
+    snap_fecha_hasta: snap.snap_fecha_hasta,
     snap_gira_nombre: snap.snap_gira_nombre,
     mail: integrante.mail || "",
     programa,
@@ -799,6 +818,54 @@ export async function updateConstanciaSnapFuncion(
   if (error) throw error;
   return data;
 }
+
+function normalizeSnapFecha(value) {
+  const s = String(value || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  return s;
+}
+
+/**
+ * Edita el rango de fechas del PDF (solo no aprobadas: pendiente / denegada).
+ */
+export async function updateConstanciaSnapFechas(
+  supabase,
+  { solicitudId, fechaDesde, fechaHasta },
+) {
+  const desde = normalizeSnapFecha(fechaDesde);
+  const hasta = normalizeSnapFecha(fechaHasta) || desde;
+  if (!desde) throw new Error("Indicá la fecha desde");
+  if (hasta < desde) {
+    throw new Error("La fecha hasta no puede ser anterior a la desde");
+  }
+
+  const { data: row, error: readErr } = await supabase
+    .from("constancias_solicitudes")
+    .select("id, estado")
+    .eq("id", solicitudId)
+    .maybeSingle();
+  if (readErr) throw readErr;
+  if (!row) throw new Error("Solicitud no encontrada");
+  if (row.estado === CONSTANCIA_ESTADOS.aprobada) {
+    throw new Error("No se pueden editar fechas de una constancia ya aprobada");
+  }
+
+  const { data, error } = await supabase
+    .from("constancias_solicitudes")
+    .update({
+      snap_fecha_desde: desde,
+      snap_fecha_hasta: hasta,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", solicitudId)
+    .neq("estado", CONSTANCIA_ESTADOS.aprobada)
+    .select(SOLICITUD_SELECT)
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export { suggestConstanciaFechasFromLogistics } from "./constanciaLogisticsFechas";
 
 function fechaEmisionDesdeSolicitud(row) {
   if (row?.resuelto_at) {

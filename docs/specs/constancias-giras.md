@@ -19,7 +19,7 @@ Una persona puede pedir **una de cada tipo por gira** (`UNIQUE (id_integrante, i
 | Badge (músico) | Solicitudes propias aprobadas/denegadas aún no vistas |
 | Badge (editor/admin) | Cantidad de solicitudes **pendientes** (abiertas) |
 | Modal | Primero carga **Mis solicitudes** (más recientes primero; muestra 5 y «Mostrar más»; cada ítem con mes_letra \| nomenclador \| zona + fechas); en **aprobadas**: **Reenviar** (mail propio) y **Descargar** PDF; el desplegable de giras solo se carga al elegir tipo |
-| Gestión `/management/constancias` | Lista (Tipo + columna **como…** editable), filtros estado/tipo, aprobar, denegar, **Aprobar todas** (respeta filtro de tipo y el «como…» editado); **Generar** (editor/admin): elige persona + tipo + gira + «como…», crea la constancia **ya aprobada**, envía PDF al mail del músico y queda en Mis Constancias (badge no vista). En aprobadas: **Reenviar** / **Descargar**; en denegadas: **Deshacer**. En **móvil**: listado tipo tarjeta con botones grandes Aprobar/Denegar; tabla desde `md` |
+| Gestión `/management/constancias` | Lista (Tipo + columna **como…** editable), filtros estado/tipo, aprobar, denegar, **Aprobar todas**; **fechas del PDF** editables en pendientes/denegadas (`snap_fecha_desde` / `snap_fecha_hasta`); si la persona **no es local**, se calcula la logística (primera ↑ / última ↓) como referencia con botón «Usar fechas de logística». **Generar** (editor/admin): persona + tipo + gira + «como…» + fechas (prellena logística si aplica), crea **ya aprobada**, mail al músico y Mis Constancias. En aprobadas: **Reenviar** / **Descargar** (fechas congeladas); en denegadas: **Deshacer**. Móvil: tarjetas; tabla desde `md` |
 
 En Mis Constancias el estado **pendiente** deja claro que hay que esperar la resolución.
 
@@ -45,6 +45,7 @@ Texto común:
 > Sin otro particular…
 
 - **Nombre / apellido**: siempre el **legal** (`integrantes.nombre` / `apellido`), nunca `nombre_preferencia` / `apellido_preferencia`. Se congela en `snap_nombre` / `snap_apellido` al solicitar y se revalida al aprobar antes de generar el PDF.
+- **Fechas del cuerpo**: por defecto `programas.fecha_desde` / `fecha_hasta`. En Gestión (solo no aprobadas) se pueden editar. Sugerencia para no locales: ventana de viaje de logística (primera subida ↑ / última bajada ↓ a/desde origen). Locales: sin sugerencia de viaje.
 - **Instrumento / función**: al solicitar, se toma el instrumento **efectivo de la gira** (`giras_integrantes.id_instr` si el Roster lo modificó respecto al perfil; si no, `integrantes.id_instr`). De ahí se lee `instrumentos.funcion` → `snap_funcion` (editable en Gestión, p.ej. «concertino»). Ambos PDFs: convocatoria «como {snap_funcion} a participar…»; participación «participó como {snap_funcion} de…».
 - **Localidades** concatenadas de tramos / `giras_localidades`
 - **Emisión**: `Viedma, {fecha de aprobación}`
@@ -79,3 +80,4 @@ Tabla `instrumentos`: columna `funcion` (rol formal precompletado; editable en U
 - [x] `instrumentos.funcion` + columna editable «como…» en Gestión
 - [x] Descarga y mail con PDF aplanado (imagen, sin texto extraíble) (2026-11-04)
 - [x] Generar desde Gestión (preaprobada + mail al músico + panel Mis Constancias)
+- [x] Fechas del PDF editables (no aprobadas) + sugerencia logística no locales

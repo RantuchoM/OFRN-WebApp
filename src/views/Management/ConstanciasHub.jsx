@@ -31,9 +31,11 @@ import {
   reenviarConstanciaAprobada,
   descargarConstanciaPdf,
   updateConstanciaSnapFuncion,
+  updateConstanciaSnapFechas,
   countConstanciasPendientes,
   generarConstanciaGestion,
   previewConstanciaGestion,
+  suggestConstanciaFechasFromLogistics,
 } from "../../services/constanciasService";
 import { supabase } from "../../services/supabase";
 import { useAuth } from "../../context/AuthContext";
@@ -113,6 +115,8 @@ export default function ConstanciasHub() {
   const [approvingAll, setApprovingAll] = useState(false);
   /** Borradores del texto «como …» por solicitud (convocatoria). */
   const [comoById, setComoById] = useState({});
+  /** Borradores de fechas del PDF por solicitud (no aprobadas). */
+  const [fechasById, setFechasById] = useState({});
   const [pendientesTotal, setPendientesTotal] = useState(0);
   const [createOpen, setCreateOpen] = useState(false);
 
@@ -184,6 +188,18 @@ export default function ConstanciasHub() {
       });
       return next;
     });
+    setFechasById((prev) => {
+      const next = { ...prev };
+      (rows || []).forEach((r) => {
+        if (next[r.id] === undefined) {
+          next[r.id] = {
+            desde: String(r.snap_fecha_desde || "").slice(0, 10),
+            hasta: String(r.snap_fecha_hasta || "").slice(0, 10),
+          };
+        }
+      });
+      return next;
+    });
   }, [rows]);
 
   const pendientesCount = useMemo(() => {
@@ -206,11 +222,40 @@ export default function ConstanciasHub() {
     });
   };
 
+  const persistFechasIfNeeded = async (row) => {
+    if (!row || row.estado === CONSTANCIA_ESTADOS.aprobada) return;
+    const draft = fechasById[row.id];
+    if (!draft?.desde) return;
+    const desde = String(draft.desde).slice(0, 10);
+    const hasta = String(draft.hasta || draft.desde).slice(0, 10);
+    if (
+      desde === String(row.snap_fecha_desde || "").slice(0, 10) &&
+      hasta === String(row.snap_fecha_hasta || "").slice(0, 10)
+    ) {
+      return;
+    }
+    const updated = await updateConstanciaSnapFechas(supabase, {
+      solicitudId: row.id,
+      fechaDesde: desde,
+      fechaHasta: hasta,
+    });
+    setRows((prev) =>
+      (prev || []).map((x) => (x.id === row.id ? { ...x, ...updated } : x)),
+    );
+  };
+
+  const canEditFechas = (estado) =>
+    estado === CONSTANCIA_ESTADOS.pendiente ||
+    estado === CONSTANCIA_ESTADOS.denegada;
+
   const handleAprobar = async (id) => {
     setBusyId(id);
     try {
       const row = rows.find((r) => r.id === id);
-      if (row) await persistComoIfNeeded(row);
+      if (row) {
+        await persistComoIfNeeded(row);
+        await persistFechasIfNeeded(row);
+      }
       await aprobarConstancia(supabase, {
         solicitudId: id,
         resueltoPorId: user?.id,
@@ -399,6 +444,71 @@ export default function ConstanciasHub() {
           {r.snap_instrumento || ""}
         </div>
       </div>
+    );
+  };
+
+  const renderFechasField = (r, { large = false } = {}) => {
+    if (!canEditFechas(r.estado)) {
+      return (
+        <div className={large ? "w-full" : ""}>
+          {large ? (
+            <div className="mb-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">
+              Fechas del PDF
+            </div>
+          ) : null}
+          <div className={`text-slate-700 ${large ? "text-sm" : ""}`}>
+            {formatShortDate(r.snap_fecha_desde)} –{" "}
+            {formatShortDate(r.snap_fecha_hasta)}
+          </div>
+        </div>
+      );
+    }
+    const draft = fechasById[r.id] || {
+      desde: String(r.snap_fecha_desde || "").slice(0, 10),
+      hasta: String(r.snap_fecha_hasta || "").slice(0, 10),
+    };
+    return (
+      <FechasConstanciaEditor
+        large={large}
+        desde={draft.desde}
+        hasta={draft.hasta}
+        idIntegrante={r.id_integrante}
+        idGira={r.id_gira}
+        onChange={(next) =>
+          setFechasById((prev) => ({
+            ...prev,
+            [r.id]: next,
+          }))
+        }
+        onPersist={() =>
+          persistFechasIfNeeded(r).catch((err) => {
+            toast.error(err?.message || "No se pudieron guardar las fechas");
+          })
+        }
+        onApplySuggestion={(sug) => {
+          const next = {
+            desde: sug.fechaDesde || draft.desde,
+            hasta: sug.fechaHasta || sug.fechaDesde || draft.hasta,
+          };
+          setFechasById((prev) => ({ ...prev, [r.id]: next }));
+          updateConstanciaSnapFechas(supabase, {
+            solicitudId: r.id,
+            fechaDesde: next.desde,
+            fechaHasta: next.hasta,
+          })
+            .then((updated) => {
+              setRows((prev) =>
+                (prev || []).map((x) =>
+                  x.id === r.id ? { ...x, ...updated } : x,
+                ),
+              );
+              toast.success("Fechas actualizadas desde logística");
+            })
+            .catch((err) => {
+              toast.error(err?.message || "No se pudieron guardar las fechas");
+            });
+        }}
+      />
     );
   };
 
@@ -665,10 +775,6 @@ export default function ConstanciasHub() {
                         {CONSTANCIA_TIPO_LABEL_SHORT[r.tipo] ||
                           CONSTANCIA_TIPO_LABEL_SHORT.convocatoria}
                       </span>
-                      <span className="text-[11px] text-slate-500">
-                        {formatShortDate(r.snap_fecha_desde)} –{" "}
-                        {formatShortDate(r.snap_fecha_hasta)}
-                      </span>
                     </div>
 
                     <div className="mt-2 rounded-lg bg-slate-50 px-2.5 py-2">
@@ -691,6 +797,9 @@ export default function ConstanciasHub() {
 
                     <div className="mt-3">
                       {renderComoField(r, nombre, { large: true })}
+                    </div>
+                    <div className="mt-3">
+                      {renderFechasField(r, { large: true })}
                     </div>
                     <div className="mt-3">
                       {renderActions(r, { large: true })}
@@ -769,9 +878,8 @@ export default function ConstanciasHub() {
                       <td className="px-3 py-2 align-top text-slate-700">
                         {renderComoField(r, nombre)}
                       </td>
-                      <td className="px-3 py-2 text-slate-600">
-                        {formatShortDate(r.snap_fecha_desde)} –{" "}
-                        {formatShortDate(r.snap_fecha_hasta)}
+                      <td className="px-3 py-2 align-top text-slate-600">
+                        {renderFechasField(r)}
                       </td>
                       <td className="px-3 py-2">
                         <span
@@ -879,6 +987,123 @@ function foldSearch(s) {
     .toLowerCase();
 }
 
+function FechasConstanciaEditor({
+  large = false,
+  desde,
+  hasta,
+  idIntegrante,
+  idGira,
+  onChange,
+  onPersist,
+  onApplySuggestion,
+  autoSuggest = true,
+}) {
+  const [logBusy, setLogBusy] = useState(false);
+  const [suggestion, setSuggestion] = useState(null);
+
+  useEffect(() => {
+    if (!autoSuggest || !idIntegrante || !idGira) {
+      setSuggestion(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      setLogBusy(true);
+      try {
+        const sug = await suggestConstanciaFechasFromLogistics(supabase, {
+          idIntegrante,
+          idGira,
+        });
+        if (!cancelled) setSuggestion(sug);
+      } catch {
+        if (!cancelled) {
+          setSuggestion({
+            isLocal: null,
+            label: "No se pudo calcular la logística.",
+            reason: "error",
+          });
+        }
+      } finally {
+        if (!cancelled) setLogBusy(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [autoSuggest, idIntegrante, idGira]);
+
+  const canApply =
+    suggestion &&
+    suggestion.isLocal === false &&
+    (suggestion.fechaDesde || suggestion.fechaHasta);
+
+  const inputClass = large
+    ? "w-full rounded-md border border-slate-200 px-2.5 py-2 text-sm text-slate-800 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+    : "w-[8.5rem] rounded-md border border-slate-200 px-1.5 py-1 text-[11px] text-slate-800 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400";
+
+  return (
+    <div className={large ? "w-full" : "min-w-[11rem]"}>
+      {large ? (
+        <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-slate-500">
+          Fechas del PDF
+        </label>
+      ) : null}
+      <div className={`flex ${large ? "flex-col gap-2 sm:flex-row sm:items-center" : "flex-col gap-1"}`}>
+        <input
+          type="date"
+          value={desde || ""}
+          onChange={(e) =>
+            onChange({
+              desde: e.target.value,
+              hasta: hasta || e.target.value,
+            })
+          }
+          onBlur={onPersist}
+          className={inputClass}
+          aria-label="Fecha desde"
+        />
+        <span className="hidden text-slate-400 sm:inline">–</span>
+        <input
+          type="date"
+          value={hasta || ""}
+          onChange={(e) =>
+            onChange({
+              desde: desde || e.target.value,
+              hasta: e.target.value,
+            })
+          }
+          onBlur={onPersist}
+          className={inputClass}
+          aria-label="Fecha hasta"
+        />
+      </div>
+      <div
+        className={`mt-1 text-slate-500 ${large ? "text-[11px]" : "text-[9px]"}`}
+      >
+        {logBusy ? (
+          <span className="inline-flex items-center gap-1">
+            <IconLoader size={11} className="animate-spin" />
+            Calculando logística…
+          </span>
+        ) : suggestion?.label ? (
+          <div className="flex flex-col gap-1">
+            <span>{suggestion.label}</span>
+            {canApply ? (
+              <button
+                type="button"
+                onClick={() => onApplySuggestion?.(suggestion)}
+                className="w-fit text-left font-bold text-indigo-700 hover:underline"
+              >
+                Usar fechas de logística
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function GenerarConstanciaModal({ resueltoPorId, onClose, onCreated }) {
   const [people, setPeople] = useState([]);
   const [loadingPeople, setLoadingPeople] = useState(true);
@@ -890,6 +1115,8 @@ function GenerarConstanciaModal({ resueltoPorId, onClose, onCreated }) {
   const [idGira, setIdGira] = useState("");
   const [como, setComo] = useState("");
   const [instrumento, setInstrumento] = useState("");
+  const [fechaDesde, setFechaDesde] = useState("");
+  const [fechaHasta, setFechaHasta] = useState("");
   const [mail, setMail] = useState("");
   const [legalLabel, setLegalLabel] = useState("");
   const [previewBusy, setPreviewBusy] = useState(false);
@@ -945,6 +1172,8 @@ function GenerarConstanciaModal({ resueltoPorId, onClose, onCreated }) {
       setIdGira("");
       setComo("");
       setInstrumento("");
+      setFechaDesde("");
+      setFechaHasta("");
       setMail(persona.mail || "");
       setLegalLabel(legalApellidoNombre(persona));
       try {
@@ -970,19 +1199,36 @@ function GenerarConstanciaModal({ resueltoPorId, onClose, onCreated }) {
     if (!persona?.id || !idGira) {
       setComo("");
       setInstrumento("");
+      setFechaDesde("");
+      setFechaHasta("");
       return;
     }
     let cancelled = false;
     (async () => {
       setPreviewBusy(true);
       try {
-        const prev = await previewConstanciaGestion(supabase, {
-          idIntegrante: persona.id,
-          idGira: Number(idGira),
-        });
+        const [prev, sug] = await Promise.all([
+          previewConstanciaGestion(supabase, {
+            idIntegrante: persona.id,
+            idGira: Number(idGira),
+          }),
+          suggestConstanciaFechasFromLogistics(supabase, {
+            idIntegrante: persona.id,
+            idGira: Number(idGira),
+          }).catch(() => null),
+        ]);
         if (cancelled) return;
         setComo(String(prev.snap_funcion || "").trim());
         setInstrumento(String(prev.snap_instrumento || "").trim());
+        const baseDesde = String(prev.snap_fecha_desde || "").slice(0, 10);
+        const baseHasta = String(prev.snap_fecha_hasta || "").slice(0, 10);
+        if (sug && sug.isLocal === false && (sug.fechaDesde || sug.fechaHasta)) {
+          setFechaDesde(sug.fechaDesde || baseDesde);
+          setFechaHasta(sug.fechaHasta || sug.fechaDesde || baseHasta);
+        } else {
+          setFechaDesde(baseDesde);
+          setFechaHasta(baseHasta);
+        }
         setMail(prev.mail || persona.mail || "");
         setLegalLabel(
           [prev.snap_apellido, prev.snap_nombre].filter(Boolean).join(", ") ||
@@ -1022,6 +1268,8 @@ function GenerarConstanciaModal({ resueltoPorId, onClose, onCreated }) {
         tipo,
         snapFuncion: como,
         resueltoPorId,
+        fechaDesde,
+        fechaHasta,
       });
       toast.success(
         `Constancia #${row.id} generada y enviada a ${row.integrantes?.mail || mail}`,
@@ -1224,6 +1472,27 @@ function GenerarConstanciaModal({ resueltoPorId, onClose, onCreated }) {
               </div>
             ) : null}
           </div>
+
+          {persona && idGira ? (
+            <FechasConstanciaEditor
+              large
+              desde={fechaDesde}
+              hasta={fechaHasta}
+              idIntegrante={persona.id}
+              idGira={Number(idGira)}
+              onChange={({ desde, hasta }) => {
+                setFechaDesde(desde);
+                setFechaHasta(hasta);
+              }}
+              onPersist={() => {}}
+              onApplySuggestion={(sug) => {
+                setFechaDesde(sug.fechaDesde || fechaDesde);
+                setFechaHasta(
+                  sug.fechaHasta || sug.fechaDesde || fechaHasta,
+                );
+              }}
+            />
+          ) : null}
         </div>
 
         <div className="flex flex-col-reverse gap-2 border-t border-slate-100 p-4 sm:flex-row sm:justify-end">
