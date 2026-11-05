@@ -6,6 +6,7 @@ import fs from "node:fs";
 import vm from "node:vm";
 import {
   CHUNK_RESCUE_KEY,
+  CHUNK_RESCUE_SHELL_KEY,
   CHUNK_RESCUE_WINDOW_MS,
   installChunkRescue,
   renderChunkRescueInlineScript,
@@ -264,11 +265,87 @@ function flush() {
 }
 
 {
+  const now = 1_700_000_000_000;
+  const host = createHost({
+    now,
+    stamp: now - 1000,
+    pathname: "/refrescar.html",
+    search: "?next=/giras",
+  });
+  host.fetch = async () => ({ ok: true, text: async () => rescueHtml() });
+  installChunkRescue(host);
+  await flush();
+  await flush();
+  assert(host.replaced.length === 0, "el shell en /refrescar.html no se navega otra vez");
+  assert(
+    host.written.some((html) => html.includes("Un momento")),
+    "con el sello fresco igual escribe la página de rescate",
+  );
+  assert(
+    host.storage.get(CHUNK_RESCUE_SHELL_KEY) === String(now),
+    "marca que el shell ya se vio en esta URL",
+  );
+  assert(
+    host.storage.get(CHUNK_RESCUE_KEY) === String(now - 1000),
+    "no renueva el sello de la página anterior",
+  );
+}
+
+{
+  const now = 1_700_000_000_000;
+  let fetches = 0;
+  const host = createHost({
+    now,
+    stamp: now - 1000,
+    pathname: "/refrescar.html",
+    search: "?next=/giras",
+  });
+  host.storage.set(CHUNK_RESCUE_SHELL_KEY, String(now - 1000));
+  host.fetch = async () => {
+    fetches += 1;
+    return { ok: true, text: async () => rescueHtml() };
+  };
+  installChunkRescue(host);
+  await flush();
+  assert(
+    fetches === 0 && host.written.length === 0 && host.replaced.length === 0,
+    "un segundo shell dentro del minuto no se reintenta solo",
+  );
+  assert(overlayText(host).includes("No se pudo cargar la versión nueva."), "queda el cartel para el tap");
+  let prevented = false;
+  overlayLink(host).dispatchEvent({
+    type: "click",
+    preventDefault() {
+      prevented = true;
+    },
+  });
+  await flush();
+  await flush();
+  assert(prevented && fetches === 1 && host.written.length === 1, "el tap sí vuelve a pedir la página");
+  assert(host.replaced.length === 0, "ese tap no navega al mismo shell");
+}
+
+{
+  const host = createHost({ pathname: "/refrescar.html", search: "?next=/giras" });
+  host.fetch = async () => ({
+    ok: true,
+    text: async () => `<!doctype html><html><body><div id="root"></div>Un momento</body></html>`,
+  });
+  installChunkRescue(host);
+  await flush();
+  await flush();
+  assert(host.written.length === 0, "no escribe el shell otra vez");
+  assert(host.replaced.length === 0, "si el fetch sigue trayendo la app, no navega en círculo");
+  assert(overlayText(host).includes("No se pudo cargar la versión nueva."), "avisa que no pudo");
+}
+
+{
   const inline = renderChunkRescueInlineScript();
   assert(inline.startsWith("<script>(") && inline.endsWith(")(window);</script>"), "el inline llama al instalador");
   assert(!inline.includes("location.reload"), "el inline no recarga el mismo documento");
   assert(!/<\/script/i.test(inline.slice(8, -9)), "el cuerpo no cierra el tag");
   assert(inline.includes(CHUNK_RESCUE_KEY), "el inline lleva el mismo sello");
+  assert(inline.includes(CHUNK_RESCUE_SHELL_KEY), "el inline lleva el sello del shell");
   assert(inline.includes("fetch"), "el inline pide el HTML de rescate sin navegar");
 
   const host = createHost({ pathname: "/manual", search: "?p=2" });
@@ -299,6 +376,7 @@ function flush() {
   const shellStart = fresh.indexOf("const SHELL_SESSION_KEYS");
   const shell = fresh.slice(shellStart, fresh.indexOf("];", shellStart));
   assert(shell.includes(`"${CHUNK_RESCUE_KEY}"`), "refrescar borra el sello al soltar el SW");
+  assert(shell.includes(`"${CHUNK_RESCUE_SHELL_KEY}"`), "refrescar borra el sello del shell");
 
   const prompt = fs.readFileSync(new URL("../src/components/ui/ReloadPrompt.jsx", import.meta.url), "utf8");
   const clear = prompt.slice(prompt.indexOf("function clearReloadGuards"), prompt.indexOf("function readTransporteAutoStamp"));

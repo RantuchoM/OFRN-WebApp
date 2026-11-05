@@ -104,6 +104,7 @@ assert(freshStartDestination("?next=/%2e%2e/secreto") === "/", "rechaza ..");
   const storage = memoryStorage({
     "ofrn:pwa-reload-guard": "1",
     "ofrn:chunk-rescue-at": "1700000000000",
+    "ofrn:chunk-rescue-shell-at": "1700000000000",
   });
   const status = watchStatus();
   let replaced = "";
@@ -129,6 +130,10 @@ assert(freshStartDestination("?next=/%2e%2e/secreto") === "/", "rechaza ..");
   assert(caches.deleted.includes("precache"), "borra Cache Storage");
   assert(!storage.dump()["ofrn:pwa-reload-guard"], "limpia el tope de recargas");
   assert(!storage.dump()["ofrn:chunk-rescue-at"], "limpia el sello del cartel para no dejarlo trabado");
+  assert(
+    !storage.dump()["ofrn:chunk-rescue-shell-at"],
+    "limpia el sello del shell servido en /refrescar.html",
+  );
   assert(!storage.dump()[FRESH_START_STORAGE_KEY], "limpia el paso");
   assert(!storage.dump()[FRESH_START_LOG_KEY], "al abrir la app no deja el historial");
   assert(storage.dump()[FRESH_OPEN_KEY] === "1", "marca la entrada para no mostrar Actualizar");
@@ -141,7 +146,10 @@ assert(freshStartDestination("?next=/%2e%2e/secreto") === "/", "rechaza ..");
 {
   registration.calls = 0;
   const caches = cacheBox();
-  const storage = memoryStorage({ "ofrn:chunk-rescue-at": "9" });
+  const storage = memoryStorage({
+    "ofrn:chunk-rescue-at": "9",
+    "ofrn:chunk-rescue-shell-at": "8",
+  });
   const status = watchStatus();
   let reloaded = 0;
   const plan = await runFreshStart({
@@ -168,6 +176,10 @@ assert(freshStartDestination("?next=/%2e%2e/secreto") === "/", "rechaza ..");
   assert(
     storage.dump()["ofrn:chunk-rescue-at"] === "9",
     "mientras el SW controla no borra el sello",
+  );
+  assert(
+    storage.dump()["ofrn:chunk-rescue-shell-at"] === "8",
+    "mientras el SW controla no borra el sello del shell",
   );
   assert(
     status.codes.join(",") === "check,release,reload",
@@ -286,6 +298,51 @@ assert(freshStartDestination("?next=/%2e%2e/secreto") === "/", "rechaza ..");
   assert(ok === true, "el SW nuevo queda en control");
   assert(sw.registered === "/sw.js", "registra el SW del servidor");
   assert(skipped >= 1 && sw.skip === "SKIP_WAITING", "le pide que no espere");
+}
+
+{
+  const started = Date.now();
+  const hung = await activateLatestServiceWorker(
+    {
+      serviceWorker: {
+        controller: null,
+        register() {
+          return new Promise(() => {});
+        },
+      },
+    },
+    40,
+  );
+  assert(hung === "timeout", "si registrar el SW cuelga, corta");
+  assert(Date.now() - started < 1000, "el corte no espera más que el tope");
+}
+
+{
+  let replaced = false;
+  const status = watchStatus();
+  const plan = await runFreshStart({
+    serviceWorker: {
+      controller: null,
+      getRegistrations: async () => [],
+      register() {
+        return new Promise(() => {});
+      },
+    },
+    cacheStorage: cacheBox(),
+    sessionStorage: memoryStorage(),
+    onStatus: status.onStatus,
+    location: {
+      search: "",
+      replace() {
+        replaced = true;
+      },
+      reload() {},
+    },
+    timeoutMs: 40,
+    swTimeoutMs: 40,
+  });
+  assert(plan === "clear-then-redirect" && replaced, "si registrar el SW cuelga, igual abre la app");
+  assert(status.codes.at(-1) === "openTimeout", "avisa que activar la versión tardó");
 }
 
 const html = renderFreshStartHtml();
