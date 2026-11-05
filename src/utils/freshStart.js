@@ -68,18 +68,38 @@ export function takeFreshOpenMark(storage) {
   }
 }
 
+function withTimeout(promise, ms) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let timer;
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      fn(value);
+    };
+    timer = setTimeout(() => finish(reject, new Error("timeout")), ms);
+    Promise.resolve(promise).then(
+      (value) => finish(resolve, value),
+      (err) => finish(reject, err),
+    );
+  });
+}
+
 /**
  * Instala el service worker que está en el servidor y lo pone en control,
  * para que `/` salga de esa versión y no quede otro esperando.
+ * Si `register()` no termina, devuelve `"timeout"` para que la página igual abra la app.
+ * @returns {Promise<boolean | "timeout">}
  */
 export async function activateLatestServiceWorker(env, timeoutMs = 4000) {
   const sw = env?.serviceWorker;
   if (!sw || typeof sw.register !== "function") return false;
   let registration;
   try {
-    registration = await sw.register("/sw.js", { scope: "/" });
-  } catch {
-    return false;
+    registration = await withTimeout(sw.register("/sw.js", { scope: "/" }), timeoutMs);
+  } catch (err) {
+    return err && err.message === "timeout" ? "timeout" : false;
   }
   const skip = (worker) => {
     if (!worker || typeof worker.postMessage !== "function") return;
@@ -127,6 +147,8 @@ const SHELL_SESSION_KEYS = [
   // Tras soltar el SW de verdad, hay que borrar el sello. Si queda, el cartel
   // «No se pudo cargar la versión nueva» bloquea a quien ya pasó por acá.
   "ofrn:chunk-rescue-at",
+  // El aviso lo deja cuando el shell de la app se sirvió en /refrescar.html.
+  "ofrn:chunk-rescue-shell-at",
 ];
 
 /**
@@ -254,6 +276,7 @@ export async function clearAppShellCaches(env = {}, { deleteCaches = true } = {}
  * @param {Storage} [env.sessionStorage]
  * @param {{ search?: string, replace?: Function, reload?: Function }} [env.location]
  * @param {number} [env.timeoutMs]
+ * @param {number} [env.swTimeoutMs] tope de `register()` del SW nuevo
  * @param {number} [env.minStepMs] tiempo mínimo del paso en curso, para que se pueda leer
  * @param {number} [env.closingMs] pausa del aviso final antes de irse
  * @param {(code: string, log: string[]) => void} [env.onStatus]
@@ -322,12 +345,13 @@ export async function runFreshStart(env = {}) {
     clearTimeout(timer);
     const rest = minStepMs - (Date.now() - started);
     if (rest > 0) await pause(rest);
+    let swGate = true;
     if (plan === "clear-then-redirect") {
-      await activateLatestServiceWorker(env);
+      swGate = await activateLatestServiceWorker(env, env.swTimeoutMs ?? 4000);
     }
     if (plan === "unregister-then-reload") report(env, "reload");
-    else if (outcome === "ok") report(env, "open");
     else if (outcome === "error") report(env, "openError");
+    else if (outcome === "ok" && swGate !== "timeout") report(env, "open");
     else report(env, "openTimeout");
     if (closingMs > 0) await pause(closingMs);
     leave();

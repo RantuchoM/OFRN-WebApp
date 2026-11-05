@@ -10,11 +10,17 @@
  * (sin denylist `.html`) intercepta esa navegación y vuelve a servir el shell.
  * Por eso el aviso pide el HTML por `fetch` (no es navigate) y lo escribe en
  * este documento. Si esta sesión ya lo intentó (sello de 60 s), no se dispara
- * solo: queda el cartel con «Abrir de nuevo». Tras un rescate que sí soltó el
- * SW, `/refrescar.html` borra el sello para no dejar a la gente trabada.
+ * solo: queda el cartel con «Abrir de nuevo». Excepción: si el SW sirvió el
+ * shell en `/refrescar.html`, el sello de la página anterior no alcanza para
+ * quedarse quieto. Se intenta una vez escribir el HTML de verdad. Un segundo
+ * shell dentro del minuto sí queda quieto, para no recargar en círculo.
+ * Tras un rescate que sí soltó el SW, `/refrescar.html` borra los sellos para
+ * no dejar a la gente trabada.
  */
 
 export const CHUNK_RESCUE_KEY = "ofrn:chunk-rescue-at";
+/** El shell de la app ya se vio en `/refrescar.html` durante esta ventana. */
+export const CHUNK_RESCUE_SHELL_KEY = "ofrn:chunk-rescue-shell-at";
 export const CHUNK_RESCUE_WINDOW_MS = 60000;
 
 /**
@@ -27,6 +33,7 @@ export function installChunkRescue(host) {
   host.__ofrnChunkRescueInstalled = true;
 
   var KEY = "ofrn:chunk-rescue-at";
+  var SHELL_KEY = "ofrn:chunk-rescue-shell-at";
   var WINDOW_MS = 60000;
   var OVERLAY_ID = "ofrn-preload-reload-msg";
   var BACKDROP_STYLE =
@@ -66,20 +73,24 @@ export function installChunkRescue(host) {
     return "/refrescar.html?next=" + encodeURIComponent(here()) + "&r=" + now;
   }
 
-  function readStamp() {
+  function readStamp(key) {
     try {
-      return Number(host.sessionStorage.getItem(KEY) || 0);
+      return Number(host.sessionStorage.getItem(key || KEY) || 0);
     } catch (e) {
       return 0;
     }
   }
 
-  function writeStamp(now) {
+  function writeStamp(now, key) {
     try {
-      host.sessionStorage.setItem(KEY, String(now));
+      host.sessionStorage.setItem(key || KEY, String(now));
     } catch (e) {
       /* sin storage no hay sello: igual navegamos una sola vez por carga */
     }
+  }
+
+  function onRescueShell() {
+    return ((host.location && host.location.pathname) || "") === "/refrescar.html";
   }
 
   function card() {
@@ -144,9 +155,20 @@ export function installChunkRescue(host) {
     }
   }
 
+  function showStuck(url) {
+    show(
+      "No se pudo cargar la versión nueva.",
+      url,
+      "Abrir de nuevo",
+      STUCK_DETAIL,
+    );
+  }
+
   function openRescue() {
     var url = rescueUrl();
-    if (launched) {
+    var shell = onRescueShell();
+    // En el shell, navegar a la misma URL vuelve a servir la app. Reintentar es otro fetch.
+    if (launched && !shell) {
       navigateToRescue(url);
       return;
     }
@@ -161,6 +183,10 @@ export function installChunkRescue(host) {
     )
       .then(function (res) {
         if (!res || !res.ok || typeof res.text !== "function") {
+          if (shell) {
+            showStuck(url);
+            return null;
+          }
           navigateToRescue(url);
           return null;
         }
@@ -169,9 +195,17 @@ export function installChunkRescue(host) {
       .then(function (html) {
         if (html == null) return;
         if (looksLikeRescue(html) && writeRescue(html, url)) return;
+        if (shell) {
+          showStuck(url);
+          return;
+        }
         navigateToRescue(url);
       })
       .catch(function () {
+        if (shell) {
+          showStuck(url);
+          return;
+        }
         navigateToRescue(url);
       });
   }
@@ -215,8 +249,22 @@ export function installChunkRescue(host) {
     var now = (host.Date || Date).now();
     var prev = readStamp();
     var url = rescueUrl();
+    var shell = onRescueShell();
+    if (shell) {
+      var shellPrev = readStamp(SHELL_KEY);
+      if (shellPrev && now - shellPrev < WINDOW_MS) {
+        showStuck(url);
+        return;
+      }
+      // El sello de la ruta anterior no cuenta: este documento todavía es la app.
+      writeStamp(now, SHELL_KEY);
+      if (!prev || now - prev >= WINDOW_MS) writeStamp(now);
+      show("Hay una versión nueva. Recargando para continuar…", url, "Abrir de nuevo");
+      openRescue();
+      return;
+    }
     if (prev && now - prev < WINDOW_MS) {
-      show("No se pudo cargar la versión nueva.", url, "Abrir de nuevo", STUCK_DETAIL);
+      showStuck(url);
       return;
     }
     writeStamp(now);
@@ -243,9 +291,7 @@ export function installChunkRescue(host) {
     onFail();
   });
 
-  if (((host.location && host.location.pathname) || "") === "/refrescar.html") {
-    onFail();
-  }
+  if (onRescueShell()) onFail();
 }
 
 export function renderChunkRescueInlineScript() {
