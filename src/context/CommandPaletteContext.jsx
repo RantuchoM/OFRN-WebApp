@@ -478,7 +478,12 @@ export const CommandPaletteProvider = ({ children }) => {
       isAdmin || (Array.isArray(roles) && roles.includes('editor')) || isDifusion;
     const canAccessAgenda = !isGuest && (isPersonal || isEditor || isManagement);
     const canAccessRepertorio =
-      !isGuest && (isArchivista || isEditor || isManagement || isArreglador);
+      !isGuest &&
+      (isArchivista ||
+        isEditor ||
+        isManagement ||
+        isArreglador ||
+        isEnsembleCoordinator);
     const canAccessManual = !isGuest && (isPersonal || isEditor || isManagement);
 
     const cmds = [
@@ -701,8 +706,22 @@ export const CommandPaletteProvider = ({ children }) => {
   // ===========================================================================
   const canSearchObras = useMemo(() => {
     if (!user || isGuest) return false;
-    return !!(isArchivista || isEditor || isManagement || isArreglador);
-  }, [user, isGuest, isArchivista, isEditor, isManagement, isArreglador]);
+    return !!(
+      isArchivista ||
+      isEditor ||
+      isManagement ||
+      isArreglador ||
+      isEnsembleCoordinator
+    );
+  }, [
+    user,
+    isGuest,
+    isArchivista,
+    isEditor,
+    isManagement,
+    isArreglador,
+    isEnsembleCoordinator,
+  ]);
 
   const canSearchPeople = useMemo(() => {
     if (!user) return false;

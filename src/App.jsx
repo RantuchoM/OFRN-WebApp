@@ -948,7 +948,13 @@ const ProtectedApp = ({ initialTab }) => {
       id: "REPERTOIRE",
       label: "Repertorio",
       icon: <IconFileText size={20} />,
-      show: !isGuest && (isArchivista || isEditor || isManagement || isArreglador),
+      show:
+        !isGuest &&
+        (isArchivista ||
+          isEditor ||
+          isManagement ||
+          isArreglador ||
+          isEnsembleCoordinator),
     },
     {
       id: "ARREGLOS",
@@ -1060,7 +1066,13 @@ const ProtectedApp = ({ initialTab }) => {
       case "REPERTOIRE":
         if (
           isGuest ||
-          !(isArchivista || isEditor || isManagement || isArreglador)
+          !(
+            isArchivista ||
+            isEditor ||
+            isManagement ||
+            isArreglador ||
+            isEnsembleCoordinator
+          )
         ) {
           return (
             <div className="flex h-full items-center justify-center p-10 text-center text-slate-500">

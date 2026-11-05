@@ -53,7 +53,7 @@ Los comandos globales replican la visibilidad del sidebar (`App.jsx` → `allMen
 | Panel de Giras | `/?tab=giras` | Todos |
 | Agenda General | `/?tab=agenda` | No invitado + personal/editor/management |
 | Difusión | `/?tab=difusion` | admin, editor o difusión |
-| Repertorio | `/?tab=repertorio` | No invitado + archivista/editor/management |
+| Repertorio | `/?tab=repertorio` | No invitado + archivista/editor/management/arreglador/coordinador de ensamble |
 | Arreglos | `/?tab=arreglos` | admin, arreglador o acceso especial |
 | Ensambles | `/?tab=ensambles` | management |
 | Coordinación | `/?tab=coordinacion` | coordinador de ensamble (rol o tabla) |
@@ -143,7 +143,7 @@ El cambio es visual, no un salto de foco:
 
 Visibilidad de las pestañas Personas y Repertorio (misma regla que «Ir a Repertorio» / «Ir a Personas»):
 
-- Obras: no invitado + archivista / editor / management / arreglador
+- Obras: no invitado + archivista / editor / management / arreglador / coordinador de ensamble
 - Personas: management o director
 
 Vacantes (`es_simulacion = true`) **no** aparecen. Un cache global de la fila, si existiera, solo se reutilizaría **al abrir el id elegido**; nunca se precarga el padrón al montar la paleta.

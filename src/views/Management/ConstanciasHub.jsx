@@ -14,6 +14,7 @@ import {
   IconPlus,
   IconRepeat,
   IconChevronDown,
+  IconPencil,
 } from "../../components/ui/Icons";
 import ConfirmModal from "../../components/ui/ConfirmModal";
 import {
@@ -167,6 +168,8 @@ export default function ConstanciasHub() {
   const [comoById, setComoById] = useState({});
   /** Borradores de fechas del PDF por solicitud (no aprobadas). */
   const [fechasById, setFechasById] = useState({});
+  /** Aprobadas en modo edición (inputs visibles hasta cancelar o reemitir). */
+  const [editingAprobadaIds, setEditingAprobadaIds] = useState(() => new Set());
   const [pendientesTotal, setPendientesTotal] = useState(0);
   const [createOpen, setCreateOpen] = useState(false);
 
@@ -309,6 +312,61 @@ export default function ConstanciasHub() {
   const isAprobadaDraftOnly = (estado) =>
     estado === CONSTANCIA_ESTADOS.aprobada;
 
+  const isEditingAprobada = (id) => editingAprobadaIds.has(id);
+
+  const startEditAprobada = (r) => {
+    if (!r?.id) return;
+    setComoById((prev) => ({
+      ...prev,
+      [r.id]:
+        prev[r.id] !== undefined
+          ? prev[r.id]
+          : String(r.snap_funcion || "").trim() ||
+            String(r.snap_instrumento || "")
+              .trim()
+              .toLowerCase() ||
+            "",
+    }));
+    setFechasById((prev) => ({
+      ...prev,
+      [r.id]:
+        prev[r.id] || {
+          desde: String(r.snap_fecha_desde || "").slice(0, 10),
+          hasta: String(r.snap_fecha_hasta || "").slice(0, 10),
+        },
+    }));
+    setEditingAprobadaIds((prev) => {
+      const next = new Set(prev);
+      next.add(r.id);
+      return next;
+    });
+  };
+
+  const cancelEditAprobada = (r) => {
+    if (!r?.id) return;
+    setComoById((prev) => ({
+      ...prev,
+      [r.id]:
+        String(r.snap_funcion || "").trim() ||
+        String(r.snap_instrumento || "")
+          .trim()
+          .toLowerCase() ||
+        "",
+    }));
+    setFechasById((prev) => ({
+      ...prev,
+      [r.id]: {
+        desde: String(r.snap_fecha_desde || "").slice(0, 10),
+        hasta: String(r.snap_fecha_hasta || "").slice(0, 10),
+      },
+    }));
+    setEditingAprobadaIds((prev) => {
+      const next = new Set(prev);
+      next.delete(r.id);
+      return next;
+    });
+  };
+
   const handleAprobar = async (id) => {
     setBusyId(id);
     try {
@@ -371,10 +429,20 @@ export default function ConstanciasHub() {
       toast.success(
         `Constancia reemitida y enviada a ${row.integrantes?.mail || "el solicitante"}`,
       );
+      setEditingAprobadaIds((prev) => {
+        const next = new Set(prev);
+        next.delete(row.id);
+        return next;
+      });
       await load();
     } catch (err) {
       if (err?.mailFailed && err?.solicitud) {
         toast.warning(err.message);
+        setEditingAprobadaIds((prev) => {
+          const next = new Set(prev);
+          next.delete(row.id);
+          return next;
+        });
         await load();
       } else {
         toast.error(err?.message || "No se pudo reemitir");
@@ -485,15 +553,82 @@ export default function ConstanciasHub() {
     );
   }
 
+  const renderAprobadaEditToggle = (r, { large = false } = {}) => {
+    const editing = isEditingAprobada(r.id);
+    const iconSz = large ? 14 : 12;
+    if (editing) {
+      return (
+        <button
+          type="button"
+          onClick={() => cancelEditAprobada(r)}
+          className="inline-flex shrink-0 items-center gap-1 rounded-md border border-slate-200 bg-white px-1.5 py-1 text-[10px] font-bold text-slate-600 hover:bg-slate-50"
+          title="Cancelar edición"
+          aria-label="Cancelar edición"
+        >
+          <IconX size={iconSz} />
+          {large ? "Cancelar" : null}
+        </button>
+      );
+    }
+    return (
+      <button
+        type="button"
+        onClick={() => startEditAprobada(r)}
+        className="inline-flex shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white p-1 text-slate-500 hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700"
+        title="Editar fechas y rol"
+        aria-label="Editar fechas y rol"
+      >
+        <IconPencil size={iconSz} />
+      </button>
+    );
+  };
+
   const renderComoField = (r, nombre, { large = false } = {}) => {
-    if (canEditComo(r.estado)) {
-      const draftOnly = isAprobadaDraftOnly(r.estado);
+    const draftOnly = isAprobadaDraftOnly(r.estado);
+    const editingApproved = draftOnly && isEditingAprobada(r.id);
+    const showInput =
+      canEditComo(r.estado) && (!draftOnly || editingApproved);
+
+    if (draftOnly && !editingApproved) {
+      return (
+        <div className={large ? "w-full" : "min-w-[8.5rem]"}>
+          <div className="flex items-start justify-between gap-1.5">
+            <div className="min-w-0">
+              {large ? (
+                <div className="mb-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                  como…
+                </div>
+              ) : null}
+              <div
+                className={`font-medium text-slate-800 ${large ? "text-sm" : ""}`}
+              >
+                {r.snap_funcion ||
+                  String(r.snap_instrumento || "")
+                    .toLowerCase() ||
+                  "—"}
+              </div>
+              <div
+                className={`text-slate-400 ${large ? "text-[11px]" : "text-[9px]"}`}
+              >
+                {r.snap_instrumento || ""}
+              </div>
+            </div>
+            {large ? renderAprobadaEditToggle(r, { large }) : null}
+          </div>
+        </div>
+      );
+    }
+
+    if (showInput) {
       return (
         <div className={large ? "w-full" : "min-w-[8.5rem]"}>
           {large ? (
-            <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-slate-500">
-              como…
-            </label>
+            <div className="mb-1 flex items-center justify-between gap-2">
+              <label className="block text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                como…
+              </label>
+              {draftOnly ? renderAprobadaEditToggle(r, { large }) : null}
+            </div>
           ) : null}
           <input
             type="text"
@@ -527,6 +662,7 @@ export default function ConstanciasHub() {
         </div>
       );
     }
+
     return (
       <div>
         {large ? (
@@ -548,49 +684,71 @@ export default function ConstanciasHub() {
   };
 
   const renderFechasField = (r, { large = false } = {}) => {
-    if (!canEditFechas(r.estado)) {
+    const draftOnly = isAprobadaDraftOnly(r.estado);
+    const editingApproved = draftOnly && isEditingAprobada(r.id);
+    const showEditor =
+      canEditFechas(r.estado) && (!draftOnly || editingApproved);
+
+    if (!showEditor) {
+      const draft = fechasById[r.id];
+      const desde = draft?.desde || r.snap_fecha_desde;
+      const hasta = draft?.hasta || r.snap_fecha_hasta;
       return (
         <div className={large ? "w-full" : ""}>
-          {large ? (
-            <div className="mb-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">
-              Fechas del PDF
+          <div className="flex items-start justify-between gap-1.5">
+            <div className="min-w-0">
+              {large ? (
+                <div className="mb-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                  Fechas del PDF
+                </div>
+              ) : null}
+              <div className={`text-slate-700 ${large ? "text-sm" : ""}`}>
+                {formatShortDate(desde)} – {formatShortDate(hasta)}
+              </div>
             </div>
-          ) : null}
-          <div className={`text-slate-700 ${large ? "text-sm" : ""}`}>
-            {formatShortDate(r.snap_fecha_desde)} –{" "}
-            {formatShortDate(r.snap_fecha_hasta)}
+            {/* En móvil el lápiz vive en «como…»; en tabla, acá. */}
+            {draftOnly && !editingApproved && !large
+              ? renderAprobadaEditToggle(r, { large: false })
+              : null}
           </div>
         </div>
       );
     }
-    const draftOnly = isAprobadaDraftOnly(r.estado);
+
     const draft = fechasById[r.id] || {
       desde: String(r.snap_fecha_desde || "").slice(0, 10),
       hasta: String(r.snap_fecha_hasta || "").slice(0, 10),
     };
     return (
-      <FechasConstanciaEditor
-        large={large}
-        desde={draft.desde}
-        hasta={draft.hasta}
-        idIntegrante={r.id_integrante}
-        idGira={r.id_gira}
-        hintExtra={
-          draftOnly ? "Cambios locales · Reemitir para aplicar" : null
-        }
-        onChange={(next) =>
-          setFechasById((prev) => ({
-            ...prev,
-            [r.id]: next,
-          }))
-        }
-        onPersist={(override) => {
-          if (draftOnly) return;
-          persistFechasIfNeeded(r, override || null).catch((err) => {
-            toast.error(err?.message || "No se pudieron guardar las fechas");
-          });
-        }}
-      />
+      <div className={large ? "w-full" : ""}>
+        {draftOnly && !large ? (
+          <div className="mb-0.5 flex justify-end">
+            {renderAprobadaEditToggle(r, { large: false })}
+          </div>
+        ) : null}
+        <FechasConstanciaEditor
+          large={large}
+          desde={draft.desde}
+          hasta={draft.hasta}
+          idIntegrante={r.id_integrante}
+          idGira={r.id_gira}
+          hintExtra={
+            draftOnly ? "Cambios locales · Reemitir para aplicar" : null
+          }
+          onChange={(next) =>
+            setFechasById((prev) => ({
+              ...prev,
+              [r.id]: next,
+            }))
+          }
+          onPersist={(override) => {
+            if (draftOnly) return;
+            persistFechasIfNeeded(r, override || null).catch((err) => {
+              toast.error(err?.message || "No se pudieron guardar las fechas");
+            });
+          }}
+        />
+      </div>
     );
   };
 
