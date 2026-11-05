@@ -15,6 +15,7 @@ Asociar cada ensamble a una localidad (tabla `localidades`) como sede/base del g
 ## UI
 
 - [x] **Ensambles** (`EnsemblesView.jsx`): selector de localidad, **familia** (`id_familia`) y **cameratas CF multi-select** (`ensambles_cf`: CFVal/CFMon/CFMar/Jazz Band, solo no-cameratas) al editar cabecera (portal z-[100]); lectura en panel.
+- [x] **Ensayos estándar (proyección):** en `EnsemblesView` chips de día/horario/lugar + pestaña editable (`EnsambleProyeccionEnsayosEditor`) leyendo `ensamble_proyeccion_ensayos` (misma plantilla que Gestión → Informes → Proyección).
 - [x] **Datos** (`DataView.jsx` → `UniversalTable`): columna `id_localidad` editable en pestaña Ensambles.
 - [x] En el listado de integrantes vigentes, la tarjeta es informativa: la baja solo se carga desde el control **Cargar baja** o editando su fecha, nunca al hacer clic en el resto de la tarjeta.
 - [x] Misma UX de baja (`BajaDateField` + `BajaDateModal` en `BajaDateControls.jsx`) en ficha de músico: membresías de ensamble (`EnsembleMembershipEditor`) y **Legajo → Fecha Baja** (`MusicianDocsSection`). El ícono de basura en membresías solo elimina el tramo (con `ConfirmDialog`), no carga baja.

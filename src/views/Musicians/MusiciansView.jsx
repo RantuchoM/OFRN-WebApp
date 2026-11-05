@@ -892,6 +892,9 @@ const EnsembleFilter = ({ ensembles, selectedIds, onChange }) => {
     onChange(newSet);
   };
 
+  const selectAll = () => onChange(new Set(ensembles.map((e) => e.id)));
+  const selectNone = () => onChange(new Set());
+
   return (
     <div className="relative" ref={containerRef}>
       <button
@@ -919,6 +922,22 @@ const EnsembleFilter = ({ ensembles, selectedIds, onChange }) => {
               <div className="text-[10px] font-black text-slate-400 uppercase mb-2 px-2 border-b border-slate-100 pb-1">
                 Filtrar por Ensamble
               </div>
+              <div className="flex gap-2 mb-2 px-1">
+                <button
+                  type="button"
+                  onClick={selectAll}
+                  className="flex-1 text-[10px] font-bold uppercase bg-indigo-50 border border-indigo-200 text-indigo-700 px-2 py-1.5 rounded hover:bg-indigo-100"
+                >
+                  Todos
+                </button>
+                <button
+                  type="button"
+                  onClick={selectNone}
+                  className="flex-1 text-[10px] font-bold uppercase bg-slate-50 border border-slate-200 text-slate-600 px-2 py-1.5 rounded hover:bg-slate-100"
+                >
+                  Ninguno
+                </button>
+              </div>
               <div className="max-h-60 overflow-y-auto">
                 {ensembles.map((ens) => (
                   <div
@@ -937,14 +956,6 @@ const EnsembleFilter = ({ ensembles, selectedIds, onChange }) => {
                   </div>
                 ))}
               </div>
-              {selectedIds.size > 0 && (
-                <button
-                  onClick={() => onChange(new Set())}
-                  className="w-full mt-2 pt-2 border-t border-slate-100 text-[10px] font-bold text-red-500 hover:text-red-700 text-center uppercase"
-                >
-                  Limpiar Ensambles
-                </button>
-              )}
             </div>
           </>,
           document.body,

@@ -7,6 +7,11 @@ import {
   upsertEnsambleProyeccionEnsayo,
 } from "../../services/ensambleProyeccionEnsayosService";
 import { DOW_LABEL } from "../../utils/ensambleProyeccionEnsayos";
+import {
+  defaultTramosForYear,
+  getAnioProyeccion,
+} from "../../utils/ensambleProyeccionConfig";
+import { formatDdMmYyyy } from "../../utils/dates";
 
 const DOW_OPTIONS = [1, 2, 3, 4, 5, 6, 7];
 
@@ -118,11 +123,15 @@ export default function EnsambleProyeccionEnsayosEditor({
   return (
     <section className="space-y-2">
       <h4 className="rounded bg-violet-50 px-2 py-1 text-[10px] font-black uppercase tracking-wide text-violet-900">
-        Plantilla semanal de ensayos
+        Plantilla semanal de ensayos {getAnioProyeccion()}
       </h4>
       <p className="px-1 text-[10px] text-slate-500">
-        Se proyecta lunes 01/02/2027 → lunes 13/12/2027. Valor: ≥2 h → 1; &gt;30
-        min → 0,5.
+        {(() => {
+          const tramo = defaultTramosForYear(getAnioProyeccion())[0];
+          const desde = tramo?.desde ? formatDdMmYyyy(tramo.desde) : "—";
+          const hasta = tramo?.hasta ? formatDdMmYyyy(tramo.hasta) : "—";
+          return `Se proyecta lunes ${desde} → lunes ${hasta}. Valor: ≥2 h → 1; >30 min → 0,5.`;
+        })()}
       </p>
 
       <div className="flex flex-wrap items-end gap-2 rounded-lg border border-slate-100 bg-slate-50/80 p-2">

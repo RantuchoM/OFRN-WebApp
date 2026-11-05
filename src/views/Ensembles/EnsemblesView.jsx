@@ -5,7 +5,7 @@ import {
     membershipActiveOnProgramDate,
     toIsoDateString,
 } from '../../utils/ensembleMembership';
-import { IconLayers, IconPlus, IconTrash, IconEdit, IconSearch, IconLoader, IconCheck, IconMusic, IconUsers, IconMail, IconMapPin, IconTag, IconX } from '../../components/ui/Icons';
+import { IconLayers, IconPlus, IconTrash, IconEdit, IconSearch, IconLoader, IconCheck, IconMusic, IconUsers, IconMail, IconMapPin, IconTag, IconX, IconCalendar, IconClock } from '../../components/ui/Icons';
 import WhatsAppLink from '../../components/ui/WhatsAppLink';
 import DateInput from '../../components/ui/DateInput';
 import ConfirmDialog from '../../components/ui/ConfirmDialog';
@@ -13,6 +13,13 @@ import SearchableSelect from '../../components/ui/SearchableSelect';
 import MultiSelect from '../../components/ui/MultiSelect';
 import { BajaDateField, BajaDateModal } from '../../components/ui/BajaDateControls';
 import EnsembleProgramManager from './EnsembleProgramManager';
+import EnsambleProyeccionEnsayosEditor from '../../components/management/EnsambleProyeccionEnsayosEditor';
+import {
+    fetchEnsambleProyeccionEnsayos,
+    fetchLocacionesForProyeccion,
+} from '../../services/ensambleProyeccionEnsayosService';
+import { DOW_LABEL, DOW_LABEL_SHORT } from '../../utils/ensambleProyeccionEnsayos';
+import { getAnioProyeccion } from '../../utils/ensambleProyeccionConfig';
 import { useConfirmDialog } from '../../hooks/useConfirmDialog';
 import { matchesMultiTokenSearch } from '../../utils/sanitize';
 import { seatingApellidoNombre } from '../../utils/integranteDisplayName';
@@ -23,6 +30,18 @@ import {
     listCamerataCfOptions,
     storedEnsambleCfIds,
 } from '../../utils/serviciosEnsambleReport';
+
+const formatSlotHorario = (slot) => {
+    const hi = String(slot?.hora_inicio || '').slice(0, 5);
+    const hf = String(slot?.hora_fin || '').slice(0, 5);
+    if (!hi || !hf) return '';
+    return `${hi}–${hf}`;
+};
+
+const formatSlotLugar = (slot) =>
+    slot?.locacion ||
+    slot?.locaciones?.nombre ||
+    null;
 
 const createEmptyEnsembleInstrumentation = () => ({
     fl: 0,
@@ -119,8 +138,17 @@ export default function EnsemblesView({ supabase }) {
     const [membershipDeleteConfirm, setMembershipDeleteConfirm] = useState(null);
     const [membershipBajaModal, setMembershipBajaModal] = useState(null);
     const [activeView, setActiveView] = useState('members');
+    const [locacionesProyeccion, setLocacionesProyeccion] = useState([]);
+    const [ensayoSlots, setEnsayoSlots] = useState([]);
+    const anioProyeccion = getAnioProyeccion();
 
-    useEffect(() => { fetchEnsembles(); fetchLocalidades(); }, []);
+    useEffect(() => {
+        fetchEnsembles();
+        fetchLocalidades();
+        fetchLocacionesForProyeccion()
+            .then((rows) => setLocacionesProyeccion(rows || []))
+            .catch((err) => console.warn('[EnsemblesView] locaciones proyección:', err));
+    }, []);
 
     const fetchLocalidades = async () => {
         const { data, error } = await supabase
@@ -158,6 +186,13 @@ export default function EnsemblesView({ supabase }) {
             setShowMusicianPicker(false);
             setSearchText('');
             setActiveView('members');
+            setEnsayoSlots([]);
+            fetchEnsambleProyeccionEnsayos(selectedEnsemble.id)
+                .then((rows) => setEnsayoSlots(rows || []))
+                .catch((err) => {
+                    console.warn('[EnsemblesView] plantilla ensayos:', err);
+                    setEnsayoSlots([]);
+                });
         } else {
             setMemberIds(new Set());
             setCoordinatorIds(new Set());
@@ -166,6 +201,7 @@ export default function EnsemblesView({ supabase }) {
             setShowMusicianPicker(false);
             setSearchText('');
             setActiveView('members');
+            setEnsayoSlots([]);
         }
     }, [selectedEnsemble]); // Dependencia simplificada para evitar bucles, controlamos manual
 
@@ -697,7 +733,7 @@ export default function EnsemblesView({ supabase }) {
                                             ) : (
                                                 <p className="text-xs text-slate-400 italic mb-1">Sin localidad asignada</p>
                                             )}
-                                            <p className="text-xs text-slate-500 flex flex-wrap items-center gap-2 mb-4">
+                                            <p className="text-xs text-slate-500 flex flex-wrap items-center gap-2 mb-2">
                                                 <span className="inline-flex items-center gap-1">
                                                     <IconTag size={12} className="text-indigo-500" />
                                                     {selectedEnsemble.id_familia || <span className="italic text-slate-400">Sin familia</span>}
@@ -711,6 +747,44 @@ export default function EnsemblesView({ supabase }) {
                                                     </span>
                                                 )}
                                             </p>
+                                            <div className="mb-4">
+                                                <div className="text-[10px] font-bold uppercase tracking-wide text-violet-700 mb-1 flex items-center gap-1">
+                                                    <IconCalendar size={11} />
+                                                    Ensayos estándar {anioProyeccion}
+                                                </div>
+                                                {ensayoSlots.length > 0 ? (
+                                                    <div className="flex flex-wrap gap-1.5">
+                                                        {ensayoSlots.map((slot) => {
+                                                            const lugar = formatSlotLugar(slot);
+                                                            return (
+                                                                <span
+                                                                    key={slot.id || `${slot.isoDow}-${slot.hora_inicio}`}
+                                                                    className="inline-flex flex-wrap items-center gap-1 rounded-md border border-violet-200 bg-violet-50 px-2 py-1 text-[11px] text-violet-900"
+                                                                    title={slot.titulo || undefined}
+                                                                >
+                                                                    <span className="font-bold capitalize">
+                                                                        {DOW_LABEL[slot.isoDow] || DOW_LABEL_SHORT[slot.isoDow] || slot.isoDow}
+                                                                    </span>
+                                                                    <span className="inline-flex items-center gap-0.5 text-violet-700">
+                                                                        <IconClock size={10} />
+                                                                        {formatSlotHorario(slot)}
+                                                                    </span>
+                                                                    {lugar ? (
+                                                                        <span className="inline-flex items-center gap-0.5 text-violet-600">
+                                                                            <IconMapPin size={10} />
+                                                                            {lugar}
+                                                                        </span>
+                                                                    ) : null}
+                                                                </span>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                ) : (
+                                                    <p className="text-[11px] italic text-slate-400">
+                                                        Sin plantilla. Cargala en la pestaña Ensayos estándar (misma que Gestión → Proyección).
+                                                    </p>
+                                                )}
+                                            </div>
                                         </div>
                                         {selectedEnsemble.instrumentationLabel && (
                                             <div className="text-[10px] lg:text-[11px] font-mono text-slate-600 bg-white border border-slate-200 rounded-md px-2 py-1 shrink-0">
@@ -734,6 +808,14 @@ export default function EnsemblesView({ supabase }) {
                                             >
                                                 <IconLayers size={12} />
                                                 Programas
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setActiveView('ensayos')}
+                                                className={`text-xs px-2.5 py-1.5 rounded-md border transition-colors flex items-center gap-1 ${activeView === 'ensayos' ? 'bg-violet-600 text-white border-violet-600' : 'border-slate-300 text-slate-600 hover:bg-slate-100'}`}
+                                            >
+                                                <IconCalendar size={12} />
+                                                Ensayos estándar
                                             </button>
                                         </div>
                                         {activeView === 'members' && (
@@ -780,6 +862,18 @@ export default function EnsemblesView({ supabase }) {
                         <div className="flex-1 overflow-y-auto p-2 lg:p-2.5 bg-slate-50/50">
                             {activeView === 'programs' ? (
                                 <EnsembleProgramManager supabase={supabase} ensemble={selectedEnsemble} />
+                            ) : activeView === 'ensayos' ? (
+                                <div className="rounded-xl border border-slate-200 bg-white p-3 lg:p-4 shadow-sm">
+                                    <p className="mb-3 text-xs text-slate-500">
+                                        Plantilla semanal de proyección {anioProyeccion} (día de semana, horario y lugar).
+                                        Misma fuente que Gestión → Informes → Proyección → Ensambles.
+                                    </p>
+                                    <EnsambleProyeccionEnsayosEditor
+                                        ensambleId={selectedEnsemble.id}
+                                        locaciones={locacionesProyeccion}
+                                        onSlotsChange={setEnsayoSlots}
+                                    />
+                                </div>
                             ) : loadingMembers ? (<div className="flex items-center justify-center h-full text-indigo-600 gap-2"><IconLoader size={24}/> Cargando miembros...</div>) : !showMusicianPicker ? (
                                 <div className="space-y-2">
                                     {visibleMusicians.map((musician) => {
