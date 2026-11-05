@@ -16,6 +16,18 @@ export const STAGE_PLOT_ICONS_BUCKET = "stage-plot-icons";
 export const STAGE_PLOT_RASTER_HINT =
   "PNG o WebP con fondo transparente, lado largo de al menos 1024 px, máximo 1 MB. El plano muestra esta imagen tal cual (sin tinte). El SVG, si existe, queda de reserva.";
 
+/**
+ * Un SVG nuevo (markup no vacío) pasa a ser el ícono visible.
+ * Quitar el SVG deja el PNG activo.
+ * @param {string|null|undefined} nextSvg
+ * @param {string|null|undefined} previousRasterUrl
+ */
+export function stagePlotSvgSaveClearsRaster(nextSvg, previousRasterUrl) {
+  return Boolean(
+    String(nextSvg ?? "").trim() && String(previousRasterUrl ?? "").trim(),
+  );
+}
+
 const PNG_SIGNATURE = [137, 80, 78, 71, 13, 10, 26, 10];
 
 /**

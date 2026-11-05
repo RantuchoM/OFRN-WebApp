@@ -5,6 +5,7 @@
 import sharp from "sharp";
 import {
   stagePlotRasterObjectPath,
+  stagePlotSvgSaveClearsRaster,
   validateStagePlotRasterBytes,
 } from "../src/utils/stagePlotRaster.js";
 
@@ -102,6 +103,18 @@ assert(path === "instrumentos/01/abc.png", "path del bucket");
 assert(
   stagePlotRasterObjectPath("https://example.com/otro.png") == null,
   "URL ajena no se borra",
+);
+assert(
+  stagePlotSvgSaveClearsRaster("<svg></svg>", "https://cdn.example/a.png") === true,
+  "SVG nuevo quita el PNG",
+);
+assert(
+  stagePlotSvgSaveClearsRaster("   ", "https://cdn.example/a.png") === false,
+  "quitar el SVG deja el PNG",
+);
+assert(
+  stagePlotSvgSaveClearsRaster("<svg></svg>", "  ") === false,
+  "SVG nuevo sin PNG no marca borrado",
 );
 
 if (failed) {

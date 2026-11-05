@@ -17,6 +17,7 @@ import {
   removeStagePlotRasterByUrl,
   removeStagePlotRasterByPath,
 } from "./stagePlotRasterStorage";
+import { stagePlotSvgSaveClearsRaster } from "../utils/stagePlotRaster";
 import { getStagePlotCatalogItem } from "../utils/stagePlotCatalog";
 import { STAGE_PLOT_SILHOUETTES } from "../utils/stagePlotSilhouettes";
 import { slugifyStagePlotType } from "./stagePlotInventarioService";
@@ -308,6 +309,40 @@ export function prepareInstrumentSvgIconForSave(raw) {
     };
   }
   return { ok: true, value: result.svg, cleaned: Boolean(result.cleaned) };
+}
+
+/**
+ * Guarda `svg_icon`. Si el SVG nuevo no está vacío y había PNG/WebP,
+ * anula la URL y borra el objeto para que el plano muestre el vector.
+ * Dejar el SVG vacío no toca el PNG.
+ *
+ * @param {string} id
+ * @param {unknown} nextSvg
+ * @param {{ previousRasterUrl?: string|null, client?: import("@supabase/supabase-js").SupabaseClient }} [opts]
+ * @returns {Promise<{ svg: string|null, clearedRaster: boolean, cleaned: boolean }>}
+ */
+export async function saveInstrumentoSvgIcon(id, nextSvg, opts = {}) {
+  const ownerId = String(id ?? "").trim();
+  if (!ownerId) throw new Error("Instrumento sin id");
+  const prepared = prepareInstrumentSvgIconForSave(nextSvg);
+  if (!prepared.ok) throw new Error(prepared.error || "SVG inválido");
+  const client = opts.client || supabase;
+  const previousRaster = String(opts.previousRasterUrl || "").trim();
+  const clearsRaster = stagePlotSvgSaveClearsRaster(prepared.value, previousRaster);
+  const patch = { svg_icon: prepared.value };
+  if (clearsRaster) patch.stage_plot_raster_url = null;
+  const { error } = await client
+    .from("instrumentos")
+    .update(patch)
+    .eq("id", ownerId);
+  if (error) throw new Error(error.message || "No se pudo guardar el SVG");
+  if (clearsRaster) await removeStagePlotRasterByUrl(previousRaster);
+  await reloadStagePlotInstrumentIcons().catch(() => {});
+  return {
+    svg: prepared.value,
+    clearedRaster: clearsRaster,
+    cleaned: Boolean(prepared.cleaned),
+  };
 }
 
 /**
