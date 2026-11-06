@@ -31,6 +31,14 @@ import {
   STAGE_PLOT_INSTRUMENT_TYPE_OPTIONS,
 } from "../../services/stagePlotInstrumentIconsService";
 import {
+  listElementosEscenario,
+  upsertElementoEscenario,
+} from "../../services/stagePlotInventarioService";
+import {
+  getStagePlotCatalogItem,
+  STAGE_PLOT_SOLOIST_TYPES,
+} from "../../utils/stagePlotCatalog";
+import {
   classifyStagePlotIconUpload,
   downloadStagePlotRasterUrl,
   downloadStagePlotSvgMarkup,
@@ -39,7 +47,6 @@ import {
   STAGE_PLOT_FILE_INPUT_CLASS,
   STAGE_PLOT_RASTER_HINT,
 } from "../../utils/stagePlotRaster";
-import { getStagePlotCatalogItem } from "../../utils/stagePlotCatalog";
 import {
   resolveStagePlotIconSvgMarkup,
   stagePlotIconImgSrc,
@@ -982,6 +989,175 @@ function CreateInstrumentoModal({
   );
 }
 
+function formatSoloistCm(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "";
+  const rounded = Math.round(n * 10) / 10;
+  return Number.isInteger(rounded) ? String(rounded) : String(rounded);
+}
+
+function parseSoloistCm(raw) {
+  const n = Number(String(raw ?? "").trim().replace(",", "."));
+  if (!Number.isFinite(n)) return null;
+  return Math.round(n * 10) / 10;
+}
+
+/**
+ * Solistas: Ancho × Alto cm en `elementos_escenario`. Aplica a todos los planos.
+ */
+function SoloistSizeEditor({ supabase, canEdit, onCatalogReload }) {
+  const [rows, setRows] = useState([]);
+  const [drafts, setDrafts] = useState({});
+  const [savingId, setSavingId] = useState(null);
+
+  useEffect(() => {
+    if (!supabase) return undefined;
+    let cancelled = false;
+    listElementosEscenario({ onlyActive: true })
+      .then((list) => {
+        if (cancelled) return;
+        const soloists = (list || [])
+          .filter((row) => STAGE_PLOT_SOLOIST_TYPES.has(row.stage_plot_type))
+          .sort((a, b) =>
+            String(a.nombre || "").localeCompare(String(b.nombre || ""), "es"),
+          );
+        setRows(soloists);
+        setDrafts(
+          Object.fromEntries(
+            soloists.map((row) => [
+              row.id,
+              {
+                width: formatSoloistCm(row.width_cm),
+                height: formatSoloistCm(row.height_cm),
+              },
+            ]),
+          ),
+        );
+      })
+      .catch((err) => {
+        console.warn("[SoloistSizeEditor]", err?.message || err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase]);
+
+  const save = async (row) => {
+    if (!canEdit || !supabase) return;
+    const draft = drafts[row.id] || {};
+    const widthCm = parseSoloistCm(draft.width);
+    const heightCm = parseSoloistCm(draft.height);
+    if (widthCm == null || heightCm == null || widthCm < 5 || heightCm < 5 || widthCm > 800 || heightCm > 800) {
+      toast.error("Ancho y alto: entre 5 y 800 cm");
+      return;
+    }
+    const prevW = Number(row.width_cm);
+    const prevH = Number(row.height_cm);
+    if (widthCm === prevW && heightCm === prevH) return;
+    setSavingId(row.id);
+    try {
+      const saved = await upsertElementoEscenario({
+        id: row.id,
+        nombre: row.nombre,
+        stage_plot_type: row.stage_plot_type,
+        svg_icon: row.svg_icon ?? null,
+        width_cm: widthCm,
+        height_cm: heightCm,
+        activo: row.activo !== false,
+        stage_plot_raster_url: row.stage_plot_raster_url ?? null,
+      });
+      setRows((prev) => prev.map((item) => (item.id === row.id ? { ...item, ...saved } : item)));
+      onCatalogReload?.();
+      toast.success("Tamaño del solista actualizado");
+    } catch (err) {
+      toast.error(err?.message || "No se pudo guardar el tamaño");
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  if (!rows.length) return null;
+
+  return (
+    <div className="mb-2 rounded-lg border border-slate-200 bg-white p-2">
+      <p className="mb-1 px-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">
+        Solistas
+      </p>
+      <p className="mb-2 px-0.5 text-[9px] leading-snug text-slate-400">
+        Ancho × alto de la figura. Aplica a todos los planos. Enter o salir del campo guarda.
+      </p>
+      <div className="flex flex-col gap-2">
+        {rows.map((row) => {
+          const draft = drafts[row.id] || { width: "", height: "" };
+          const busy = savingId === row.id;
+          return (
+            <div key={row.id} className="rounded border border-slate-100 bg-slate-50/80 p-1.5">
+              <div className="mb-1 flex items-center gap-1.5">
+                <InstrumentSvgThumb
+                  type={row.stage_plot_type}
+                  rasterUrl={row.stage_plot_raster_url}
+                  className="h-8 w-8 shrink-0"
+                />
+                <span className="min-w-0 truncate text-[11px] font-semibold text-slate-800">
+                  {row.nombre}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-1.5">
+                <label className="block text-[9px] font-medium text-slate-500">
+                  Ancho (cm)
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    disabled={!canEdit || busy}
+                    value={draft.width}
+                    onChange={(e) =>
+                      setDrafts((prev) => ({
+                        ...prev,
+                        [row.id]: { ...draft, width: e.target.value },
+                      }))
+                    }
+                    onBlur={() => save(row)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        e.currentTarget.blur();
+                      }
+                    }}
+                    className="mt-0.5 w-full rounded border border-slate-200 bg-white px-1.5 py-1 text-[11px] disabled:bg-slate-100"
+                  />
+                </label>
+                <label className="block text-[9px] font-medium text-slate-500">
+                  Alto (cm)
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    disabled={!canEdit || busy}
+                    value={draft.height}
+                    onChange={(e) =>
+                      setDrafts((prev) => ({
+                        ...prev,
+                        [row.id]: { ...draft, height: e.target.value },
+                      }))
+                    }
+                    onBlur={() => save(row)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        e.currentTarget.blur();
+                      }
+                    }}
+                    className="mt-0.5 w-full rounded border border-slate-200 bg-white px-1.5 py-1 text-[11px] disabled:bg-slate-100"
+                  />
+                </label>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 /**
  * Editor de íconos / tamaño de huella de instrumentos (panel izquierdo Escenario → Editor).
  * Clasificación de usuario: `familia`. Clave interna: `stage_plot_type`.
@@ -1342,8 +1518,14 @@ export default function StagePlotInstrumentsPanel({
     <div className="flex flex-col gap-2">
       <p className="px-1 text-[10px] leading-snug text-slate-400">
         Editor de instrumentos: familia, tamaño de huella (catálogo) y ícono SVG o PNG/WebP. Agrupados por
-        familia. Material sin instrumento → Inventario (elementos_escenario).
+        familia. Los solistas se miden acá (ancho × alto). El resto del material sin instrumento → Inventario.
       </p>
+
+      <SoloistSizeEditor
+        supabase={supabase}
+        canEdit={canEdit}
+        onCatalogReload={onCatalogReload}
+      />
 
       <input
         type="search"

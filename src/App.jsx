@@ -692,7 +692,7 @@ const ProtectedApp = ({ initialTab }) => {
     const { data } = await supabase
       .from("integrantes")
       .select(
-        "avatar_url, avatar_color, domicilio, link_dni_img, link_cuil, link_cbu_img, last_verified_at",
+        "avatar_url, avatar_color, domicilio, link_dni_img, link_cuil, last_verified_at",
       )
       .eq("id", user.id)
       .single();
@@ -706,7 +706,6 @@ const ProtectedApp = ({ initialTab }) => {
         if (!data.domicilio) missing.push("Domicilio");
         if (!data.link_dni_img) missing.push("DNI");
         if (!data.link_cuil) missing.push("CUIL");
-        if (!data.link_cbu_img) missing.push("CBU");
         setPendingFields(missing);
       }
     }
@@ -1612,10 +1611,15 @@ const ProtectedApp = ({ initialTab }) => {
               className="flex items-center gap-2 group ml-1"
             >
               {pendingFields.length > 0 && (
-                <IconAlertTriangle
-                  size={18}
-                  className="text-orange-500 animate-pulse hidden sm:block"
-                />
+                <span
+                  className="hidden sm:inline-flex"
+                  title={`Faltan: ${pendingFields.join(", ")}`}
+                >
+                  <IconAlertTriangle
+                    size={18}
+                    className="text-orange-500 animate-pulse"
+                  />
+                </span>
               )}
               <div
                 className="w-8 h-8 md:w-9 md:h-9 rounded-full border-2 border-white shadow-sm flex items-center justify-center overflow-hidden ring-2 ring-transparent group-hover:ring-indigo-100 transition-all"

@@ -2,10 +2,12 @@ import React, { useEffect, useState } from "react";
 import { IconLoader, IconCheck, IconFileText, IconFilePlus, IconLayoutGrid } from "../../components/ui/Icons";
 import MusicianFileUploader from "./MusicianFileUploader";
 import { useMusicianFormContext } from "./MusicianFormContext";
+import { missingExpedienteLabels } from "../../utils/expedienteRequired";
 
 export default function MusicianDocsUploadSection() {
   const { formData, assemblingType, handleFullPack, handleGenerateDJ, handleAssemble } = useMusicianFormContext();
   const [showCarnetUploader, setShowCarnetUploader] = useState(false);
+  const missingForExpediente = missingExpedienteLabels(formData);
   const isAll = assemblingType === "all";
   const isDj = assemblingType === "dj";
   const isFull = assemblingType === "full";
@@ -25,10 +27,10 @@ export default function MusicianDocsUploadSection() {
           Documentación Base
         </h4>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <MusicianFileUploader label="DNI Frontal/Dorso" field="link_dni_img" value={formData.link_dni_img} />
-          <MusicianFileUploader label="Constancia CUIL" field="link_cuil" value={formData.link_cuil} />
+          <MusicianFileUploader label="DNI Frontal/Dorso" field="link_dni_img" value={formData.link_dni_img} required />
+          <MusicianFileUploader label="Constancia CUIL" field="link_cuil" value={formData.link_cuil} required />
           <MusicianFileUploader label="Constancia CBU" field="link_cbu_img" value={formData.link_cbu_img} />
-          <MusicianFileUploader label="Firma Digital (PNG)" field="firma" value={formData.firma} />
+          <MusicianFileUploader label="Firma Digital (PNG)" field="firma" value={formData.firma} required />
         </div>
       </div>
       <div className="border-t border-slate-100 relative">
@@ -49,12 +51,17 @@ export default function MusicianDocsUploadSection() {
           <MusicianFileUploader label="PDF Mosaico (Red)" field="docred" value={formData.docred} />
         </div>
       </div>
+      {missingForExpediente.length > 0 && (
+        <div className="rounded-2xl border border-orange-200 bg-orange-50 px-4 py-3 text-xs font-bold text-orange-800">
+          Faltan datos para generar el expediente: {missingForExpediente.join(", ")}.
+        </div>
+      )}
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
         <div className="bg-slate-900 p-6 rounded-[2.5rem] text-white flex flex-col lg:flex-row items-center gap-6 shadow-2xl border border-slate-800 flex-1">
           <div className="flex-1">
             <h4 className="text-sm font-black text-indigo-400 uppercase tracking-widest">Motor de Expedientes</h4>
             <p className="text-[10px] text-slate-400 mt-1 uppercase font-bold tracking-tighter">
-              Generación automática mediante last_modified_at.
+              Se rearman al cambiar los datos o las imágenes que usan.
             </p>
           </div>
           <div className="flex flex-col gap-2 w-full lg:w-auto lg:mr-12">

@@ -45,13 +45,16 @@ import UniversalExporter from "../../components/ui/UniversalExporter";
 import { getSearchHighlightRanges, matchesMultiTokenSearch, scoreMultiTokenSearch } from "../../utils/sanitize";
 import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 import { seatingApellidoNombre } from "../../utils/integranteDisplayName";
+import {
+  affectsExpediente,
+  missingExpedienteLabels,
+} from "../../utils/expedienteRequired";
 
 // --- CONFIGURACIÓN ---
 const MISSING_DATA_OPTIONS = [
   { key: "domicilio", label: "Domicilio" },
   { key: "link_dni_img", label: "Foto DNI" },
   { key: "link_cuil", label: "Const. CUIL" },
-  { key: "link_cbu_img", label: "Const. CBU" },
   { key: "firma", label: "Firma Digital" },
 ];
 
@@ -107,15 +110,7 @@ const getNestedValue = (obj, path) => {
   return path.split(".").reduce((o, i) => (o ? o[i] : null), obj);
 };
 
-const getMissingFieldsList = (item) => {
-  const missing = [];
-  if (!item.domicilio) missing.push("Domicilio");
-  if (!item.link_dni_img) missing.push("DNI");
-  if (!item.link_cuil) missing.push("CUIL");
-  if (!item.link_cbu_img) missing.push("CBU");
-  if (!item.firma) missing.push("Firma");
-  return missing;
-};
+const getMissingFieldsList = (item) => missingExpedienteLabels(item);
 
 const getConditionStyles = (condition) => {
   switch (condition) {
@@ -1458,9 +1453,7 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
           .eq("id", id);
         if (error) throw error;
         
-        // Si cambió un campo crítico, regenerar expediente completo
-        const camposCriticos = ['domicilio', 'id_domicilio_laboral', 'link_cbu_img', 'link_dni_img', 'link_cuil', 'dni', 'cuil'];
-        if (camposCriticos.includes(field)) {
+        if (affectsExpediente(field)) {
           supabase.functions.invoke("manage-drive", {
             body: { action: "assemble_full_pack", musicianId: id },
           }).catch((err) => {
@@ -1504,10 +1497,8 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
         .in("id", ids);
       if (error) throw error;
       
-      // Si cambió un campo crítico, regenerar expediente completo para cada músico
-      const camposCriticos = ['domicilio', 'id_domicilio_laboral', 'link_cbu_img', 'link_dni_img', 'link_cuil', 'dni', 'cuil'];
       const touchedCriticalField = Object.keys(updatePayload).some((key) =>
-        camposCriticos.includes(key),
+        affectsExpediente(key),
       );
       if (touchedCriticalField) {
         toast.loading(`Regenerando expedientes para ${ids.length} músico(s)...`, { id: toastId });

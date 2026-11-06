@@ -36,6 +36,7 @@
     seatingNombre,
   } from "../../utils/integranteDisplayName";
   import { generateFimbaTempPassword } from "../../utils/fimbaUserSession";
+import { affectsExpediente } from "../../utils/expedienteRequired";
 
   const APP_LOGIN_URL = "https://ofrn-web-app.vercel.app/login";
 
@@ -435,6 +436,20 @@
           .update(payload)
           .eq("id", user.id);
         if (error) throw error;
+        const expedienteCambio = Object.keys(formData).some(
+          (key) =>
+            affectsExpediente(key) &&
+            String(formData[key] ?? "") !== String(initialData?.[key] ?? ""),
+        );
+        if (expedienteCambio) {
+          supabase.functions
+            .invoke("manage-drive", {
+              body: { action: "assemble_full_pack", musicianId: user.id },
+            })
+            .catch((err) => {
+              console.warn("[ProfileEditModal] No se pudo regenerar el expediente:", err);
+            });
+        }
         if (formData.avatar_color) {
           window.dispatchEvent(new CustomEvent('theme-changed', { detail: formData.avatar_color }));
         }
@@ -472,7 +487,7 @@
     const needsVerification = lastVerifiedYear !== currentYear;
 
     // --- DOC UPLOADER (Tu código existente) ---
-    const DocUploader = ({ label, field, value }) => {
+    const DocUploader = ({ label, field, value, required = false }) => {
       const [isOver, setIsOver] = useState(false);
       const isPdf = value?.toLowerCase().includes(".pdf");
 
@@ -491,7 +506,7 @@
               if (e.dataTransfer.files[0])
                 processAndUpload(e.dataTransfer.files[0], field);
             }}
-            className={`relative h-28 rounded-2xl border-2 transition-all overflow-hidden flex flex-col group ${isOver ? "border-indigo-500 bg-indigo-50" : value ? "border-emerald-100 bg-white" : "border-dashed border-slate-200 bg-slate-50 hover:border-indigo-300"}`}
+            className={`relative h-28 rounded-2xl border-2 transition-all overflow-hidden flex flex-col group ${isOver ? "border-indigo-500 bg-indigo-50" : value ? "border-emerald-100 bg-white" : required ? "border-orange-400 bg-orange-50" : "border-dashed border-slate-200 bg-slate-50 hover:border-indigo-300"}`}
           >
             {value ? (
               <>
@@ -932,8 +947,17 @@
                         setFormData({ ...formData, domicilio: e.target.value })
                       }
                       placeholder="Calle, número, depto..."
-                      className="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm outline-none focus:ring-4 focus:ring-indigo-100 transition-all shadow-sm"
+                      className={`w-full p-3 bg-white border rounded-xl text-sm outline-none focus:ring-4 focus:ring-indigo-100 transition-all shadow-sm ${
+                        !(formData.domicilio || "").trim()
+                          ? "border-orange-400 bg-orange-50"
+                          : "border-slate-200"
+                      }`}
                     />
+                    {!(formData.domicilio || "").trim() && (
+                      <p className="text-[10px] font-bold text-orange-600">
+                        Falta el domicilio para el expediente.
+                      </p>
+                    )}
                   </div>
                 </div>
 
@@ -949,11 +973,13 @@
                       label="DNI"
                       field="link_dni_img"
                       value={formData.link_dni_img}
+                      required
                     />
                     <DocUploader
                       label="CUIL"
                       field="link_cuil"
                       value={formData.link_cuil}
+                      required
                     />
                     <DocUploader
                       label="CBU"

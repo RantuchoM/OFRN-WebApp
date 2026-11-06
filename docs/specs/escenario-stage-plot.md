@@ -460,6 +460,9 @@ Seed: silla / banqueta / atril qty 0; tarima rect 200×100 qty 0. Unique parcial
 - **Sillas / banquetas / atriles:** solo stock + notas + historial (no placeables desde Inventario).
 - **Tarimas:** CRUD por dimensión; **+ Plano** (Inventario) o paleta Escenario (modal tamaño) insertan con `scaleX/Y` desde W×D; toast warning si drawn &gt; stock; **no** auto-descuenta.
 - **Elementos:** alta nombre+slug+SVG+cm → `elementos_escenario` + fila stock; aparecen en paleta categoría **Elementos**; **+ Plano** / paleta insertan; toast si drawn &gt; stock.
+- **Solista masculino** (`male_soloist`): figura de frac de frente, independiente del instrumento y de la voz. Está en la paleta **Escenario** (escritorio y hoja móvil), al lado del director. El PNG (fondo transparente) vive en `elementos_escenario` id 1 y el plano lo prefiere al no haber SVG. Alto al colocar ~40 cm. Se puede poner varias veces. Stock de inventario: 12.
+- **Solista femenino** (`female_soloist`, elemento id 2, 11,7×40 cm): vestido de gala de frente, misma regla (no es un instrumento ni una voz). Paleta Escenario, debajo del solista masculino. PNG con fondo transparente en Storage. Alto al colocar ~40 cm. Stock de inventario: 12.
+- **Tamaño de solistas:** panel **Editor** (arriba de los instrumentos), Ancho × Alto cm en `elementos_escenario.width_cm` / `height_cm` (5–800). Aplica a todas las figuras de esa clave en el lienzo abierto y en PDF/JPG. El Transformer no las redimensiona; el `scale` del ítem se guarda en 1 y la caja es cm × 4 px.
 - Catálogo dinámico: `setStagePlotDynamicCatalogItems` + merge SVG/size en `stagePlotIconAssets` (vía `loadAndApplyElementosEscenario`).
 - Archivos: `src/services/stagePlotInventarioService.js`, `src/views/Giras/StagePlotInventarioPanel.jsx`.
 

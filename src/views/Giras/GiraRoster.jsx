@@ -177,6 +177,34 @@ function normalizeEnsembleId(id) {
   return Number.isFinite(n) ? n : id;
 }
 
+/** Clave de selección: integrantes.id puede llegar como number o string. */
+function rosterSelectionKey(id) {
+  const key = integranteKey(id);
+  return key || null;
+}
+
+function rosterIdSelected(selectedIds, id) {
+  const key = rosterSelectionKey(id);
+  if (!key || !selectedIds) return false;
+  if (selectedIds.has(key) || selectedIds.has(id)) return true;
+  const n = Number(key);
+  return Number.isSafeInteger(n) && selectedIds.has(n);
+}
+
+function addRosterSelection(selectedIds, id) {
+  const key = rosterSelectionKey(id);
+  if (key) selectedIds.add(key);
+}
+
+function deleteRosterSelection(selectedIds, id) {
+  const key = rosterSelectionKey(id);
+  if (!key) return;
+  selectedIds.delete(key);
+  selectedIds.delete(id);
+  const n = Number(key);
+  if (Number.isSafeInteger(n)) selectedIds.delete(n);
+}
+
 function toEnsembleIdSet(iterable) {
   const s = new Set();
   for (const id of iterable) {
@@ -1500,7 +1528,37 @@ export default function GiraRoster({
   };
 
   // --- SELECCIÓN MÚLTIPLE (EXCLUYENDO AUSENTES EN RANGO; MISMO CRITERIO QUE SELECT ALL) ---
-  const handleRowCheckboxClick = (id, index, shiftKey) => {
+  const selectableRosterKeys = useMemo(() => {
+    const keys = [];
+    const seen = new Set();
+    for (const m of localRoster) {
+      if (m.estado_gira === "ausente") continue;
+      const key = rosterSelectionKey(m.id);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      keys.push(key);
+    }
+    return keys;
+  }, [localRoster]);
+
+  const visibleSelectedCount = selectableRosterKeys.reduce(
+    (count, key) => count + (rosterIdSelected(selectedIds, key) ? 1 : 0),
+    0,
+  );
+  const allVisibleSelected =
+    selectableRosterKeys.length > 0 &&
+    visibleSelectedCount === selectableRosterKeys.length;
+  const headerSelectionIndeterminate =
+    visibleSelectedCount > 0 && !allVisibleSelected;
+
+  const selectAllCheckboxRef = useRef(null);
+  useLayoutEffect(() => {
+    if (selectAllCheckboxRef.current) {
+      selectAllCheckboxRef.current.indeterminate = headerSelectionIndeterminate;
+    }
+  }, [headerSelectionIndeterminate]);
+
+  const handleRowCheckboxClick = (id, index, shiftKey, wantChecked) => {
     if (
       shiftKey &&
       selectionAnchorIndexRef.current !== null &&
@@ -1509,37 +1567,39 @@ export default function GiraRoster({
       const anchor = selectionAnchorIndexRef.current;
       const lo = Math.min(anchor, index);
       const hi = Math.max(anchor, index);
-      const idsInRange = [];
-      for (let i = lo; i <= hi; i++) {
-        const row = localRoster[i];
-        if (row?.estado_gira !== "ausente") idsInRange.push(row.id);
-      }
       setSelectedIds((prev) => {
         const next = new Set(prev);
-        idsInRange.forEach((rid) => next.add(rid));
+        for (let i = lo; i <= hi; i++) {
+          const row = localRoster[i];
+          if (row?.estado_gira !== "ausente") addRosterSelection(next, row.id);
+        }
         return next;
       });
       return;
     }
 
-    const newSet = new Set(selectedIds);
-    if (newSet.has(id)) newSet.delete(id);
-    else newSet.add(id);
-    setSelectedIds(newSet);
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (wantChecked) addRosterSelection(next, id);
+      else deleteRosterSelection(next, id);
+      return next;
+    });
     selectionAnchorIndexRef.current = index;
   };
 
-  const toggleAll = () => {
+  const toggleAll = (event) => {
     selectionAnchorIndexRef.current = null;
-    if (selectedIds.size > 0) {
-      setSelectedIds(new Set()); // Deseleccionar todo
-    } else {
-      // Seleccionar solo los NO AUSENTES
-      const validIds = localRoster
-        .filter((m) => m.estado_gira !== "ausente")
-        .map((m) => m.id);
-      setSelectedIds(new Set(validIds));
-    }
+    const wantChecked = event.target.checked;
+    const visibleKeys = selectableRosterKeys;
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (wantChecked) {
+        visibleKeys.forEach((key) => addRosterSelection(next, key));
+      } else {
+        visibleKeys.forEach((key) => deleteRosterSelection(next, key));
+      }
+      return next;
+    });
   };
 
   const instrumentGroupMembers = useMemo(() => {
@@ -1549,27 +1609,32 @@ export default function GiraRoster({
       const key = getRosterInstrumentGroupKey(m, seatingSortCtx);
       if (!key) continue;
       if (!map.has(key)) map.set(key, []);
-      map.get(key).push(m.id);
+      const selectionKey = rosterSelectionKey(m.id);
+      if (selectionKey) map.get(key).push(selectionKey);
     }
     return map;
   }, [localRoster, sortBy, seatingSortCtx]);
 
-  const toggleInstrumentGroupSelection = (memberIds) => {
+  const toggleInstrumentGroupSelection = (memberIds, wantChecked) => {
     selectionAnchorIndexRef.current = null;
     const selectable = (memberIds || []).filter((id) => {
-      const row = localRoster.find((r) => r.id === id);
-      return row && row.estado_gira !== "ausente";
+      const row = localRoster.find(
+        (r) => rosterSelectionKey(r.id) === id && r.estado_gira !== "ausente",
+      );
+      return Boolean(row);
     });
     if (selectable.length === 0) return;
 
-    const allSelected = selectable.every((id) => selectedIds.has(id));
+    const shouldSelect =
+      typeof wantChecked === "boolean"
+        ? wantChecked
+        : !selectable.every((id) => rosterIdSelected(selectedIds, id));
     setSelectedIds((prev) => {
       const next = new Set(prev);
-      if (allSelected) {
-        selectable.forEach((id) => next.delete(id));
-      } else {
-        selectable.forEach((id) => next.add(id));
-      }
+      selectable.forEach((id) => {
+        if (shouldSelect) addRosterSelection(next, id);
+        else deleteRosterSelection(next, id);
+      });
       return next;
     });
   };
@@ -1577,13 +1642,17 @@ export default function GiraRoster({
   const getInstrumentGroupSelectionState = (groupKey) => {
     const memberIds = instrumentGroupMembers.get(groupKey) || [];
     const selectable = memberIds.filter((id) => {
-      const row = localRoster.find((r) => r.id === id);
-      return row && row.estado_gira !== "ausente";
+      const row = localRoster.find(
+        (r) => rosterSelectionKey(r.id) === id && r.estado_gira !== "ausente",
+      );
+      return Boolean(row);
     });
     if (selectable.length === 0) {
       return { checked: false, indeterminate: false, disabled: true, memberIds };
     }
-    const selectedCount = selectable.filter((id) => selectedIds.has(id)).length;
+    const selectedCount = selectable.filter((id) =>
+      rosterIdSelected(selectedIds, id),
+    ).length;
     return {
       checked: selectedCount === selectable.length,
       indeterminate: selectedCount > 0 && selectedCount < selectable.length,
@@ -1594,7 +1663,7 @@ export default function GiraRoster({
 
   const handleCopyEmails = () => {
     const emails = localRoster
-      .filter((m) => selectedIds.has(m.id) && m.mail)
+      .filter((m) => rosterIdSelected(selectedIds, m.id) && m.mail)
       .map((m) => m.mail)
       .join(", ");
     if (!emails) return toast.error("No hay correos en la selección.");
@@ -3206,6 +3275,56 @@ export default function GiraRoster({
     [localRoster]
   );
 
+  const handleExportCuadroFirmasRoster = async (formatOrOptions) => {
+    const {
+      CUADRO_FIRMAS_ENCARGADO_INTEGRANTE_ID,
+      exportDestaquesCuadroFirmasDocx,
+      exportDestaquesCuadroFirmasPdf,
+      fetchEncargadoCuadroFirmas,
+      parseCuadroFirmasExportOptions,
+      toCuadroFirmasPerson,
+    } = await import("../../utils/destaquesCuadroFirmasPdf");
+
+    const { format, hostDocxFile } =
+      parseCuadroFirmasExportOptions(formatOrOptions);
+
+    const people = localRoster
+      .filter((m) => m.estado_gira !== "ausente" && !m.es_simulacion)
+      .map(toCuadroFirmasPerson)
+      .filter(Boolean);
+
+    const fromRoster = (rawRoster || []).find(
+      (p) => Number(p.id) === CUADRO_FIRMAS_ENCARGADO_INTEGRANTE_ID,
+    );
+    const encargado = fromRoster
+      ? toCuadroFirmasPerson(fromRoster)
+      : await fetchEncargadoCuadroFirmas(supabase);
+
+    if (people.length === 0 && !encargado) {
+      toast.error("No hay personas para el cuadro de firmas.");
+      throw new Error("No hay personas para el cuadro de firmas.");
+    }
+
+    try {
+      const exporter =
+        format === "docx"
+          ? exportDestaquesCuadroFirmasDocx
+          : exportDestaquesCuadroFirmasPdf;
+      await exporter({
+        people,
+        encargado,
+        giraLabel: gira?.nombre_gira || gira?.nomenclador || "",
+        filePrefix: "Roster",
+        supabase,
+        hostDocxFile,
+      });
+      toast.success("Cuadro de firmas descargado.");
+    } catch (err) {
+      toast.error(err?.message || "No se pudo generar el cuadro de firmas.");
+      throw err;
+    }
+  };
+
   return (
     <div className="flex flex-col h-full bg-slate-50 animate-in fade-in duration-300">
       {dialog}
@@ -3341,6 +3460,8 @@ export default function GiraRoster({
               columns={exportColumnsRoster}
               fileName={gira?.nomenclador || gira?.nombre_gira || "gira_roster"}
               orientation="l"
+              onExportCuadroFirmas={handleExportCuadroFirmasRoster}
+              cuadroFirmasHint="Usa la nómina visible, sin ausentes ni vacantes. El encargado va primero."
             />
           </div>
         </div>
@@ -3859,23 +3980,11 @@ export default function GiraRoster({
                 {/* CHECKBOX HEADER */}
                 <th className="py-2 px-1 md:px-3 w-[10%] md:w-10 text-center bg-slate-50 border-r border-slate-100">
                   <input
+                    ref={selectAllCheckboxRef}
                     type="checkbox"
                     className="rounded border-slate-300 text-fixed-indigo-600 focus:ring-fixed-indigo-500 cursor-pointer"
-                    checked={
-                      selectedIds.size > 0 &&
-                      selectedIds.size ===
-                        localRoster.filter((m) => m.estado_gira !== "ausente")
-                          .length
-                    }
-                    ref={(input) => {
-                      if (input) {
-                        const available = localRoster.filter(
-                          (m) => m.estado_gira !== "ausente",
-                        ).length;
-                        input.indeterminate =
-                          selectedIds.size > 0 && selectedIds.size < available;
-                      }
-                    }}
+                    checked={allVisibleSelected}
+                    disabled={selectableRosterKeys.length === 0}
                     onChange={toggleAll}
                   />
                 </th>
@@ -3917,7 +4026,7 @@ export default function GiraRoster({
             </thead>
             <tbody>
               {localRoster.map((m, idx) => {
-                const isSelected = selectedIds.has(m.id);
+                const isSelected = rosterIdSelected(selectedIds, m.id);
                 const { className: rowClassName, style: rowStyle, ausenteMuted } =
                   getRowStyles(m, isSelected);
                 const prev = idx > 0 ? localRoster[idx - 1] : null;
@@ -3944,9 +4053,10 @@ export default function GiraRoster({
                         checked={groupSelection?.checked ?? false}
                         indeterminate={groupSelection?.indeterminate ?? false}
                         disabled={groupSelection?.disabled ?? true}
-                        onToggle={() =>
+                        onToggle={(wantChecked) =>
                           toggleInstrumentGroupSelection(
                             groupSelection?.memberIds,
+                            wantChecked,
                           )
                         }
                       />

@@ -4,6 +4,7 @@ import {
   stagePlotItemHasInstrumentFootprint,
   stagePlotItemIsElemento,
   stagePlotItemIsTarima,
+  stagePlotItemUsesCatalogBox,
 } from "./stagePlotCatalog";
 import {
   STAGE_PLOT_DEFAULT_HEIGHT_CM,
@@ -694,6 +695,8 @@ function normalizeStagePlotItem(it, idx) {
   // Se ignora / descarta scaleX/Y del ítem; `scale` queda en catálogo.
   if (stagePlotItemHasInstrumentFootprint(type)) {
     scale = stagePlotInstrumentCatalogScales(type).scale;
+  } else if (stagePlotItemUsesCatalogBox(type)) {
+    scale = 1;
   }
   const slotId =
     o.slotId == null || o.slotId === "" ? null : String(o.slotId);
@@ -769,8 +772,8 @@ export function deriveStagePlotChannels(payload) {
  */
 export function defaultStagePlotItemScale(type) {
   if (stagePlotItemIsTarima(type)) return 1;
-  // Elementos: catálogo ya en cm×px; scale 1 = tamaño real.
-  if (stagePlotItemIsElemento(type)) return 1;
+  // Elementos y solistas: la caja del catálogo ya está en cm×px.
+  if (stagePlotItemIsElemento(type) || stagePlotItemUsesCatalogBox(type)) return 1;
   if (stagePlotItemHasInstrumentFootprint(type)) {
     return stagePlotInstrumentCatalogScales(type).scale;
   }

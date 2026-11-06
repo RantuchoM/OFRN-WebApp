@@ -57,6 +57,12 @@ export const STAGE_PLOT_CATALOG = [
   { type: "banqueta", name: "Banqueta", category: "Escenario", color: "#78716c", w: 36, h: 36, includeInChannels: false },
   { type: "music_stand", name: "Atril", category: "Escenario", color: "#475569", w: 36, h: 48, includeInChannels: false },
   { type: "conductor", name: "Director", category: "Escenario", color: "#0f172a", w: 40, h: 40, includeInChannels: false },
+  /**
+   * Retrato a scale 1 (px = cm × 4). El Editor escribe el tamaño real en
+   * `elementos_escenario` y pisa w/h. No es un instrumento.
+   */
+  { type: "male_soloist", name: "Solista masculino", category: "Escenario", color: "#0f172a", w: 52.8, h: 160, includeInChannels: false },
+  { type: "female_soloist", name: "Solista femenino", category: "Escenario", color: "#0f172a", w: 46.8, h: 160, includeInChannels: false },
   /** Tarimas: w/h = px @ scale 1 (= cm × STAGE_PLOT_CM_TO_PX); default 200×100 cm. */
   {
     type: "tarima_rect",
@@ -191,10 +197,34 @@ export const STAGE_PLOT_BANQUETA_INSTRUMENT_TYPES = new Set([
   "tubular_bells",
 ]);
 
+/** Figuras de persona: el tamaño canónico es Ancho × Alto cm del elemento. */
+export const STAGE_PLOT_SOLOIST_TYPES = new Set([
+  "male_soloist",
+  "female_soloist",
+]);
+
+/**
+ * Tamaño fijo de catálogo (no el scale del ítem en el plano).
+ * @param {string} type
+ */
+export function stagePlotItemUsesCatalogBox(type) {
+  return STAGE_PLOT_SOLOIST_TYPES.has(String(type || ""));
+}
+
 /** @param {string} type */
 export function getStagePlotCatalogItem(type) {
   if (!type) return null;
-  return BY_TYPE.get(type) || dynamicByType.get(type) || null;
+  const staticItem = BY_TYPE.get(type) || null;
+  const dynamic = dynamicByType.get(type) || null;
+  if (staticItem && dynamic && stagePlotItemUsesCatalogBox(type)) {
+    return {
+      ...staticItem,
+      w: dynamic.w,
+      h: dynamic.h,
+      elementoId: dynamic.elementoId ?? null,
+    };
+  }
+  return staticItem || dynamic || null;
 }
 
 /** @param {string} type */
@@ -260,6 +290,7 @@ export function stagePlotCategories() {
     map.get(item.category).push(item);
   }
   for (const item of dynamicByType.values()) {
+    if (BY_TYPE.has(item.type)) continue;
     const category = item.category || "Elementos";
     if (!map.has(category)) {
       map.set(category, []);

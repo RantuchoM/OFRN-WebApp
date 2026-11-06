@@ -8,10 +8,11 @@ Proporcionar un componente estandarizado que permita exportar datos tabulares re
 
 1. El usuario hace clic en el botón de descarga.
 2. Se abre un modal central que permite:
-   - Seleccionar **Formato**: Excel o PDF.
-   - Seleccionar **Orientación** (solo para PDF): Vertical u Horizontal.
-   - Activar/desactivar columnas mediante una lista de checkboxes.
-3. El usuario pulsa el botón **"Confirmar exportación"** y se genera el archivo.
+   - Seleccionar **Formato**: Excel, PDF o, si la vista lo habilita, **Cuadro de firmas**.
+   - Seleccionar **Orientación** (solo para PDF tabular): Vertical u Horizontal.
+   - Activar/desactivar columnas mediante una lista de checkboxes (Excel y PDF tabular).
+   - En **Cuadro de firmas**: PDF, Word en blanco o Word + nota (sube un `.docx` y agrega las firmas al final).
+3. El usuario pulsa **"Confirmar exportación"** (o **"Elegir nota Word"**) y se genera el archivo.
 
 ## Definición de Columnas (contrato de props)
 
@@ -227,8 +228,17 @@ Uso del componente:
   columns={exportColumnsRoster}
   fileName={gira?.nomenclador || gira?.nombre_gira || "gira_roster"}
   orientation="l"
+  onExportCuadroFirmas={handleExportCuadroFirmasRoster}
+  cuadroFirmasHint="Usa la nómina visible, sin ausentes ni vacantes. El encargado va primero."
 />
 ```
+
+### Cuadro de firmas (roster)
+
+- [x] La flecha negra del roster ofrece **Cuadro de firmas** además de Excel y PDF.
+- [x] Opciones: **PDF**, **Word en blanco**, **Word + nota** (mismo contrato que destaques y transportes: `parseCuadroFirmasExportOptions`).
+- [x] La nómina es la lista visible del roster, sin `estado === 'ausente'` y sin vacantes (`es_simulacion`). El encargado (id 1458710) va primero, aunque no esté en el filtro.
+- [x] Músicos y grilla universal no muestran el formato: solo si la vista pasa `onExportCuadroFirmas`.
 
 ## Notas de Uso
 

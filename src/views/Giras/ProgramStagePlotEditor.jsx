@@ -68,6 +68,7 @@ import {
   stagePlotItemHasInstrumentFootprint,
   stagePlotItemIsElemento,
   stagePlotItemIsTarima,
+  stagePlotItemUsesCatalogBox,
   stagePlotItemShowsChairSquare,
   stagePlotTarimaShape,
 } from "../../utils/stagePlotCatalog";
@@ -83,6 +84,7 @@ import {
   getStagePlotImageNaturalSize,
   getStagePlotItemVisualBounds,
   formatStagePlotItemRealSize,
+  getStagePlotDbDefaultSizeCm,
   getStagePlotDbRasterUrl,
   loadStagePlotIconImage,
   resolveStagePlotIconSvgMarkup,
@@ -2436,6 +2438,7 @@ const ItemShape = React.memo(function ItemShape({
   const isText = item.type === "text";
   const isTarima = stagePlotItemIsTarima(item.type);
   const hasFootprint = stagePlotItemHasInstrumentFootprint(item.type);
+  const usesCatalogBox = stagePlotItemUsesCatalogBox(item.type);
   const footprint = useMemo(
     () => (hasFootprint ? stagePlotInstrumentFootprintLayout() : null),
     [hasFootprint],
@@ -2505,8 +2508,8 @@ const ItemShape = React.memo(function ItemShape({
     : hasFootprint
       ? stagePlotInstrumentCatalogScales(item.type)
       : null;
-  const scaleX = axisScales ? axisScales.scaleX : itemScale;
-  const scaleY = axisScales ? axisScales.scaleY : itemScale;
+  const scaleX = usesCatalogBox ? 1 : axisScales ? axisScales.scaleX : itemScale;
+  const scaleY = usesCatalogBox ? 1 : axisScales ? axisScales.scaleY : itemScale;
   const showChairSquare =
     chairSquaresOpacity > 0 && stagePlotItemShowsChairSquare(item.type);
   const chairSide = showChairSquare
@@ -2593,16 +2596,21 @@ const ItemShape = React.memo(function ItemShape({
   }, [isTarima, boundsW, boundsH]);
 
   useLayoutEffect(() => {
-    if (!hasFootprint) return;
+    if (!hasFootprint && !usesCatalogBox) return;
     const node = groupRef.current;
     if (!node) return;
     // Re-leer catálogo en el effect: no confiar solo en scaleX/Y del render
     // (memo / props stale). Epoch o dims del tipo deben re-aplicar a Konva.
-    const catalog = stagePlotInstrumentCatalogScales(item.type);
-    node.scaleX(catalog.scaleX);
-    node.scaleY(catalog.scaleY);
+    if (usesCatalogBox) {
+      node.scaleX(1);
+      node.scaleY(1);
+    } else {
+      const catalog = stagePlotInstrumentCatalogScales(item.type);
+      node.scaleX(catalog.scaleX);
+      node.scaleY(catalog.scaleY);
+    }
     node.getLayer()?.batchDraw();
-  }, [hasFootprint, item.type, scaleX, scaleY, catalogEpoch]);
+  }, [hasFootprint, usesCatalogBox, item.type, scaleX, scaleY, catalogEpoch]);
 
   useLayoutEffect(() => {
     if (!selected) return;
@@ -2665,8 +2673,8 @@ const ItemShape = React.memo(function ItemShape({
         onMouseEnter?.(item, e, {
           boundsW,
           boundsH,
-          scaleX: isTarima || hasFootprint ? scaleX : itemScale,
-          scaleY: isTarima || hasFootprint ? scaleY : itemScale,
+          scaleX: isTarima || hasFootprint || usesCatalogBox ? scaleX : itemScale,
+          scaleY: isTarima || hasFootprint || usesCatalogBox ? scaleY : itemScale,
         });
         if (draggable) onWrapCursor?.("move");
       }}
@@ -2690,11 +2698,16 @@ const ItemShape = React.memo(function ItemShape({
       }}
       onTransformEnd={(e) => {
         const node = e.target;
-        if (hasFootprint) {
+        if (hasFootprint || usesCatalogBox) {
           // Tamaño fijo desde catálogo: restaurar scales y solo persistir pose.
-          const catalog = stagePlotInstrumentCatalogScales(item.type);
-          node.scaleX(catalog.scaleX);
-          node.scaleY(catalog.scaleY);
+          if (usesCatalogBox) {
+            node.scaleX(1);
+            node.scaleY(1);
+          } else {
+            const catalog = stagePlotInstrumentCatalogScales(item.type);
+            node.scaleX(catalog.scaleX);
+            node.scaleY(catalog.scaleY);
+          }
           onTransformEnd(item.id, {
             x: node.x(),
             y: node.y(),
@@ -3888,14 +3901,24 @@ export default function ProgramStagePlot({
   const syncAllFootprintScalesFromCatalog = useCallback(() => {
     const items = payloadRef.current?.items || [];
     for (const item of items) {
-      if (!stagePlotItemHasInstrumentFootprint(item?.type)) continue;
+      if (
+        !stagePlotItemHasInstrumentFootprint(item?.type) &&
+        !stagePlotItemUsesCatalogBox(item?.type)
+      ) {
+        continue;
+      }
       const node = resolveItemNode(item.id);
       if (!node) continue;
-      const { scaleX: sx, scaleY: sy } = stagePlotInstrumentCatalogScales(
-        item.type,
-      );
-      node.scaleX(sx);
-      node.scaleY(sy);
+      if (stagePlotItemUsesCatalogBox(item.type)) {
+        node.scaleX(1);
+        node.scaleY(1);
+      } else {
+        const { scaleX: sx, scaleY: sy } = stagePlotInstrumentCatalogScales(
+          item.type,
+        );
+        node.scaleX(sx);
+        node.scaleY(sy);
+      }
     }
     const tr = transformerRef.current;
     if (tr?.nodes()?.length) {
@@ -3947,7 +3970,11 @@ export default function ProgramStagePlot({
       const mixed = selectedFormationId != null;
       const hasFixedInstrument = selectedIds.some((id) => {
         const it = payloadRef.current?.items?.find((i) => i.id === id);
-        return it && stagePlotItemHasInstrumentFootprint(it.type);
+        return (
+          it &&
+          (stagePlotItemHasInstrumentFootprint(it.type) ||
+            stagePlotItemUsesCatalogBox(it.type))
+        );
       });
       tr.resizeEnabled(!mixed && !hasFixedInstrument);
       tr.rotateEnabled(!mixed);
@@ -4138,12 +4165,22 @@ export default function ProgramStagePlot({
     selected && stagePlotItemHasInstrumentFootprint(selected.type)
       ? stagePlotInstrumentDimensionsCm(selected)
       : null;
-  const selectionHasFixedInstrument = selectedItems.some((it) =>
-    stagePlotItemHasInstrumentFootprint(it.type),
+  const selectedSoloistDims =
+    selected && stagePlotItemUsesCatalogBox(selected.type)
+      ? getStagePlotDbDefaultSizeCm(selected.type)
+      : null;
+  const selectionHasFixedInstrument = selectedItems.some(
+    (it) =>
+      stagePlotItemHasInstrumentFootprint(it.type) ||
+      stagePlotItemUsesCatalogBox(it.type),
   );
   const showInstrumentScaleControls =
     selectedItems.length > 0 &&
-    !selectedItems.every((it) => stagePlotItemHasInstrumentFootprint(it.type));
+    !selectedItems.every(
+      (it) =>
+        stagePlotItemHasInstrumentFootprint(it.type) ||
+        stagePlotItemUsesCatalogBox(it.type),
+    );
   const selectedFormation = useMemo(
     () =>
       (payload.formations || []).find((f) => f.id === selectedFormationId) ||
@@ -6370,7 +6407,12 @@ export default function ProgramStagePlot({
   const scaleSelected = (factor) => {
     if (!selectedItems.length || !canEdit) return;
     updateSelectedMany((it) => {
-      if (stagePlotItemHasInstrumentFootprint(it.type)) return {};
+      if (
+        stagePlotItemHasInstrumentFootprint(it.type) ||
+        stagePlotItemUsesCatalogBox(it.type)
+      ) {
+        return {};
+      }
       if (stagePlotItemIsTarima(it.type)) {
         const { scaleX: sx0, scaleY: sy0 } = stagePlotItemAxisScales(it);
         const sx = Math.max(
@@ -8927,6 +8969,13 @@ export default function ProgramStagePlot({
                   >
                     {selectedInstrumentDims.widthCm} ×{" "}
                     {selectedInstrumentDims.depthCm} cm
+                  </span>
+                ) : selectedSoloistDims ? (
+                  <span
+                    className="flex h-7 shrink-0 items-center rounded border border-slate-200 bg-slate-50 px-2 text-[11px] tabular-nums text-slate-600"
+                    title="Tamaño del catálogo (Editor → solista). No redimensionable en el lienzo."
+                  >
+                    {selectedSoloistDims.widthCm} × {selectedSoloistDims.heightCm} cm
                   </span>
                 ) : null}
                 <button

@@ -185,10 +185,16 @@ export default function RosterTableRow({
             type="checkbox"
             className="rounded border-slate-300 text-fixed-indigo-600 focus:ring-fixed-indigo-500 cursor-pointer shrink-0"
             checked={isSelected}
-            onChange={() => {}}
-            onClick={(e) => {
-              e.preventDefault();
-              onToggleSelection(m.id, idx, e.shiftKey);
+            onMouseDown={(e) => {
+              if (e.shiftKey) e.preventDefault();
+            }}
+            onChange={(e) => {
+              onToggleSelection(
+                m.id,
+                idx,
+                Boolean(e.nativeEvent?.shiftKey),
+                e.target.checked,
+              );
             }}
           />
         </div>

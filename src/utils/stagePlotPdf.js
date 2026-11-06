@@ -4,6 +4,7 @@ import {
   getStagePlotCatalogItem,
   stagePlotItemHasInstrumentFootprint,
   stagePlotItemIsTarima,
+  stagePlotItemUsesCatalogBox,
   stagePlotItemShowsChairSquare,
   stagePlotTarimaShape,
 } from "./stagePlotCatalog";
@@ -819,7 +820,11 @@ async function drawStageItemsOnPdf(doc, payload, ox, oy, scale) {
     .chairSquaresOpacity;
   for (const item of sorted) {
     const cat = getStagePlotCatalogItem(item.type);
-    const itemScale = item.scale > 0 ? item.scale : 1;
+    const itemScale = stagePlotItemUsesCatalogBox(item.type)
+      ? 1
+      : item.scale > 0
+        ? item.scale
+        : 1;
     const cx = ox + item.x * scale;
     const cy = oy + item.y * scale;
     const hex = cat?.color || "#334155";
@@ -1038,7 +1043,11 @@ async function drawStageItemsOnCanvas(ctx, payload, ox, oy, scale) {
     .chairSquaresOpacity;
   for (const item of sorted) {
     const cat = getStagePlotCatalogItem(item.type);
-    const itemScale = item.scale > 0 ? item.scale : 1;
+    const itemScale = stagePlotItemUsesCatalogBox(item.type)
+      ? 1
+      : item.scale > 0
+        ? item.scale
+        : 1;
     const cx = ox + item.x * scale;
     const cy = oy + item.y * scale;
     const hex = cat?.color || "#334155";

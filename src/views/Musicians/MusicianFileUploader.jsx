@@ -16,7 +16,7 @@ import { useConfirmDialog } from "../../hooks/useConfirmDialog";
  * Uploader con drag & drop para documentos del músico (DNI, CUIL, CBU, firma, etc.).
  * Usa MusicianFormContext para fieldStatuses, uploadToSupabase, deleteOldFile, handleStartCrop, updateField, handleClipboardClick.
  */
-export default function MusicianFileUploader({ label, field, value }) {
+export default function MusicianFileUploader({ label, field, value, required = false }) {
   const { confirm, dialog } = useConfirmDialog();
   const {
     fieldStatuses,
@@ -135,7 +135,7 @@ export default function MusicianFileUploader({ label, field, value }) {
         onDragOver={handleDrag}
         onDragLeave={handleDrag}
         onDrop={handleDrop}
-        className={`relative h-40 rounded-3xl border-2 transition-all overflow-hidden group ${isDragging ? "border-indigo-500 bg-indigo-50/50 scale-[1.02] shadow-lg" : ""} ${status === "saving" ? "border-orange-400 ring-4 ring-orange-50" : status === "saved" ? "border-emerald-400 ring-4 ring-emerald-50" : value ? "border-emerald-100 bg-white" : "border-dashed border-slate-200 bg-slate-50 hover:border-indigo-300"}`}
+        className={`relative h-40 rounded-3xl border-2 transition-all overflow-hidden group ${isDragging ? "border-indigo-500 bg-indigo-50/50 scale-[1.02] shadow-lg" : ""} ${status === "saving" ? "border-orange-400 ring-4 ring-orange-50" : status === "saved" ? "border-emerald-400 ring-4 ring-emerald-50" : value ? "border-emerald-100 bg-white" : required ? "border-orange-400 bg-orange-50/80" : "border-dashed border-slate-200 bg-slate-50 hover:border-indigo-300"}`}
       >
         {value ? (
           <>

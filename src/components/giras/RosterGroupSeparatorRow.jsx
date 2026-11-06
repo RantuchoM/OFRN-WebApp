@@ -37,7 +37,7 @@ export default function RosterGroupSeparatorRow({
           className="rounded border-slate-300 text-fixed-indigo-600 focus:ring-fixed-indigo-500 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
           checked={checked}
           disabled={disabled}
-          onChange={() => onToggle?.()}
+          onChange={(e) => onToggle?.(e.target.checked)}
           aria-label={`Seleccionar ${label}`}
         />
       </td>

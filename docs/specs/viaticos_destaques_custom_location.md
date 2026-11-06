@@ -51,6 +51,7 @@ Permitir que el usuario defina un "Lugar de Comisión" específico para el proce
 - [x] El cuadro puede descargarse también como **Word (.docx)** en una hoja A4, reutilizando el mismo cálculo de columnas/filas, proporciones y orden de personas del PDF.
 - [x] En el DOCX, cada recuadro (borde + firma + DNI + aclaración) se exporta como **una sola imagen** por celda, evitando que Word separe firma y texto al editar.
 - [x] Un único botón **Cuadro de firmas** ofrece elegir **PDF** o **Word** (destaques y transportes).
+- [x] **Roster (2026-11-06):** la flecha negra de exportación (Excel / PDF) también ofrece cuadro de firmas con PDF, Word en blanco y Word + nota. Usa la nómina visible, sin ausentes ni vacantes; el encargado va primero.
 - [x] **Word + nota:** una sola opción para subir un `.docx`; las firmas se insertan al final del contenido (antes del `sectPr` del documento), con 2 líneas en blanco y sin salto de página forzado. Si Word repagina solo porque no entra el cuadro, queda en la hoja siguiente.
 - [x] Carga de firmas para Word/PDF: timeout 25 s, hasta 3 reintentos, descargas en paralelo, acepta `application/octet-stream` (Storage) y log en consola si una firma falla (`Cuadro de firmas: …`).
 - [x] **Márgenes de hoja (2026-09-25):** PDF y Word standalone usan **12 mm** en los cuatro lados (rango de impresión 10–15 mm). La grilla se calcula sobre el área útil para no achicar nombres. **Word + nota** no suma margen extra de grilla: usa los márgenes del `.docx` host.

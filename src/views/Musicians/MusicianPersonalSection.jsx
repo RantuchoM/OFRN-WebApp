@@ -347,6 +347,11 @@ export default function MusicianPersonalSection() {
                     value={formData.domicilio || ""}
                     onChange={(e) => updateField("domicilio", e.target.value)}
                   />
+                  {!(formData.domicilio || "").trim() && (
+                    <p className="text-[10px] font-bold text-orange-600 mt-1">
+                      Falta el domicilio para el expediente.
+                    </p>
+                  )}
                 </div>
                 <div className="relative z-50">
                   <label className={labelClass}>Localidad de residencia</label>

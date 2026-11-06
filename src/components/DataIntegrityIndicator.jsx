@@ -18,6 +18,7 @@ export const ROSTER_DOC_FIELDS = [
   { key: "fecha_nac", label: "Fecha Nac." },
   { key: "dni", label: "DNI" },
   { key: "cuil", label: "CUIL" },
+  { key: "domicilio", label: "Domicilio" },
   { key: "telefono", label: "Teléfono" },
   { key: "mail", label: "Mail" },
   { key: "alimentacion", label: "Alimentación" },

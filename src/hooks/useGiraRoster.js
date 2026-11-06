@@ -15,7 +15,7 @@ import { fetchGiraSegmentosBundle } from "../services/giraSegmentosService";
 import { resolvePersonIsLocal } from "../utils/giraTramos";
 import { cubreALabelFromRef, normalizeFuncionGira } from "../utils/funcionGira";
 
-const INTEGRANTES_SELECT_FULL = `id, nombre, apellido, nombre_preferencia, apellido_preferencia, fecha_alta, fecha_baja, condicion, telefono, mail, alimentacion, es_simulacion, id_instr,
+const INTEGRANTES_SELECT_FULL = `id, nombre, apellido, nombre_preferencia, apellido_preferencia, fecha_alta, fecha_baja, condicion, telefono, mail, domicilio, alimentacion, es_simulacion, id_instr,
            id_localidad, id_loc_viaticos, id_domicilio_laboral, documentacion, docred, firma, nota_interna, cargo, jornada, motivo,
            dni, fecha_nac, genero, cuil,
            link_dni_img, link_cuil, link_cbu_img, link_declaracion, link_carnet,

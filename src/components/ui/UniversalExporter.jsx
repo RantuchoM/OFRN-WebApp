@@ -1,26 +1,63 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { IconDownload, IconCheck } from "./Icons";
+import {
+  IconDownload,
+  IconCheck,
+  IconFirma,
+  IconFileText,
+  IconUpload,
+} from "./Icons";
 import { generateExcel, generatePDF } from "../../utils/universalExportLogic";
+
+const FIRMAS_OPTIONS = [
+  {
+    id: "pdf",
+    label: "PDF",
+    hint: "A4 aplanado",
+    icon: IconFirma,
+  },
+  {
+    id: "docx",
+    label: "Word en blanco",
+    hint: "Solo cuadro de firmas",
+    icon: IconFileText,
+  },
+  {
+    id: "docx-merge",
+    label: "Word + nota",
+    hint: "Subir .docx y agregar firmas al final",
+    icon: IconUpload,
+  },
+];
 
 /**
  * Configurador de exportación universal (Excel / PDF) con selector de columnas.
+ * Si se pasa `onExportCuadroFirmas`, el mismo modal ofrece cuadro de firmas
+ * (PDF, Word en blanco, Word + nota).
  *
  * Props:
  * - data: array de objetos ya filtrados/ordenados.
  * - columns: [{ header, key, width, type, defaultSelected? }]
  * - fileName: nombre base del archivo (sin extensión).
+ * - onExportCuadroFirmas?: (formatOrOptions) => Promise<void>
+ * - cuadroFirmasHint?: string
  */
 export default function UniversalExporter({
   data,
   columns,
   fileName,
+  onExportCuadroFirmas = null,
+  cuadroFirmasHint = "La nómina la define la vista que abre este exportador.",
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
-  const [format, setFormat] = useState("excel"); // 'excel' | 'pdf'
+  const [format, setFormat] = useState("excel"); // 'excel' | 'pdf' | 'firmas'
+  const [firmasFormat, setFirmasFormat] = useState("pdf");
   const [pdfOrientation, setPdfOrientation] = useState("p"); // 'p' | 'l'
   const [selectedKeys, setSelectedKeys] = useState(new Set());
+  const firmasFileRef = useRef(null);
+
+  const firmasEnabled = typeof onExportCuadroFirmas === "function";
 
   const hasData = Array.isArray(data) && data.length > 0;
   const safeColumns = Array.isArray(columns) ? columns : [];
@@ -62,7 +99,41 @@ export default function UniversalExporter({
   const getSelectedColumns = () =>
     safeColumns.filter((c) => selectedKeys.has(c.key));
 
+  const runCuadroFirmas = async (formatOrOptions) => {
+    if (!firmasEnabled) return;
+    setIsExporting(true);
+    try {
+      await onExportCuadroFirmas(formatOrOptions);
+      setIsOpen(false);
+    } catch (err) {
+      console.error("Cuadro de firmas:", err);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleFirmasFile = (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (!/\.docx$/i.test(file.name)) {
+      alert("Seleccioná un archivo Word (.docx).");
+      return;
+    }
+    runCuadroFirmas({ format: "docx", hostDocxFile: file });
+  };
+
   const handleConfirm = async () => {
+    if (format === "firmas") {
+      if (!firmasEnabled || isExporting) return;
+      if (firmasFormat === "docx-merge") {
+        firmasFileRef.current?.click();
+        return;
+      }
+      await runCuadroFirmas(firmasFormat);
+      return;
+    }
+
     if (!hasData) return;
     const cols = getSelectedColumns();
     if (cols.length === 0) return;
@@ -103,7 +174,9 @@ export default function UniversalExporter({
                     Configurar Exportación
                   </h2>
                   <p className="text-xs text-slate-500 mt-1">
-                    Elegí formato, orientación y columnas a incluir.
+                    {format === "firmas"
+                      ? "Elegí cómo armar el cuadro de firmas."
+                      : "Elegí formato, orientación y columnas a incluir."}
                   </p>
                 </div>
                 <button
@@ -144,8 +217,78 @@ export default function UniversalExporter({
                     >
                       PDF
                     </button>
+                    {firmasEnabled && (
+                      <button
+                        type="button"
+                        onClick={() => setFormat("firmas")}
+                        className={`px-3 py-1 rounded-full font-semibold transition-colors ${
+                          format === "firmas"
+                            ? "bg-slate-900 text-white"
+                            : "text-slate-600 hover:bg-white"
+                        }`}
+                      >
+                        Cuadro de firmas
+                      </button>
+                    )}
                   </div>
                 </div>
+
+                {format === "firmas" && (
+                  <div>
+                    <p className="text-[11px] font-bold text-slate-500 uppercase mb-1.5">
+                      Cuadro de firmas
+                    </p>
+                    <p className="text-[11px] text-slate-500 mb-2">
+                      {cuadroFirmasHint}
+                    </p>
+                    <div className="space-y-1.5">
+                      {FIRMAS_OPTIONS.map((option) => {
+                        const OptionIcon = option.icon;
+                        const selected = firmasFormat === option.id;
+                        return (
+                          <button
+                            key={option.id}
+                            type="button"
+                            onClick={() => setFirmasFormat(option.id)}
+                            className={`flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm transition-colors ${
+                              selected
+                                ? "border-slate-900 bg-slate-900 text-white"
+                                : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
+                            }`}
+                          >
+                            <OptionIcon
+                              size={16}
+                              className={
+                                selected
+                                  ? "shrink-0 text-white"
+                                  : "shrink-0 text-indigo-600"
+                              }
+                            />
+                            <span className="flex min-w-0 flex-col">
+                              <span className="font-bold leading-tight">
+                                {option.label}
+                              </span>
+                              <span
+                                className={`text-[10px] ${
+                                  selected ? "text-slate-300" : "text-slate-500"
+                                }`}
+                              >
+                                {option.hint}
+                              </span>
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <input
+                      ref={firmasFileRef}
+                      type="file"
+                      accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                      className="hidden"
+                      onChange={handleFirmasFile}
+                    />
+                  </div>
+                )}
 
                 {/* Orientación solo para PDF */}
                 {format === "pdf" && (
@@ -181,6 +324,7 @@ export default function UniversalExporter({
                 )}
 
                 {/* Columnas */}
+                {format !== "firmas" && (
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
                     <p className="text-[11px] font-bold text-slate-500 uppercase">
@@ -224,22 +368,33 @@ export default function UniversalExporter({
                     )}
                   </div>
                 </div>
+                )}
               </div>
 
               <div className="px-5 py-3 border-t border-slate-100 flex items-center justify-between bg-slate-50/80">
                 <span className="text-[11px] text-slate-500">
-                  {selectedKeys.size} columna(s) seleccionada(s)
+                  {format === "firmas"
+                    ? FIRMAS_OPTIONS.find((option) => option.id === firmasFormat)
+                        ?.label
+                    : `${selectedKeys.size} columna(s) seleccionada(s)`}
                 </span>
                 <button
                   type="button"
                   onClick={handleConfirm}
-                  disabled={!hasData || selectedKeys.size === 0 || isExporting}
+                  disabled={
+                    isExporting ||
+                    (format === "firmas"
+                      ? !firmasEnabled
+                      : !hasData || selectedKeys.size === 0)
+                  }
                   className="inline-flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-bold bg-slate-900 text-white hover:bg-black disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
                 >
                   {isExporting && (
                     <IconCheck size={12} className="animate-pulse text-emerald-300" />
                   )}
-                  Confirmar exportación
+                  {format === "firmas" && firmasFormat === "docx-merge"
+                    ? "Elegir nota Word"
+                    : "Confirmar exportación"}
                 </button>
               </div>
             </div>

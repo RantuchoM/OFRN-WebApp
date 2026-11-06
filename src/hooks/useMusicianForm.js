@@ -2,6 +2,12 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { musicianSchema } from "../schemas/musicianSchema";
+import {
+  affectsExpediente,
+  isExpedienteFieldEmpty,
+  isExpedienteFieldRequired,
+  missingExpedienteLabels,
+} from "../utils/expedienteRequired";
 import { sanitizeFilename } from "../utils/sanitize";
 import { parseSupabasePublicStorageUrl } from "../utils/supabaseStorage";
 import {
@@ -247,9 +253,17 @@ export function useMusicianForm(musician, supabase, onSave) {
           inputClass +
           " border-emerald-600 ring-4 ring-emerald-200 bg-emerald-100 text-emerald-800 font-medium"
         );
+      if (
+        isExpedienteFieldRequired(fieldName) &&
+        isExpedienteFieldEmpty(formData, fieldName)
+      ) {
+        return (
+          inputClass + " border-orange-400 bg-orange-50/80 ring-2 ring-orange-100"
+        );
+      }
       return inputClass;
     },
-    [fieldStatuses, inputClass],
+    [fieldStatuses, inputClass, formData],
   );
 
   const extractPathFromUrl = (url) => {
@@ -291,16 +305,7 @@ export function useMusicianForm(musician, supabase, onSave) {
           () => setFieldStatuses((prev) => ({ ...prev, [field]: "idle" })),
           2000,
         );
-        const camposCriticos = [
-          "domicilio",
-          "id_domicilio_laboral",
-          "link_cbu_img",
-          "link_dni_img",
-          "link_cuil",
-          "dni",
-          "cuil",
-        ];
-        if (camposCriticos.includes(field)) {
+        if (affectsExpediente(field)) {
           supabase.functions
             .invoke("manage-drive", {
               body: { action: "assemble_full_pack", musicianId: id },
@@ -553,8 +558,7 @@ export function useMusicianForm(musician, supabase, onSave) {
           () => setFieldStatuses((prev) => ({ ...prev, [field]: "idle" })),
           2000,
         );
-        const camposCriticosDocs = ["link_cbu_img", "link_dni_img", "link_cuil"];
-        if (camposCriticosDocs.includes(field)) {
+        if (affectsExpediente(field)) {
           const musicianId = getValues("id");
           if (musicianId) {
             supabase.functions
@@ -742,12 +746,7 @@ export function useMusicianForm(musician, supabase, onSave) {
       return;
     }
 
-    const missingFields = [];
-    if (!(vals.domicilio || "").trim()) missingFields.push("Domicilio");
-    if (!vals.link_dni_img) missingFields.push("DNI");
-    if (!vals.link_cuil) missingFields.push("CUIL");
-    if (!vals.link_cbu_img) missingFields.push("CBU");
-    if (!vals.firma) missingFields.push("Firma");
+    const missingFields = missingExpedienteLabels(vals);
 
     if (missingFields.length > 0) {
       toast.error(

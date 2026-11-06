@@ -31,6 +31,8 @@ export const STAGE_PLOT_MOBILE_ESCENARIO_TYPES = [
   "chair",
   "banqueta",
   "conductor",
+  "male_soloist",
+  "female_soloist",
   "tarima_rect",
   "tarima_oval",
 ];

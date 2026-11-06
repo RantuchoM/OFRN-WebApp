@@ -39,7 +39,8 @@ Permitir dar de alta varias personas desde un Excel en el roster de gira: planti
 ## Indicador de datos faltantes (Roster)
 - En `GiraRoster`, mismo patrón visual que Transportes (`DataIntegrityIndicator`).
 - Personas reales solamente (`!es_simulacion`); las vacantes no cuentan.
-- Campos chequeados (`ROSTER_DOC_FIELDS`): Género, Fecha Nac., DNI, CUIL, Teléfono, Mail, Alimentación, Instrumento.
+- Campos chequeados (`ROSTER_DOC_FIELDS`): Género, Fecha Nac., DNI, CUIL, Domicilio, Teléfono, Mail, Alimentación, Instrumento.
+- `domicilio` sale en `INTEGRANTES_SELECT_FULL` (`useGiraRoster`). Sin esa columna el indicador no puede ver el texto y no avisa.
 - Triángulo ámbar junto al nombre en cada fila (`RosterTableRow`); tooltip en portal arriba del icono (`z-[110]`) con lo faltante (`getMissingDocLabels`).
 - Tooltip del indicador global: portal + bridge de hover (`h-2`).
 
