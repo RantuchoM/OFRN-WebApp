@@ -78,6 +78,7 @@ import {
   partitionInstrumentosByStagePlotIcon,
   reloadStagePlotInstrumentIcons,
   resolveInstrumentStagePlotType,
+  saveInstrumentosTimpaniFootprints,
 } from "../../services/stagePlotInstrumentIconsService";
 import {
   STAGE_PLOT_SILHOUETTE_VIEWBOX,
@@ -94,6 +95,7 @@ import {
   loadStagePlotIconImage,
   resolveStagePlotIconSvgMarkup,
   ensureStagePlotDbIconsLoaded,
+  setStagePlotTimpaniSizeOverrides,
 } from "../../utils/stagePlotIconAssets";
 import {
   STAGE_PLOT_DEFAULT_HEIGHT_CM,
@@ -113,8 +115,16 @@ import {
   stagePlotChairSquareSide,
   stagePlotInstrumentFootprintLayout,
   stagePlotInstrumentDimensionsCm,
-  stagePlotInstrumentCatalogScales,
+  stagePlotInstrumentRenderScales,
   stagePlotItemAxisScales,
+  STAGE_PLOT_TIMPANI_SIZES,
+  STAGE_PLOT_TIMPANI_SIZE_DEFAULT,
+  STAGE_PLOT_TIMPANI_LABEL_FONT_RATIO,
+  normalizeTimpaniSize,
+  timpaniHeadLocalOffsetY,
+  parseStagePlotTimpaniSizesJson,
+  stagePlotTimpaniFootprintCm,
+  stagePlotTimpaniSizesJson,
   STAGE_PLOT_CM_TO_PX,
   STAGE_PLOT_BG_FILL,
   STAGE_PLOT_BG_STROKE,
@@ -145,6 +155,7 @@ import {
   createStagePlotItem,
   deriveStagePlotChannels,
   getStagePlotTextLayout,
+  stagePlotTimpaniLabelForSize,
   normalizeStagePlotPayload,
   normalizeStagePlotRadialLines,
   stagePlotDownstageCenterResizeOffset,
@@ -431,9 +442,7 @@ function getStagePlotItemHalfExtents(item) {
     halfH = (layout.textH * itemScale) / 2;
   } else if (stagePlotItemHasInstrumentFootprint(item.type)) {
     const fp = stagePlotInstrumentFootprintLayout();
-    const { scaleX: sx, scaleY: sy } = stagePlotInstrumentCatalogScales(
-      item.type,
-    );
+    const { scaleX: sx, scaleY: sy } = stagePlotInstrumentRenderScales(item);
     halfW = (fp.widthPx * sx) / 2;
     halfH = (fp.depthPx * sy) / 2;
   } else if (stagePlotItemIsTarima(item.type)) {
@@ -1525,6 +1534,8 @@ function buildStagePlotItemTooltipText(item, visual = null) {
   if (stagePlotItemIsTarima(item.type)) {
     const dims = stagePlotTarimaDimensionsCm(item);
     size = `Ancho ${dims.widthCm} × Profundo ${dims.depthCm} cm`;
+  } else if (item.type === "timpani") {
+    size = `Parche ${normalizeTimpaniSize(item.timpaniSize)}"`;
   } else if (stagePlotItemHasInstrumentFootprint(item.type)) {
     const dims = stagePlotInstrumentDimensionsCm(item);
     size = `Ancho ${dims.widthCm} × Profundo ${dims.depthCm} cm`;
@@ -2051,6 +2062,19 @@ function parseStagePlotTypeCm(raw) {
   return Math.round(n * 10) / 10;
 }
 
+/** Borrador Ancho×Profundo de las cuatro medidas, desde la huella en memoria. */
+function timpaniFootprintFieldsFromCatalog() {
+  const out = {};
+  for (const size of STAGE_PLOT_TIMPANI_SIZES) {
+    const dims = stagePlotTimpaniFootprintCm(size);
+    out[size] = {
+      width: formatStagePlotTypeCm(dims.widthCm),
+      height: formatStagePlotTypeCm(dims.heightCm),
+    };
+  }
+  return out;
+}
+
 /** instrument | elemento | null. Solo tipos cuyo tamaño vive en el catálogo. */
 function stagePlotTypeSizeKind(type) {
   if (stagePlotItemHasInstrumentFootprint(type)) return "instrument";
@@ -2102,6 +2126,9 @@ function StagePlotTypeSizeModal({
   const draft = type ? stagePlotTypeSizeDraft(type) : null;
   const [width, setWidth] = useState(draft?.width || "");
   const [height, setHeight] = useState(draft?.height || "");
+  const [timpaniFields, setTimpaniFields] = useState(() =>
+    type === "timpani" ? timpaniFootprintFieldsFromCatalog() : null,
+  );
   const [saving, setSaving] = useState(false);
   const [loadedType, setLoadedType] = useState(type);
   const widthRef = useRef(null);
@@ -2113,12 +2140,64 @@ function StagePlotTypeSizeModal({
     setLoadedType(type);
     setWidth(next?.width || "");
     setHeight(next?.height || "");
+    setTimpaniFields(type === "timpani" ? timpaniFootprintFieldsFromCatalog() : null);
     setSaving(false);
   }
 
   const save = useCallback(async () => {
     const current = type ? stagePlotTypeSizeDraft(type) : null;
     if (!current || !supabase || saving) return;
+    if (current.type === "timpani") {
+      const bySize = {};
+      for (const size of STAGE_PLOT_TIMPANI_SIZES) {
+        const field = timpaniFields?.[size] || {};
+        const sizeW = parseStagePlotTypeCm(field.width);
+        const sizeH = parseStagePlotTypeCm(field.height);
+        if (
+          sizeW == null ||
+          sizeH == null ||
+          sizeW < 10 ||
+          sizeH < 10 ||
+          sizeW > 400 ||
+          sizeH > 400
+        ) {
+          toast.error(`Timbal ${size}: ancho y profundo entre 10 y 400 cm`);
+          return;
+        }
+        bySize[size] = { widthCm: sizeW, heightCm: sizeH };
+      }
+      const unchanged = STAGE_PLOT_TIMPANI_SIZES.every((size) => {
+        const prev = stagePlotTimpaniFootprintCm(size);
+        return (
+          bySize[size].widthCm === parseStagePlotTypeCm(prev.widthCm) &&
+          bySize[size].heightCm === parseStagePlotTypeCm(prev.heightCm)
+        );
+      });
+      if (unchanged) {
+        onCloseRef.current();
+        return;
+      }
+      setSaving(true);
+      try {
+        const sizesJson = stagePlotTimpaniSizesJson(bySize);
+        const base = bySize[STAGE_PLOT_TIMPANI_SIZE_DEFAULT];
+        await saveInstrumentosTimpaniFootprints(supabase, {
+          widthCm: base.widthCm,
+          heightCm: base.heightCm,
+          sizesJson,
+        });
+        await reloadStagePlotInstrumentIcons().catch(() => {});
+        applyStagePlotInstrumentSizeOverride("timpani", base.widthCm, base.heightCm);
+        setStagePlotTimpaniSizeOverrides(parseStagePlotTimpaniSizesJson(sizesJson));
+        toast.success("Tamaño actualizado (aplica a todos los planos)");
+        onSaved?.();
+        onCloseRef.current();
+      } catch (err) {
+        toast.error(err?.message || "No se pudo guardar el tamaño");
+        setSaving(false);
+      }
+      return;
+    }
     const widthCm = parseStagePlotTypeCm(width);
     const heightCm = parseStagePlotTypeCm(height);
     const [minCm, maxCm] = current.kind === "instrument" ? [10, 400] : [5, 800];
@@ -2189,7 +2268,7 @@ function StagePlotTypeSizeModal({
       toast.error(err?.message || "No se pudo guardar el tamaño");
       setSaving(false);
     }
-  }, [type, height, onSaved, saving, supabase, width]);
+  }, [type, height, onSaved, saving, supabase, timpaniFields, width]);
 
   useEffect(() => {
     if (!type) return undefined;
@@ -2221,14 +2300,78 @@ function StagePlotTypeSizeModal({
         role="dialog"
         aria-modal="true"
         aria-label={`Tamaño de ${draft.name}`}
-        className="w-full max-w-[18rem] rounded-lg border border-slate-200 bg-white p-3 shadow-xl"
+        className={`w-full rounded-lg border border-slate-200 bg-white p-3 shadow-xl ${
+          draft.type === "timpani" ? "max-w-sm" : "max-w-[18rem]"
+        }`}
       >
         <h3 className="text-sm font-semibold text-slate-800">{draft.name}</h3>
         <p className="mt-0.5 text-[10px] leading-snug text-slate-400">
-          {draft.kind === "instrument"
-            ? "Ancho × profundo de este tipo. Aplica a todas las figuras, en todos los planos."
-            : "Ancho × alto de este tipo. Aplica a todas las figuras, en todos los planos."}
+          {draft.type === "timpani"
+            ? "Huella de cada medida de parche (32, 29, 26 y 23). Aplica a las figuras de esa medida, en todos los planos."
+            : draft.kind === "instrument"
+              ? "Ancho × profundo de este tipo. Aplica a todas las figuras, en todos los planos."
+              : "Ancho × alto de este tipo. Aplica a todas las figuras, en todos los planos."}
         </p>
+        {draft.type === "timpani" ? (
+          <div className="mt-2.5 space-y-2">
+            {STAGE_PLOT_TIMPANI_SIZES.map((size) => (
+              <div
+                key={size}
+                className="grid grid-cols-[2.25rem_1fr_1fr] items-end gap-1.5"
+              >
+                <span className="pb-1.5 text-xs font-bold tabular-nums text-slate-700">
+                  {size}
+                </span>
+                <label className="block text-[10px] font-medium text-slate-500">
+                  Ancho (cm)
+                  <input
+                    ref={size === STAGE_PLOT_TIMPANI_SIZE_DEFAULT ? widthRef : undefined}
+                    type="text"
+                    inputMode="decimal"
+                    disabled={saving}
+                    value={timpaniFields?.[size]?.width || ""}
+                    onChange={(e) =>
+                      setTimpaniFields((prev) => ({
+                        ...prev,
+                        [size]: { ...prev?.[size], width: e.target.value },
+                      }))
+                    }
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        save();
+                      }
+                    }}
+                    className="mt-0.5 w-full rounded border border-slate-200 bg-white px-2 py-1.5 font-mono text-xs text-slate-700 disabled:bg-slate-100"
+                  />
+                </label>
+                <label className="block text-[10px] font-medium text-slate-500">
+                  Profundo (cm)
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    disabled={saving}
+                    value={timpaniFields?.[size]?.height || ""}
+                    onChange={(e) =>
+                      setTimpaniFields((prev) => ({
+                        ...prev,
+                        [size]: { ...prev?.[size], height: e.target.value },
+                      }))
+                    }
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        save();
+                      }
+                    }}
+                    className="mt-0.5 w-full rounded border border-slate-200 bg-white px-2 py-1.5 font-mono text-xs text-slate-700 disabled:bg-slate-100"
+                  />
+                </label>
+              </div>
+            ))}
+          </div>
+        ) : null}
+        {draft.type === "timpani" ? null : (
         <div className="mt-2.5 grid grid-cols-2 gap-2">
           <label className="block text-[10px] font-medium text-slate-500">
             {draft.widthLabel}
@@ -2266,6 +2409,7 @@ function StagePlotTypeSizeModal({
             />
           </label>
         </div>
+        )}
         <div className="mt-3 flex justify-end gap-2">
           <button
             type="button"
@@ -2826,6 +2970,19 @@ const ItemShape = React.memo(function ItemShape({
   ]);
   const drawW = visualBounds.drawW;
   const drawH = visualBounds.drawH;
+  const timpaniSizeLabel =
+    item.type === "timpani"
+      ? String(normalizeTimpaniSize(item.timpaniSize))
+      : null;
+  const timpaniLabelFont = timpaniSizeLabel
+    ? Math.max(8, drawH * STAGE_PLOT_TIMPANI_LABEL_FONT_RATIO)
+    : 0;
+  const timpaniLabelW = timpaniSizeLabel
+    ? Math.max(drawW * 0.72, timpaniLabelFont * 2.2)
+    : 0;
+  const timpaniLabelH = timpaniSizeLabel
+    ? Math.max(timpaniLabelFont * 1.35, 12)
+    : 0;
   // Hit / Transformer / tooltip: huella completa para instrumentos; si no, caja visual.
   const boundsW = footprint ? footprint.widthPx : drawW;
   const boundsH = footprint ? footprint.depthPx : drawH;
@@ -2833,7 +2990,7 @@ const ItemShape = React.memo(function ItemShape({
   const axisScales = isTarima
     ? stagePlotItemAxisScales(item)
     : hasFootprint
-      ? stagePlotInstrumentCatalogScales(item.type)
+      ? stagePlotInstrumentRenderScales(item)
       : null;
   const scaleX = usesCatalogBox ? 1 : axisScales ? axisScales.scaleX : itemScale;
   const scaleY = usesCatalogBox ? 1 : axisScales ? axisScales.scaleY : itemScale;
@@ -2932,12 +3089,20 @@ const ItemShape = React.memo(function ItemShape({
       node.scaleX(1);
       node.scaleY(1);
     } else {
-      const catalog = stagePlotInstrumentCatalogScales(item.type);
+      const catalog = stagePlotInstrumentRenderScales(item);
       node.scaleX(catalog.scaleX);
       node.scaleY(catalog.scaleY);
     }
     node.getLayer()?.batchDraw();
-  }, [hasFootprint, usesCatalogBox, item.type, scaleX, scaleY, catalogEpoch]);
+  }, [
+    hasFootprint,
+    usesCatalogBox,
+    item.type,
+    item.timpaniSize,
+    scaleX,
+    scaleY,
+    catalogEpoch,
+  ]);
 
   useLayoutEffect(() => {
     if (!selected) return;
@@ -3031,7 +3196,7 @@ const ItemShape = React.memo(function ItemShape({
             node.scaleX(1);
             node.scaleY(1);
           } else {
-            const catalog = stagePlotInstrumentCatalogScales(item.type);
+            const catalog = stagePlotInstrumentRenderScales(item);
             node.scaleX(catalog.scaleX);
             node.scaleY(catalog.scaleY);
           }
@@ -3199,6 +3364,7 @@ const ItemShape = React.memo(function ItemShape({
           wrap="word"
         />
       ) : (
+        <>
         <Group scaleX={item.flipX ? -1 : 1} listening={false}>
           {iconImage && iconNatural?.w && iconNatural?.h ? (
             <KonvaImage
@@ -3241,6 +3407,29 @@ const ItemShape = React.memo(function ItemShape({
             />
           )}
         </Group>
+        {timpaniSizeLabel ? (
+          <Text
+            name="stage-plot-timpani-size"
+            text={timpaniSizeLabel}
+            fontSize={timpaniLabelFont}
+            fontStyle="bold"
+            fill="#111111"
+            stroke="#ffffff"
+            strokeWidth={Math.max(0.6, timpaniLabelFont * 0.14)}
+            fillAfterStrokeEnabled
+            align="center"
+            verticalAlign="middle"
+            width={timpaniLabelW}
+            height={timpaniLabelH}
+            x={0}
+            y={iconOffsetY + timpaniHeadLocalOffsetY(drawH)}
+            offsetX={timpaniLabelW / 2}
+            offsetY={timpaniLabelH / 2}
+            listening={false}
+            perfectDrawEnabled={false}
+          />
+        ) : null}
+        </>
       )}
     </Group>
   );
@@ -3330,7 +3519,7 @@ function FormationPaletteIcon({ kind, size = 18 }) {
   }
 }
 
-function PaletteIcon({ type, color, epoch = 0 }) {
+function PaletteIcon({ type, color, epoch = 0, pixelSize = 22 }) {
   const [src, setSrc] = useState(null);
   const fill = color || "#334155";
   // Tarimas: silueta sync (rect vs elipse) — no fallback cuadrado redondeado.
@@ -3400,7 +3589,8 @@ function PaletteIcon({ type, color, epoch = 0 }) {
       <img
         src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(tarimaSilhouetteHtml)}`}
         alt=""
-        className="h-[22px] w-[22px] shrink-0 object-contain"
+        className="shrink-0 object-contain"
+        style={{ width: pixelSize, height: pixelSize }}
       />
     );
   }
@@ -3408,8 +3598,12 @@ function PaletteIcon({ type, color, epoch = 0 }) {
   if (!src) {
     return (
       <span
-        className="inline-block h-3 w-3 rounded-sm"
-        style={{ background: fill }}
+        className="inline-block rounded-sm"
+        style={{
+          background: fill,
+          width: Math.max(12, pixelSize * 0.45),
+          height: Math.max(12, pixelSize * 0.45),
+        }}
       />
     );
   }
@@ -3417,8 +3611,49 @@ function PaletteIcon({ type, color, epoch = 0 }) {
     <img
       src={src}
       alt=""
-      className="h-[22px] w-[22px] shrink-0 object-contain"
+      className="shrink-0 object-contain"
+      style={{ width: pixelSize, height: pixelSize }}
     />
+  );
+}
+
+/** Paleta: las 4 medidas de timbal juntas, 2×2. El número queda arriba a la izquierda. */
+function TimpaniPaletteGrid({ item, canEdit, catalogEpoch, onPointerDown }) {
+  const basePx = 36;
+  const baseW = stagePlotTimpaniFootprintCm(STAGE_PLOT_TIMPANI_SIZE_DEFAULT).widthCm || 32;
+  return (
+    <div className="mb-1 grid w-full grid-cols-2 gap-1" data-catalog-epoch={catalogEpoch}>
+      {STAGE_PLOT_TIMPANI_SIZES.map((size) => {
+        const widthCm = stagePlotTimpaniFootprintCm(size).widthCm;
+        const ratio = baseW > 0 ? widthCm / baseW : size / 32;
+        const px = Math.max(18, Math.round(basePx * ratio));
+        const entry = {
+          ...item,
+          name: `Timbales ${size}`,
+          timpaniSize: size,
+        };
+        return (
+          <button
+            key={size}
+            type="button"
+            disabled={!canEdit}
+            onPointerDown={(e) => onPointerDown(e, entry)}
+            title={`Timbales ${size} — arrastrar al escenario (o clic = centro)`}
+            className="relative flex h-16 cursor-grab touch-none items-center justify-center rounded border border-slate-200 bg-slate-50 hover:border-indigo-300 hover:bg-indigo-50 active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <span className="pointer-events-none absolute left-1 top-0.5 text-[11px] font-bold leading-none tabular-nums text-slate-800">
+              {size}
+            </span>
+            <PaletteIcon
+              type="timpani"
+              color={item.color}
+              epoch={catalogEpoch}
+              pixelSize={px}
+            />
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
@@ -4285,9 +4520,7 @@ export default function ProgramStagePlot({
         node.scaleX(1);
         node.scaleY(1);
       } else {
-        const { scaleX: sx, scaleY: sy } = stagePlotInstrumentCatalogScales(
-          item.type,
-        );
+        const { scaleX: sx, scaleY: sy } = stagePlotInstrumentRenderScales(item);
         node.scaleX(sx);
         node.scaleY(sy);
       }
@@ -6268,7 +6501,7 @@ export default function ProgramStagePlot({
   }, [tarimaSizeModal, insertTarimaFromInventario]);
 
   const addFromPaletteAt = useCallback(
-    (type, x, y) => {
+    (type, x, y, extra = {}) => {
       if (!canEdit || !type) return;
       const stage = payloadRef.current.stage || {};
       const items = payloadRef.current.items || [];
@@ -6277,7 +6510,11 @@ export default function ProgramStagePlot({
       const cx = Math.min(sw - 8, Math.max(8, Number(x) || sw / 2));
       const cy = Math.min(sh - 8, Math.max(8, Number(y) || sh / 2));
       const z = zCounterRef.current++;
-      const item = createStagePlotItem(type, cx, cy, z, { items, stage });
+      const item = createStagePlotItem(type, cx, cy, z, {
+        items,
+        stage,
+        ...extra,
+      });
       commitPayload((prev) => {
         const nextItems = [...prev.items, item];
         if (stagePlotItemIsTarima(type)) {
@@ -6300,13 +6537,14 @@ export default function ProgramStagePlot({
     [canEdit, commitPayload, warnIfTarimaOverStock, warnIfElementoOverStock],
   );
 
-  const addFromPalette = (type) => {
+  const addFromPalette = (type, extra = {}) => {
     const sw = payload.stage.width || 900;
     const sh = payload.stage.height || 560;
     addFromPaletteAt(
       type,
       sw / 2 + (Math.random() * 40 - 20),
       sh / 2 + (Math.random() * 40 - 20),
+      extra,
     );
   };
 
@@ -6320,6 +6558,8 @@ export default function ProgramStagePlot({
       return;
     }
     const type = it.type;
+    const extra =
+      it.timpaniSize != null ? { timpaniSize: it.timpaniSize } : {};
     const startX = e.clientX;
     const startY = e.clientY;
     let moved = false;
@@ -6348,7 +6588,7 @@ export default function ProgramStagePlot({
       document.removeEventListener("pointerup", up);
       setPaletteDrag(null);
       if (!moved) {
-        addFromPalette(type);
+        addFromPalette(type, extra);
         return;
       }
       const el = stageWrapRef.current;
@@ -6365,7 +6605,7 @@ export default function ProgramStagePlot({
       const vp = viewportRef.current;
       const x = (ev.clientX - rect.left - vp.x) / vp.scale;
       const y = (ev.clientY - rect.top - vp.y) / vp.scale;
-      addFromPaletteAt(type, x, y);
+      addFromPaletteAt(type, x, y, extra);
     };
 
     document.addEventListener("pointermove", move);
@@ -6804,6 +7044,9 @@ export default function ProgramStagePlot({
           ? { scaleY: Number(src.scaleY) }
           : {}),
         includeInChannels: src.includeInChannels,
+        ...(src.type === "timpani"
+          ? { timpaniSize: normalizeTimpaniSize(src.timpaniSize) }
+          : {}),
         slotId: null,
         ...(src.type === "text"
           ? {
@@ -8348,27 +8591,43 @@ export default function ProgramStagePlot({
                     {category}
                   </button>
                   {(paletteCat === null || paletteCat === category) && (
-                    <div className="flex flex-wrap gap-1">
-                      {items.map((it) => (
-                        <button
-                          key={it.type}
-                          type="button"
-                          disabled={!canEdit}
-                          onPointerDown={(e) =>
-                            startPalettePointerDrag(e, it)
-                          }
-                          title={
-                            stagePlotItemIsTarima(it.type)
-                              ? `${it.name} — clic = tamaño inicial`
-                              : `${it.name} — arrastrar al escenario`
-                          }
-                          className="inline-flex cursor-grab touch-none items-center gap-1.5 rounded border border-slate-200 bg-slate-50 px-1.5 py-1 text-[10px] font-medium text-slate-700 hover:border-indigo-300 hover:bg-indigo-50 active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-40"
-                        >
-                          <PaletteIcon type={it.type} color={it.color} epoch={catalogEpoch} />
-                          {it.name}
-                        </button>
-                      ))}
-                    </div>
+                    <>
+                      {items.some((it) => it.type === "timpani") && (
+                        <TimpaniPaletteGrid
+                          item={items.find((it) => it.type === "timpani")}
+                          canEdit={canEdit}
+                          catalogEpoch={catalogEpoch}
+                          onPointerDown={startPalettePointerDrag}
+                        />
+                      )}
+                      <div className="flex flex-wrap gap-1">
+                        {items
+                          .filter((it) => it.type !== "timpani")
+                          .map((it) => (
+                            <button
+                              key={it.type}
+                              type="button"
+                              disabled={!canEdit}
+                              onPointerDown={(e) =>
+                                startPalettePointerDrag(e, it)
+                              }
+                              title={
+                                stagePlotItemIsTarima(it.type)
+                                  ? `${it.name} — clic = tamaño inicial`
+                                  : `${it.name} — arrastrar al escenario`
+                              }
+                              className="inline-flex cursor-grab touch-none items-center gap-1.5 rounded border border-slate-200 bg-slate-50 px-1.5 py-1 text-[10px] font-medium text-slate-700 hover:border-indigo-300 hover:bg-indigo-50 active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                              <PaletteIcon
+                                type={it.type}
+                                color={it.color}
+                                epoch={catalogEpoch}
+                              />
+                              {it.name}
+                            </button>
+                          ))}
+                      </div>
+                    </>
                   )}
                 </div>
               ))}
@@ -9599,7 +9858,45 @@ export default function ProgramStagePlot({
                     placeholder="Etiqueta"
                   />
                 ) : null}
-                {selectedInstrumentDims ? (
+                {selectedItems.length > 0 &&
+                selectedItems.every((it) => it.type === "timpani") ? (
+                  <div
+                    className="flex shrink-0 items-center gap-0.5"
+                    title="Medida de parche. 32 conserva el tamaño actual; 29, 26 y 23 se achican en proporción."
+                  >
+                    <span className="mr-0.5 text-[10px] text-slate-500">
+                      Parche
+                    </span>
+                    {STAGE_PLOT_TIMPANI_SIZES.map((size) => {
+                      const active = selectedItems.every(
+                        (it) => normalizeTimpaniSize(it.timpaniSize) === size,
+                      );
+                      return (
+                        <button
+                          key={size}
+                          type="button"
+                          onClick={() =>
+                            updateSelectedMany((it) => ({
+                              timpaniSize: size,
+                              label: stagePlotTimpaniLabelForSize(
+                                it.label,
+                                size,
+                              ),
+                            }))
+                          }
+                          className={`h-7 min-w-7 rounded border px-1.5 text-[11px] font-semibold tabular-nums ${
+                            active
+                              ? "border-indigo-300 bg-indigo-50 text-indigo-800"
+                              : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                          }`}
+                        >
+                          {size}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
+                {selectedInstrumentDims && selected?.type !== "timpani" ? (
                   <span
                     className="flex h-7 shrink-0 items-center rounded border border-slate-200 bg-slate-50 px-2 text-[11px] tabular-nums text-slate-600"
                     title="Tamaño del catálogo (Editor → instrumento). No redimensionable en el lienzo."
@@ -9934,6 +10231,13 @@ export default function ProgramStagePlot({
                               }
                             >
                               {row.label}
+                              {row.timpaniSizes?.length ? (
+                                <span className="mt-0.5 block text-[9px] font-normal leading-tight text-slate-500">
+                                  {row.timpaniSizes
+                                    .map((g) => `${g.size} × ${g.count}`)
+                                    .join(" · ")}
+                                </span>
+                              ) : null}
                             </button>
                           </td>
                           <td className="py-1 pr-1 text-right font-mono text-slate-700">
@@ -9999,8 +10303,12 @@ export default function ProgramStagePlot({
                     {(furnitureSummary.rows || []).map((row) => {
                       const isTarimasTotal = row.kind === "tarimas_total";
                       const isTarimaSize = row.kind === "tarima_size";
+                      const isTimpaniTotal = row.kind === "timpani_total";
+                      const isTimpaniSize = row.kind === "timpani_size";
+                      const isPackTotal = isTarimasTotal || isTimpaniTotal;
+                      const isPackChild = isTarimaSize || isTimpaniSize;
                       const deltaLabel =
-                        isTarimasTotal || isTarimaSize
+                        isPackTotal || isPackChild
                           ? ""
                           : row.delta === 0
                             ? "="
@@ -10029,7 +10337,7 @@ export default function ProgramStagePlot({
                         <tr
                           key={row.key}
                           className={`border-t border-slate-100 ${
-                            isTarimasTotal ? "bg-slate-50/80" : ""
+                            isPackTotal ? "bg-slate-50/80" : ""
                           }`}
                           title={
                             row.key === "sillas"
@@ -10041,20 +10349,24 @@ export default function ProgramStagePlot({
                                   ? "Needed: ceil(n/2) cuerdas; 1× resto; 1× percusionista; +1× director. Drawn: music_stand"
                                   : row.key === "podios"
                                     ? "Needed: 1 × director. Drawn: ítems conductor (proxy de podio)"
-                                    : isTarimasTotal
-                                      ? "Total de tarimas en el plano; filas de abajo suman a este total (forma × Ancho × Profundo)"
-                                      : isTarimaSize
-                                        ? row.shape === "oval"
-                                          ? "Tarima oval en el plano (Ancho × Profundo)"
-                                          : "Tarima rectangular en el plano (Ancho × Profundo)"
-                                        : ""
+                                    : isTimpaniTotal
+                                      ? "Timbales cargados en el plano. Las filas de abajo son la medida de parche (32, 29, 26, 23)."
+                                      : isTimpaniSize
+                                        ? `Timbales de ${row.size} cargados en el plano`
+                                        : isTarimasTotal
+                                          ? "Total de tarimas en el plano; filas de abajo suman a este total (forma × Ancho × Profundo)"
+                                          : isTarimaSize
+                                            ? row.shape === "oval"
+                                              ? "Tarima oval en el plano (Ancho × Profundo)"
+                                              : "Tarima rectangular en el plano (Ancho × Profundo)"
+                                            : ""
                           }
                         >
                           <td
                             className={`py-1 pr-1 ${
-                              isTarimasTotal
+                              isPackTotal
                                 ? "font-semibold text-slate-800"
-                                : isTarimaSize
+                                : isPackChild
                                   ? "pl-3 font-medium text-slate-600"
                                   : "font-medium text-slate-700"
                             }`}
@@ -10063,7 +10375,7 @@ export default function ProgramStagePlot({
                           </td>
                           <td
                             className={`py-1 pr-1 text-right font-mono ${
-                              isTarimasTotal
+                              isPackTotal
                                 ? "font-semibold text-slate-800"
                                 : "text-slate-700"
                             }`}
@@ -10071,9 +10383,7 @@ export default function ProgramStagePlot({
                             {row.drawn}
                           </td>
                           <td className="py-1 pr-1 text-right font-mono text-slate-500">
-                            {isTarimasTotal || isTarimaSize
-                              ? "—"
-                              : row.required}
+                            {isPackTotal || isPackChild ? "—" : row.required}
                           </td>
                           <td
                             className={`py-1 pr-1 text-right font-mono ${
@@ -10086,7 +10396,7 @@ export default function ProgramStagePlot({
                           </td>
                           <td
                             className={`py-1 text-right font-mono font-semibold ${
-                              isTarimasTotal || isTarimaSize
+                              isPackTotal || isPackChild
                                 ? "text-slate-300"
                                 : deltaClass
                             }`}
@@ -10112,7 +10422,8 @@ export default function ProgramStagePlot({
                   toast si tarimas/elementos exceden stock. Banquetas:
                   contrabajo + percusionista; resto sillas. Director: 1 atril +
                   1 podio (sin silla). Percusión: 1 atril × percusionista
-                  (íconos del plano no suman).
+                  (íconos del plano no suman). Timbales: solo las medidas
+                  cargadas (32, 29, 26, 23).
                 </p>
               </div>
             </>

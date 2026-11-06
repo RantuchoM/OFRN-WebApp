@@ -21,6 +21,7 @@ import {
   stagePlotConductorPosition,
   stagePlotInstrumentCatalogScales,
   stagePlotLegacyScaleFactor,
+  normalizeTimpaniSize,
 } from "./stagePlotConstants";
 import {
   getStagePlotItemVisualBounds,
@@ -720,6 +721,10 @@ function normalizeStagePlotItem(it, idx) {
     ...(groupId ? { groupId } : {}),
     ...(o.flipX === true ? { flipX: true } : {}),
   };
+  if (type === "timpani") {
+    // Sin medida (planos ya guardados) = parche de 32. No reescribe el label.
+    base.timpaniSize = normalizeTimpaniSize(o.timpaniSize);
+  }
   if (type === "text") {
     return { ...base, ...normalizeStagePlotTextFormat(o) };
   }
@@ -849,6 +854,11 @@ export function createStagePlotItem(type, x, y, z, opts = {}) {
         ? Number(opts.scaleY)
         : 1;
   }
+  if (type === "timpani") {
+    const timpaniSize = normalizeTimpaniSize(opts.timpaniSize);
+    item.timpaniSize = timpaniSize;
+    item.label = `Timbales ${timpaniSize}`;
+  }
   if (type === "text") {
     return {
       ...item,
@@ -857,4 +867,17 @@ export function createStagePlotItem(type, x, y, z, opts = {}) {
     };
   }
   return item;
+}
+
+/**
+ * Al cambiar la medida, actualiza el label automático («Timbales» / «Timbales 32»).
+ * Un label editado a mano se conserva.
+ * @param {unknown} currentLabel
+ * @param {unknown} size
+ */
+export function stagePlotTimpaniLabelForSize(currentLabel, size) {
+  const next = `Timbales ${normalizeTimpaniSize(size)}`;
+  const label = String(currentLabel ?? "").trim();
+  if (!label || /^timbales(?:\s+\d+)?$/i.test(label)) return next;
+  return currentLabel;
 }

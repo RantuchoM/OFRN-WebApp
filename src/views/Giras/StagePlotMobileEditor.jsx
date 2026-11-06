@@ -18,6 +18,7 @@ import {
   STAGE_PLOT_MUSICIAN_INSTRUMENT_CATEGORIES,
 } from "../../utils/stagePlotCatalog";
 import { STAGE_PLOT_FORMATIONATION_LABELS } from "../../utils/stagePlotFormations";
+import { STAGE_PLOT_TIMPANI_SIZES } from "../../utils/stagePlotConstants";
 
 /** Viewport width under which Escenario prefers the mobile editor. */
 export const STAGE_PLOT_MOBILE_BREAKPOINT_PX = 768;
@@ -219,14 +220,14 @@ export function StagePlotMobileAddSheet({
   const audio = catalogItemsByTypes(STAGE_PLOT_MOBILE_AUDIO_TYPES);
   const musicians = musicianCategoriesGrouped();
 
-  const handleType = (type) => {
+  const handleType = (type, extra) => {
     if (!canEdit) return;
     if (type === "conductor") {
       onAddDirector?.();
     } else if (type === "tarima_rect" || type === "tarima_oval") {
       onAddTarima?.(type);
     } else {
-      onAddType?.(type);
+      onAddType?.(type, extra);
     }
     onClose?.();
   };
@@ -305,15 +306,29 @@ export function StagePlotMobileAddSheet({
 
         {musicians.map(({ category, items }) => (
           <AddSheetSection key={category} title={category} icon={IconMusic}>
-            {items.map((it) => (
-              <AddSheetTile
-                key={it.type}
-                label={it.name}
-                color={it.color}
-                disabled={!canEdit}
-                onClick={() => handleType(it.type)}
-              />
-            ))}
+            {items.flatMap((it) =>
+              it.type === "timpani"
+                ? STAGE_PLOT_TIMPANI_SIZES.map((size) => (
+                    <AddSheetTile
+                      key={`timpani-${size}`}
+                      label={`Timbales ${size}`}
+                      color={it.color}
+                      disabled={!canEdit}
+                      onClick={() =>
+                        handleType("timpani", { timpaniSize: size })
+                      }
+                    />
+                  ))
+                : [
+                    <AddSheetTile
+                      key={it.type}
+                      label={it.name}
+                      color={it.color}
+                      disabled={!canEdit}
+                      onClick={() => handleType(it.type)}
+                    />,
+                  ],
+            )}
           </AddSheetSection>
         ))}
 

@@ -26,6 +26,7 @@ import {
   saveInstrumentoSvgIcon,
   applyStagePlotInstrumentSizeOverride,
   resolveInstrumentStagePlotType,
+  saveInstrumentosTimpaniFootprints,
   setInstrumentoStagePlotRaster,
   clearInstrumentoStagePlotRaster,
   STAGE_PLOT_INSTRUMENT_TYPE_OPTIONS,
@@ -49,8 +50,15 @@ import {
 } from "../../utils/stagePlotRaster";
 import {
   resolveStagePlotIconSvgMarkup,
+  setStagePlotTimpaniSizeOverrides,
   stagePlotIconImgSrc,
 } from "../../utils/stagePlotIconAssets";
+import {
+  STAGE_PLOT_TIMPANI_SIZES,
+  STAGE_PLOT_TIMPANI_SIZE_DEFAULT,
+  parseStagePlotTimpaniSizesJson,
+  stagePlotTimpaniSizesJson,
+} from "../../utils/stagePlotConstants";
 import { stagePlotSilhouetteSvgMarkup } from "../../utils/stagePlotSilhouettes";
 import {
   sanitizeStagePlotSvgMarkup,
@@ -99,6 +107,41 @@ function suggestStagePlotTypeFromName(instrumentoNombre) {
 
 function stagePlotRowDownloadName(row) {
   return row?.instrumento || row?.stage_plot_type || row?.id || "icono";
+}
+
+function formatPanelCm(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "";
+  return String(Math.round(n * 10) / 10);
+}
+
+function parsePanelCm(raw) {
+  const n = Number(String(raw ?? "").trim().replace(",", "."));
+  if (!Number.isFinite(n)) return null;
+  return Math.round(n * 10) / 10;
+}
+
+function timpaniFieldsFromRow(row) {
+  const baseW =
+    Number(row?.stage_plot_width_cm) > 0 ? Number(row.stage_plot_width_cm) : 50;
+  const baseH =
+    Number(row?.stage_plot_height_cm) > 0 ? Number(row.stage_plot_height_cm) : 50;
+  const stored = parseStagePlotTimpaniSizesJson(row?.stage_plot_timpani_sizes);
+  const next = {};
+  for (const size of STAGE_PLOT_TIMPANI_SIZES) {
+    const dims =
+      size === STAGE_PLOT_TIMPANI_SIZE_DEFAULT
+        ? { widthCm: baseW, heightCm: baseH }
+        : stored.get(size) || {
+            widthCm: (baseW * size) / STAGE_PLOT_TIMPANI_SIZE_DEFAULT,
+            heightCm: (baseH * size) / STAGE_PLOT_TIMPANI_SIZE_DEFAULT,
+          };
+    next[size] = {
+      width: formatPanelCm(dims.widthCm),
+      height: formatPanelCm(dims.heightCm),
+    };
+  }
+  return next;
 }
 
 function previewSrcFromMarkup(svg) {
@@ -217,6 +260,9 @@ function InstrumentRowList({
   heightCm,
   setHeightCm,
   saveSize,
+  timpaniFields,
+  setTimpaniFields,
+  saveTimpaniSizes,
   saveType,
   saveFamilia,
   requestSvgChange,
@@ -325,6 +371,75 @@ function InstrumentRowList({
                         </select>
                       </label>
 
+                      {resolveInstrumentStagePlotType(row) === "timpani" ? (
+                        <div className="space-y-1.5">
+                          {STAGE_PLOT_TIMPANI_SIZES.map((size) => (
+                            <div
+                              key={size}
+                              className="grid grid-cols-[2.25rem_1fr_1fr] items-end gap-1.5"
+                            >
+                              <span className="pb-1 text-[11px] font-bold tabular-nums text-slate-700">
+                                {size}
+                              </span>
+                              <label className="block text-[9px] font-medium text-slate-500">
+                                Ancho (cm)
+                                <input
+                                  type="text"
+                                  inputMode="decimal"
+                                  disabled={!canEdit || savingSize}
+                                  value={timpaniFields?.[size]?.width || ""}
+                                  onChange={(e) =>
+                                    setTimpaniFields((prev) => ({
+                                      ...prev,
+                                      [size]: {
+                                        ...prev?.[size],
+                                        width: e.target.value,
+                                      },
+                                    }))
+                                  }
+                                  onBlur={saveTimpaniSizes}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                      e.preventDefault();
+                                      e.currentTarget.blur();
+                                    }
+                                  }}
+                                  className="mt-0.5 w-full rounded border border-slate-200 bg-white px-1.5 py-1 text-[11px] disabled:bg-slate-100"
+                                />
+                              </label>
+                              <label className="block text-[9px] font-medium text-slate-500">
+                                Profundo (cm)
+                                <input
+                                  type="text"
+                                  inputMode="decimal"
+                                  disabled={!canEdit || savingSize}
+                                  value={timpaniFields?.[size]?.height || ""}
+                                  onChange={(e) =>
+                                    setTimpaniFields((prev) => ({
+                                      ...prev,
+                                      [size]: {
+                                        ...prev?.[size],
+                                        height: e.target.value,
+                                      },
+                                    }))
+                                  }
+                                  onBlur={saveTimpaniSizes}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                      e.preventDefault();
+                                      e.currentTarget.blur();
+                                    }
+                                  }}
+                                  className="mt-0.5 w-full rounded border border-slate-200 bg-white px-1.5 py-1 text-[11px] disabled:bg-slate-100"
+                                />
+                              </label>
+                            </div>
+                          ))}
+                          <p className="text-[9px] text-slate-400">
+                            Cada medida tiene su huella (10–400 cm). El 32 es el tamaño de catálogo. Enter/blur guarda las cuatro.
+                          </p>
+                        </div>
+                      ) : (
                       <div className="grid grid-cols-2 gap-1.5">
                         <label className="block text-[9px] font-medium text-slate-500">
                           Ancho (cm)
@@ -365,9 +480,12 @@ function InstrumentRowList({
                           />
                         </label>
                       </div>
+                      )}
+                      {resolveInstrumentStagePlotType(row) === "timpani" ? null : (
                       <p className="text-[9px] text-slate-400">
                         Vacío = 50 cm. El tamaño del catálogo aplica a todos los planos. Enter/blur guarda.
                       </p>
+                      )}
 
                       <div className="flex flex-wrap gap-1">
                         {row.svg_icon ? (
@@ -499,7 +617,11 @@ function InstrumentRowList({
                           <button
                             type="button"
                             disabled={savingSize}
-                            onClick={saveSize}
+                            onClick={
+                              resolveInstrumentStagePlotType(row) === "timpani"
+                                ? saveTimpaniSizes
+                                : saveSize
+                            }
                             className="inline-flex items-center gap-1 rounded border border-indigo-200 bg-indigo-50 px-2 py-1 text-[10px] font-semibold text-indigo-800 hover:bg-indigo-100"
                           >
                             <IconPencil size={12} />
@@ -1176,6 +1298,7 @@ export default function StagePlotInstrumentsPanel({
   const [selectedId, setSelectedId] = useState(null);
   const [widthCm, setWidthCm] = useState("");
   const [heightCm, setHeightCm] = useState("");
+  const [timpaniFields, setTimpaniFields] = useState(null);
   const [savingSize, setSavingSize] = useState(false);
   const [savingSvg, setSavingSvg] = useState(false);
   const [savingFamilia, setSavingFamilia] = useState(false);
@@ -1194,15 +1317,25 @@ export default function StagePlotInstrumentsPanel({
     if (!supabase) return;
     setLoading(true);
     setLoadError(null);
-    const [rowsRes, fams] = await Promise.all([
+    const baseCols =
+      "id, instrumento, familia, stage_plot_type, stage_plot_width_cm, stage_plot_height_cm, svg_icon, stage_plot_raster_url";
+    const [firstRes, fams] = await Promise.all([
       supabase
         .from("instrumentos")
-        .select(
-          "id, instrumento, familia, stage_plot_type, stage_plot_width_cm, stage_plot_height_cm, svg_icon, stage_plot_raster_url",
-        )
+        .select(`${baseCols}, stage_plot_timpani_sizes`)
         .order("instrumento", { ascending: true }),
       listInstrumentosFamilias(supabase),
     ]);
+    let rowsRes = firstRes;
+    if (
+      rowsRes.error &&
+      /stage_plot_timpani_sizes/i.test(rowsRes.error.message || "")
+    ) {
+      rowsRes = await supabase
+        .from("instrumentos")
+        .select(baseCols)
+        .order("instrumento", { ascending: true });
+    }
 
     setFamilias(fams);
 
@@ -1246,6 +1379,11 @@ export default function StagePlotInstrumentsPanel({
         ? ""
         : String(selected.stage_plot_height_cm),
     );
+    if (resolveInstrumentStagePlotType(selected) === "timpani") {
+      setTimpaniFields(timpaniFieldsFromRow(selected));
+    } else {
+      setTimpaniFields(null);
+    }
   }, [selected]);
 
   const filtered = useMemo(() => {
@@ -1332,6 +1470,65 @@ export default function StagePlotInstrumentsPanel({
     applyStagePlotInstrumentSizeOverride(type, w, h);
     onCatalogReload?.();
     toast.success("Tamaño actualizado (aplica a todos los planos)");
+  };
+
+  const saveTimpaniSizes = async () => {
+    if (!canEdit || !selected || !supabase || savingSize) return;
+    if (resolveInstrumentStagePlotType(selected) !== "timpani") return;
+    const bySize = {};
+    for (const size of STAGE_PLOT_TIMPANI_SIZES) {
+      const field = timpaniFields?.[size] || {};
+      const w = parsePanelCm(field.width);
+      const h = parsePanelCm(field.height);
+      if (w == null || h == null || w < 10 || h < 10 || w > 400 || h > 400) {
+        toast.error(`Timbal ${size}: ancho y profundo entre 10 y 400 cm`);
+        return;
+      }
+      bySize[size] = { widthCm: w, heightCm: h };
+    }
+    const prev = timpaniFieldsFromRow(selected);
+    const unchanged = STAGE_PLOT_TIMPANI_SIZES.every((size) => {
+      return (
+        bySize[size].widthCm === parsePanelCm(prev[size]?.width) &&
+        bySize[size].heightCm === parsePanelCm(prev[size]?.height)
+      );
+    });
+    if (unchanged) return;
+
+    const sizesJson = stagePlotTimpaniSizesJson(bySize);
+    const base = bySize[STAGE_PLOT_TIMPANI_SIZE_DEFAULT];
+    setSavingSize(true);
+    try {
+      const ids = await saveInstrumentosTimpaniFootprints(supabase, {
+        widthCm: base.widthCm,
+        heightCm: base.heightCm,
+        sizesJson,
+      });
+      const idSet = new Set((ids || []).map((id) => String(id)));
+      setRows((prevRows) => {
+        const next = prevRows.map((row) =>
+          idSet.has(String(row.id))
+            ? {
+                ...row,
+                stage_plot_width_cm: base.widthCm,
+                stage_plot_height_cm: base.heightCm,
+                stage_plot_timpani_sizes: sizesJson,
+              }
+            : row,
+        );
+        notifyParent(next);
+        return next;
+      });
+      await reloadStagePlotInstrumentIcons().catch(() => {});
+      applyStagePlotInstrumentSizeOverride("timpani", base.widthCm, base.heightCm);
+      setStagePlotTimpaniSizeOverrides(parseStagePlotTimpaniSizesJson(sizesJson));
+      onCatalogReload?.();
+      toast.success("Tamaño actualizado (aplica a todos los planos)");
+    } catch (err) {
+      toast.error(err?.message || "No se pudo guardar el tamaño");
+    } finally {
+      setSavingSize(false);
+    }
   };
 
   const saveFamilia = async (nextFamilia) => {
@@ -1507,6 +1704,9 @@ export default function StagePlotInstrumentsPanel({
     heightCm,
     setHeightCm,
     saveSize,
+    timpaniFields,
+    setTimpaniFields,
+    saveTimpaniSizes,
     saveType,
     saveFamilia,
     requestSvgChange,

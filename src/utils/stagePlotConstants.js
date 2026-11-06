@@ -2,6 +2,7 @@ import { getStagePlotCatalogItem } from "./stagePlotCatalog";
 import {
   getStagePlotDbDefaultSizeCm,
   getStagePlotItemVisualBounds,
+  getStagePlotTimpaniSizeOverride,
 } from "./stagePlotIconAssets";
 
 /**
@@ -197,6 +198,138 @@ export function stagePlotInstrumentCatalogScales(type) {
       ? Number(db.heightCm)
       : STAGE_PLOT_INSTRUMENT_FOOTPRINT_DEPTH_CM;
   return stagePlotInstrumentScalesFromCm(widthCm, depthCm);
+}
+
+/** Medidas de parche de timbal (pulgadas). El 32 es el tamaño de catálogo. */
+export const STAGE_PLOT_TIMPANI_SIZES = [32, 29, 26, 23];
+export const STAGE_PLOT_TIMPANI_SIZE_DEFAULT = 32;
+/**
+ * Centro del número en el parche claro del raster real (WebP de `instrumentos` 13a).
+ * Fracción del alto de la imagen, 0 = borde superior. La elipse beige va ~0.08–0.20;
+ * 0.142 es su centro, arriba del aro y de la caldera. Lienzo, PDF y JPG lo comparten.
+ * La grilla de la paleta no usa este valor.
+ */
+export const STAGE_PLOT_TIMPANI_HEAD_CENTER_V = 0.142;
+/**
+ * Alto del número respecto de la caja del ícono.
+ * El parche claro ocupa ~12% del alto; 0.10 deja los dígitos dentro de esa elipse.
+ */
+export const STAGE_PLOT_TIMPANI_LABEL_FONT_RATIO = 0.1;
+
+/**
+ * Medida de parche persistida. Ausente o desconocida → 32.
+ * @param {unknown} value
+ * @returns {number}
+ */
+export function normalizeTimpaniSize(value) {
+  const n = Number(value);
+  return STAGE_PLOT_TIMPANI_SIZES.includes(n)
+    ? n
+    : STAGE_PLOT_TIMPANI_SIZE_DEFAULT;
+}
+
+/**
+ * Escala visual respecto del timbal de 32 (tamaño de catálogo, si no hay huella propia).
+ * @param {unknown} size
+ */
+export function timpaniSizeScaleFactor(size) {
+  return normalizeTimpaniSize(size) / STAGE_PLOT_TIMPANI_SIZE_DEFAULT;
+}
+
+/**
+ * Lee `instrumentos.stage_plot_timpani_sizes`.
+ * Solo 29, 26 y 23. El 32 vive en `stage_plot_width_cm` / `height_cm`.
+ * @param {unknown} raw
+ * @returns {Map<number, { widthCm: number, heightCm: number }>}
+ */
+export function parseStagePlotTimpaniSizesJson(raw) {
+  const out = new Map();
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return out;
+  const obj = /** @type {Record<string, unknown>} */ (raw);
+  for (const size of STAGE_PLOT_TIMPANI_SIZES) {
+    if (size === STAGE_PLOT_TIMPANI_SIZE_DEFAULT) continue;
+    const entry = obj[String(size)];
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+    const rec = /** @type {Record<string, unknown>} */ (entry);
+    const w = Number(rec.width_cm ?? rec.widthCm);
+    const h = Number(rec.height_cm ?? rec.heightCm);
+    if (!(w > 0) || !(h > 0)) continue;
+    out.set(size, { widthCm: w, heightCm: h });
+  }
+  return out;
+}
+
+/**
+ * jsonb para 29/26/23. El 32 no entra: va en las columnas del tipo.
+ * @param {Record<number, { widthCm: number, heightCm: number }>} bySize
+ */
+export function stagePlotTimpaniSizesJson(bySize = {}) {
+  const json = {};
+  for (const size of STAGE_PLOT_TIMPANI_SIZES) {
+    if (size === STAGE_PLOT_TIMPANI_SIZE_DEFAULT) continue;
+    const dims = bySize[size];
+    if (!dims || !(Number(dims.widthCm) > 0) || !(Number(dims.heightCm) > 0)) {
+      continue;
+    }
+    json[String(size)] = {
+      width_cm: Number(dims.widthCm),
+      height_cm: Number(dims.heightCm),
+    };
+  }
+  return json;
+}
+
+/**
+ * Huella en cm de una medida de timbal.
+ * 32 = columnas del tipo. 29/26/23 = jsonb si está, si no proporción sobre el 32.
+ * @param {unknown} size
+ * @returns {{ widthCm: number, heightCm: number }}
+ */
+export function stagePlotTimpaniFootprintCm(size) {
+  const normalized = normalizeTimpaniSize(size);
+  const db = getStagePlotDbDefaultSizeCm("timpani");
+  const baseW =
+    db?.widthCm != null && Number(db.widthCm) > 0
+      ? Number(db.widthCm)
+      : STAGE_PLOT_INSTRUMENT_FOOTPRINT_WIDTH_CM;
+  const baseH =
+    db?.heightCm != null && Number(db.heightCm) > 0
+      ? Number(db.heightCm)
+      : STAGE_PLOT_INSTRUMENT_FOOTPRINT_DEPTH_CM;
+  if (normalized === STAGE_PLOT_TIMPANI_SIZE_DEFAULT) {
+    return { widthCm: baseW, heightCm: baseH };
+  }
+  const stored = getStagePlotTimpaniSizeOverride(normalized);
+  if (stored?.widthCm > 0 && stored?.heightCm > 0) {
+    return { widthCm: Number(stored.widthCm), heightCm: Number(stored.heightCm) };
+  }
+  const factor = normalized / STAGE_PLOT_TIMPANI_SIZE_DEFAULT;
+  return { widthCm: baseW * factor, heightCm: baseH * factor };
+}
+
+/**
+ * Escalas de render. Timbales: huella de esa medida (editada o proporcional al 32).
+ * El `scale` guardado en el ítem no cambia: la medida es `timpaniSize`.
+ * @param {string|{ type?: string, timpaniSize?: number }|null|undefined} itemOrType
+ * @returns {{ scaleX: number, scaleY: number, scale: number }}
+ */
+export function stagePlotInstrumentRenderScales(itemOrType) {
+  const type =
+    typeof itemOrType === "string" ? itemOrType : itemOrType?.type;
+  if (type !== "timpani") return stagePlotInstrumentCatalogScales(type);
+  const size =
+    typeof itemOrType === "string" ? undefined : itemOrType?.timpaniSize;
+  const dims = stagePlotTimpaniFootprintCm(size);
+  return stagePlotInstrumentScalesFromCm(dims.widthCm, dims.heightCm);
+}
+
+/**
+ * Y local del centro del parche, con origen en el centro del ícono (+Y abajo).
+ * @param {number} drawH
+ */
+export function timpaniHeadLocalOffsetY(drawH) {
+  const h = Number(drawH) || 0;
+  return (STAGE_PLOT_TIMPANI_HEAD_CENTER_V - 0.5) * h;
 }
 
 /**

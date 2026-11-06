@@ -20,7 +20,10 @@ import {
   stagePlotGridMajorPx,
   stagePlotGridMinorPx,
   stagePlotInstrumentFootprintLayout,
-  stagePlotInstrumentCatalogScales,
+  stagePlotInstrumentRenderScales,
+  STAGE_PLOT_TIMPANI_LABEL_FONT_RATIO,
+  normalizeTimpaniSize,
+  timpaniHeadLocalOffsetY,
 } from "./stagePlotConstants";
 import {
   computeStagePlotFurnitureSummary,
@@ -912,15 +915,14 @@ async function drawStageItemsOnPdf(doc, payload, ox, oy, scale) {
 
     if (stagePlotItemHasInstrumentFootprint(item.type)) {
       const fp = stagePlotInstrumentFootprintLayout();
-      const { scaleX: sx, scaleY: sy } = stagePlotInstrumentCatalogScales(
-        item.type,
-      );
+      const { scaleX: sx, scaleY: sy } = stagePlotInstrumentRenderScales(item);
       const iconBoxW = fp.iconBoxPx * scale * sx;
       const iconBoxH = fp.iconBoxPx * scale * sy;
       const iconOffY = fp.iconOffsetY * scale * sy;
       const rad = (rotation * Math.PI) / 180;
       const iconCx = cx - iconOffY * Math.sin(rad);
       const iconCy = cy + iconOffY * Math.cos(rad);
+      const paintTimpani = timpaniSizePaintLocal(item);
       const iconImg = await loadStagePlotIconImage(item.type, hex);
       if (iconImg) {
         drawImageRotated(
@@ -932,6 +934,7 @@ async function drawStageItemsOnPdf(doc, payload, ox, oy, scale) {
           iconBoxH,
           rotation,
           item.flipX === true,
+          paintTimpani,
         );
       } else {
         const pathD = getStagePlotSilhouettePath(item.type);
@@ -946,6 +949,7 @@ async function drawStageItemsOnPdf(doc, payload, ox, oy, scale) {
             rotation,
             rgb,
             item.flipX === true,
+            paintTimpani,
           );
         } else {
           doc.setFillColor(rgb.r, rgb.g, rgb.b);
@@ -1135,15 +1139,14 @@ async function drawStageItemsOnCanvas(ctx, payload, ox, oy, scale) {
 
     if (stagePlotItemHasInstrumentFootprint(item.type)) {
       const fp = stagePlotInstrumentFootprintLayout();
-      const { scaleX: sx, scaleY: sy } = stagePlotInstrumentCatalogScales(
-        item.type,
-      );
+      const { scaleX: sx, scaleY: sy } = stagePlotInstrumentRenderScales(item);
       const iconBoxW = fp.iconBoxPx * scale * sx;
       const iconBoxH = fp.iconBoxPx * scale * sy;
       const iconOffY = fp.iconOffsetY * scale * sy;
       const rad = (rotation * Math.PI) / 180;
       const iconCx = cx - iconOffY * Math.sin(rad);
       const iconCy = cy + iconOffY * Math.cos(rad);
+      const paintTimpani = timpaniSizePaintLocal(item);
       const iconImg = await loadStagePlotIconImage(item.type, hex);
       if (iconImg) {
         drawImageRotatedOnCanvas(
@@ -1155,6 +1158,7 @@ async function drawStageItemsOnCanvas(ctx, payload, ox, oy, scale) {
           iconBoxH,
           rotation,
           item.flipX === true,
+          paintTimpani,
         );
       } else {
         const pathD = getStagePlotSilhouettePath(item.type);
@@ -1169,17 +1173,23 @@ async function drawStageItemsOnCanvas(ctx, payload, ox, oy, scale) {
             rotation,
             rgb,
             item.flipX === true,
+            paintTimpani,
           );
         } else {
           ctx.save();
           ctx.translate(iconCx, iconCy);
           if (rotation) ctx.rotate(rad);
-          if (item.flipX === true) ctx.scale(-1, 1);
+          if (item.flipX === true) {
+            ctx.save();
+            ctx.scale(-1, 1);
+          }
           ctx.fillStyle = `rgb(${rgb.r},${rgb.g},${rgb.b})`;
           ctx.strokeStyle = "#1e293b";
           ctx.lineWidth = 1;
           ctx.fillRect(-iconBoxW / 2, -iconBoxH / 2, iconBoxW, iconBoxH);
           ctx.strokeRect(-iconBoxW / 2, -iconBoxH / 2, iconBoxW, iconBoxH);
+          if (item.flipX === true) ctx.restore();
+          if (paintTimpani) paintTimpani(ctx, iconBoxW, iconBoxH);
           ctx.restore();
         }
       }
@@ -1424,7 +1434,17 @@ function drawChairSquareOnCanvas(
   ctx.restore();
 }
 
-function drawImageRotated(doc, htmlImage, cx, cy, wMm, hMm, rotationDeg, flipX = false) {
+function drawImageRotated(
+  doc,
+  htmlImage,
+  cx,
+  cy,
+  wMm,
+  hMm,
+  rotationDeg,
+  flipX = false,
+  paintLocal = null,
+) {
   if (typeof document === "undefined") return;
   const widthMm = Number(wMm);
   const heightMm = Number(hMm);
@@ -1446,6 +1466,7 @@ function drawImageRotated(doc, htmlImage, cx, cy, wMm, hMm, rotationDeg, flipX =
     pxH,
     rotationDeg,
     flipX,
+    paintLocal,
   );
   try {
     doc.addImage(
@@ -1472,6 +1493,7 @@ function drawImageRotatedOnCanvas(
   hPx,
   rotationDeg,
   flipX = false,
+  paintLocal = null,
 ) {
   if (!htmlImage) return;
   const { w: iw, h: ih } = getStagePlotImageNaturalSize(htmlImage);
@@ -1479,23 +1501,84 @@ function drawImageRotatedOnCanvas(
   ctx.save();
   ctx.translate(cx, cy);
   if (rotationDeg) ctx.rotate((rotationDeg * Math.PI) / 180);
-  if (flipX) ctx.scale(-1, 1);
   const fit = fitContainInBox(wPx, hPx, iw, ih);
   if (!fit.drawW || !fit.drawH) {
     ctx.restore();
     return;
   }
-  ctx.drawImage(
-    htmlImage,
-    -fit.drawW / 2,
-    -fit.drawH / 2,
-    fit.drawW,
-    fit.drawH,
-  );
+  if (flipX) {
+    ctx.save();
+    ctx.scale(-1, 1);
+    ctx.drawImage(
+      htmlImage,
+      -fit.drawW / 2,
+      -fit.drawH / 2,
+      fit.drawW,
+      fit.drawH,
+    );
+    ctx.restore();
+  } else {
+    ctx.drawImage(
+      htmlImage,
+      -fit.drawW / 2,
+      -fit.drawH / 2,
+      fit.drawW,
+      fit.drawH,
+    );
+  }
+  if (typeof paintLocal === "function") paintLocal(ctx, fit.drawW, fit.drawH);
   ctx.restore();
 }
 
-function drawSilhouetteOnPdf(doc, pathD, cx, cy, wMm, hMm, rotationDeg, rgb, flipX = false) {
+/**
+ * Número de parche, centrado en la elipse clara del parche (no en el aro ni la caldera).
+ * El ctx ya está en el centro del ícono, rotado, sin espejo.
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {number} size
+ * @param {number} drawW
+ * @param {number} drawH
+ */
+function paintTimpaniSizeLabel(ctx, size, _drawW, drawH) {
+  const h = Number(drawH) || 0;
+  if (h <= 0) return;
+  const fontSize = Math.max(8, h * STAGE_PLOT_TIMPANI_LABEL_FONT_RATIO);
+  const y = timpaniHeadLocalOffsetY(h);
+  ctx.save();
+  ctx.font = `bold ${fontSize}px Helvetica, Arial, sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.lineJoin = "round";
+  ctx.lineWidth = Math.max(1, fontSize * 0.16);
+  ctx.strokeStyle = "#ffffff";
+  ctx.fillStyle = "#111111";
+  const label = String(size);
+  ctx.strokeText(label, 0, y);
+  ctx.fillText(label, 0, y);
+  ctx.restore();
+}
+
+/**
+ * Painter del número de timbal, o null si el ítem no es timbal.
+ * @param {{ type?: string, timpaniSize?: number }} item
+ */
+function timpaniSizePaintLocal(item) {
+  if (item?.type !== "timpani") return null;
+  const size = normalizeTimpaniSize(item.timpaniSize);
+  return (ctx, drawW, drawH) => paintTimpaniSizeLabel(ctx, size, drawW, drawH);
+}
+
+function drawSilhouetteOnPdf(
+  doc,
+  pathD,
+  cx,
+  cy,
+  wMm,
+  hMm,
+  rotationDeg,
+  rgb,
+  flipX = false,
+  paintLocal = null,
+) {
   if (typeof document === "undefined" || !pathD) return;
   const widthMm = Number(wMm);
   const heightMm = Number(hMm);
@@ -1518,6 +1601,7 @@ function drawSilhouetteOnPdf(doc, pathD, cx, cy, wMm, hMm, rotationDeg, rgb, fli
     rotationDeg,
     rgb,
     flipX,
+    paintLocal,
   );
   try {
     doc.addImage(
@@ -1545,17 +1629,19 @@ function drawSilhouetteOnCanvas(
   rotationDeg,
   rgb,
   flipX = false,
+  paintLocal = null,
 ) {
   if (!pathD) return;
   ctx.save();
   ctx.translate(cx, cy);
   if (rotationDeg) ctx.rotate((rotationDeg * Math.PI) / 180);
-  if (flipX) ctx.scale(-1, 1);
   const silScale = Math.min(wPx / VB, hPx / VB);
   if (!Number.isFinite(silScale) || silScale <= 0) {
     ctx.restore();
     return;
   }
+  ctx.save();
+  if (flipX) ctx.scale(-1, 1);
   ctx.scale(silScale, silScale);
   ctx.translate(-VB / 2, -VB / 2);
   const path = new Path2D(pathD);
@@ -1565,6 +1651,10 @@ function drawSilhouetteOnCanvas(
   ctx.lineJoin = "round";
   ctx.fill(path);
   ctx.stroke(path);
+  ctx.restore();
+  if (typeof paintLocal === "function") {
+    paintLocal(ctx, silScale * VB, silScale * VB);
+  }
   ctx.restore();
 }
 

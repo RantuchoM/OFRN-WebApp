@@ -200,6 +200,24 @@ export function getStagePlotDbDefaultSizeCm(type) {
   return dbSizeByType.get(type) || null;
 }
 
+/** Huellas editadas de timbal por medida (29, 26, 23). El 32 usa el tipo `timpani`. */
+let timpaniSizeByInch = new Map();
+
+/**
+ * @param {Map<number, { widthCm: number, heightCm: number }>|null|undefined} map
+ */
+export function setStagePlotTimpaniSizeOverrides(map) {
+  timpaniSizeByInch = map instanceof Map ? new Map(map) : new Map();
+  bumpStagePlotCatalogEpoch();
+}
+
+/** @param {number} size @returns {{ widthCm: number, heightCm: number }|null} */
+export function getStagePlotTimpaniSizeOverride(size) {
+  const n = Number(size);
+  if (!Number.isFinite(n)) return null;
+  return timpaniSizeByInch.get(n) || null;
+}
+
 /** Limpia cache de imágenes y fuerza re-fetch de overrides en el próximo ensure. */
 export function clearStagePlotDbIconCache() {
   imageCache.clear();

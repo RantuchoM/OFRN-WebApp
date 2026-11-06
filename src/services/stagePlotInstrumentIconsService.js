@@ -10,6 +10,7 @@ import {
   setStagePlotDbRasterOverrides,
   setStagePlotDbSizeOverrides,
   mergeStagePlotDbSizeOverrides,
+  setStagePlotTimpaniSizeOverrides,
   clearStagePlotDbIconCache,
 } from "../utils/stagePlotIconAssets";
 import {
@@ -21,6 +22,7 @@ import { stagePlotSvgSaveClearsRaster } from "../utils/stagePlotRaster";
 import { getStagePlotCatalogItem } from "../utils/stagePlotCatalog";
 import { STAGE_PLOT_SILHOUETTES } from "../utils/stagePlotSilhouettes";
 import { slugifyStagePlotType } from "./stagePlotInventarioService";
+import { parseStagePlotTimpaniSizesJson } from "../utils/stagePlotConstants";
 
 /** id_instr conocidos (cuerdas) → clave de ícono stage-plot */
 export const STAGE_PLOT_ID_INSTR_TO_TYPE = {
@@ -185,6 +187,49 @@ export function resolveInstrumentStagePlotType(row) {
 }
 
 /**
+ * Junta las huellas 29/26/23 de las filas timpani y las deja en memoria.
+ * @param {Array<{ stage_plot_type?: string|null, id?: string, stage_plot_timpani_sizes?: unknown }>} rows
+ */
+export function applyStagePlotTimpaniSizesFromRows(rows = []) {
+  const map = new Map();
+  for (const row of rows || []) {
+    if (resolveInstrumentStagePlotType(row) !== "timpani") continue;
+    const parsed = parseStagePlotTimpaniSizesJson(row?.stage_plot_timpani_sizes);
+    for (const [size, dims] of parsed) map.set(size, dims);
+  }
+  setStagePlotTimpaniSizeOverrides(map);
+}
+
+/**
+ * Guarda la huella del 32 en las columnas y 29/26/23 en jsonb.
+ * Actualiza todas las filas con clave `timpani`.
+ * @param {import("@supabase/supabase-js").SupabaseClient} client
+ * @param {{ widthCm: number, heightCm: number, sizesJson: Record<string, { width_cm: number, height_cm: number }> }} dims
+ */
+export async function saveInstrumentosTimpaniFootprints(client, dims) {
+  const { data, error } = await client
+    .from("instrumentos")
+    .select("id, stage_plot_type");
+  if (error) throw new Error(error.message);
+  const ids = (data || [])
+    .filter((row) => resolveInstrumentStagePlotType(row) === "timpani")
+    .map((row) => row.id);
+  if (!ids.length) throw new Error("No hay un instrumento con la clave timpani.");
+  const { error: updateError } = await client
+    .from("instrumentos")
+    .update({
+      stage_plot_width_cm: dims.widthCm,
+      stage_plot_height_cm: dims.heightCm,
+      stage_plot_timpani_sizes: dims.sizesJson,
+    })
+    .in("id", ids);
+  if (updateError) throw new Error(updateError.message);
+  applyStagePlotInstrumentSizeOverride("timpani", dims.widthCm, dims.heightCm);
+  setStagePlotTimpaniSizeOverrides(parseStagePlotTimpaniSizesJson(dims.sizesJson));
+  return ids;
+}
+
+/**
  * Aplica tamaño de huella al override en memoria para un tipo (inmediato en lienzo abierto).
  * @param {string|null|undefined} type
  * @param {number|null|undefined} widthCm
@@ -213,17 +258,21 @@ export function applyStagePlotInstrumentSizeOverride(type, widthCm, heightCm) {
  * @returns {Promise<Map<string, string>>}
  */
 export async function loadAndApplyStagePlotInstrumentIcons() {
-  const { data, error } = await supabase
+  const baseCols =
+    "id, stage_plot_type, svg_icon, stage_plot_raster_url, stage_plot_width_cm, stage_plot_height_cm";
+  let { data, error } = await supabase
     .from("instrumentos")
-    .select(
-      "id, stage_plot_type, svg_icon, stage_plot_raster_url, stage_plot_width_cm, stage_plot_height_cm",
-    );
+    .select(`${baseCols}, stage_plot_timpani_sizes`);
+  if (error && /stage_plot_timpani_sizes/i.test(error.message || "")) {
+    ({ data, error } = await supabase.from("instrumentos").select(baseCols));
+  }
 
   if (error) {
     console.warn("[stagePlotInstrumentIcons]", error.message);
     setStagePlotDbIconOverrides(new Map());
     setStagePlotDbRasterOverrides(new Map());
     setStagePlotDbSizeOverrides(new Map());
+    setStagePlotTimpaniSizeOverrides(new Map());
     return new Map();
   }
 
@@ -234,6 +283,7 @@ export async function loadAndApplyStagePlotInstrumentIcons() {
   setStagePlotDbIconOverrides(svgMap);
   setStagePlotDbRasterOverrides(rasterMap);
   setStagePlotDbSizeOverrides(sizeMap);
+  applyStagePlotTimpaniSizesFromRows(rows);
   return svgMap;
 }
 

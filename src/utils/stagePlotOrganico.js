@@ -8,7 +8,11 @@ import {
   stagePlotTarimaShape,
 } from "./stagePlotCatalog";
 import { countStagePlotDrawnAtriles } from "./stagePlotAtril";
-import { STAGE_PLOT_CM_TO_PX } from "./stagePlotConstants";
+import {
+  STAGE_PLOT_CM_TO_PX,
+  STAGE_PLOT_TIMPANI_SIZES,
+  normalizeTimpaniSize,
+} from "./stagePlotConstants";
 
 /**
  * Filas de orgánico para comparar plano vs roster convocado.
@@ -550,6 +554,7 @@ export function computeStagePlotFurnitureSummary(items = [], roster = [], groups
     atrilesNeededNonPerc + percusionistasNeeded + directorsNeeded;
   const atrilesDrawn = countStagePlotDrawnAtriles(items, groups);
   const tarimas = summarizeStagePlotTarimas(items);
+  const timpaniBySize = summarizeStagePlotTimpaniBySize(items);
   const atrilDetail = buildStagePlotAtrilDetail({
     atrilBuckets,
     atrilExtraNeeded,
@@ -579,6 +584,33 @@ export function computeStagePlotFurnitureSummary(items = [], roster = [], groups
     row("atriles", "Atriles", atrilesDrawn, atrilesNeeded),
     row("podios", "Podio", podiosDrawn, directorsNeeded),
   ];
+
+  // Timbales cargados: solo medidas presentes (32 / 29 / 26 / 23). Sin fila en cero.
+  const timpaniRows = [];
+  if (timpaniBySize.length > 0) {
+    const timpaniTotal = timpaniBySize.reduce((sum, g) => sum + g.count, 0);
+    timpaniRows.push({
+      key: "timbales",
+      label: "Timbales",
+      drawn: timpaniTotal,
+      required: "—",
+      delta: 0,
+      status: "ok",
+      kind: "timpani_total",
+    });
+    for (const g of timpaniBySize) {
+      timpaniRows.push({
+        key: `timpani-${g.size}`,
+        label: `· ${g.size}`,
+        drawn: g.count,
+        required: "—",
+        delta: 0,
+        status: "ok",
+        kind: "timpani_size",
+        size: g.size,
+      });
+    }
+  }
 
   // Tarimas: cabecera «Tarimas» (total) + hijos forma×dims que suman al total.
   // Sin filas intermedias «Tarimas rect.» / «Tarimas oval» (redundantes con el total).
@@ -617,15 +649,34 @@ export function computeStagePlotFurnitureSummary(items = [], roster = [], groups
     podios: row("podios", "Podio", podiosDrawn, directorsNeeded),
     atrilDetail,
     tarimas,
+    timpaniBySize,
     directorsNeeded,
-    rows: [...furnitureRows, ...tarimaRows],
+    rows: [...furnitureRows, ...timpaniRows, ...tarimaRows],
   };
+}
+
+/**
+ * Timbales del plano agrupados por medida de parche.
+ * Solo medidas con al menos uno. Sin `timpaniSize` cuenta como 32.
+ * @param {Array<{ type?: string, timpaniSize?: number }>} items
+ * @returns {Array<{ size: number, count: number }>}
+ */
+export function summarizeStagePlotTimpaniBySize(items = []) {
+  const counts = new Map(STAGE_PLOT_TIMPANI_SIZES.map((size) => [size, 0]));
+  for (const it of items || []) {
+    if (it?.type !== "timpani") continue;
+    const size = normalizeTimpaniSize(it.timpaniSize);
+    counts.set(size, (counts.get(size) || 0) + 1);
+  }
+  return STAGE_PLOT_TIMPANI_SIZES.filter((size) => counts.get(size) > 0).map(
+    (size) => ({ size, count: counts.get(size) }),
+  );
 }
 
 /**
  * Filas para autoTable PDF hoja 2: solo cantidades **necesarias** (orgánico).
  * Sin columnas Orgánico/Plano/Δ. Atriles incluyen desglose como el modal de detalle.
- * Tarimas: drawn del plano (lo que hay que llevar), solo si hay alguna.
+ * Tarimas y timbales por medida: drawn del plano (lo que hay que llevar), solo si hay alguna.
  *
  * @param {ReturnType<typeof computeStagePlotFurnitureSummary>} summary
  * @returns {{
@@ -645,11 +696,11 @@ export function stagePlotFurniturePdfTableBody(summary) {
     ]);
   }
   for (const r of summary?.rows || []) {
-    if (r.kind === "tarimas_total") {
-      furnitureBody.push([String(r.label || "Tarimas"), String(r.drawn ?? 0)]);
+    if (r.kind === "tarimas_total" || r.kind === "timpani_total") {
+      furnitureBody.push([String(r.label || ""), String(r.drawn ?? 0)]);
       continue;
     }
-    if (r.kind === "tarima_size") {
+    if (r.kind === "tarima_size" || r.kind === "timpani_size") {
       // Indent under the Tarimas header so the size rows read as a sum breakdown.
       furnitureBody.push([
         `  ${String(r.label || "").trimStart()}`,
@@ -781,6 +832,7 @@ export function buildStagePlotAtrilDetail({
 export function buildStagePlotOrganicoCompare(items = [], roster = []) {
   const drawn = countStagePlotDrawnByOrganico(items);
   const required = computeStagePlotOrganicoFromRoster(roster);
+  const timpaniBySize = summarizeStagePlotTimpaniBySize(items);
 
   return STAGE_PLOT_ORGANICO_ROWS.map((row) => {
     const d = drawn[row.key] || 0;
@@ -794,6 +846,9 @@ export function buildStagePlotOrganicoCompare(items = [], roster = []) {
       required: r,
       delta,
       status: delta === 0 ? "ok" : delta < 0 ? "missing" : "excess",
+      ...(row.key === "timpani" && timpaniBySize.length
+        ? { timpaniSizes: timpaniBySize }
+        : {}),
     };
   }).filter((row) => row.drawn > 0 || row.required > 0);
 }

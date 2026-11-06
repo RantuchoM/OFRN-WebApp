@@ -436,6 +436,7 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
 - **Podio:** needed = mismos directores; drawn = ítems `conductor` (proxy; no hay tipo `podio` en catálogo). Director **no** cuenta como silla.
 - **Detalle:** bajo el conteo de atriles, **Ver detalle de atriles** abre modal (`StagePlotAtrilDetailModal`, portal `document.body`, `z-[100]` / overlay immersive) con desglose por grupo (músicos → atriles + regla), lista de percusionistas, fila Director y comparación vs íconos de perc. en el plano (informativo; no suman atriles).
 - **Tarimas:** solo drawn (sin needed); cabecera **Tarimas** (total N) + hijos `· Rect./Oval W × D cm` que **suman** a N (`summarizeStagePlotTarimas` → `stagePlotTarimaShape`; `riser` legacy = rect). Sin filas intermedias «Tarimas rect.» / «Tarimas oval».
+- **Timbales cargados:** solo drawn; cabecera **Timbales** + hijos `· {medida}` (`summarizeStagePlotTimpaniBySize`). Medidas 32, 29, 26 y 23; sin medida = 32. Sin filas de medida ausente. Misma tabla en la hoja 2 del PDF (cantidad cargada, como las tarimas).
 - **Fuente única:** `computeStagePlotFurnitureSummary` (UI Orgánico + hoja 2 del PDF). Helper `stagePlotFurniturePdfTableBody` → `{ furnitureBody, atrilBreakdownBody }` (solo necesarios + desglose atriles).
 - **Inventario stock:** columna **Inv.** (stock global) junto a Plano / Org. / Δ. Ámbar si stock &lt; orgánico (silla/banqueta/atril; podio/tarimas sin stock simple).
 
@@ -501,6 +502,16 @@ Seed: silla / banqueta / atril qty 0; tarima rect 200×100 qty 0. Unique parcial
 | 13h | Campanas tubulares | tubular_bells |
 
   Fallback estático: `public/stage-plot/icons/{timpani,marimba,vibraphone,bass-drum,snare,cymbals,xylophone-ofrn,tubular-bells,perc}.svg`. Orgánico: filas por tipo + `idInstr` 13/13a–h; banquetas para toda la familia.
+
+### Timbales: cuatro medidas de parche
+
+- Un solo tipo de catálogo `timpani` y una sola figura (`instrumentos.id` `13a`; no se re-sube el raster). La medida vive en el ítem del payload: `timpaniSize` ∈ **32 | 29 | 26 | 23** (pulgadas de parche).
+- **Normalizar** (`normalizeStagePlotItem`): si falta la medida o no es una de esas cuatro, queda **32**. No reescribe labels ya guardados. `createStagePlotItem` / duplicar copian la medida; el label automático es `Timbales {medida}` (un label editado a mano no se pisa al cambiar la medida desde la barra).
+- **Huella en cm, por medida:** el 32 vive en `instrumentos.stage_plot_width_cm` / `stage_plot_height_cm` (hoy 90×90). 29, 26 y 23 viven en `instrumentos.stage_plot_timpani_sizes` (jsonb). Si esa entrada falta, la huella es el 32 × `medida/32`. `stagePlotInstrumentRenderScales` usa esos cm (no vuelve a multiplicar el factor). El `scale` persistido del ítem sigue siendo el de catálogo. Hasta que alguien guarde, un plot ya cargado no salta de tamaño.
+- **Editor:** panel izquierdo → Editor, con la fila Timbales seleccionada, y clic derecho → Abrir editor, muestran cuatro pares Ancho×Profundo (10–400 cm). Guardar escribe todas las filas `timpani`, refresca el override en memoria y re-escala las figuras ya colocadas de esa medida (lienzo, PDF y JPG). La grilla 2×2 usa la misma proporción de cm. En Datos, Ancho/Profundo sigue siendo solo el 32.
+- **Número:** centrado en la elipse beige del parche claro del raster real (`STAGE_PLOT_TIMPANI_HEAD_CENTER_V` = 0.142 del alto de la imagen; el aro y la caldera quedan abajo). Negro con halo blanco. Mismo punto en lienzo (Konva `Text`, fuera del grupo `flipX`), PDF y JPG. En la grilla de la paleta el número sigue **arriba a la izquierda de la celda**.
+- **Paleta (panel izquierdo):** las cuatro medidas van juntas en una **grilla 2×2** (`TimpaniPaletteGrid`), no como cuatro chips sueltos. Cada celda usa la misma imagen, con tamaño relativo a la huella en cm del 32. El número de la medida va **arriba a la izquierda de la celda** (solo en esa grilla). Clic = centro; arrastre = soltar en el escenario. La hoja móvil lista las mismas cuatro medidas. Con un timbal seleccionado, la barra inferior cambia la medida (32 / 29 / 26 / 23).
+- **Detalle de cosas a llevar** (Orgánico → Mobiliario, y hoja 2 del PDF): cabecera **Timbales** (total cargado) + hijos `· 32` / `· 29` / `· 26` / `· 23` **solo si hay al menos uno**. No se inventan filas en cero. La fila de orgánico «Timbales» sigue comparando íconos vs roster y, debajo, resume las medidas presentes (`32 × n`). Insertar desde orgánico coloca medida 32.
 - **Editor accesible desde Escenario (primario) y Datos**:
   - **Escenario → panel izquierdo → pestaña Editor** (`StagePlotInstrumentsPanel.jsx`): lista agrupada por **Familia**; sección **Instrumentos sin ícono**; thumbnail; edición Familia + **tamaño de huella** (DB) + SVG; **Clave de ícono en el plano** en `<details>` (no «Tipo escenario»). Abajo: **Crear instrumento** (portal `z-[100]`: id, nombre, familia requerida, dims default 50, clave opcional/auto desde nombre si libre, SVG). Confirm SVG `z-[100]`. Tras guardar tamaño: `applyStagePlotInstrumentSizeOverride` + `reloadStagePlotInstrumentIcons` + evento de catálogo (lienzo abierto re-escala al instante).
   - **Paleta**: categorías musicales desde DB (filas con ícono); resto Escenario/Audio/Marcas/Elementos; abajo **Instrumentos sin ícono** (no arrastrables).
@@ -518,7 +529,7 @@ Seed: silla / banqueta / atril qty 0; tarima rect 200×100 qty 0. Unique parcial
 - [x] Atriles opcionales vía menú contextual (sin auto-satélite); par+atril solo desde menú (no sidebars)
 - [x] Sin auto-rotación de instrumentos (rotation=0 salvo Transformer)
 - [x] `stage_plot_width_cm` / `stage_plot_height_cm` + editor Datos/Editor; tamaño canónico en **todos** los planos (no solo al insertar)
-- [x] Clic derecho → **Abrir editor**: modal con las dimensiones del tipo (instrumento Ancho×Profundo 10–400; solista/elemento Ancho×Alto 5–800)
+- [x] Clic derecho → **Abrir editor**: modal con las dimensiones del tipo (instrumento Ancho×Profundo 10–400; solista/elemento Ancho×Alto 5–800). Timbales: cuatro pares, uno por medida.
 - [x] Cambio de tamaño en Editor/Datos refresca el lienzo **abierto** al instante (`catalogEpoch` + sync imperativo de **todas** las huellas Konva, no solo el ítem seleccionado / Transformer)
 - [x] Instrumentos no resizables en lienzo; escalas viejas del ítem ignoradas / limpiadas al normalizar
 - [x] Editor Instrumentos en Escenario (panel izquierdo) con preview SVG + confirm de reemplazo
@@ -532,6 +543,7 @@ Seed: silla / banqueta / atril qty 0; tarima rect 200×100 qty 0. Unique parcial
 - [x] Panel Escenario → Inventario (stock, tarimas por dims, elementos SVG, log, toast overstock; Orgánico columna Inv.)
 - [x] Editor: familia-first + Crear instrumento; `stage_plot_type` = clave de ícono (sin UNIQUE DB)
 - [x] Percusión `13a`–`13h` (Timbales…Campanas) + SVG OFRN + catálogo/orgánico (`20260829020843`, linked)
+- [x] Timbales: medidas 32/29/26/23 en `timpaniSize` (sin medida = 32); huella cm por medida (32 en columnas, 29/26/23 en `stage_plot_timpani_sizes`); número centrado en el parche claro (lienzo, PDF, JPG); paleta 2×2 con número arriba a la izquierda; detalle de carga solo medidas presentes
 - [x] Renombrar lienzo: botón lápiz (`IconPencil`) **inmediatamente a la derecha del dropdown** Elegir lienzo → input inline; Enter/blur guarda, Escape cancela (ya no input siempre visible; no entre + Lienzo y Asociar)
 - [x] Atriles needed: percusión = 1 × percusionista convocado (no por ícono); modal **Ver detalle de atriles** (desglose + lista perc.)
 - [x] Director: 1 atril + 1 podio (sin silla); PDF hoja 2 **portrait** = necesarios + desglose atriles multi-col (como modal) + tarimas cabecera/hijos; sin Orgánico/Plano/Δ
