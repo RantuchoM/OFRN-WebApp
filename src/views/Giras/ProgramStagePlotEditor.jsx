@@ -1291,6 +1291,12 @@ function useStagePlotIcon(type, color, iconEpoch = 0) {
   return image;
 }
 
+/** Texto y tarimas no tienen una imagen que espejar. */
+function stagePlotItemCanMirror(item) {
+  if (!item?.type || item.type === "text") return false;
+  return !stagePlotItemIsTarima(item.type);
+}
+
 /** @returns {{ interactive: boolean, isBackground: boolean }} */
 function classifyStagePlotPointerTarget(node) {
   let cur = node;
@@ -1304,6 +1310,7 @@ function classifyStagePlotPointerTarget(node) {
     if (typeof name === "string") {
       if (
         name.includes("stage-plot-item") ||
+        name.includes("stage-plot-flip-handle") ||
         name.includes("stage-plot-formation") ||
         name.includes("stage-plot-formation-handle")
       ) {
@@ -2851,45 +2858,49 @@ const ItemShape = React.memo(function ItemShape({
           listening={false}
           wrap="word"
         />
-      ) : iconImage && iconNatural?.w && iconNatural?.h ? (
-        <KonvaImage
-          image={iconImage}
-          x={0}
-          y={iconOffsetY}
-          offsetX={drawW / 2}
-          offsetY={drawH / 2}
-          width={drawW}
-          height={drawH}
-          listening={false}
-        />
-      ) : pathD ? (
-        <Path
-          data={pathD}
-          x={0}
-          y={iconOffsetY}
-          fill={fill}
-          stroke={stroke}
-          strokeWidth={strokeW / Math.max(silScale, 1e-6)}
-          scaleX={silScale}
-          scaleY={silScale}
-          offsetX={VB / 2}
-          offsetY={VB / 2}
-          lineJoin="round"
-          lineCap="round"
-          listening={false}
-        />
       ) : (
-        <Rect
-          x={0}
-          y={iconOffsetY}
-          offsetX={drawW / 2}
-          offsetY={drawH / 2}
-          width={drawW}
-          height={drawH}
-          fill={fill}
-          cornerRadius={3}
-          listening={false}
-        />
+        <Group scaleX={item.flipX ? -1 : 1} listening={false}>
+          {iconImage && iconNatural?.w && iconNatural?.h ? (
+            <KonvaImage
+              image={iconImage}
+              x={0}
+              y={iconOffsetY}
+              offsetX={drawW / 2}
+              offsetY={drawH / 2}
+              width={drawW}
+              height={drawH}
+              listening={false}
+            />
+          ) : pathD ? (
+            <Path
+              data={pathD}
+              x={0}
+              y={iconOffsetY}
+              fill={fill}
+              stroke={stroke}
+              strokeWidth={strokeW / Math.max(silScale, 1e-6)}
+              scaleX={silScale}
+              scaleY={silScale}
+              offsetX={VB / 2}
+              offsetY={VB / 2}
+              lineJoin="round"
+              lineCap="round"
+              listening={false}
+            />
+          ) : (
+            <Rect
+              x={0}
+              y={iconOffsetY}
+              offsetX={drawW / 2}
+              offsetY={drawH / 2}
+              width={drawW}
+              height={drawH}
+              fill={fill}
+              cornerRadius={3}
+              listening={false}
+            />
+          )}
+        </Group>
       )}
     </Group>
   );
@@ -3958,6 +3969,79 @@ export default function ProgramStagePlot({
     catalogEpoch,
     resolveItemNode,
   ]);
+
+  const flipHandleRef = useRef(null);
+  const [flipHandle, setFlipHandle] = useState(null);
+
+  /**
+   * Asa de espejo a la derecha del rotater (px de pantalla).
+   * El Stage está escalado: el grupo del asa compensa con 1/zoom.
+   */
+  useLayoutEffect(() => {
+    const tr = transformerRef.current;
+    const stage = konvaStageRef.current;
+    if (!tr || !stage || !canEdit || selectedFormationId || !selectedIds.length) {
+      setFlipHandle(null);
+      return undefined;
+    }
+    const items = payloadRef.current?.items || [];
+    const ids = new Set(selectedIds);
+    const flippable = items.filter(
+      (it) => ids.has(it.id) && stagePlotItemCanMirror(it),
+    );
+    if (!flippable.length || !tr.rotateEnabled()) {
+      setFlipHandle(null);
+      return undefined;
+    }
+    const active = flippable.every((it) => it.flipX === true);
+    const place = () => {
+      const rotater = tr.findOne(".rotater");
+      if (!rotater || !rotater.visible()) {
+        setFlipHandle(null);
+        return;
+      }
+      const abs = rotater.getAbsolutePosition();
+      const inv = stage.getAbsoluteTransform().copy().invert();
+      const pt = inv.point({ x: abs.x + 18, y: abs.y });
+      setFlipHandle((prev) => {
+        if (
+          prev &&
+          prev.active === active &&
+          Math.abs(prev.x - pt.x) < 0.4 &&
+          Math.abs(prev.y - pt.y) < 0.4
+        ) {
+          return prev;
+        }
+        return { x: pt.x, y: pt.y, active };
+      });
+    };
+    place();
+    const raf = requestAnimationFrame(place);
+    const nodes = tr.nodes();
+    nodes.forEach((node) => node.on("transform.fliphandle", place));
+    stage.on("mousemove.fliphandle touchmove.fliphandle", place);
+    return () => {
+      cancelAnimationFrame(raf);
+      nodes.forEach((node) => node.off("transform.fliphandle"));
+      stage.off("mousemove.fliphandle touchmove.fliphandle");
+    };
+  }, [
+    canEdit,
+    selectedIds,
+    selectedFormationId,
+    payload.items,
+    viewport.scale,
+    viewport.x,
+    viewport.y,
+    catalogEpoch,
+  ]);
+
+  useLayoutEffect(() => {
+    const node = flipHandleRef.current;
+    if (!node) return;
+    node.moveToTop();
+    node.getLayer()?.batchDraw();
+  }, [flipHandle]);
 
   /** Tras epoch de catálogo: re-escalar huellas aunque ItemShape no re-pinte. */
   useLayoutEffect(() => {
@@ -6172,6 +6256,17 @@ export default function ProgramStagePlot({
     );
   };
 
+  const mirrorSelected = () => {
+    if (!canEdit) return;
+    const flippable = selectedItems.filter(stagePlotItemCanMirror);
+    if (!flippable.length) return;
+    const turnOn = flippable.some((it) => it.flipX !== true);
+    updateSelectedMany((it) => {
+      if (!stagePlotItemCanMirror(it)) return {};
+      return { flipX: turnOn };
+    });
+  };
+
   const duplicateSelected = () => {
     if (!selectedItems.length || !canEdit) return;
     const offset = 28;
@@ -6188,6 +6283,7 @@ export default function ProgramStagePlot({
         label: src.label,
         notes: src.notes,
         rotation: src.rotation || 0,
+        ...(src.flipX ? { flipX: true } : {}),
         scale: src.scale > 0 ? src.scale : 1,
         ...(Number.isFinite(Number(src.scaleX)) && Number(src.scaleX) > 0
           ? { scaleX: Number(src.scaleX) }
@@ -8054,6 +8150,62 @@ export default function ProgramStagePlot({
                       return newBox;
                     }}
                   />
+                )}
+                {canEdit && flipHandle && (
+                  <Group
+                    ref={flipHandleRef}
+                    name="stage-plot-flip-handle"
+                    x={flipHandle.x}
+                    y={flipHandle.y}
+                    scaleX={1 / viewportScale}
+                    scaleY={1 / viewportScale}
+                    onMouseDown={(e) => {
+                      e.cancelBubble = true;
+                    }}
+                    onTouchStart={(e) => {
+                      e.cancelBubble = true;
+                    }}
+                    onClick={(e) => {
+                      e.cancelBubble = true;
+                      mirrorSelected();
+                    }}
+                    onTap={(e) => {
+                      e.cancelBubble = true;
+                      mirrorSelected();
+                    }}
+                    onMouseEnter={() => setStageWrapCursor("pointer")}
+                    onMouseLeave={() => clearStageWrapCursor()}
+                  >
+                    <Circle
+                      radius={9}
+                      fill={flipHandle.active ? "#4f46e5" : "#ffffff"}
+                      stroke="#4f46e5"
+                      strokeWidth={1.5}
+                      hitStrokeWidth={12}
+                    />
+                    <Line
+                      points={[-1, -5, -1, 5]}
+                      stroke={flipHandle.active ? "#ffffff" : "#4f46e5"}
+                      strokeWidth={1.4}
+                      listening={false}
+                    />
+                    <Line
+                      points={[-3, -2.2, -6.5, 0, -3, 2.2]}
+                      stroke={flipHandle.active ? "#ffffff" : "#4f46e5"}
+                      strokeWidth={1.4}
+                      lineCap="round"
+                      lineJoin="round"
+                      listening={false}
+                    />
+                    <Line
+                      points={[3, -2.2, 6.5, 0, 3, 2.2]}
+                      stroke={flipHandle.active ? "#ffffff" : "#4f46e5"}
+                      strokeWidth={1.4}
+                      lineCap="round"
+                      lineJoin="round"
+                      listening={false}
+                    />
+                  </Group>
                 )}
                 {/* Selected formation handles above items so peak/side asas stay hittable. */}
                 {canEdit &&

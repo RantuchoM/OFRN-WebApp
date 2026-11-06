@@ -29,6 +29,9 @@ export const STAGE_PLOT_SILHOUETTES = {
     "M5 28.5h46c2 0 3.5 1.6 3.5 3.5v1.5c0 1.9-1.5 3.5-3.5 3.5H16l-7 6H6.5l3.5-6H5c-1.4 0-2.5-1.5-2.5-3.2S3.6 28.5 5 28.5zm49 2 6-1.5v9l-6-1.5v-6zM17 30v6h2v-6h-2zm8 0v6h2v-6h-2zm8 0v6h2v-6h-2zm8 0v6h2v-6h-2z",
   bassoon:
     "M8 26h40c2.5 0 4.5 2 4.5 4.5v4c0 2.5-2 4.5-4.5 4.5H22l-8 8H10l4-8H8c-2 0-3.5-2-3.5-4.2V30.5C4.5 28 6 26 8 26zm44.5 3.5 7-2v12l-7-2v-8zM18 28.5v8h2.5v-8H18zm9 0v8h2.5v-8H27zm9 0v8h2.5v-8H36z",
+  // Contrafagot: cuerpo plegado en U + campana, más ancho que el fagot.
+  contrabassoon:
+    "M10 14h8v28H10V14zm14 0h8v36h-8V14zM10 42h22v8H10v-8zm24 8c6 0 12-4 14-10l4 2c-3 8-11 14-18 14H32v-6h2zm30-22 8-3v10l-8-3v-4zM16 18h2v16h-2V18zm14 4h2v20h-2V22z",
 
   // --- Metales ---
   horn:
@@ -75,6 +78,15 @@ export const STAGE_PLOT_SILHOUETTES = {
     "M8 10 H56 V17 H8 Z M31 14 H33 V5 H31 Z M32 15 L41 22 L39.5 23.5 Z M32 15 L23 22 L24.5 23.5 Z",
   conductor:
     "M28 6h8v6h-8V6zm-6 8h20c2 0 3.5 1.5 3.5 3.5V28H18.5V17.5c0-2 1.5-3.5 3.5-3.5zM14 30h36v6H40v20h-4V36H28v20h-4V36H14v-6zM24 18h4v6h-4v-6zm12 0h4v6h-4v-6z",
+  // Voces, de frente: vestido o traje, para distinguirlas en el plano.
+  soprano:
+    "M28 4h8v7h-8V4zM22 13h20l4 14H18l4-14zm-2 16h24l6 27H14l6-27z",
+  mezzo:
+    "M27 5h10v8h-10V5zM20 15h24l3 12H17l3-12zm-4 14h32l4 27H12l4-27z",
+  tenor:
+    "M28 4h8v7h-8V4zM20 13h24v16H20V13zM18 31h10v25h-6V37h-4V31zm18 0h10v6h-4v19h-6V31z",
+  baritone:
+    "M26 3h12v9h-12V3zM16 14h32v18H16V14zM14 34h14v24h-8V40h-6V34zm22 0h14v6h-6v18h-8V34z",
   /** Tarima rectangular (vista cenital): redondeada, aspect ~2:1 — distinta de oval. */
   tarima_rect:
     "M8 20h48a6 6 0 0 1 6 6v12a6 6 0 0 1-6 6H8a6 6 0 0 1-6-6V26a6 6 0 0 1 6-6z",

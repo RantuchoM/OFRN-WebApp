@@ -715,6 +715,7 @@ function normalizeStagePlotItem(it, idx) {
         : includeDefault,
     slotId,
     ...(groupId ? { groupId } : {}),
+    ...(o.flipX === true ? { flipX: true } : {}),
   };
   if (type === "text") {
     return { ...base, ...normalizeStagePlotTextFormat(o) };

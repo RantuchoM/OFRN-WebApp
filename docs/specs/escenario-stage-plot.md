@@ -393,6 +393,7 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
 - Paleta **Atril** (`music_stand`) sigue disponible para colocación manual.
 - Conteo orgánico **atriles drawn** = solo ítems `music_stand` (`countStagePlotDrawnAtriles`).
 - **Rotación de instrumentos:** default `rotation = 0` (upright). **Sin** auto-rotar en create / palette / orgánico / par / magnetize / reanchor. Solo rota el usuario con Transformer. `rotationInstrumentBaseFacingPoint` queda para marcadores de plaza / orientación de atril al agregar.
+- **Espejo horizontal:** con ítems seleccionados (y el asa de giro visible), un asa a la derecha del rotater alterna `item.flipX`. Voltea el ícono o la silueta alrededor del centro; no mueve la huella, la silla, el texto ni las tarimas. Se guarda en el payload y sale igual en PDF/JPG/preview. Duplicar copia `flipX`.
 
 ### Pares de cuerdas (`string_pair`)
 
@@ -468,7 +469,7 @@ Seed: silla / banqueta / atril qty 0; tarima rect 200×100 qty 0. Unique parcial
 - **Regla 1:1**: cada SVG de instrumento vive en una fila de `instrumentos` (`svg_icon` + clave `stage_plot_type`). Material de escenario sin instrumento → `elementos_escenario` / Inventario (no el Editor).
 - Columnas: `svg_icon`, `stage_plot_type` (slug interno de ícono/paleta, **no** taxonomía de usuario), **`stage_plot_width_cm`**, **`stage_plot_height_cm`** (migración `20260828185148` + backfill/DEFAULT `20260828190819`; todas las filas **50×50**; DEFAULT 50; NULL legacy también = 50 cm), **`stage_plot_raster_url`** (PNG/WebP opcional en Storage; si está seteada, el plano la prefiere al SVG).
 - **Clasificación de usuario**: `instrumentos.familia` (FK `public.familia`). En Editor se agrupa y edita por familia.
-- **`stage_plot_type`**: clave de ícono en el plano (violin, bandoneon, …). Preferir única al crear; variantes pueden compartir (hoy `oboe` 06/06b, `clarinet` 07/07b, `bassoon` 08/08b). **Sin** UNIQUE constraint en DB (compartir es válido). Índice parcial existente `instrumentos_stage_plot_type_idx`.
+- **`stage_plot_type`**: clave de ícono en el plano (violin, bandoneon, …). Preferir única al crear; variantes pueden compartir (hoy `oboe` 06/06b, `clarinet` 07/07b). **Fagot (`08`) y contrafagot (`08b`) no comparten clave:** `bassoon` y `contrabassoon`, para que el plano muestre una imagen distinta. **Voces**, cada una con clave propia: `20` soprano, `80` mezzo (no hay fila Contralto; la voz grave femenina es Mezzo), `81` tenor, `38` baritone. `50` Director sigue en `conductor`. `20a` Voz, `23` Coro y `51` Director Musical siguen sin clave, para no pisar el ícono de otra fila. Un ítem ya colocado conserva el `type` con el que se insertó. **Sin** UNIQUE constraint en DB (compartir es válido). Índice parcial existente `instrumentos_stage_plot_type_idx`.
 - **PK `id`**: `text` manual (ej. `01`, `06b`, `22c`) — no serial.
 - **Percusión variantes** (base **`13`** Percusión / `perc`): ids `13a`–`13h` con `stage_plot_type` únicos y SVG OFRN (`currentColor`, viewBox 64). Migración `20260829020843_instrumentos_percusion_variants` (linked).
 

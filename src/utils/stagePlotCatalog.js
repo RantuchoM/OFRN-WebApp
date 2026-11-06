@@ -29,6 +29,7 @@ export const STAGE_PLOT_CATALOG = [
   { type: "oboe", name: "Oboe", category: "Maderas", color: "#0f172a", w: 44, h: 44, includeInChannels: true },
   { type: "clarinet", name: "Clarinete", category: "Maderas", color: "#0f172a", w: 44, h: 44, includeInChannels: true },
   { type: "bassoon", name: "Fagot", category: "Maderas", color: "#134e4a", w: 48, h: 48, includeInChannels: true },
+  { type: "contrabassoon", name: "Contrafagot", category: "Maderas", color: "#042f2e", w: 56, h: 56, includeInChannels: true },
   // Metales
   { type: "horn", name: "Corno", category: "Metales", color: "#ca8a04", w: 44, h: 44, includeInChannels: true },
   { type: "trumpet", name: "Trompeta", category: "Metales", color: "#eab308", w: 44, h: 44, includeInChannels: true },
@@ -46,6 +47,11 @@ export const STAGE_PLOT_CATALOG = [
   { type: "tubular_bells", name: "Campanas", category: "Percusión", color: "#fb7185", w: 44, h: 52, includeInChannels: true },
   { type: "piano", name: "Piano", category: "Teclado", color: "#1e293b", w: 56, h: 56, includeInChannels: true },
   { type: "celesta", name: "Celesta", category: "Teclado", color: "#334155", w: 48, h: 48, includeInChannels: true },
+  { type: "saxophone", name: "Saxofón", category: "Maderas", color: "#115e59", w: 44, h: 52, includeInChannels: true },
+  { type: "soprano", name: "Soprano", category: "Voces", color: "#9d174d", w: 40, h: 48, includeInChannels: true },
+  { type: "mezzo", name: "Mezzo / contralto", category: "Voces", color: "#831843", w: 40, h: 48, includeInChannels: true },
+  { type: "tenor", name: "Tenor", category: "Voces", color: "#1e3a8a", w: 40, h: 48, includeInChannels: true },
+  { type: "baritone", name: "Barítono", category: "Voces", color: "#1e293b", w: 42, h: 48, includeInChannels: true },
   // Escenario / atriles
   { type: "chair", name: "Silla", category: "Escenario", color: "#64748b", w: 40, h: 40, includeInChannels: false },
   { type: "banqueta", name: "Banqueta", category: "Escenario", color: "#78716c", w: 36, h: 36, includeInChannels: false },
@@ -168,6 +174,7 @@ export const STAGE_PLOT_MUSICIAN_INSTRUMENT_CATEGORIES = new Set([
   "Metales",
   "Percusión",
   "Teclado",
+  "Voces",
 ]);
 
 /** Tipos que usan banqueta (no silla): contrabajo + familia percusión del catálogo. */

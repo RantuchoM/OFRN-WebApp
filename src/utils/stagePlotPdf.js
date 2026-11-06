@@ -859,7 +859,16 @@ async function drawStageItemsOnPdf(doc, payload, ox, oy, scale) {
       const iconCy = cy + iconOffY * Math.cos(rad);
       const iconImg = await loadStagePlotIconImage(item.type, hex);
       if (iconImg) {
-        drawImageRotated(doc, iconImg, iconCx, iconCy, iconBoxW, iconBoxH, rotation);
+        drawImageRotated(
+          doc,
+          iconImg,
+          iconCx,
+          iconCy,
+          iconBoxW,
+          iconBoxH,
+          rotation,
+          item.flipX === true,
+        );
       } else {
         const pathD = getStagePlotSilhouettePath(item.type);
         if (pathD) {
@@ -872,6 +881,7 @@ async function drawStageItemsOnPdf(doc, payload, ox, oy, scale) {
             iconBoxH,
             rotation,
             rgb,
+            item.flipX === true,
           );
         } else {
           doc.setFillColor(rgb.r, rgb.g, rgb.b);
@@ -895,11 +905,30 @@ async function drawStageItemsOnPdf(doc, payload, ox, oy, scale) {
 
     const iconImg = await loadStagePlotIconImage(item.type, hex);
     if (iconImg) {
-      drawImageRotated(doc, iconImg, cx, cy, wMm, hMm, rotation);
+      drawImageRotated(
+        doc,
+        iconImg,
+        cx,
+        cy,
+        wMm,
+        hMm,
+        rotation,
+        item.flipX === true,
+      );
     } else {
       const pathD = getStagePlotSilhouettePath(item.type);
       if (pathD) {
-        drawSilhouetteOnPdf(doc, pathD, cx, cy, wMm, hMm, rotation, rgb);
+        drawSilhouetteOnPdf(
+          doc,
+          pathD,
+          cx,
+          cy,
+          wMm,
+          hMm,
+          rotation,
+          rgb,
+          item.flipX === true,
+        );
       } else {
         doc.setFillColor(rgb.r, rgb.g, rgb.b);
         doc.setDrawColor(30);
@@ -1057,6 +1086,7 @@ async function drawStageItemsOnCanvas(ctx, payload, ox, oy, scale) {
           iconBoxW,
           iconBoxH,
           rotation,
+          item.flipX === true,
         );
       } else {
         const pathD = getStagePlotSilhouettePath(item.type);
@@ -1070,11 +1100,13 @@ async function drawStageItemsOnCanvas(ctx, payload, ox, oy, scale) {
             iconBoxH,
             rotation,
             rgb,
+            item.flipX === true,
           );
         } else {
           ctx.save();
           ctx.translate(iconCx, iconCy);
           if (rotation) ctx.rotate(rad);
+          if (item.flipX === true) ctx.scale(-1, 1);
           ctx.fillStyle = `rgb(${rgb.r},${rgb.g},${rgb.b})`;
           ctx.strokeStyle = "#1e293b";
           ctx.lineWidth = 1;
@@ -1101,15 +1133,35 @@ async function drawStageItemsOnCanvas(ctx, payload, ox, oy, scale) {
 
     const iconImg = await loadStagePlotIconImage(item.type, hex);
     if (iconImg) {
-      drawImageRotatedOnCanvas(ctx, iconImg, cx, cy, wPx, hPx, rotation);
+      drawImageRotatedOnCanvas(
+        ctx,
+        iconImg,
+        cx,
+        cy,
+        wPx,
+        hPx,
+        rotation,
+        item.flipX === true,
+      );
     } else {
       const pathD = getStagePlotSilhouettePath(item.type);
       if (pathD) {
-        drawSilhouetteOnCanvas(ctx, pathD, cx, cy, wPx, hPx, rotation, rgb);
+        drawSilhouetteOnCanvas(
+          ctx,
+          pathD,
+          cx,
+          cy,
+          wPx,
+          hPx,
+          rotation,
+          rgb,
+          item.flipX === true,
+        );
       } else {
         ctx.save();
         ctx.translate(cx, cy);
         if (rotation) ctx.rotate((rotation * Math.PI) / 180);
+        if (item.flipX === true) ctx.scale(-1, 1);
         ctx.fillStyle = `rgb(${rgb.r},${rgb.g},${rgb.b})`;
         ctx.strokeStyle = "#1e293b";
         ctx.lineWidth = 1;
@@ -1304,7 +1356,7 @@ function drawChairSquareOnCanvas(
   ctx.restore();
 }
 
-function drawImageRotated(doc, htmlImage, cx, cy, wMm, hMm, rotationDeg) {
+function drawImageRotated(doc, htmlImage, cx, cy, wMm, hMm, rotationDeg, flipX = false) {
   if (typeof document === "undefined") return;
   const widthMm = Number(wMm);
   const heightMm = Number(hMm);
@@ -1325,6 +1377,7 @@ function drawImageRotated(doc, htmlImage, cx, cy, wMm, hMm, rotationDeg) {
     pxW,
     pxH,
     rotationDeg,
+    flipX,
   );
   try {
     doc.addImage(
@@ -1342,13 +1395,23 @@ function drawImageRotated(doc, htmlImage, cx, cy, wMm, hMm, rotationDeg) {
   }
 }
 
-function drawImageRotatedOnCanvas(ctx, htmlImage, cx, cy, wPx, hPx, rotationDeg) {
+function drawImageRotatedOnCanvas(
+  ctx,
+  htmlImage,
+  cx,
+  cy,
+  wPx,
+  hPx,
+  rotationDeg,
+  flipX = false,
+) {
   if (!htmlImage) return;
   const { w: iw, h: ih } = getStagePlotImageNaturalSize(htmlImage);
   if (!iw || !ih) return;
   ctx.save();
   ctx.translate(cx, cy);
   if (rotationDeg) ctx.rotate((rotationDeg * Math.PI) / 180);
+  if (flipX) ctx.scale(-1, 1);
   const fit = fitContainInBox(wPx, hPx, iw, ih);
   if (!fit.drawW || !fit.drawH) {
     ctx.restore();
@@ -1364,7 +1427,7 @@ function drawImageRotatedOnCanvas(ctx, htmlImage, cx, cy, wPx, hPx, rotationDeg)
   ctx.restore();
 }
 
-function drawSilhouetteOnPdf(doc, pathD, cx, cy, wMm, hMm, rotationDeg, rgb) {
+function drawSilhouetteOnPdf(doc, pathD, cx, cy, wMm, hMm, rotationDeg, rgb, flipX = false) {
   if (typeof document === "undefined" || !pathD) return;
   const widthMm = Number(wMm);
   const heightMm = Number(hMm);
@@ -1386,6 +1449,7 @@ function drawSilhouetteOnPdf(doc, pathD, cx, cy, wMm, hMm, rotationDeg, rgb) {
     pxH,
     rotationDeg,
     rgb,
+    flipX,
   );
   try {
     doc.addImage(
@@ -1403,11 +1467,22 @@ function drawSilhouetteOnPdf(doc, pathD, cx, cy, wMm, hMm, rotationDeg, rgb) {
   }
 }
 
-function drawSilhouetteOnCanvas(ctx, pathD, cx, cy, wPx, hPx, rotationDeg, rgb) {
+function drawSilhouetteOnCanvas(
+  ctx,
+  pathD,
+  cx,
+  cy,
+  wPx,
+  hPx,
+  rotationDeg,
+  rgb,
+  flipX = false,
+) {
   if (!pathD) return;
   ctx.save();
   ctx.translate(cx, cy);
   if (rotationDeg) ctx.rotate((rotationDeg * Math.PI) / 180);
+  if (flipX) ctx.scale(-1, 1);
   const silScale = Math.min(wPx / VB, hPx / VB);
   if (!Number.isFinite(silScale) || silScale <= 0) {
     ctx.restore();
