@@ -47,25 +47,62 @@ export function installChunkRescue(host) {
   var STUCK_DETAIL =
     "Tocá el botón. Si el aviso vuelve, cerrá la app del todo (desde las apps recientes) y abrila de nuevo.";
 
+  function rescueDestination(search, depth) {
+    var raw = String(search || "");
+    if (raw.charAt(0) === "?") raw = raw.slice(1);
+    var params;
+    try {
+      params = new URLSearchParams(raw);
+    } catch (e0) {
+      return "/";
+    }
+    var next = params.get("next") || "";
+    var dest = "/";
+    if (
+      next.indexOf("/") === 0 &&
+      next.indexOf("//") !== 0 &&
+      next.indexOf("\\") < 0 &&
+      next.indexOf("..") < 0
+    ) {
+      if (next.indexOf("/refrescar.html") === 0) {
+        if ((depth || 0) < 3) {
+          var q = next.indexOf("?");
+          if (q >= 0) {
+            var inner = rescueDestination(next.slice(q), (depth || 0) + 1);
+            if (inner !== "/") dest = inner;
+          }
+        }
+      } else {
+        dest = next;
+      }
+    }
+    var extra = [];
+    params.forEach(function (value, key) {
+      if (key === "next" || key === "r") return;
+      if (!/^[A-Za-z][A-Za-z0-9_]*$/.test(key)) return;
+      if (String(value).indexOf("\\") >= 0 || String(value).indexOf("..") >= 0) return;
+      extra.push([key, value]);
+    });
+    if (!extra.length) return dest || "/";
+    try {
+      var url = new URL(dest && dest.indexOf("/") === 0 ? dest : "/", "https://ofrn.local");
+      for (var i = 0; i < extra.length; i += 1) {
+        if (!url.searchParams.has(extra[i][0])) url.searchParams.append(extra[i][0], extra[i][1]);
+      }
+      return url.pathname + url.search;
+    } catch (e1) {
+      return dest || "/";
+    }
+  }
+
   function here() {
     var loc = host.location || {};
     var path = loc.pathname || "/";
-    if (path === "/refrescar.html") {
-      var search = loc.search || "";
-      var match = search.match(/[?&]next=([^&]*)/);
-      if (match) {
-        try {
-          var next = decodeURIComponent(match[1]);
-          if (next.indexOf("/") === 0 && next.indexOf("//") !== 0 && next.indexOf("/refrescar.html") !== 0) {
-            return next;
-          }
-        } catch (e) {
-          /* next inválido: vamos a / */
-        }
-      }
-      return "/";
-    }
-    return path + (loc.search || "");
+    var search = loc.search || "";
+    // Misma regla que freshStartDestination: el query de la app en esta URL
+    // (`?tab=giras&…`) es la pantalla, aunque no venga dentro de `next`.
+    if (path === "/refrescar.html") return rescueDestination(search, 0);
+    return path + search;
   }
 
   function rescueUrl() {

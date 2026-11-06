@@ -13,8 +13,17 @@ export const FRESH_OPEN_KEY = "ofrn:fresh-open";
  */
 export const FRESH_NAV_KEY = "ofrn:fresh-nav-at";
 export const FRESH_NAV_WINDOW_MS = 60_000;
+/**
+ * Destino ya resuelto. Sobrevive la recarga intermedia (el referrer pasa a ser
+ * esta misma página) y un query que el shell reescribió.
+ */
+export const FRESH_DEST_KEY = "ofrn:fresh-dest";
+export const FRESH_DEST_TTL_MS = 2 * 60 * 1000;
 /** Recargas de esta misma página mientras el SW viejo sigue en control. */
 export const FRESH_START_MAX_ATTEMPTS = 2;
+
+/** El cache-buster `&r=` no es parte de la pantalla. `next` se lee aparte. */
+const FRESH_QUERY_NOISE = new Set(["next", "r"]);
 
 /** now: lo que está pasando. done: cómo queda en la lista de arriba. */
 export const FRESH_START_STATUS_TEXT = {
@@ -189,10 +198,53 @@ const SHELL_SESSION_KEYS = [
   "ofrn:chunk-rescue-shell-at",
 ];
 
+function isSafeQueryKey(key) {
+  return /^[A-Za-z][A-Za-z0-9_]*$/.test(key);
+}
+
+function isSafeQueryValue(value) {
+  const text = String(value ?? "");
+  return !text.includes("\\") && !text.includes("..");
+}
+
+/** Params de la app que quedaron hermanos de `next` (o en lugar de `next`). */
+function appQueryParams(params) {
+  const extra = new URLSearchParams();
+  for (const [key, value] of params.entries()) {
+    if (FRESH_QUERY_NOISE.has(key)) continue;
+    if (!isSafeQueryKey(key) || !isSafeQueryValue(value)) continue;
+    extra.append(key, value);
+  }
+  return extra;
+}
+
+function mergeAppQuery(dest, extra) {
+  if (![...extra.keys()].length) return dest;
+  let url;
+  try {
+    url = new URL(dest && dest.startsWith("/") ? dest : "/", "https://ofrn.local");
+  } catch {
+    return dest || "/";
+  }
+  if (url.origin !== "https://ofrn.local") return dest || "/";
+  for (const [key, value] of extra.entries()) {
+    if (!url.searchParams.has(key)) url.searchParams.append(key, value);
+  }
+  const merged = `${url.pathname}${url.search}`;
+  if (!merged.startsWith("/") || merged.startsWith("//") || merged.includes("\\") || merged.includes("..")) {
+    return "/";
+  }
+  return merged;
+}
+
 /**
  * Destino interno después de limpiar. Rechaza URLs absolutas, protocol-relative y esta misma página.
  * Si `next` es otra vez `/refrescar.html?next=…` (el shell de la app se sirvió en esa URL
  * y el aviso leyó la ruta actual), desempaqueta el destino de adentro.
+ * Si no hay `next` pero el query es el de la app (`?tab=giras&…&seatingView=escenario`),
+ * esa es la pantalla: alguien cambió solo el path a `/refrescar.html`.
+ * Si `next` se cortó en el primer `&` (`next=/?tab=giras&view=…`), los params hermanos
+ * se vuelven a colgar del destino.
  * @param {string} [search]
  * @param {number} [depth]
  * @returns {string}
@@ -200,26 +252,28 @@ const SHELL_SESSION_KEYS = [
 export function freshStartDestination(search = "", depth = 0) {
   const raw = String(search || "");
   const params = new URLSearchParams(raw.startsWith("?") ? raw.slice(1) : raw);
+  const extra = appQueryParams(params);
   const next = params.get("next");
-  if (!next) return "/";
-  if (!next.startsWith("/") || next.startsWith("//") || next.includes("\\") || next.includes("..")) {
-    return "/";
-  }
-  let url;
-  try {
-    url = new URL(next, "https://ofrn.local");
-  } catch {
-    return "/";
-  }
-  if (url.origin !== "https://ofrn.local") return "/";
-  if (url.pathname === FRESH_START_PATH) {
-    if (depth < 3 && url.search) {
-      const inner = freshStartDestination(url.search, depth + 1);
-      if (inner !== "/") return inner;
+  let dest = "/";
+  if (next && next.startsWith("/") && !next.startsWith("//") && !next.includes("\\") && !next.includes("..")) {
+    let url;
+    try {
+      url = new URL(next, "https://ofrn.local");
+    } catch {
+      url = null;
     }
-    return "/";
+    if (url && url.origin === "https://ofrn.local") {
+      if (url.pathname === FRESH_START_PATH) {
+        if (depth < 3 && url.search) {
+          const inner = freshStartDestination(url.search, depth + 1);
+          if (inner !== "/") dest = inner;
+        }
+      } else {
+        dest = `${url.pathname}${url.search}`;
+      }
+    }
   }
-  return `${url.pathname}${url.search}`;
+  return mergeAppQuery(dest, extra);
 }
 
 /**
@@ -244,18 +298,52 @@ export function freshStartReferrerDestination(referrer = "", origin = "") {
   return dest === "/" ? "" : dest;
 }
 
+function rememberFreshDest(storage, dest, now) {
+  if (!storage || !dest || dest === "/") return;
+  try {
+    storage.setItem(FRESH_DEST_KEY, JSON.stringify({ dest, at: now }));
+  } catch {
+    /* ignore */
+  }
+}
+
+function readRememberedFreshDest(storage, now) {
+  try {
+    const raw = storage?.getItem(FRESH_DEST_KEY);
+    if (!raw) return "";
+    const parsed = JSON.parse(raw);
+    const at = Number(parsed?.at);
+    const saved = typeof parsed?.dest === "string" ? parsed.dest : "";
+    if (!saved || !Number.isFinite(at) || now - at > FRESH_DEST_TTL_MS) return "";
+    const dest = freshStartDestination(`?next=${encodeURIComponent(saved)}`);
+    return dest === "/" ? "" : dest;
+  } catch {
+    return "";
+  }
+}
+
 /**
- * @param {{ search?: string, referrer?: string, origin?: string }} [input]
+ * @param {{ search?: string, referrer?: string, origin?: string, storage?: Storage, now?: number }} [input]
  * @returns {string}
  */
 export function resolveFreshStartDestination({
   search = "",
   referrer = "",
   origin = "",
+  storage = null,
+  now = Date.now(),
 } = {}) {
   const fromQuery = freshStartDestination(search);
-  if (fromQuery !== "/") return fromQuery;
-  return freshStartReferrerDestination(referrer, origin) || "/";
+  if (fromQuery !== "/") {
+    rememberFreshDest(storage, fromQuery, now);
+    return fromQuery;
+  }
+  const fromReferrer = freshStartReferrerDestination(referrer, origin);
+  if (fromReferrer) {
+    rememberFreshDest(storage, fromReferrer, now);
+    return fromReferrer;
+  }
+  return readRememberedFreshDest(storage, now) || "/";
 }
 
 /** Espera a que `unregister()` suelte el controlador, para no recargar el shell viejo. */
@@ -311,6 +399,7 @@ function removeStep(storage) {
   try {
     storage?.removeItem(FRESH_START_STORAGE_KEY);
     storage?.removeItem(FRESH_START_LOG_KEY);
+    storage?.removeItem(FRESH_DEST_KEY);
   } catch {
     /* ignore */
   }
@@ -406,6 +495,8 @@ export async function runFreshStart(env = {}) {
     search: location?.search || "",
     referrer: env.referrer || "",
     origin: env.origin || location?.origin || "",
+    storage,
+    now: env.now ?? Date.now(),
   });
 
   const prior = readFreshStartLog(storage);

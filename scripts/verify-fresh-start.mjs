@@ -22,6 +22,10 @@ import {
   runFreshStart,
 } from "../src/utils/freshStart.js";
 import { renderFreshStartHtml } from "../src/utils/freshStartPage.js";
+import { isNavigationDenylisted } from "../src/utils/pwaNavigateDenylist.js";
+
+const ESCENARIO =
+  "/?tab=giras&view=REPERTOIRE&giraId=14&subTab=seating&seatingView=escenario";
 
 function assert(cond, msg) {
   if (!cond) {
@@ -133,6 +137,65 @@ assert(
   "si el enlace perdió el next, lo recupera del referrer",
 );
 assert(freshStartDestination("?next=/%2e%2e/secreto") === "/", "rechaza ..");
+assert(
+  freshStartDestination(ESCENARIO.slice(1)) === ESCENARIO,
+  "el query de Escenario sin next vuelve a esa pantalla",
+);
+assert(
+  freshStartDestination(
+    "?next=" + encodeURIComponent(ESCENARIO) + "&r=1700000000000",
+  ) === ESCENARIO,
+  "el next codificado de Escenario no arrastra el cache-buster",
+);
+assert(
+  freshStartDestination(
+    "?next=/?tab=giras&view=REPERTOIRE&giraId=14&subTab=seating&seatingView=escenario",
+  ) === ESCENARIO,
+  "si next se cortó en el primer &, se rearman los params",
+);
+assert(
+  freshStartReferrerDestination(
+    "https://ofrn.local/refrescar.html?tab=giras&view=REPERTOIRE&giraId=14&subTab=seating&seatingView=escenario",
+    "https://ofrn.local",
+  ) === ESCENARIO,
+  "el referrer con el query pegado a refrescar también es Escenario",
+);
+assert(
+  !isNavigationDenylisted(ESCENARIO),
+  "la pantalla de Escenario sigue siendo navegación de la app",
+);
+assert(
+  isNavigationDenylisted("/refrescar.html"),
+  "refrescar pelado no lo sirve el shell",
+);
+assert(
+  isNavigationDenylisted("/refrescar.html?next=" + encodeURIComponent(ESCENARIO)),
+  "refrescar con next no lo sirve el shell",
+);
+assert(
+  isNavigationDenylisted("/refrescar.html?tab=giras&view=REPERTOIRE&giraId=14&subTab=seating&seatingView=escenario"),
+  "refrescar con el query de la app no lo sirve el shell",
+);
+{
+  const storage = memoryStorage();
+  const now = 1_700_000_000_000;
+  assert(
+    resolveFreshStartDestination({
+      search: "?tab=giras&view=REPERTOIRE&giraId=14&subTab=seating&seatingView=escenario",
+      storage,
+      now,
+    }) === ESCENARIO,
+    "resolver guarda el destino de Escenario",
+  );
+  assert(
+    resolveFreshStartDestination({ search: "", storage, now: now + 1000 }) === ESCENARIO,
+    "la recarga intermedia recupera el destino guardado",
+  );
+  assert(
+    resolveFreshStartDestination({ search: "", storage, now: now + 3 * 60 * 1000 }) === "/",
+    "el destino guardado caduca",
+  );
+}
 assert(freshStartHref("/giras") === "/refrescar.html?next=" + encodeURIComponent("/giras"), "el botón vuelve a la ruta");
 assert(
   freshStartHref("/entradas?view=mis-reservas") ===

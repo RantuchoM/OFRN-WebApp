@@ -5,6 +5,7 @@ import fs from "fs";
 import path from "path";
 import { renderFreshStartHtml } from "./src/utils/freshStartPage.js";
 import { renderChunkRescueInlineScript } from "./src/utils/chunkLoadRecovery.js";
+import { PWA_NAVIGATE_FALLBACK_DENYLIST } from "./src/utils/pwaNavigateDenylist.js";
 
 // Solución para __dirname en módulos ES
 const __dirname = path.resolve();
@@ -166,16 +167,7 @@ export default defineConfig(({ command }) => {
         cleanupOutdatedCaches: true,
         clientsClaim: true,
         skipWaiting: false,
-        navigateFallbackDenylist: [
-          /^\/manifest\.webmanifest$/,
-          /^\/version\.json$/,
-          /^\/ffmpeg\//,
-          /^\/assets\//,
-          /^\/sw\.js$/,
-          /^\/workbox-/,
-          /^\/refrescar\.html$/,
-          /\.[a-zA-Z0-9]+$/,
-        ],
+        navigateFallbackDenylist: PWA_NAVIGATE_FALLBACK_DENYLIST,
         // Push + local inicio/salida ensayo + notificationclick
         importScripts: [
           "/sw-push-handlers.js",
