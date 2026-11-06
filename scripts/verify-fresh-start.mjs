@@ -13,6 +13,8 @@ import {
   freshNavRecently,
   freshStartDestination,
   freshStartHref,
+  freshStartReferrerDestination,
+  resolveFreshStartDestination,
   freshStartStatusBusy,
   freshStartStatusLabel,
   planFreshStart,
@@ -100,6 +102,36 @@ assert(
 assert(freshStartDestination("?next=https://evil.test/x") === "/", "rechaza absoluta");
 assert(freshStartDestination("?next=//evil.test") === "/", "rechaza protocol-relative");
 assert(freshStartDestination("?next=/refrescar.html") === "/", "no vuelve a la misma página");
+assert(
+  freshStartDestination(
+    "?next=" + encodeURIComponent("/refrescar.html?next=/stage-plots/9"),
+  ) === "/stage-plots/9",
+  "desempaqueta el next si el shell se sirvió en /refrescar.html",
+);
+assert(
+  freshStartHref("/refrescar.html?next=/fimba/edicion/3/escenario/4") ===
+    "/refrescar.html?next=" + encodeURIComponent("/fimba/edicion/3/escenario/4"),
+  "no tira el escenario si la ruta actual ya es refrescar",
+);
+assert(
+  freshStartReferrerDestination(
+    "https://ofrn.local/?tab=giras&seatingView=escenario",
+    "https://ofrn.local",
+  ) === "/?tab=giras&seatingView=escenario",
+  "sin next, el referrer misma-origen es el destino",
+);
+assert(
+  freshStartReferrerDestination("https://evil.test/stage-plots/1", "https://ofrn.local") === "",
+  "el referrer de otro origen no cuenta",
+);
+assert(
+  resolveFreshStartDestination({
+    search: "",
+    referrer: "https://ofrn.local/refrescar.html?next=" + encodeURIComponent("/stage-plots/9"),
+    origin: "https://ofrn.local",
+  }) === "/stage-plots/9",
+  "si el enlace perdió el next, lo recupera del referrer",
+);
 assert(freshStartDestination("?next=/%2e%2e/secreto") === "/", "rechaza ..");
 assert(freshStartHref("/giras") === "/refrescar.html?next=" + encodeURIComponent("/giras"), "el botón vuelve a la ruta");
 assert(
@@ -189,6 +221,7 @@ assert(freshStartHref("/refrescar.html") === "/refrescar.html", "el botón no se
       },
     },
     timeoutMs: 1000,
+    controllerReleaseMs: 0,
   });
   assert(plan === "unregister-then-reload", "run con controlador");
   assert(reloaded === 1, "se recarga a sí misma");
@@ -237,6 +270,47 @@ assert(freshStartHref("/refrescar.html") === "/refrescar.html", "el botón no se
 }
 
 {
+  const sw = {
+    controller: { id: 1 },
+    onChange: null,
+    addEventListener(type, fn) {
+      if (type === "controllerchange") this.onChange = fn;
+    },
+    removeEventListener() {},
+    getRegistrations: async () => [
+      {
+        unregister: async () => {
+          sw.controller = null;
+          sw.onChange?.();
+          return true;
+        },
+      },
+    ],
+  };
+  let controlledAtReload = "pending";
+  const plan = await runFreshStart({
+    serviceWorker: sw,
+    cacheStorage: cacheBox(),
+    sessionStorage: memoryStorage(),
+    location: {
+      search: "?next=/stage-plots/9",
+      replace() {
+        throw new Error("no replace");
+      },
+      reload() {
+        controlledAtReload = sw.controller;
+      },
+    },
+    timeoutMs: 500,
+    minStepMs: 0,
+    closingMs: 0,
+    controllerReleaseMs: 1500,
+  });
+  assert(plan === "unregister-then-reload", "espera a soltar el SW antes de recargar");
+  assert(controlledAtReload == null, "la recarga ocurre cuando ya no hay controlador");
+}
+
+{
   registration.calls = 0;
   const caches = cacheBox();
   let replaced = 0;
@@ -257,6 +331,7 @@ assert(freshStartHref("/refrescar.html") === "/refrescar.html", "el botón no se
       },
     },
     timeoutMs: 200,
+    controllerReleaseMs: 0,
   });
   assert(plan === "stuck", "tope con SW todavía en control");
   assert(replaced === 0 && reloaded === 0, "no navega si sigue trabado");

@@ -308,6 +308,9 @@ function ReloadPromptProd() {
     void checkForNewVersion();
 
     if (openedFresh) return;
+    // El shell viejo a veces se sirve en esta URL. No es un cambio de sección:
+    // mandar otra vez a refrescar tira el `next` y abre el inicio.
+    if (pathname === "/refrescar.html") return;
     if (prevPath === pathname) return;
     if (silentVersionUpdate) return;
     if (!needRefresh && !buildOutdated) return;

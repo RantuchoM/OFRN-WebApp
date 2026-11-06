@@ -14,9 +14,15 @@ window.addEventListener('load', tryUnlockScreenOrientation, { once: true })
 // Chunks viejos tras un deploy: el script inline de index.html (build) abre
 // /refrescar.html una vez. Acá no se recarga: un reload con el SW viejo
 // vuelve a servir el mismo shell y el cartel titila hasta que el navegador corta.
+//
+// Si ese SW sirvió este mismo shell en /refrescar.html, montar la app muestra
+// el inicio y el aviso de versión arma el enlace sin `next`. El script inline
+// escribe la página de rescate; esta no tiene que montar.
 
-ReactDOM.createRoot(document.getElementById('root')).render(
-  <BrowserRouter>
-    <App />
-  </BrowserRouter>
-)
+if (window.location.pathname !== "/refrescar.html") {
+  ReactDOM.createRoot(document.getElementById('root')).render(
+    <BrowserRouter>
+      <App />
+    </BrowserRouter>
+  )
+}
