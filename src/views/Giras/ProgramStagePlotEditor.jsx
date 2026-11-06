@@ -73,7 +73,10 @@ import {
   stagePlotTarimaShape,
 } from "../../utils/stagePlotCatalog";
 import {
+  applyStagePlotInstrumentSizeOverride,
   partitionInstrumentosByStagePlotIcon,
+  reloadStagePlotInstrumentIcons,
+  resolveInstrumentStagePlotType,
 } from "../../services/stagePlotInstrumentIconsService";
 import {
   STAGE_PLOT_SILHOUETTE_VIEWBOX,
@@ -250,8 +253,10 @@ import {
   findInventarioElementoRow,
   findInventarioTarimaRow,
   inventarioSimpleStock,
+  listElementosEscenario,
   listInventarioItems,
   loadAndApplyElementosEscenario,
+  upsertElementoEscenario,
 } from "../../services/stagePlotInventarioService";
 import { applyStagePlotWheelToViewport } from "../../utils/stagePlotViewportGestures";
 
@@ -2023,9 +2028,261 @@ function StagePlotFormationCopyMenu({
   );
 }
 
+function formatStagePlotTypeCm(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "";
+  return String(Math.round(n * 10) / 10);
+}
+
+function parseStagePlotTypeCm(raw) {
+  const n = Number(String(raw ?? "").trim().replace(",", "."));
+  if (!Number.isFinite(n)) return null;
+  return Math.round(n * 10) / 10;
+}
+
+/** instrument | elemento | null. Solo tipos cuyo tamaño vive en el catálogo. */
+function stagePlotTypeSizeKind(type) {
+  if (stagePlotItemHasInstrumentFootprint(type)) return "instrument";
+  if (stagePlotItemUsesCatalogBox(type) || stagePlotItemIsElemento(type)) {
+    return "elemento";
+  }
+  return null;
+}
+
+function stagePlotTypeSizeDraft(type) {
+  const kind = stagePlotTypeSizeKind(type);
+  if (!kind) return null;
+  const cat = getStagePlotCatalogItem(type);
+  const db = getStagePlotDbDefaultSizeCm(type);
+  const fallbackW =
+    kind === "instrument"
+      ? 50
+      : cat?.w
+        ? cat.w / STAGE_PLOT_CM_TO_PX
+        : 40;
+  const fallbackH =
+    kind === "instrument"
+      ? 50
+      : cat?.h
+        ? cat.h / STAGE_PLOT_CM_TO_PX
+        : 40;
+  return {
+    type,
+    kind,
+    name: cat?.name || type,
+    width: formatStagePlotTypeCm(db?.widthCm ?? fallbackW),
+    height: formatStagePlotTypeCm(db?.heightCm ?? fallbackH),
+    widthLabel: "Ancho (cm)",
+    heightLabel: kind === "instrument" ? "Profundo (cm)" : "Alto (cm)",
+  };
+}
+
+/**
+ * Modal chico: Ancho × Profundo (instrumento) o Ancho × Alto (solista / elemento).
+ * El valor es del tipo, no de la figura clickeada.
+ */
+function StagePlotTypeSizeModal({
+  type,
+  supabase,
+  onClose,
+  onSaved,
+  overlayZ = 100,
+}) {
+  const draft = type ? stagePlotTypeSizeDraft(type) : null;
+  const [width, setWidth] = useState(draft?.width || "");
+  const [height, setHeight] = useState(draft?.height || "");
+  const [saving, setSaving] = useState(false);
+  const [loadedType, setLoadedType] = useState(type);
+  const widthRef = useRef(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  if (type !== loadedType) {
+    const next = type ? stagePlotTypeSizeDraft(type) : null;
+    setLoadedType(type);
+    setWidth(next?.width || "");
+    setHeight(next?.height || "");
+    setSaving(false);
+  }
+
+  const save = useCallback(async () => {
+    const current = type ? stagePlotTypeSizeDraft(type) : null;
+    if (!current || !supabase || saving) return;
+    const widthCm = parseStagePlotTypeCm(width);
+    const heightCm = parseStagePlotTypeCm(height);
+    const [minCm, maxCm] = current.kind === "instrument" ? [10, 400] : [5, 800];
+    const axis =
+      current.kind === "instrument" ? "Ancho y profundo" : "Ancho y alto";
+    if (
+      widthCm == null ||
+      heightCm == null ||
+      widthCm < minCm ||
+      heightCm < minCm ||
+      widthCm > maxCm ||
+      heightCm > maxCm
+    ) {
+      toast.error(`${axis}: entre ${minCm} y ${maxCm} cm`);
+      return;
+    }
+    const prevW = parseStagePlotTypeCm(current.width);
+    const prevH = parseStagePlotTypeCm(current.height);
+    if (widthCm === prevW && heightCm === prevH) {
+      onCloseRef.current();
+      return;
+    }
+    setSaving(true);
+    try {
+      if (current.kind === "instrument") {
+        const { data, error } = await supabase
+          .from("instrumentos")
+          .select("id, stage_plot_type");
+        if (error) throw new Error(error.message);
+        const ids = (data || [])
+          .filter((row) => resolveInstrumentStagePlotType(row) === current.type)
+          .map((row) => row.id);
+        if (!ids.length) {
+          throw new Error("No hay un instrumento con esta clave.");
+        }
+        const { error: updateError } = await supabase
+          .from("instrumentos")
+          .update({
+            stage_plot_width_cm: widthCm,
+            stage_plot_height_cm: heightCm,
+          })
+          .in("id", ids);
+        if (updateError) throw new Error(updateError.message);
+        applyStagePlotInstrumentSizeOverride(current.type, widthCm, heightCm);
+        await reloadStagePlotInstrumentIcons().catch(() => {});
+        applyStagePlotInstrumentSizeOverride(current.type, widthCm, heightCm);
+      } else {
+        const rows = await listElementosEscenario({ onlyActive: false });
+        const row = (rows || []).find(
+          (item) => String(item.stage_plot_type) === current.type,
+        );
+        if (!row) throw new Error("No hay un elemento con esta clave.");
+        await upsertElementoEscenario({
+          id: row.id,
+          nombre: row.nombre,
+          stage_plot_type: row.stage_plot_type,
+          svg_icon: row.svg_icon ?? null,
+          width_cm: widthCm,
+          height_cm: heightCm,
+          activo: row.activo !== false,
+          stage_plot_raster_url: row.stage_plot_raster_url ?? null,
+        });
+      }
+      toast.success("Tamaño actualizado (aplica a todos los planos)");
+      onSaved?.();
+      onCloseRef.current();
+    } catch (err) {
+      toast.error(err?.message || "No se pudo guardar el tamaño");
+      setSaving(false);
+    }
+  }, [type, height, onSaved, saving, supabase, width]);
+
+  useEffect(() => {
+    if (!type) return undefined;
+    const t = window.setTimeout(() => widthRef.current?.focus?.(), 0);
+    const onKeyDown = (e) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onCloseRef.current();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.clearTimeout(t);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [type]);
+
+  if (!draft) return null;
+
+  return createPortal(
+    <div
+      className="fixed inset-0 flex items-center justify-center bg-slate-900/40 p-4"
+      style={{ zIndex: overlayZ }}
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Tamaño de ${draft.name}`}
+        className="w-full max-w-[18rem] rounded-lg border border-slate-200 bg-white p-3 shadow-xl"
+      >
+        <h3 className="text-sm font-semibold text-slate-800">{draft.name}</h3>
+        <p className="mt-0.5 text-[10px] leading-snug text-slate-400">
+          {draft.kind === "instrument"
+            ? "Ancho × profundo de este tipo. Aplica a todas las figuras, en todos los planos."
+            : "Ancho × alto de este tipo. Aplica a todas las figuras, en todos los planos."}
+        </p>
+        <div className="mt-2.5 grid grid-cols-2 gap-2">
+          <label className="block text-[10px] font-medium text-slate-500">
+            {draft.widthLabel}
+            <input
+              ref={widthRef}
+              type="text"
+              inputMode="decimal"
+              disabled={saving}
+              value={width}
+              onChange={(e) => setWidth(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  save();
+                }
+              }}
+              className="mt-0.5 w-full rounded border border-slate-200 bg-white px-2 py-1.5 font-mono text-xs text-slate-700 disabled:bg-slate-100"
+            />
+          </label>
+          <label className="block text-[10px] font-medium text-slate-500">
+            {draft.heightLabel}
+            <input
+              type="text"
+              inputMode="decimal"
+              disabled={saving}
+              value={height}
+              onChange={(e) => setHeight(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  save();
+                }
+              }}
+              className="mt-0.5 w-full rounded border border-slate-200 bg-white px-2 py-1.5 font-mono text-xs text-slate-700 disabled:bg-slate-100"
+            />
+          </label>
+        </div>
+        <div className="mt-3 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            className="rounded border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={save}
+            disabled={saving}
+            className="rounded bg-indigo-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+          >
+            {saving ? "Guardando…" : "Guardar"}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 function StagePlotItemContextMenu({
   menu,
   onClose,
+  onOpenTypeSize,
   onSelectAllOfType,
   onSelectFormation,
   onUnifyScaleOfType,
@@ -2084,6 +2341,19 @@ function StagePlotItemContextMenu({
       style={{ left, top, zIndex: overlayZ }}
       onContextMenu={(e) => e.preventDefault()}
     >
+      {stagePlotTypeSizeKind(menu.type) && (
+        <button
+          type="button"
+          role="menuitem"
+          className="block w-full px-3 py-2 text-left text-xs text-slate-700 hover:bg-indigo-50 hover:text-indigo-800"
+          onClick={() => onOpenTypeSize?.(menu.type)}
+        >
+          Abrir editor
+        </button>
+      )}
+      {stagePlotTypeSizeKind(menu.type) ? (
+        <div className="my-1 border-t border-slate-100" role="separator" />
+      ) : null}
       {canGroup && (
         <button
           type="button"
@@ -2934,7 +3204,8 @@ const ItemShape = React.memo(function ItemShape({
   prev.onDragStart === next.onDragStart &&
   prev.onDragMove === next.onDragMove &&
   prev.onDragEnd === next.onDragEnd &&
-  prev.onTransformEnd === next.onTransformEnd);
+  prev.onTransformEnd === next.onTransformEnd &&
+  prev.catalogEpoch === next.catalogEpoch);
 /** Mini esquemáticos de formación para la paleta (trazo índigo, no genéricos +). */
 function FormationPaletteIcon({ kind, size = 18 }) {
   const common = {
@@ -3218,6 +3489,9 @@ export default function ProgramStagePlot({
   const [itemSnapPreview, setItemSnapPreview] = useState(null);
   /** Menú contextual de ítem (clic derecho). */
   const [itemContextMenu, setItemContextMenu] = useState(null);
+  /** Tipo abierto en el modal de tamaño (clic derecho → Abrir editor). */
+  const [typeSizeEditorType, setTypeSizeEditorType] = useState(null);
+  const [instrumentsPanelKey, setInstrumentsPanelKey] = useState(0);
   /** Menú contextual de formación (clic derecho). */
   const [formationContextMenu, setFormationContextMenu] = useState(null);
   /** Dropdown Copiar… en la barra inferior (formación seleccionada). */
@@ -3752,7 +4026,7 @@ export default function ProgramStagePlot({
         setMobileAddOpen(false);
         return;
       }
-      if (lienzoOpen || itemContextMenu || formationContextMenu) return;
+      if (lienzoOpen || itemContextMenu || formationContextMenu || typeSizeEditorType) return;
       e.preventDefault();
       if (mobileUi) {
         closeMobileEditor();
@@ -3770,6 +4044,7 @@ export default function ProgramStagePlot({
     lienzoOpen,
     itemContextMenu,
     formationContextMenu,
+    typeSizeEditorType,
   ]);
 
   /** En móvil: herramienta Mover (tap = select, drag seleccionado = move). */
@@ -3782,7 +4057,7 @@ export default function ProgramStagePlot({
     if (!canEdit) return undefined;
     const onKeyDown = (e) => {
       if (isEditableKeyboardTarget(e.target)) return;
-      if (lienzoOpen || itemContextMenu || formationContextMenu) return;
+      if (lienzoOpen || itemContextMenu || formationContextMenu || typeSizeEditorType) return;
       const mod = e.ctrlKey || e.metaKey;
       const key = e.key;
       if (mod) {
@@ -3854,6 +4129,7 @@ export default function ProgramStagePlot({
     lienzoOpen,
     itemContextMenu,
     formationContextMenu,
+    typeSizeEditorType,
     undo,
     redo,
     deleteKeyboardSelection,
@@ -5959,6 +6235,15 @@ export default function ProgramStagePlot({
     setItemContextMenu(null);
   }, []);
 
+  const openTypeSizeEditor = useCallback(
+    (type) => {
+      if (!stagePlotTypeSizeKind(type)) return;
+      setTypeSizeEditorType(type);
+      closeItemContextMenu();
+    },
+    [closeItemContextMenu],
+  );
+
   const closeFormationContextMenu = useCallback(() => {
     setFormationContextMenu(null);
   }, []);
@@ -7754,6 +8039,7 @@ export default function ProgramStagePlot({
 
           {leftPanel === "instrumentos" ? (
             <StagePlotInstrumentsPanel
+              key={instrumentsPanelKey}
               supabase={supabase}
               canEdit={canEdit}
               onInstrumentsChange={setInstrumentosRows}
@@ -8447,6 +8733,7 @@ export default function ProgramStagePlot({
             <StagePlotItemContextMenu
               menu={itemContextMenu}
               onClose={closeItemContextMenu}
+              onOpenTypeSize={openTypeSizeEditor}
               onSelectAllOfType={selectAllOfType}
               onSelectFormation={handleSelectFormation}
               onUnifyScaleOfType={unifyScaleOfType}
@@ -8459,6 +8746,14 @@ export default function ProgramStagePlot({
               overlayZ={portalMenuZ}
             />
           )}
+
+          <StagePlotTypeSizeModal
+            type={typeSizeEditorType}
+            supabase={supabase}
+            overlayZ={immersive ? STAGE_PLOT_OVERLAY_Z : 100}
+            onClose={() => setTypeSizeEditorType(null)}
+            onSaved={() => setInstrumentsPanelKey((key) => key + 1)}
+          />
 
           {canEdit && (
             <StagePlotFormationContextMenu

@@ -163,6 +163,16 @@ function sortIntegrantesByInstrument(integrantes) {
   });
 }
 
+/** Mayor cantidad de servicios primero; empate: instrumento y luego apellido. */
+function compareByServiciosDesc(totalA, totalB, a, b) {
+  if (totalA !== totalB) return totalB - totalA;
+  const cmp = compareInstrumentIds(a.id_instr, b.id_instr);
+  if (cmp !== 0) return cmp;
+  const na = `${a.apellido || ""} ${a.nombre || ""}`.trim();
+  const nb = `${b.apellido || ""} ${b.nombre || ""}`.trim();
+  return na.localeCompare(nb, "es");
+}
+
 /** Tooltip en portal (fixed) para no quedar recortado por overflow del scroll del panel. */
 function ProgramaHeaderTooltip({
   label,
@@ -425,6 +435,7 @@ export default function AsistenciaMatrixReport({ supabase }) {
     () => convocatoriaYearDateBounds().yearEnd,
   );
   const [groupByEnsambles, setGroupByEnsambles] = useState(false);
+  const [sortByServicios, setSortByServicios] = useState(false);
   const [selectedIntegranteIdsByMode, setSelectedIntegranteIdsByMode] = useState(
     createEmptySelectionByMode,
   );
@@ -638,54 +649,106 @@ export default function AsistenciaMatrixReport({ supabase }) {
   );
 
   const rowGroups = useMemo(() => {
+    let groups;
     if (ensambleViewMode === "cameratas") {
       if (visibleRowsEnriched.length === 0) return [];
-      return [
+      groups = [
         {
           key: "cameratas",
           label: null,
           rows: visibleRowsEnriched,
         },
       ];
+    } else {
+      groups = buildAsistenciaMatrixRowGroups(
+        visibleRowsEnriched,
+        ensamblesForGrouping,
+        membershipsByEnsamble,
+        selectedIntegranteIds,
+      );
     }
-    return buildAsistenciaMatrixRowGroups(
-      visibleRowsEnriched,
-      ensamblesForGrouping,
-      membershipsByEnsamble,
-      selectedIntegranteIds,
+    if (!sortByServicios) return groups;
+    const rows = groups.flatMap((group) => group.rows);
+    if (rows.length === 0) return [];
+    const totalById = new Map(
+      rows.map((row) => [
+        integranteKey(row.id),
+        computeAsistenciaMatrixRowTotals(
+          row.id,
+          filteredProgramas,
+          rosterByGiraId,
+          selectedTypes,
+        ).total,
+      ]),
     );
+    rows.sort((a, b) =>
+      compareByServiciosDesc(
+        totalById.get(integranteKey(a.id)) ?? 0,
+        totalById.get(integranteKey(b.id)) ?? 0,
+        a,
+        b,
+      ),
+    );
+    return [{ key: "por-servicios", label: null, rows }];
   }, [
     ensambleViewMode,
     visibleRowsEnriched,
     ensamblesForGrouping,
     membershipsByEnsamble,
     selectedIntegranteIds,
+    sortByServicios,
+    filteredProgramas,
+    rosterByGiraId,
+    selectedTypes,
   ]);
 
   const ensambleAggregateRows = useMemo(() => {
+    let rows;
     if (ensambleViewMode === "cameratas") {
       const memberIds = visibleRowsEnriched
         .map((row) => integranteKey(row.id))
         .filter(Boolean);
       if (memberIds.length === 0) return [];
-      return [
+      rows = [
         {
           key: "cameratas",
           label: "Cameratas",
           visibleMemberIds: memberIds,
         },
       ];
+    } else {
+      rows = buildAsistenciaMatrixEnsambleAggregateRows(
+        visibleRowsEnriched,
+        ensamblesForGrouping,
+        membershipsByEnsamble,
+      );
     }
-    return buildAsistenciaMatrixEnsambleAggregateRows(
-      visibleRowsEnriched,
-      ensamblesForGrouping,
-      membershipsByEnsamble,
+    if (!sortByServicios || rows.length < 2) return rows;
+    const totalByKey = new Map(
+      rows.map((row) => [
+        row.key,
+        computeAsistenciaMatrixEnsambleTotals(
+          row.visibleMemberIds,
+          filteredProgramas,
+          rosterByGiraId,
+          selectedTypes,
+        ).total,
+      ]),
     );
+    return [...rows].sort((a, b) => {
+      const diff = (totalByKey.get(b.key) ?? 0) - (totalByKey.get(a.key) ?? 0);
+      if (diff !== 0) return diff;
+      return (a.label || "").localeCompare(b.label || "", "es");
+    });
   }, [
     ensambleViewMode,
     visibleRowsEnriched,
     ensamblesForGrouping,
     membershipsByEnsamble,
+    sortByServicios,
+    filteredProgramas,
+    rosterByGiraId,
+    selectedTypes,
   ]);
 
   const summaryHeadLabels = useMemo(
@@ -1159,44 +1222,97 @@ export default function AsistenciaMatrixReport({ supabase }) {
         </aside>
 
         <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
-          <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-3 py-2 dark:border-slate-800">
-            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
-              <span className="text-xs text-slate-500 dark:text-slate-400">
-                {filteredProgramas.length} programa(s) ·{" "}
+          <div className="shrink-0 border-b border-slate-100 dark:border-slate-800">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-3 py-2">
+              <p className="text-[11px] tabular-nums text-slate-500 dark:text-slate-400">
+                <span className="font-semibold text-slate-700 dark:text-slate-200">
+                  {filteredProgramas.length}
+                </span>{" "}
+                {filteredProgramas.length === 1 ? "programa" : "programas"}
+                <span className="mx-1.5 text-slate-300 dark:text-slate-600">·</span>
+                <span className="font-semibold text-slate-700 dark:text-slate-200">
+                  {groupByEnsambles
+                    ? ensambleAggregateRows.length
+                    : visibleRows.length}
+                </span>{" "}
                 {groupByEnsambles
-                  ? `${ensambleAggregateRows.length} ensamble(s)`
-                  : `${visibleRows.length} músico(s)`}
-                {rosterLoading ? " · calculando nóminas…" : ""}
-              </span>
-              <label className="flex cursor-pointer items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
-                <input
-                  type="checkbox"
-                  checked={groupByEnsambles}
-                  onChange={(e) => setGroupByEnsambles(e.target.checked)}
-                  className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                  ? ensambleAggregateRows.length === 1
+                    ? "ensamble"
+                    : "ensambles"
+                  : visibleRows.length === 1
+                    ? "músico"
+                    : "músicos"}
+                {rosterLoading ? (
+                  <span className="ml-1.5 font-normal text-slate-400">
+                    · calculando nóminas…
+                  </span>
+                ) : null}
+              </p>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <label className="flex cursor-pointer items-center gap-1.5 text-[11px] font-medium text-slate-600 dark:text-slate-300">
+                  <input
+                    type="checkbox"
+                    checked={groupByEnsambles}
+                    onChange={(e) => setGroupByEnsambles(e.target.checked)}
+                    className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                  />
+                  Agrupar por ensambles
+                </label>
+                <label
+                  className="flex cursor-pointer items-center gap-1.5 text-[11px] font-medium text-slate-600 dark:text-slate-300"
+                  title="De mayor a menor según la columna Total (X, R y L). Si también agrupás por ensambles, ordena cada ensamble por la suma de servicios."
+                >
+                  <input
+                    type="checkbox"
+                    checked={sortByServicios}
+                    onChange={(e) => setSortByServicios(e.target.checked)}
+                    className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                  />
+                  Ordenar por servicios realizados
+                </label>
+              </div>
+              <div className="ml-auto flex items-center gap-1.5">
+                <button
+                  type="button"
+                  disabled={exportDisabled}
+                  onClick={handleExportPdf}
+                  className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                  title="Descargar PDF"
+                >
+                  <IconDownload size={14} />
+                  PDF
+                </button>
+                <button
+                  type="button"
+                  disabled={exportDisabled}
+                  onClick={handleExportExcel}
+                  className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                  title="Descargar Excel"
+                >
+                  <IconDownload size={14} />
+                  Excel
+                </button>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-end gap-x-3 gap-y-2 border-t border-slate-100 bg-slate-50/80 px-3 py-2 dark:border-slate-800 dark:bg-slate-950/50">
+              <div className="w-[8.75rem]">
+                <DateInput
+                  label="Desde"
+                  value={fechaDesde}
+                  onChange={handleFechaDesdeChange}
+                  showDayName={false}
                 />
-                Agrupar por ensambles
-              </label>
-              <div className="flex flex-wrap items-end gap-2">
-                <div className="w-[8.75rem]">
-                  <DateInput
-                    label="Desde"
-                    value={fechaDesde}
-                    onChange={handleFechaDesdeChange}
-                    showDayName={false}
-                  />
-                </div>
-                <div className="w-[8.75rem]">
-                  <DateInput
-                    label="Hasta"
-                    value={fechaHasta}
-                    onChange={(value) => setFechaHasta(value || "")}
-                    showDayName={false}
-                  />
-                </div>
+              </div>
+              <div className="w-[8.75rem]">
+                <DateInput
+                  label="Hasta"
+                  value={fechaHasta}
+                  onChange={(value) => setFechaHasta(value || "")}
+                  showDayName={false}
+                />
               </div>
               <label
-                className="flex cursor-pointer items-center gap-2 text-xs text-slate-600 dark:text-slate-300"
+                className="mb-1 flex cursor-pointer items-center gap-1.5 pb-1 text-[11px] font-medium text-slate-600 dark:text-slate-300"
                 title={`Mostrar programas desde el 01/01/${yearBounds.year}`}
               >
                 <input
@@ -1208,28 +1324,6 @@ export default function AsistenciaMatrixReport({ supabase }) {
                 <IconHistory size={14} className="shrink-0 text-slate-500 dark:text-slate-400" />
                 Todo el año
               </label>
-            </div>
-            <div className="flex flex-wrap items-center gap-1.5">
-              <button
-                type="button"
-                disabled={exportDisabled}
-                onClick={handleExportPdf}
-                className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-                title="Descargar PDF"
-              >
-                <IconDownload size={14} />
-                PDF
-              </button>
-              <button
-                type="button"
-                disabled={exportDisabled}
-                onClick={handleExportExcel}
-                className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-                title="Descargar Excel"
-              >
-                <IconDownload size={14} />
-                Excel
-              </button>
             </div>
           </div>
           <div ref={tableScrollRef} className="min-h-0 flex-1 overflow-auto">

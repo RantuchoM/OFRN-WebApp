@@ -18,8 +18,11 @@ Visualizar en un cuadro de doble entrada la participación de integrantes en los
    - **Agrupación en matriz:** en Ensambles/Regiones solo considera ensambles regionales (no cameratas). En Cameratas lista plana de músicos; con «Agrupar por ensambles» una sola fila agregada «Cameratas».
 2. **Selector de Programas (Filtros):**
    - Checkboxes por `tipo_programa` (Sinfónico, Cámara, etc.).
-3. **Barra de controles de la matriz (encabezado):**
+3. **Barra de controles de la matriz (encabezado, dos franjas):**
+   - Primera: conteo (programas · músicos o ensambles), toggles de vista y exportación PDF/Excel a la derecha.
+   - Segunda (fondo slate suave): período Desde / Hasta y «Todo el año», alineados al alto de los campos.
    - Toggle: "Agrupar por ensambles".
+   - Toggle: **"Ordenar por servicios realizados"**. De mayor a menor por la columna **Total** (marcas X, R y L). Empate: `id_instr` y luego apellido. Con el toggle activo, la lista de músicos es plana (sin encabezados de ensamble). Si además está «Agrupar por ensambles», las filas de ensamble se ordenan por la suma de servicios. PDF y Excel usan el mismo orden.
    - **Filtro de fechas** (`DateInput`, Desde / Hasta) sobre `programas.fecha_desde`.
      - Por defecto: Desde = hoy, Hasta = **31/12 del año en curso**. No entran programas que empiezan después de ese corte (p. ej. el año siguiente) ni anteriores a hoy.
      - El usuario puede cambiar ambas fechas. Vaciar un extremo quita ese tope.
@@ -27,7 +30,7 @@ Visualizar en un cuadro de doble entrada la participación de integrantes en los
 4. **Matriz de Datos:**
    - **Eje Y (Filas):** Nombre y Apellido del integrante.
      - Subtexto: Instrumento y Ensamble (tamaño pequeño).
-     - Orden: Por `id_instrumento` (prioridad orquestal).
+     - Orden por defecto: Por `id_instrumento` (prioridad orquestal). Con «Ordenar por servicios realizados»: por Total descendente.
    - **Eje X (Columnas):** Programas.
      - Etiqueta: `nomenclador` + `mes_letra`.
      - Click en cabecera: popover tipo mini `GiraCard` (móvil slide 1) con tipo/zona, fechas, localidades, título/subtítulo, ensambles/familias convocados y excluidos (`giras_fuentes`), y enlace a repertorio.
@@ -63,6 +66,7 @@ No se requieren tablas nuevas; se sugiere una vista para optimizar la carga de l
 | Árbol Ensamble > Integrantes con checkboxes (nodo e hojas) | Completado |
 | Filtros por tipo de programa (`programas.tipo`), rango Desde/Hasta (corte por defecto 31/12 del año en curso) y toggle «Todo el año» (desde 01/01) | Completado |
 | Matriz: filas con nombre, subtexto instrumento + ensambles, orden por `id_instr` | Completado |
+| Toggle «Ordenar por servicios realizados» (Total desc.; ensambles agregados por suma) | Completado |
 | Matriz: columnas por programa, orden `fecha_desde` ascendente, cabecera `nomenclador` + `mes_letra` | Completado |
 | Popover en cabecera (mini GiraCard + convocatorias + enlace repertorio `?tab=giras&view=REPERTOIRE&giraId=`) | Completado |
 | Cruce con `resolveGiraRosterForMatrix` (X contabilizado, `*` pre-alta sin totales) | Completado |

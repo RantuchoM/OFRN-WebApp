@@ -383,7 +383,7 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
   - Barra inferior: chip **solo lectura** `W × D cm` (catálogo); sin inputs Ancho/Profundo, sin candado de proporción, sin HUD live de resize.
   - Botones ± escala ocultos cuando la selección es solo instrumentos; `scaleSelected` no toca huellas.
   - Menú contextual: sin «Unificar tamaños» para tipos con huella.
-- **Dónde editar tamaño**: Escenario → panel izquierdo → **Editor** (Ancho/Profundo cm del instrumento) o Datos → Instrumentos (`stage_plot_*_cm`). Toast: «aplica a todos los planos».
+- **Dónde editar tamaño**: clic derecho sobre la figura → **Abrir editor** (modal chico, Ancho × Profundo del tipo; 10–400 cm). También Escenario → panel izquierdo → **Editor** o Datos → Instrumentos (`stage_plot_*_cm`). Toast: «aplica a todos los planos». Si varias filas comparten la clave, el modal actualiza todas.
 - Tarimas / décor / atriles / texto: resize y escalas del ítem **sin cambio**.
 - **Atriles automáticos / satélite derivados: eliminados.** Ya no se dibujan atriles al colocar instrumentos ni pares; `collectStagePlotSatelliteAtrils` → `[]`.
 - **Atril opcional (menú contextual clic derecho)** sobre selección:
@@ -462,7 +462,7 @@ Seed: silla / banqueta / atril qty 0; tarima rect 200×100 qty 0. Unique parcial
 - **Elementos:** alta nombre+slug+SVG+cm → `elementos_escenario` + fila stock; aparecen en paleta categoría **Elementos**; **+ Plano** / paleta insertan; toast si drawn &gt; stock.
 - **Solista masculino** (`male_soloist`): figura de frac de frente, independiente del instrumento y de la voz. Está en la paleta **Escenario** (escritorio y hoja móvil), al lado del director. El PNG (fondo transparente) vive en `elementos_escenario` id 1 y el plano lo prefiere al no haber SVG. Alto al colocar ~40 cm. Se puede poner varias veces. Stock de inventario: 12.
 - **Solista femenino** (`female_soloist`, elemento id 2, 11,7×40 cm): vestido de gala de frente, misma regla (no es un instrumento ni una voz). Paleta Escenario, debajo del solista masculino. PNG con fondo transparente en Storage. Alto al colocar ~40 cm. Stock de inventario: 12.
-- **Tamaño de solistas:** panel **Editor** (arriba de los instrumentos), Ancho × Alto cm en `elementos_escenario.width_cm` / `height_cm` (5–800). Aplica a todas las figuras de esa clave en el lienzo abierto y en PDF/JPG. El Transformer no las redimensiona; el `scale` del ítem se guarda en 1 y la caja es cm × 4 px.
+- **Tamaño de solistas:** clic derecho → **Abrir editor** (Ancho × Alto cm) o el panel **Editor** (arriba de los instrumentos). Vive en `elementos_escenario.width_cm` / `height_cm` (5–800). Aplica a todas las figuras de esa clave en el lienzo abierto y en PDF/JPG. El Transformer no las redimensiona; el `scale` del ítem se guarda en 1 y la caja es cm × 4 px. La misma opción del menú vale para un elemento de inventario con tamaño de catálogo.
 - Catálogo dinámico: `setStagePlotDynamicCatalogItems` + merge SVG/size en `stagePlotIconAssets` (vía `loadAndApplyElementosEscenario`).
 - Archivos: `src/services/stagePlotInventarioService.js`, `src/views/Giras/StagePlotInventarioPanel.jsx`.
 
@@ -506,6 +506,7 @@ Seed: silla / banqueta / atril qty 0; tarima rect 200×100 qty 0. Unique parcial
 - [x] Atriles opcionales vía menú contextual (sin auto-satélite); par+atril solo desde menú (no sidebars)
 - [x] Sin auto-rotación de instrumentos (rotation=0 salvo Transformer)
 - [x] `stage_plot_width_cm` / `stage_plot_height_cm` + editor Datos/Editor; tamaño canónico en **todos** los planos (no solo al insertar)
+- [x] Clic derecho → **Abrir editor**: modal con las dimensiones del tipo (instrumento Ancho×Profundo 10–400; solista/elemento Ancho×Alto 5–800)
 - [x] Cambio de tamaño en Editor/Datos refresca el lienzo **abierto** al instante (`catalogEpoch` + sync imperativo de **todas** las huellas Konva, no solo el ítem seleccionado / Transformer)
 - [x] Instrumentos no resizables en lienzo; escalas viejas del ítem ignoradas / limpiadas al normalizar
 - [x] Editor Instrumentos en Escenario (panel izquierdo) con preview SVG + confirm de reemplazo
