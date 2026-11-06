@@ -191,10 +191,13 @@ const SHELL_SESSION_KEYS = [
 
 /**
  * Destino interno después de limpiar. Rechaza URLs absolutas, protocol-relative y esta misma página.
+ * Si `next` es otra vez `/refrescar.html?next=…` (el shell de la app se sirvió en esa URL
+ * y el aviso leyó la ruta actual), desempaqueta el destino de adentro.
  * @param {string} [search]
+ * @param {number} [depth]
  * @returns {string}
  */
-export function freshStartDestination(search = "") {
+export function freshStartDestination(search = "", depth = 0) {
   const raw = String(search || "");
   const params = new URLSearchParams(raw.startsWith("?") ? raw.slice(1) : raw);
   const next = params.get("next");
@@ -209,8 +212,82 @@ export function freshStartDestination(search = "") {
     return "/";
   }
   if (url.origin !== "https://ofrn.local") return "/";
-  if (url.pathname === FRESH_START_PATH) return "/";
+  if (url.pathname === FRESH_START_PATH) {
+    if (depth < 3 && url.search) {
+      const inner = freshStartDestination(url.search, depth + 1);
+      if (inner !== "/") return inner;
+    }
+    return "/";
+  }
   return `${url.pathname}${url.search}`;
+}
+
+/**
+ * Si el query no trae `next` (un shell viejo lo tiró al armar el enlace),
+ * la página anterior misma-origen sigue siendo el lugar de trabajo.
+ * @param {string} [referrer]
+ * @param {string} [origin]
+ * @returns {string} vacío si no hay un destino usable
+ */
+export function freshStartReferrerDestination(referrer = "", origin = "") {
+  if (!referrer || !origin) return "";
+  let url;
+  try {
+    url = new URL(referrer);
+  } catch {
+    return "";
+  }
+  if (url.origin !== origin) return "";
+  const dest = freshStartDestination(
+    `?next=${encodeURIComponent(`${url.pathname}${url.search}`)}`,
+  );
+  return dest === "/" ? "" : dest;
+}
+
+/**
+ * @param {{ search?: string, referrer?: string, origin?: string }} [input]
+ * @returns {string}
+ */
+export function resolveFreshStartDestination({
+  search = "",
+  referrer = "",
+  origin = "",
+} = {}) {
+  const fromQuery = freshStartDestination(search);
+  if (fromQuery !== "/") return fromQuery;
+  return freshStartReferrerDestination(referrer, origin) || "/";
+}
+
+/** Espera a que `unregister()` suelte el controlador, para no recargar el shell viejo. */
+function waitForControllerRelease(serviceWorker, timeoutMs) {
+  if (!timeoutMs || timeoutMs < 0) return Promise.resolve();
+  if (!serviceWorker?.controller) return Promise.resolve();
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      try {
+        serviceWorker.removeEventListener?.("controllerchange", onChange);
+      } catch {
+        /* ignore */
+      }
+      resolve();
+    };
+    const onChange = () => {
+      if (!serviceWorker.controller) finish();
+    };
+    try {
+      serviceWorker.addEventListener?.("controllerchange", onChange);
+    } catch {
+      /* ignore */
+    }
+    if (!serviceWorker.controller) {
+      finish();
+      return;
+    }
+    setTimeout(finish, timeoutMs);
+  });
 }
 
 function readStep(storage) {
@@ -325,7 +402,11 @@ export async function runFreshStart(env = {}) {
   const step = readStep(storage);
   const controlled = Boolean(env.serviceWorker?.controller);
   const plan = planFreshStart({ controlled, step });
-  const dest = freshStartDestination(location?.search || "");
+  const dest = resolveFreshStartDestination({
+    search: location?.search || "",
+    referrer: env.referrer || "",
+    origin: env.origin || location?.origin || "",
+  });
 
   const prior = readFreshStartLog(storage);
   const resumed = !controlled && prior.includes("release");
@@ -392,6 +473,14 @@ export async function runFreshStart(env = {}) {
     else if (outcome === "ok" && swGate !== "timeout") report(env, "open");
     else report(env, "openTimeout");
     if (closingMs > 0) await pause(closingMs);
+    // Recargar con el SW todavía en control vuelve a servir el shell (el inicio)
+    // y el aviso pierde `next`. Primero se espera a que unregister lo suelte.
+    if (plan === "unregister-then-reload") {
+      await waitForControllerRelease(
+        env.serviceWorker,
+        env.controllerReleaseMs ?? 1500,
+      );
+    }
     leave();
   }
   return plan;

@@ -46,6 +46,8 @@ runFreshStart({
   cacheStorage: typeof caches !== "undefined" ? caches : null,
   sessionStorage,
   location,
+  referrer: document.referrer,
+  origin: location.origin,
   minStepMs: 900,
   closingMs: 550,
   onStatus(_code, log) {
