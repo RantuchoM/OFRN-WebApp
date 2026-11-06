@@ -116,12 +116,21 @@ export const STAGE_PLOT_SILHOUETTES = {
   // text: sin silueta — solo Konva Text / label en paleta (no glifo TT)
 };
 
+/** Reserva de silueta cuando no hay path propio. El raster de la fila gana. */
+const STAGE_PLOT_SILHOUETTE_RESERVE = {
+  cor_anglais: "oboe",
+  bass_clarinet: "clarinet",
+};
+
 /**
  * @param {string} type
  * @returns {string|null}
  */
 export function getStagePlotSilhouettePath(type) {
-  return STAGE_PLOT_SILHOUETTES[type] || null;
+  if (!type) return null;
+  if (STAGE_PLOT_SILHOUETTES[type]) return STAGE_PLOT_SILHOUETTES[type];
+  const reserve = STAGE_PLOT_SILHOUETTE_RESERVE[type];
+  return (reserve && STAGE_PLOT_SILHOUETTES[reserve]) || null;
 }
 
 /**

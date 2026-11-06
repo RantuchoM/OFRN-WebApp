@@ -36,11 +36,16 @@ export const STAGE_PLOT_ORGANICO_ROWS = [
     nameMatch: ["bandone"],
   },
   { key: "flute", label: "Flauta", types: ["flute"], nameMatch: ["flaut", "picc"] },
-  { key: "oboe", label: "Oboe", types: ["oboe"], nameMatch: ["oboe", "corno ing"] },
+  {
+    key: "oboe",
+    label: "Oboe",
+    types: ["oboe", "cor_anglais"],
+    nameMatch: ["oboe", "corno ing"],
+  },
   {
     key: "clarinet",
     label: "Clarinete",
-    types: ["clarinet"],
+    types: ["clarinet", "bass_clarinet"],
     nameMatch: ["clarin", "requinto", "basset"],
   },
   {

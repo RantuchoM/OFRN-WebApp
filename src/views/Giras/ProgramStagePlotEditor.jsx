@@ -49,6 +49,7 @@ import {
   IconX,
   IconList,
 } from "../../components/ui/Icons";
+import StagePlotLockControls from "./StagePlotLockControls";
 import SearchableSelect from "../../components/ui/SearchableSelect";
 import StagePlotInstrumentsPanel from "./StagePlotInstrumentsPanel";
 import {
@@ -245,9 +246,10 @@ import {
   listGiraStagePlotCandidateEvents,
   listStagePlotEventLinks,
   listStagePlotsByPrograma,
+  saveStagePlotContents,
   setStagePlotEventos,
-  upsertStagePlot,
 } from "../../services/stagePlotService";
+import { useStagePlotEditLock } from "../../hooks/useStagePlotEditLock";
 import {
   fetchGiraGrupos,
   integranteIdsForRepertorioGrupos,
@@ -3437,12 +3439,16 @@ export default function ProgramStagePlot({
   /** Prioriza sobre `?stagePlotId=` (ruta `/stage-plots/:plotId` / FIMBA escenario). */
   initialPlotId = null,
 }) {
-  const { isEditor, isManagement, isAdmin, user } = useAuth();
+  const { isEditor, isManagement, isAdmin, user, userName } = useAuth();
   const ofrnCanEdit = isEditor || isManagement || isAdmin;
-  const canEdit =
+  const staffCanEdit =
     canEditOverride != null
       ? Boolean(canEditOverride)
       : !readOnly && ofrnCanEdit;
+  const integranteId =
+    user?.id != null && Number.isFinite(Number(user.id))
+      ? Number(user.id)
+      : null;
   const { confirm, dialog } = useConfirmDialog();
   const { roster } = useGiraRoster(supabase, program);
   const [searchParams] = useSearchParams();
@@ -3489,6 +3495,13 @@ export default function ProgramStagePlot({
   const zCounterRef = useRef(1);
   const saveTimerRef = useRef(null);
   const skipSaveRef = useRef(true);
+  const nombreRef = useRef("");
+  const payloadDirtyRef = useRef(false);
+  const savedUpdatedAtRef = useRef(null);
+  const flushPendingRef = useRef(async () => {});
+  const applyRemotePayloadRef = useRef(() => {});
+  const releaseControlRef = useRef(async () => {});
+  const canEditRef = useRef(false);
   const stageWrapRef = useRef(null);
   const labelEditorRef = useRef(null);
   const viewportRef = useRef({ scale: 1, x: 40, y: 40 });
@@ -3590,6 +3603,21 @@ export default function ProgramStagePlot({
 
   const immersive = fullscreen || mobileUi;
 
+  const stagePlotLock = useStagePlotEditLock({
+    supabase,
+    plotId: activePlotId,
+    integranteId,
+    selfName: userName || "",
+    staffCanEdit,
+    flushPendingRef,
+    applyRemotePayloadRef,
+    savedUpdatedAtRef,
+  });
+  const canEdit =
+    staffCanEdit && stagePlotLock.holdsLock && !stagePlotLock.settling;
+  canEditRef.current = canEdit;
+  releaseControlRef.current = stagePlotLock.releaseControl;
+
   useEffect(() => {
     if (!renamingNombre) return;
     const el = nombreInputRef.current;
@@ -3650,6 +3678,10 @@ export default function ProgramStagePlot({
   useEffect(() => {
     payloadRef.current = payload;
   }, [payload]);
+
+  useEffect(() => {
+    nombreRef.current = nombre;
+  }, [nombre]);
 
   useEffect(() => {
     activePlotIdRef.current = activePlotId;
@@ -4877,6 +4909,8 @@ export default function ProgramStagePlot({
       dirtyEventosRef.current = false;
       setActivePlotId(plotRow?.id || null);
       activePlotIdRef.current = plotRow?.id || null;
+      savedUpdatedAtRef.current = plotRow?.updated_at || null;
+      payloadDirtyRef.current = false;
       setSelectedIds([]);
       setSelectedFormationId(null);
       setConductorDragOrigin(null);
@@ -5033,28 +5067,12 @@ export default function ProgramStagePlot({
   const switchToPlot = useCallback(
     async (plotId) => {
       if (!plotId || plotId === activePlotIdRef.current) return;
-      // Flush pending save of current plot before switching
       if (saveTimerRef.current) {
         clearTimeout(saveTimerRef.current);
         saveTimerRef.current = null;
       }
-      if (canEdit && activePlotIdRef.current) {
-        skipSaveRef.current = true;
-        await upsertStagePlot(supabase, program.id, {
-          id: activePlotIdRef.current,
-          payload: payloadRef.current,
-          nombre,
-          bloque_ids: bloqueIdsRef.current,
-        });
-        if (dirtyEventosRef.current) {
-          await setStagePlotEventos(
-            supabase,
-            activePlotIdRef.current,
-            eventoIdsRef.current,
-          );
-          dirtyEventosRef.current = false;
-        }
-      }
+      await releaseControlRef.current();
+      skipSaveRef.current = true;
       const meta = plotsMeta.find((p) => p.id === plotId);
       if (!meta) return;
       skipSaveRef.current = true;
@@ -5066,7 +5084,7 @@ export default function ProgramStagePlot({
         skipHistoryRef.current = false;
       });
     },
-    [canEdit, supabase, program?.id, nombre, plotsMeta, applyPlotToEditor],
+    [plotsMeta, applyPlotToEditor],
   );
 
   const handleHubSelectPlot = useCallback(
@@ -5155,6 +5173,7 @@ export default function ProgramStagePlot({
       destructive: true,
     });
     if (!ok) return;
+    await flushPendingRef.current(activePlotId, { requireLock: true });
     const { error } = await deleteStagePlot(supabase, activePlotId);
     if (error) {
       toast.error(error.message || "No se pudo eliminar");
@@ -5615,21 +5634,41 @@ export default function ProgramStagePlot({
 
   const persist = useCallback(
     async (nextPayload, nextNombre, nextBloqueIds, nextEventoIds) => {
-      if (!canEdit || !supabase || !program?.id) return;
+      if (
+        !stagePlotLock.holdsLockRef.current ||
+        !staffCanEdit ||
+        !supabase ||
+        !program?.id ||
+        integranteId == null
+      ) {
+        return;
+      }
       const plotId = activePlotIdRef.current;
+      if (!plotId) return;
       setSyncState("saving");
-      const { data, error } = await upsertStagePlot(supabase, program.id, {
-        id: plotId,
-        payload: nextPayload,
-        nombre: nextNombre,
-        bloque_ids: nextBloqueIds ?? bloqueIdsRef.current,
-      });
+      const { data, error, skipped } = await saveStagePlotContents(
+        supabase,
+        plotId,
+        {
+          payload: nextPayload,
+          nombre: nextNombre,
+          bloqueIds: nextBloqueIds ?? bloqueIdsRef.current,
+          requireLockedBy: integranteId,
+        },
+      );
       if (error) {
         console.error(error);
         setSyncState("error");
         toast.error(error.message || "Error al guardar el plano");
         return;
       }
+      if (skipped) {
+        payloadDirtyRef.current = true;
+        setSyncState("idle");
+        return;
+      }
+      payloadDirtyRef.current = false;
+      if (data?.updated_at) savedUpdatedAtRef.current = data.updated_at;
       if (data?.id && data.id !== plotId) {
         activePlotIdRef.current = data.id;
         setActivePlotId(data.id);
@@ -5667,11 +5706,82 @@ export default function ProgramStagePlot({
       });
       setSyncState("saved");
     },
-    [canEdit, supabase, program?.id],
+    [staffCanEdit, supabase, program?.id, integranteId, stagePlotLock.holdsLockRef],
   );
 
+  const flushPendingContents = useCallback(
+    async (plotId, { requireLock = false } = {}) => {
+      const id = plotId || activePlotIdRef.current;
+      if (!id || !supabase) return;
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+      const dirty = payloadDirtyRef.current || dirtyEventosRef.current;
+      if (!dirty) return;
+      if (requireLock && integranteId == null) return;
+      const { data, error, skipped } = await saveStagePlotContents(supabase, id, {
+        payload: payloadRef.current,
+        nombre: nombreRef.current,
+        bloqueIds: bloqueIdsRef.current,
+        requireLockedBy: requireLock ? integranteId : undefined,
+        expectedUpdatedAt: requireLock ? undefined : savedUpdatedAtRef.current,
+      });
+      if (error) {
+        console.error("[stage-plot flush]", error);
+        return;
+      }
+      if (skipped) {
+        if (!requireLock) payloadDirtyRef.current = false;
+        return;
+      }
+      payloadDirtyRef.current = false;
+      if (data?.updated_at) savedUpdatedAtRef.current = data.updated_at;
+      if (dirtyEventosRef.current) {
+        const { error: evErr } = await setStagePlotEventos(
+          supabase,
+          id,
+          eventoIdsRef.current,
+        );
+        if (evErr) {
+          console.error(evErr);
+          return;
+        }
+        dirtyEventosRef.current = false;
+      }
+    },
+    [supabase, integranteId],
+  );
+  flushPendingRef.current = flushPendingContents;
+
+  const applyRemotePayload = useCallback(
+    (row) => {
+      if (!row) return;
+      const next = normalizeStagePlotPayload(row.payload);
+      skipSaveRef.current = true;
+      skipHistoryRef.current = true;
+      historyRef.current = { past: [], future: [] };
+      payloadRef.current = next;
+      setPayload(next);
+      if (row.nombre !== undefined) setNombre(row.nombre || "");
+      if (row.updated_at) savedUpdatedAtRef.current = row.updated_at;
+      payloadDirtyRef.current = false;
+      syncZCounter(next.items);
+      pruneSelectionToPayload(next);
+      setSyncState("saved");
+      requestAnimationFrame(() => {
+        skipSaveRef.current = false;
+        skipHistoryRef.current = false;
+      });
+    },
+    [pruneSelectionToPayload, syncZCounter],
+  );
+  applyRemotePayloadRef.current = applyRemotePayload;
+
   useEffect(() => {
-    if (skipSaveRef.current || !canEdit) return;
+    // No depender de canEdit: al tomar el candado no hay que reescribir el payload.
+    if (skipSaveRef.current || !canEditRef.current) return;
+    payloadDirtyRef.current = true;
     setSyncState("dirty");
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
@@ -5680,7 +5790,7 @@ export default function ProgramStagePlot({
     return () => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     };
-  }, [payload, nombre, bloqueIds, eventoIds, canEdit, persist]);
+  }, [payload, nombre, bloqueIds, eventoIds, persist]);
 
   const toggleBloqueId = useCallback((id) => {
     const n = Number(id);
@@ -7530,6 +7640,22 @@ export default function ProgramStagePlot({
   if (showMobileHub) {
     return (
       <div className="flex h-full min-h-0 flex-col">
+        <StagePlotLockControls
+          compact
+          staffCanEdit={staffCanEdit}
+          holdsLock={stagePlotLock.holdsLock}
+          settling={stagePlotLock.settling}
+          busy={stagePlotLock.busy}
+          holderName={stagePlotLock.holderName}
+          viewers={stagePlotLock.viewers}
+          selfId={integranteId}
+          onTake={() => {
+            void stagePlotLock.takeControl();
+          }}
+          onRelease={() => {
+            void stagePlotLock.releaseControl();
+          }}
+        />
         <StagePlotMobileHub
           plots={plotsMeta}
           activePlotId={activePlotId}
@@ -7538,7 +7664,7 @@ export default function ProgramStagePlot({
           onExportJpg={handleExportJpg}
           onExportJson={handleExportJson}
           onEdit={openMobileEditor}
-          canEdit={canEdit}
+          canEdit={staffCanEdit}
           switching={hubSwitching}
           programLabel={program?.nombre_gira || program?.nomenclador || ""}
           onUseDesktop={() => {
@@ -7590,15 +7716,33 @@ export default function ProgramStagePlot({
       data-stage-plot-mobile={mobileUi ? "1" : undefined}
     >
       {mobileUi ? (
-        <StagePlotMobileTopBar
-          syncClassName={syncDot}
-          plotLabel={activePlotLabel}
-          zoomPct={Math.round(viewport.scale * 100)}
-          onZoomIn={() => zoomByFactor(ZOOM_FACTOR)}
-          onZoomOut={() => zoomByFactor(1 / ZOOM_FACTOR)}
-          onFit={resetZoom}
-          onClose={closeMobileEditor}
-        />
+        <>
+          <StagePlotMobileTopBar
+            syncClassName={syncDot}
+            plotLabel={activePlotLabel}
+            zoomPct={Math.round(viewport.scale * 100)}
+            onZoomIn={() => zoomByFactor(ZOOM_FACTOR)}
+            onZoomOut={() => zoomByFactor(1 / ZOOM_FACTOR)}
+            onFit={resetZoom}
+            onClose={closeMobileEditor}
+          />
+          <StagePlotLockControls
+            compact
+            staffCanEdit={staffCanEdit}
+            holdsLock={stagePlotLock.holdsLock}
+            settling={stagePlotLock.settling}
+            busy={stagePlotLock.busy}
+            holderName={stagePlotLock.holderName}
+            viewers={stagePlotLock.viewers}
+            selfId={integranteId}
+            onTake={() => {
+              void stagePlotLock.takeControl();
+            }}
+            onRelease={() => {
+              void stagePlotLock.releaseControl();
+            }}
+          />
+        </>
       ) : (
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-white px-3 py-2">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
@@ -7699,6 +7843,21 @@ export default function ProgramStagePlot({
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <StagePlotLockControls
+            staffCanEdit={staffCanEdit}
+            holdsLock={stagePlotLock.holdsLock}
+            settling={stagePlotLock.settling}
+            busy={stagePlotLock.busy}
+            holderName={stagePlotLock.holderName}
+            viewers={stagePlotLock.viewers}
+            selfId={integranteId}
+            onTake={() => {
+              void stagePlotLock.takeControl();
+            }}
+            onRelease={() => {
+              void stagePlotLock.releaseControl();
+            }}
+          />
           {canEdit && (
             <button
               type="button"
@@ -7783,11 +7942,13 @@ export default function ProgramStagePlot({
                 <button
                   type="button"
                   role="menuitem"
+                  disabled={!canEdit}
                   onClick={() => {
+                    if (!canEdit) return;
                     setImportExportOpen(false);
                     setImportOpen(true);
                   }}
-                  className="flex w-full items-center gap-2 border-t border-slate-100 px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50"
+                  className="flex w-full items-center gap-2 border-t border-slate-100 px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
                 >
                   <IconUpload size={14} className="text-slate-500" />
                   Importar (archivo / otra gira)…

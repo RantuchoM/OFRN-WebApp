@@ -55,7 +55,9 @@ export const STAGE_PLOT_INSTRUMENT_TYPE_OPTIONS = [
   { value: "guitar", label: "Guitarra" },
   { value: "flute", label: "Flauta" },
   { value: "oboe", label: "Oboe" },
+  { value: "cor_anglais", label: "Corno inglés" },
   { value: "clarinet", label: "Clarinete" },
+  { value: "bass_clarinet", label: "Clarinete bajo" },
   { value: "bassoon", label: "Fagot" },
   { value: "contrabassoon", label: "Contrafagot" },
   { value: "saxophone", label: "Saxofón" },
@@ -128,8 +130,9 @@ export function buildStagePlotSvgByType(rows = []) {
 }
 
 /**
- * Map tipo → URL pública PNG/WebP. La última fila con URL gana si comparten tipo.
- * Una fila sin URL no borra la de otra fila del mismo tipo.
+ * Map tipo → URL pública PNG/WebP.
+ * Cada instrumento tiene su clave: la URL de esa fila es la del lienzo.
+ * Si dos filas volvieran a compartir clave, la última URL no vacía pisa a la anterior.
  * @param {Array<{ id?: string, stage_plot_type?: string|null, stage_plot_raster_url?: string|null }>} rows
  * @returns {Map<string, string>}
  */
@@ -426,8 +429,8 @@ export async function listInstrumentosFamilias(client = supabase) {
 
 /**
  * ¿Existe otra fila con el mismo `stage_plot_type`?
- * Variantes pueden compartir clave a propósito (oboe/clarinet/bassoon);
- * al crear se avisa y se prefiere slug único.
+ * Cada instrumento debe tener clave propia (06/06b, 07/07b, 08/08b ya no comparten).
+ * No hay UNIQUE en DB; al crear se avisa si el slug ya está tomado.
  * @param {string} type
  * @param {{ excludeId?: string, client?: import("@supabase/supabase-js").SupabaseClient }} [opts]
  * @returns {Promise<{ taken: boolean, ids: string[] }>}

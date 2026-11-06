@@ -27,7 +27,9 @@ export const STAGE_PLOT_CATALOG = [
   // Vientos madera
   { type: "flute", name: "Flauta", category: "Maderas", color: "#0f766e", w: 44, h: 44, includeInChannels: true },
   { type: "oboe", name: "Oboe", category: "Maderas", color: "#0f172a", w: 44, h: 44, includeInChannels: true },
+  { type: "cor_anglais", name: "Corno inglés", category: "Maderas", color: "#1e293b", w: 44, h: 44, includeInChannels: true },
   { type: "clarinet", name: "Clarinete", category: "Maderas", color: "#0f172a", w: 44, h: 44, includeInChannels: true },
+  { type: "bass_clarinet", name: "Clarinete bajo", category: "Maderas", color: "#1e293b", w: 48, h: 48, includeInChannels: true },
   { type: "bassoon", name: "Fagot", category: "Maderas", color: "#134e4a", w: 48, h: 48, includeInChannels: true },
   { type: "contrabassoon", name: "Contrafagot", category: "Maderas", color: "#042f2e", w: 56, h: 56, includeInChannels: true },
   // Metales

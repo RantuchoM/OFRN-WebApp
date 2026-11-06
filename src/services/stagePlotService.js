@@ -8,7 +8,14 @@ import {
 } from "../utils/stagePlotPayload";
 
 const STAGE_PLOT_SELECT =
-  "id, id_programa, nombre, payload, sort_order, bloque_ids, created_at, updated_at";
+  "id, id_programa, nombre, payload, sort_order, bloque_ids, created_at, updated_at, locked_by, lock_heartbeat_at";
+
+/** Latido del editor. El candado vence si el latido tiene más de este margen. */
+export const STAGE_PLOT_LOCK_STALE_MS = 30_000;
+/** Intervalo de latido mientras se tiene el candado. */
+export const STAGE_PLOT_LOCK_HEARTBEAT_MS = 15_000;
+/** Espera máxima del que toma, para recibir el último flush del editor saliente. */
+export const STAGE_PLOT_LOCK_SETTLE_MS = 2500;
 
 function normalizeBloqueIds(raw) {
   if (!Array.isArray(raw)) return [];
@@ -23,6 +30,7 @@ function normalizeBloqueIds(raw) {
 
 function mapPlotRow(row) {
   if (!row) return null;
+  const lockedBy = Number(row.locked_by);
   return {
     ...row,
     bloque_ids: normalizeBloqueIds(row.bloque_ids),
@@ -33,8 +41,28 @@ function mapPlotRow(row) {
     evento_ids: Array.isArray(row.evento_ids)
       ? normalizeBloqueIds(row.evento_ids)
       : [],
+    locked_by:
+      row.locked_by == null || !Number.isFinite(lockedBy) ? null : lockedBy,
+    lock_heartbeat_at: row.lock_heartbeat_at || null,
   };
 }
+
+/** @param {string|null|undefined} heartbeatAt @param {number} [now] */
+export function isStagePlotLockStale(heartbeatAt, now = Date.now()) {
+  if (!heartbeatAt) return true;
+  const t = new Date(heartbeatAt).getTime();
+  if (!Number.isFinite(t)) return true;
+  return now - t > STAGE_PLOT_LOCK_STALE_MS;
+}
+
+function sameInstant(a, b) {
+  if (!a || !b) return false;
+  const ta = new Date(a).getTime();
+  const tb = new Date(b).getTime();
+  return Number.isFinite(ta) && ta === tb;
+}
+
+export { sameInstant as stagePlotSameInstant };
 
 /** Tipos de evento relevantes para Escenario (concierto / ensayo). */
 export const STAGE_PLOT_EVENT_TIPO_IDS = [1, 13];
@@ -176,6 +204,129 @@ export async function updateStagePlot(supabase, plotId, patch) {
     .select(STAGE_PLOT_SELECT)
     .maybeSingle();
   return { data: mapPlotRow(data), error };
+}
+
+/**
+ * Guarda payload / nombre / bloques sin tocar el candado.
+ * `requireLockedBy`: solo escribe si el candado sigue siendo de ese integrante.
+ * `expectedUpdatedAt`: solo escribe si nadie avanzó `updated_at` (último flush
+ * después de perder el candado). 0 filas → `skipped` (no es un error de red).
+ *
+ * @param {import("@supabase/supabase-js").SupabaseClient} supabase
+ * @param {string} plotId
+ * @param {{
+ *   payload?: object,
+ *   nombre?: string|null,
+ *   bloqueIds?: number[],
+ *   requireLockedBy?: number|null,
+ *   expectedUpdatedAt?: string|null,
+ * }} opts
+ */
+export async function saveStagePlotContents(supabase, plotId, opts = {}) {
+  if (!supabase || !plotId) {
+    return {
+      data: null,
+      error: new Error("Cliente o plot inválido"),
+      skipped: false,
+    };
+  }
+  const row = {
+    updated_at: new Date().toISOString(),
+  };
+  if (opts.payload !== undefined) row.payload = opts.payload;
+  if (opts.nombre !== undefined) {
+    row.nombre = opts.nombre?.trim() ? opts.nombre.trim() : null;
+  }
+  if (opts.bloqueIds !== undefined) {
+    row.bloque_ids = normalizeBloqueIds(opts.bloqueIds);
+  }
+  let query = supabase.from("stage_plots").update(row).eq("id", plotId);
+  if (opts.requireLockedBy != null) {
+    query = query.eq("locked_by", opts.requireLockedBy);
+  }
+  if (opts.expectedUpdatedAt) {
+    query = query.eq("updated_at", opts.expectedUpdatedAt);
+  }
+  const { data, error } = await query.select(STAGE_PLOT_SELECT).maybeSingle();
+  return { data: mapPlotRow(data), error, skipped: !error && !data };
+}
+
+function mapLockRpc(data) {
+  if (!data || typeof data !== "object") return null;
+  const lockedBy = Number(data.locked_by);
+  const previous = Number(data.previous_locked_by);
+  return {
+    ...data,
+    acquired: Boolean(data.acquired),
+    released: Boolean(data.released),
+    held: Boolean(data.held),
+    stolen_from_live: Boolean(data.stolen_from_live),
+    locked_by:
+      data.locked_by == null || !Number.isFinite(lockedBy) ? null : lockedBy,
+    previous_locked_by:
+      data.previous_locked_by == null || !Number.isFinite(previous)
+        ? null
+        : previous,
+    lock_heartbeat_at: data.lock_heartbeat_at || null,
+    payload: data.payload,
+    updated_at: data.updated_at || null,
+    nombre: data.nombre ?? "",
+    error: data.error || null,
+  };
+}
+
+/**
+ * @param {import("@supabase/supabase-js").SupabaseClient} supabase
+ * @param {string} plotId
+ * @param {number} integranteId
+ * @param {{ force?: boolean, expectedLockedBy?: number|null }} [opts]
+ */
+export async function takeStagePlotLock(supabase, plotId, integranteId, opts = {}) {
+  if (!supabase || !plotId || integranteId == null) {
+    return { data: null, error: new Error("Cliente, plot o integrante inválido") };
+  }
+  const { data, error } = await supabase.rpc("stage_plot_take_lock", {
+    p_plot_id: plotId,
+    p_integrante_id: integranteId,
+    p_force: Boolean(opts.force),
+    p_expected_locked_by: opts.expectedLockedBy ?? null,
+  });
+  if (error) return { data: null, error };
+  return { data: mapLockRpc(data), error: null };
+}
+
+/**
+ * @param {import("@supabase/supabase-js").SupabaseClient} supabase
+ * @param {string} plotId
+ * @param {number} integranteId
+ */
+export async function releaseStagePlotLock(supabase, plotId, integranteId) {
+  if (!supabase || !plotId || integranteId == null) {
+    return { data: null, error: new Error("Cliente, plot o integrante inválido") };
+  }
+  const { data, error } = await supabase.rpc("stage_plot_release_lock", {
+    p_plot_id: plotId,
+    p_integrante_id: integranteId,
+  });
+  if (error) return { data: null, error };
+  return { data: mapLockRpc(data), error: null };
+}
+
+/**
+ * @param {import("@supabase/supabase-js").SupabaseClient} supabase
+ * @param {string} plotId
+ * @param {number} integranteId
+ */
+export async function heartbeatStagePlotLock(supabase, plotId, integranteId) {
+  if (!supabase || !plotId || integranteId == null) {
+    return { data: null, error: new Error("Cliente, plot o integrante inválido") };
+  }
+  const { data, error } = await supabase.rpc("stage_plot_heartbeat_lock", {
+    p_plot_id: plotId,
+    p_integrante_id: integranteId,
+  });
+  if (error) return { data: null, error };
+  return { data: mapLockRpc(data), error: null };
 }
 
 /**

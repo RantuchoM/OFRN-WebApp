@@ -166,11 +166,11 @@ Plots son **first-class por programa** (`id_programa`), no 1:1 con bloque. Filas
 
 | Pieza | Rol |
 |-------|-----|
-| `stage_plots` | N filas por `id_programa`. Columnas: `payload`, `nombre`, `sort_order`, `bloque_ids bigint[]` (opcional). Sin UNIQUE en `id_programa`. |
+| `stage_plots` | N filas por `id_programa`. Columnas: `payload`, `nombre`, `sort_order`, `bloque_ids bigint[]` (opcional), `locked_by bigint` (FK `integrantes.id`, NULL = libre), `lock_heartbeat_at timestamptz`. Sin UNIQUE en `id_programa`. |
 | `stage_plot_eventos` | Junction plot ↔ evento, **N:N**. PK `(id_stage_plot, id_evento)`. Un evento puede tener varias plantas; un plot puede cubrir varios eventos. En «Ver escenario» del concierto se listan por nombre para elegir cuál exportar. |
 | `eventos.id_repertorio` | Bloque opcional del evento (FK `programas_repertorios`, ON DELETE SET NULL). Fallback para técnicos. |
 
-Migraciones: `20260826162040_stage_plots` → `20260827095903_stage_plots_multi_canvas` → `20260827100106_stage_plot_eventos` → `20261106011735_stage_plot_eventos_many_per_event` (aplicadas en linked).
+Migraciones: `20260826162040_stage_plots` → `20260827095903_stage_plots_multi_canvas` → `20260827100106_stage_plot_eventos` → `20261106011735_stage_plot_eventos_many_per_event` → `20261106142854_stage_plot_edit_lock` (aplicadas en linked).
 
 ### Dirección de asociación
 
@@ -249,6 +249,7 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
 
 ## Completado
 
+- [x] Colaboración nivel 1: candado por lienzo (tomar / ceder, latido 15 s, vence a los 30 s, realtime + presencia). Sin edición simultánea.
 - [x] Modelo en centímetros con escala **4 px/cm** (antes 10; max lienzo ~1600×1200 cm)
 - [x] Migración legacy 10→4 px/cm (dims cm + coords/scale ítems + params formaciones)
 - [x] Feedback Lienzo al tocar min/max (hint + toast sonner)
@@ -472,7 +473,18 @@ Seed: silla / banqueta / atril qty 0; tarima rect 200×100 qty 0. Unique parcial
 - **Regla 1:1**: cada SVG de instrumento vive en una fila de `instrumentos` (`svg_icon` + clave `stage_plot_type`). Material de escenario sin instrumento → `elementos_escenario` / Inventario (no el Editor).
 - Columnas: `svg_icon`, `stage_plot_type` (slug interno de ícono/paleta, **no** taxonomía de usuario), **`stage_plot_width_cm`**, **`stage_plot_height_cm`** (migración `20260828185148` + backfill/DEFAULT `20260828190819`; todas las filas **50×50**; DEFAULT 50; NULL legacy también = 50 cm), **`stage_plot_raster_url`** (PNG/WebP opcional en Storage; si está seteada, el plano la prefiere al SVG).
 - **Clasificación de usuario**: `instrumentos.familia` (FK `public.familia`). En Editor se agrupa y edita por familia.
-- **`stage_plot_type`**: clave de ícono en el plano (violin, bandoneon, …). Preferir única al crear; variantes pueden compartir (hoy `oboe` 06/06b, `clarinet` 07/07b). **Fagot (`08`) y contrafagot (`08b`) no comparten clave:** `bassoon` y `contrabassoon`, para que el plano muestre una imagen distinta. **Voces**, cada una con clave propia: `20` soprano, `80` mezzo (no hay fila Contralto; la voz grave femenina es Mezzo), `81` tenor, `38` baritone. `50` Director sigue en `conductor`. `20a` Voz, `23` Coro y `51` Director Musical siguen sin clave, para no pisar el ícono de otra fila. Un ítem ya colocado conserva el `type` con el que se insertó. **Sin** UNIQUE constraint en DB (compartir es válido). Índice parcial existente `instrumentos_stage_plot_type_idx`.
+- **`stage_plot_type`**: clave de ícono en el plano (violin, bandoneon, …). **Una fila, una clave.** El lienzo y el PDF resuelven el dibujo por esa clave, no por `instrumentos.id`. Maderas que antes compartían ya no lo hacen:
+
+| id | Nombre | stage_plot_type | Reserva si no hay PNG |
+|----|--------|-----------------|------------------------|
+| 06 | Oboe | `oboe` | `oboe.svg` |
+| 06b | Corno Inglés | `cor_anglais` | mismo SVG que el oboe |
+| 07 | Clarinete | `clarinet` | `clarinet.svg` |
+| 07b | Clarinete Bajo/Requinto | `bass_clarinet` | mismo SVG que el clarinete |
+| 08 | Fagot | `bassoon` | `bassoon.svg` |
+| 08b | Contrafagot | `contrabassoon` | silueta propia |
+
+  El PNG de cada fila (`stage_plot_raster_url`) queda en esa fila y gana sobre el SVG. No se copian rasters. **Voces**, cada una con clave propia: `20` soprano, `80` mezzo (no hay fila Contralto; la voz grave femenina es Mezzo), `81` tenor, `38` baritone. `50` Director sigue en `conductor`. `20a` Voz, `23` Coro y `51` Director Musical siguen sin clave, para no pisar el ícono de otra fila. Un ítem ya colocado conserva el `type` con el que se insertó. **Sin** UNIQUE constraint en DB. Índice parcial existente `instrumentos_stage_plot_type_idx`.
 - **PK `id`**: `text` manual (ej. `01`, `06b`, `22c`) — no serial.
 - **Percusión variantes** (base **`13`** Percusión / `perc`): ids `13a`–`13h` con `stage_plot_type` únicos y SVG OFRN (`currentColor`, viewBox 64). Migración `20260829020843_instrumentos_percusion_variants` (linked).
 
@@ -666,6 +678,34 @@ Parámetros en **px de escenario** (`cm × STAGE_PLOT_CM_TO_PX`). Defaults (íte
 - **Barra inferior de formación — Copiar…:** dropdown via portal a `document.body` (`StagePlotFormationCopyMenu`, `portalMenuZ`). La barra tiene `overflow-x-auto` (clip en Y) y el menú abre hacia arriba sobre el lienzo; sin portal quedaba tapado. Barra con `relative z-40`. Pill móvil formación: misma capa `z-[40]` post-Stage.
 - **Exportar / Reportes:** dropdown unificado en Disposición (PDF seating, Excel, particellas)
 
+## Colaboración nivel 1 — candado de edición (implementado)
+
+Un solo editor a la vez **por lienzo** (`stage_plots.id`). No hay edición simultánea, CRDT ni cursores (eso queda para nivel 2/3). El JSON del `payload` no se parte.
+
+### Candado
+
+- Columnas en la fila: `locked_by` (id numérico de `integrantes`, bigint, nunca uuid; FK `ON DELETE SET NULL`) y `lock_heartbeat_at`.
+- Sobrevive un refresh: no vive solo en presencia en memoria. Si el candado sigue siendo del integrante actual, al reabrir el editor se retoma solo (latido de nuevo) sin pedir que el otro lo suelte.
+- **Tomar control** si está libre, si el latido del otro venció (**más de 30 s**; latido cada **15 s**) o si ya es tuyo. El que toma **recarga el payload guardado**.
+- **Tomar control** si el otro sigue editando: se puede **sin que acepte**. El RPC manda `p_force` con el `locked_by` que se veía. El que tenía el control recibe un toast, hace un **último flush** del autoguardado, descarta el undo local, recarga el payload remoto y queda en solo lectura.
+- Dos clics a la vez sobre un candado libre / vencido / propio: un `UPDATE` condicional. Postgres reevalúa el `WHERE` después del row lock; **uno solo gana**. El robo a un titular vivo también es condicional al titular esperado, así dos robos simultáneos no ganan los dos.
+- **Ceder control**: flush del autoguardado pendiente y suelta solo si `locked_by` es el integrante actual. Se queda en el plano, en solo lectura. Tomar control queda libre.
+- Al cerrar o desmontar el editor (y en `pagehide`), si el candado es nuestro: flush + ceder, para no dejarlo colgado los 30 s.
+- Funciones `SECURITY INVOKER` (no definer): `stage_plot_take_lock`, `stage_plot_release_lock`, `stage_plot_heartbeat_lock`. No cambian `payload` ni `updated_at`. RLS de `stage_plots` no se abre de nuevo.
+
+### Quién no tiene el control
+
+- El lienzo se ve (y se actualiza por realtime cuando cambia `updated_at`).
+- Konva no arrastra: `canEdit` del editor es permiso de staff **y** candado propio **y** no estar en la espera de sincronización.
+- `persist` no escribe el payload salvo el último flush al perderlo o al ceder. El guardado normal exige `locked_by` = integrante actual. El último flush, si el candado ya pasó a otro, solo escribe si `updated_at` sigue siendo el que este cliente guardó.
+- No usa herramientas de edición, asociar, plantillas ni importar encima del lienzo.
+- El hub móvil sigue pudiendo abrirse con permiso de staff; dentro del editor hay que tomar el control. El candado es el de la misma instancia (`ProgramStagePlotEditor` / `StagePlotMobileEditor`).
+
+### Presencia
+
+- Canal realtime `stage-plot-lock:<plotId>`: `postgres_changes` de esa fila (como la agenda usa `.channel("agenda-updates")`) + presence con `integrante_id` numérico y nombre.
+- UI: **Tomar control** / **Ceder control**, nombre de quien tiene el control, y quién más está viendo.
+
 ## Pendiente / deuda
 
 - UI en `EventForm` para setear `eventos.id_repertorio` (hoy solo vía fallback; asociación principal es plot→eventos en editor).
@@ -675,14 +715,16 @@ Parámetros en **px de escenario** (`cm × STAGE_PLOT_CM_TO_PX`). Defaults (íte
 - Plots con `instrumentFootprintMigrated`: escalas custom viejas del Transformer en ítems-instrumento se **ignoran** al render y se limpian al normalizar (catálogo DB gana).
 - `cat.w`/`cat.h` del catálogo estático siguen siendo aspect/fallback de paleta; el tamaño en escena de instrumentos con huella viene de `stage_plot_*_cm`.
 - **Editor independiente del shell Giras** — **hecho (slice A):** rutas `/fimba/edicion/:edicionId/escenario/:plotId?` + `/stage-plots/:plotId`; FIMBA editores editan sin cuenta OFRN. Deuda: VenuesManager OFRN sin plotId; Option C modal embebido.
+- Candado nivel 1: no hay CRDT, cursores ni edición simultánea. Dos pestañas del **mismo** integrante pueden latir las dos (el `UPDATE` de latido no distingue sesión). El RPC confía en el id numérico que manda el cliente (mismo modelo que el RLS anon/authenticated de `stage_plots`). Si el payload realtime supera el tope del canal, el seguimiento del que mira depende del refetch posterior al evento.
+- **Planos viejos de clarinete bajo y corno inglés:** `stage_plots.payload` guarda `type`, no el id del instrumento. Las piezas colocadas cuando `07b` y `06b` usaban `clarinet` y `oboe` no se pueden distinguir del clarinete y del oboe. Siguen dibujándose con esas claves. Para ver el PNG nuevo hay que volver a colocar el clarinete bajo (`bass_clarinet`) y el corno inglés (`cor_anglais`). No se reescribieron payloads.
 
 ## Iconos SVG en `instrumentos` (2026-08)
 
 - **Columnas**: `svg_icon text` + `stage_plot_type text` (migración `20260827123803`) + **`stage_plot_width_cm` / `stage_plot_height_cm`** (migración `20260828185148` + backfill/DEFAULT `20260828190819`; filas **50×50**, DEFAULT 50; NULL legacy → 50 cm) + **`stage_plot_raster_url`** (migración `20261105185927`; URL pública PNG/WebP, NULL = usar SVG). La misma columna existe en `elementos_escenario`.
 - **1 SVG ↔ 1 fila `instrumentos`**: no hay íconos de instrumento sueltos; sin fila → Inventario / `elementos_escenario`.
-- **Familia** = clasificación de usuario; **`stage_plot_type`** = clave de ícono/paleta (preferir única al crear; compartir permitido para variantes).
+- **Familia** = clasificación de usuario; **`stage_plot_type`** = clave de ícono/paleta, una por instrumento (`oboe` / `cor_anglais`, `clarinet` / `bass_clarinet`, `bassoon` / `contrabassoon`).
 - **Cadena**: PNG/WebP (`stage_plot_raster_url`, bucket `stage-plot-icons`) → SVG de DB → `public/stage-plot/icons/` → silueta (`stagePlotIconAssets.js`); tamaños en `setStagePlotDbSizeOverrides`.
-- **PNG/WebP por instrumento o elemento** (migración `20261105185927`): el binario no entra en `svg_icon`. Contrato: fondo transparente (canal alpha), lado largo ≥ 1024 px, máx. 1 MB, solo `image/png` o `image/webp`. Al reemplazar se borra el objeto anterior. Guardar un SVG nuevo (Editor o Datos → Instrumentos, `saveInstrumentoSvgIcon`) quita el PNG para que se vea el vector; dejar el SVG vacío no toca el PNG. El raster no se tiñe (`currentColor` no aplica). JPEG/GIF se rechazan. Varias filas pueden compartir `stage_plot_type`: el plano usa una sola imagen por clave (la última URL no vacía, igual que la huella). Cada subida usa un path nuevo, así el cache del CDN de la URL anterior no vuelve al lienzo.
+- **PNG/WebP por instrumento o elemento** (migración `20261105185927`): el binario no entra en `svg_icon`. Contrato: fondo transparente (canal alpha), lado largo ≥ 1024 px, máx. 1 MB, solo `image/png` o `image/webp`. Al reemplazar se borra el objeto anterior. Guardar un SVG nuevo (Editor o Datos → Instrumentos, `saveInstrumentoSvgIcon`) quita el PNG para que se vea el vector; dejar el SVG vacío no toca el PNG. El raster no se tiñe (`currentColor` no aplica). JPEG/GIF se rechazan. El plano usa una imagen por clave. Con claves únicas, cada fila muestra su PNG. Si dos filas volvieran a compartir clave, la última URL no vacía pisa a la anterior (igual que la huella). Cada subida usa un path nuevo, así el cache del CDN de la URL anterior no vuelve al lienzo.
 - **Admin / editor**: Escenario panel izquierdo **Editor** (familia, **tamaño de huella** Ancho×Profundo cm → DB, SVG, clave demoted; **Crear instrumento**), Datos → Instrumentos (**Clave de ícono (plano)** + Ancho/Profundo huella cm, placeholder **50**; SVG) e Inventario → elementos (`elementos_escenario.svg_icon`). Todo pasa por `sanitizeStagePlotSvgMarkup` (`stagePlotSvgSanitize.js`). **Descargar SVG / Descargar PNG** (o WebP): copia local del archivo ya guardado, antes de reemplazarlo. Los `<input type="file">` de Subir SVG / PNG usan `STAGE_PLOT_FILE_INPUT_CLASS` (`position: fixed`, 1px, fuera del scroll). No `sr-only`: ese clip es absoluto y, al enfocar el control, Chrome estira el lienzo y abre un panel vacío debajo del escenario. Editor: al expandir el instrumento, si hay `svg_icon` y/o `stage_plot_raster_url`. Datos → Instrumentos: mismos botones en el modal de edición. El SVG se baja tal cual está en la fila (sin volver a sanitizar). El raster se baja del bucket; si el navegador bloquea el fetch, se abre la URL.
 - **Pipeline de sanitizado (app)**:
   1. **Entrada usuario**: Escenario → Editor (upload SVG), Crear instrumento (upload), Datos → Instrumentos (`SvgIconField`: upload + paste), Inventario → Nuevo elemento (upload + paste).

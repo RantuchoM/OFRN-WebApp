@@ -20,7 +20,8 @@ const migrationPath = path.join(
 
 /**
  * id instrumentos → tipo catálogo stage-plot + archivo SVG.
- * Variantes (06b/07b/08b) comparten silueta del instrumento base.
+ * 06b y 07b tienen clave propia; el SVG de reserva es el del instrumento principal.
+ * 08b sigue apuntando a bassoon.svg en este seed histórico (la clave en DB es contrabassoon).
  * Sin fila de catálogo (sax, guitarra, prod., voces): no se precargan.
  */
 export const INSTRUMENTO_STAGE_PLOT_SVG_SEED = [
@@ -30,13 +31,18 @@ export const INSTRUMENTO_STAGE_PLOT_SVG_SEED = [
   { id: "04", type: "bass", file: "bass.svg", note: "Contrabajo" },
   { id: "05", type: "flute", file: "flute.svg", note: "Flauta" },
   { id: "06", type: "oboe", file: "oboe.svg", note: "Oboe" },
-  { id: "06b", type: "oboe", file: "oboe.svg", note: "Corno Inglés → oboe" },
+  {
+    id: "06b",
+    type: "cor_anglais",
+    file: "oboe.svg",
+    note: "Corno Inglés → cor_anglais (SVG de reserva = oboe)",
+  },
   { id: "07", type: "clarinet", file: "clarinet.svg", note: "Clarinete" },
   {
     id: "07b",
-    type: "clarinet",
+    type: "bass_clarinet",
     file: "clarinet.svg",
-    note: "Clarinete Bajo/Requinto → clarinet",
+    note: "Clarinete Bajo/Requinto → bass_clarinet (SVG de reserva = clarinet)",
   },
   { id: "08", type: "bassoon", file: "bassoon.svg", note: "Fagot" },
   {

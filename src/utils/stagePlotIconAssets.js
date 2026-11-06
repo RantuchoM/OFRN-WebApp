@@ -22,7 +22,11 @@ export const STAGE_PLOT_ICON_FILES = {
   bandoneon: "bandoneon.svg",
   flute: "flute.svg",
   oboe: "oboe.svg",
+  /** Reserva si la fila no tiene PNG ni SVG: mismo archivo que el oboe. */
+  cor_anglais: "oboe.svg",
   clarinet: "clarinet.svg",
+  /** Reserva si la fila no tiene PNG ni SVG: mismo archivo que el clarinete. */
+  bass_clarinet: "clarinet.svg",
   bassoon: "bassoon.svg",
   horn: "french-horn.svg",
   trumpet: "trumpet.svg",
