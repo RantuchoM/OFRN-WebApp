@@ -17,6 +17,15 @@ export const STAGE_PLOT_RASTER_HINT =
   "PNG o WebP con fondo transparente, lado largo de al menos 1024 px, máximo 1 MB. El plano muestra esta imagen tal cual (sin tinte). El SVG, si existe, queda de reserva.";
 
 /**
+ * No usar `sr-only` en estos inputs. Ese clip es `position: absolute` y el
+ * ancestro posicionado es el shell del editor (`relative`). Al abrir el
+ * diálogo, Chrome enfoca el control y estira el scroll del lienzo: aparece
+ * un panel vacío debajo del escenario. `fixed` lo saca de ese scroll.
+ */
+export const STAGE_PLOT_FILE_INPUT_CLASS =
+  "pointer-events-none fixed left-0 top-0 h-px w-px overflow-hidden opacity-0";
+
+/**
  * Un SVG nuevo (markup no vacío) pasa a ser el ícono visible.
  * Quitar el SVG deja el PNG activo.
  * @param {string|null|undefined} nextSvg
@@ -342,4 +351,90 @@ function ascii(bytes, offset, length) {
   let out = "";
   for (let i = 0; i < length; i += 1) out += String.fromCharCode(bytes[offset + i] || 0);
   return out;
+}
+
+/**
+ * Nombre de archivo seguro a partir del instrumento o la clave de ícono.
+ * @param {string|number|null|undefined} name
+ */
+export function stagePlotIconDownloadBasename(name) {
+  const raw = String(name ?? "")
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+  return raw || "icono";
+}
+
+/**
+ * @param {string|null|undefined} url
+ * @param {string} [mime]
+ * @returns {"png"|"webp"}
+ */
+export function stagePlotRasterDownloadExt(url, mime = "") {
+  const path = String(url || "").split("?")[0].toLowerCase();
+  if (path.endsWith(".webp") || mime === "image/webp") return "webp";
+  return "png";
+}
+
+/**
+ * @param {Blob} blob
+ * @param {string} filename
+ */
+function triggerBlobDownload(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.rel = "noopener";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
+/**
+ * Copia local del SVG guardado en la fila (markup de DB, sin re-sanitizar).
+ * @param {string|null|undefined} markup
+ * @param {string|number|null|undefined} name
+ * @returns {boolean}
+ */
+export function downloadStagePlotSvgMarkup(markup, name) {
+  const text = String(markup ?? "");
+  if (!text.trim()) return false;
+  const blob = new Blob([text], { type: "image/svg+xml;charset=utf-8" });
+  triggerBlobDownload(blob, `${stagePlotIconDownloadBasename(name)}.svg`);
+  return true;
+}
+
+/**
+ * Copia local del PNG/WebP del bucket. Si el fetch falla (CORS), abre la URL.
+ * @param {string|null|undefined} url
+ * @param {string|number|null|undefined} name
+ * @returns {Promise<"file"|"tab">}
+ */
+export async function downloadStagePlotRasterUrl(url, name) {
+  const href = String(url || "").trim();
+  if (!href) throw new Error("No hay PNG para descargar.");
+  const base = stagePlotIconDownloadBasename(name);
+  try {
+    const res = await fetch(href);
+    if (!res.ok) throw new Error("status");
+    const blob = await res.blob();
+    const ext = stagePlotRasterDownloadExt(href, blob.type);
+    triggerBlobDownload(blob, `${base}.${ext}`);
+    return "file";
+  } catch {
+    const a = document.createElement("a");
+    a.href = href;
+    a.target = "_blank";
+    a.rel = "noopener";
+    a.download = `${base}.${stagePlotRasterDownloadExt(href)}`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    return "tab";
+  }
 }

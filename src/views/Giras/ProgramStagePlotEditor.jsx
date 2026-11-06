@@ -7485,7 +7485,8 @@ export default function ProgramStagePlot({
               </p>
               <p className="mb-1.5 text-[10px] text-slate-400">
                 Conciertos/ensayos que abren este lienzo en «Ver escenario». Un
-                evento solo puede tener un plot.
+                mismo evento puede tener varias plantas; al exportar se elige por
+                nombre.
               </p>
               <div className="flex max-h-28 flex-col gap-0.5 overflow-y-auto">
                 {giraEvents.length === 0 ? (

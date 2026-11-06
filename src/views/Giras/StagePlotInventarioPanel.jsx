@@ -26,6 +26,7 @@ import {
 import {
   classifyStagePlotIconUpload,
   validateStagePlotRasterFile,
+  STAGE_PLOT_FILE_INPUT_CLASS,
   STAGE_PLOT_RASTER_HINT,
 } from "../../utils/stagePlotRaster";
 import {
@@ -785,7 +786,7 @@ function ElementoEscenarioQuickAdd({ busy, setBusy, onCreated }) {
           <input
             type="file"
             accept=".svg,.png,.webp,image/svg+xml,image/png,image/webp"
-            className="sr-only"
+            className={STAGE_PLOT_FILE_INPUT_CLASS}
             onChange={async (e) => {
               const file = e.target.files?.[0];
               e.target.value = "";

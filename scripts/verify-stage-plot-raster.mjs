@@ -5,6 +5,8 @@
 import sharp from "sharp";
 import {
   stagePlotRasterObjectPath,
+  stagePlotRasterDownloadExt,
+  stagePlotIconDownloadBasename,
   stagePlotSvgSaveClearsRaster,
   validateStagePlotRasterBytes,
 } from "../src/utils/stagePlotRaster.js";
@@ -116,6 +118,13 @@ assert(
   stagePlotSvgSaveClearsRaster("<svg></svg>", "  ") === false,
   "SVG nuevo sin PNG no marca borrado",
 );
+assert(stagePlotIconDownloadBasename("Flauta Traversa") === "flauta-traversa", "nombre de descarga");
+assert(stagePlotIconDownloadBasename("  ") === "icono", "nombre vacío");
+assert(
+  stagePlotRasterDownloadExt("https://cdn.example/a.webp?v=1") === "webp",
+  "extensión webp",
+);
+assert(stagePlotRasterDownloadExt("https://cdn.example/a.png") === "png", "extensión png");
 
 if (failed) {
   console.error(`${failed} checks failed`);

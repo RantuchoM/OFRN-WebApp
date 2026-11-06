@@ -14,6 +14,7 @@ import {
   IconAlertTriangle,
   IconPencil,
   IconMerge,
+  IconDownload,
 } from "../../components/ui/Icons";
 import UniversalExporter from "../../components/ui/UniversalExporter";
 import { useConfirmDialog } from "../../hooks/useConfirmDialog";
@@ -33,6 +34,10 @@ import {
 } from "../../services/stagePlotInstrumentIconsService";
 import {
   classifyStagePlotIconUpload,
+  downloadStagePlotRasterUrl,
+  downloadStagePlotSvgMarkup,
+  stagePlotRasterDownloadExt,
+  STAGE_PLOT_FILE_INPUT_CLASS,
   STAGE_PLOT_RASTER_HINT,
 } from "../../utils/stagePlotRaster";
 import { mergeLocaciones } from "../../services/mergeLocaciones";
@@ -111,7 +116,13 @@ const labelForSelectValue = (value, options) => {
 };
 
 /** Campo SVG: file input + textarea + preview (Datos → Instrumentos). */
-function SvgIconField({ value, onChange, fieldClass, clearsRasterOnSave = false }) {
+function SvgIconField({
+  value,
+  onChange,
+  fieldClass,
+  clearsRasterOnSave = false,
+  downloadName = "icono",
+}) {
   const [error, setError] = useState("");
   const [hint, setHint] = useState("");
   const preview = useMemo(() => {
@@ -144,7 +155,7 @@ function SvgIconField({ value, onChange, fieldClass, clearsRasterOnSave = false 
           <input
             type="file"
             accept=".svg,image/svg+xml"
-            className="sr-only"
+            className={STAGE_PLOT_FILE_INPUT_CLASS}
             onChange={async (e) => {
               const file = e.target.files?.[0];
               e.target.value = "";
@@ -174,6 +185,19 @@ function SvgIconField({ value, onChange, fieldClass, clearsRasterOnSave = false 
             }}
           />
         </label>
+        {value ? (
+          <button
+            type="button"
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50 min-h-[44px]"
+            title="Guardar una copia del SVG actual"
+            onClick={() => {
+              const ok = downloadStagePlotSvgMarkup(value, downloadName);
+              if (!ok) setError("No hay SVG para descargar.");
+            }}
+          >
+            <IconDownload size={14} /> Descargar SVG
+          </button>
+        ) : null}
         {value ? (
           <button
             type="button"
@@ -231,8 +255,9 @@ function SvgIconField({ value, onChange, fieldClass, clearsRasterOnSave = false 
 }
 
 /** PNG/WebP del plano. Se guarda al subir (Storage + columna), no al cerrar el modal. */
-function StagePlotRasterField({ value, rowId, onChange }) {
+function StagePlotRasterField({ value, rowId, onChange, downloadName = "icono" }) {
   const [error, setError] = useState("");
+  const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const isTemp = String(rowId || "").startsWith("temp-");
   const url = String(value || "").trim();
@@ -285,7 +310,7 @@ function StagePlotRasterField({ value, rowId, onChange }) {
           <input
             type="file"
             accept=".png,.webp,image/png,image/webp"
-            className="sr-only"
+            className={STAGE_PLOT_FILE_INPUT_CLASS}
             disabled={busy || isTemp}
             onChange={async (e) => {
               const file = e.target.files?.[0];
@@ -294,6 +319,34 @@ function StagePlotRasterField({ value, rowId, onChange }) {
             }}
           />
         </label>
+        {url ? (
+          <button
+            type="button"
+            disabled={busy}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50 min-h-[44px] disabled:opacity-50"
+            title="Guardar una copia del PNG o WebP actual"
+            onClick={async () => {
+              setBusy(true);
+              setError("");
+              setNote("");
+              try {
+                const mode = await downloadStagePlotRasterUrl(url, downloadName);
+                if (mode === "tab") {
+                  setNote("Se abrió la imagen. Guardala desde el navegador.");
+                }
+              } catch (err) {
+                setError(err?.message || "No se pudo descargar el PNG.");
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            <IconDownload size={14} />{" "}
+            {stagePlotRasterDownloadExt(url) === "webp"
+              ? "Descargar WebP"
+              : "Descargar PNG"}
+          </button>
+        ) : null}
         {url ? (
           <button
             type="button"
@@ -307,6 +360,8 @@ function StagePlotRasterField({ value, rowId, onChange }) {
       </div>
       {error ? (
         <p className="text-xs text-red-600">{error}</p>
+      ) : note ? (
+        <p className="text-xs text-slate-600">{note}</p>
       ) : (
         <p className="text-[10px] text-slate-400">{STAGE_PLOT_RASTER_HINT}</p>
       )}
@@ -618,6 +673,7 @@ function RowEditModal({
                   <SvgIconField
                     value={v ?? ""}
                     fieldClass={fieldClass}
+                    downloadName={form.instrumento || row?.instrumento || rowId}
                     clearsRasterOnSave={Boolean(
                       String(form.stage_plot_raster_url || "").trim(),
                     )}
@@ -630,6 +686,7 @@ function RowEditModal({
                   <StagePlotRasterField
                     value={v ?? ""}
                     rowId={rowId}
+                    downloadName={form.instrumento || row?.instrumento || rowId}
                     onChange={(next) => {
                       setForm((f) => ({ ...f, [col.key]: next }));
                       onRasterPersisted?.(next);

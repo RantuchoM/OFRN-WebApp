@@ -317,8 +317,28 @@ export async function listStagePlotEventLinks(supabase, plotIds) {
 }
 
 /**
- * Vincula un evento a un plot sin borrar los demás eventos del plot.
- * Respeta UNIQUE(id_evento): libera link previo del evento si existía.
+ * Plantas ya anidadas en un evento (`stage_plot_eventos → stage_plots`).
+ * @param {{ stage_plot_eventos?: Array<{ id_stage_plot?: string, stage_plots?: { nombre?: string|null }|{ nombre?: string|null }[]|null }>|null }} evt
+ * @returns {{ id: string, nombre: string }[]}
+ */
+export function stagePlotLinksFromEventRow(evt) {
+  const rows = Array.isArray(evt?.stage_plot_eventos) ? evt.stage_plot_eventos : [];
+  const out = [];
+  const seen = new Set();
+  for (const row of rows) {
+    const id = row?.id_stage_plot;
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    const plot = Array.isArray(row.stage_plots) ? row.stage_plots[0] : row.stage_plots;
+    const nombre = String(plot?.nombre || "").trim() || "Escenario";
+    out.push({ id, nombre });
+  }
+  return out;
+}
+
+/**
+ * Vincula un evento a un plot sin sacar las demás plantas de ese evento
+ * ni los demás eventos de ese plot. Si el par ya existe, no duplica.
  *
  * @param {import("@supabase/supabase-js").SupabaseClient} supabase
  * @param {string} plotId
@@ -333,27 +353,25 @@ export async function linkEventToStagePlot(supabase, plotId, eventoId) {
     return { error: new Error("id de evento inválido") };
   }
 
-  const { error: freeErr } = await supabase
-    .from("stage_plot_eventos")
-    .delete()
-    .eq("id_evento", eid);
-  if (freeErr) return { error: freeErr };
-
-  const { error: insErr } = await supabase.from("stage_plot_eventos").insert({
-    id_stage_plot: plotId,
-    id_evento: eid,
-  });
+  const { error: insErr } = await supabase.from("stage_plot_eventos").upsert(
+    {
+      id_stage_plot: plotId,
+      id_evento: eid,
+    },
+    { onConflict: "id_stage_plot,id_evento", ignoreDuplicates: true },
+  );
   return { error: insErr || null };
 }
 
 /**
- * Quita el vínculo evento ↔ stage_plot (fila en `stage_plot_eventos`).
- * No borra el lienzo `stage_plots`.
+ * Quita vínculos evento ↔ stage_plot. No borra el lienzo `stage_plots`.
+ * Con `plotId`, solo esa planta. Sin `plotId`, todas las del evento.
  *
  * @param {import("@supabase/supabase-js").SupabaseClient} supabase
  * @param {number|string} eventoId
+ * @param {string|null} [plotId]
  */
-export async function unlinkEventFromStagePlot(supabase, eventoId) {
+export async function unlinkEventFromStagePlot(supabase, eventoId, plotId = null) {
   if (!supabase || eventoId == null || eventoId === "") {
     return { error: new Error("Cliente o evento inválido") };
   }
@@ -361,11 +379,40 @@ export async function unlinkEventFromStagePlot(supabase, eventoId) {
   if (!Number.isFinite(eid) || eid <= 0) {
     return { error: new Error("id de evento inválido") };
   }
-  const { error } = await supabase
-    .from("stage_plot_eventos")
-    .delete()
-    .eq("id_evento", eid);
+  let query = supabase.from("stage_plot_eventos").delete().eq("id_evento", eid);
+  if (plotId) query = query.eq("id_stage_plot", plotId);
+  const { error } = await query;
   return { error: error || null };
+}
+
+/**
+ * Plantas vinculadas directo a un evento, ordenadas como en la gira.
+ * @param {import("@supabase/supabase-js").SupabaseClient} supabase
+ * @param {number|string} eventoId
+ */
+export async function listStagePlotsLinkedToEvent(supabase, eventoId) {
+  const eventId = Number(eventoId);
+  if (!supabase || !Number.isFinite(eventId) || eventId <= 0) {
+    return { data: [], error: new Error("Evento inválido") };
+  }
+  const { data, error } = await supabase
+    .from("stage_plot_eventos")
+    .select(`id_stage_plot, stage_plots(${STAGE_PLOT_SELECT})`)
+    .eq("id_evento", eventId);
+  if (error) return { data: [], error };
+  const plots = (data || [])
+    .map((row) => {
+      const nested = Array.isArray(row.stage_plots)
+        ? row.stage_plots[0]
+        : row.stage_plots;
+      return mapPlotRow(nested);
+    })
+    .filter(Boolean)
+    .sort((a, b) => {
+      if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order;
+      return String(a.created_at || "").localeCompare(String(b.created_at || ""));
+    });
+  return { data: plots, error: null };
 }
 
 /**
@@ -533,8 +580,8 @@ export async function createStagePlotForEvent(supabase, evento, opts = {}) {
 }
 
 /**
- * Reemplaza los eventos asociados a un plot.
- * Un evento solo puede pertenecer a un plot (unique id_evento).
+ * Reemplaza los eventos asociados a este plot.
+ * No quita esos eventos de otras plantas: un concierto puede tener varias.
  *
  * @param {import("@supabase/supabase-js").SupabaseClient} supabase
  * @param {string} plotId
@@ -553,13 +600,6 @@ export async function setStagePlotEventos(supabase, plotId, eventoIds) {
   if (delErr) return { error: delErr };
 
   if (nextIds.length === 0) return { error: null };
-
-  // Liberar eventos que ya estuvieran en otro plot.
-  const { error: freeErr } = await supabase
-    .from("stage_plot_eventos")
-    .delete()
-    .in("id_evento", nextIds);
-  if (freeErr) return { error: freeErr };
 
   const { error: insErr } = await supabase.from("stage_plot_eventos").insert(
     nextIds.map((id_evento) => ({
@@ -597,7 +637,7 @@ export async function listGiraStagePlotCandidateEvents(supabase, giraId) {
  * Resuelve el plot que debe ver un técnico para un evento.
  *
  * Orden:
- * 1. Link directo `stage_plot_eventos`
+ * 1. Primera planta vinculada en `stage_plot_eventos` (sort_order). Si hay varias, el viewer lista todas por nombre.
  * 2. Plot cuyo `bloque_ids` contiene `eventos.id_repertorio`
  * 3. Primer plot del programa (sort_order / created_at)
  *
@@ -621,17 +661,14 @@ export async function resolveStagePlotForEvent(supabase, evento) {
   const programId =
     evento.id_gira ?? evento.programas?.id ?? evento.id_programa ?? null;
 
-  // 1) Link directo
-  const { data: link, error: linkErr } = await supabase
-    .from("stage_plot_eventos")
-    .select("id_stage_plot")
-    .eq("id_evento", eventId)
-    .maybeSingle();
+  // 1) Plantas vinculadas. Si hay varias, la primera es el default; el viewer muestra todas.
+  const { data: linked, error: linkErr } = await listStagePlotsLinkedToEvent(
+    supabase,
+    eventId,
+  );
   if (linkErr) return { data: null, reason: "error", error: linkErr };
-  if (link?.id_stage_plot) {
-    const { data, error } = await getStagePlotById(supabase, link.id_stage_plot);
-    if (error) return { data: null, reason: "error", error };
-    if (data) return { data, reason: "event_link", error: null };
+  if (linked?.length) {
+    return { data: linked[0], reason: "event_link", error: null };
   }
 
   if (programId == null || programId === "") {

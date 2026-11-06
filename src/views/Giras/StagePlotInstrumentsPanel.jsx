@@ -6,6 +6,7 @@ import {
   IconChevronDown,
   IconLoader,
   IconMusic,
+  IconDownload,
   IconPencil,
   IconPlus,
   IconUpload,
@@ -31,7 +32,11 @@ import {
 } from "../../services/stagePlotInstrumentIconsService";
 import {
   classifyStagePlotIconUpload,
+  downloadStagePlotRasterUrl,
+  downloadStagePlotSvgMarkup,
+  stagePlotRasterDownloadExt,
   validateStagePlotRasterFile,
+  STAGE_PLOT_FILE_INPUT_CLASS,
   STAGE_PLOT_RASTER_HINT,
 } from "../../utils/stagePlotRaster";
 import { getStagePlotCatalogItem } from "../../utils/stagePlotCatalog";
@@ -83,6 +88,10 @@ function suggestStagePlotTypeFromName(instrumentoNombre) {
     }
   }
   return best;
+}
+
+function stagePlotRowDownloadName(row) {
+  return row?.instrumento || row?.stage_plot_type || row?.id || "icono";
 }
 
 function previewSrcFromMarkup(svg) {
@@ -353,15 +362,63 @@ function InstrumentRowList({
                         Vacío = 50 cm. El tamaño del catálogo aplica a todos los planos. Enter/blur guarda.
                       </p>
 
-                      {canEdit ? (
-                        <div className="flex flex-wrap gap-1">
+                      <div className="flex flex-wrap gap-1">
+                        {row.svg_icon ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const ok = downloadStagePlotSvgMarkup(
+                                row.svg_icon,
+                                stagePlotRowDownloadName(row),
+                              );
+                              if (!ok) toast.error("No hay SVG para descargar.");
+                            }}
+                            className="inline-flex items-center gap-1 rounded border border-slate-200 bg-white px-2 py-1 text-[10px] font-semibold text-slate-700 hover:bg-slate-50"
+                            title="Guardar una copia del SVG actual"
+                          >
+                            <IconDownload size={12} /> Descargar SVG
+                          </button>
+                        ) : null}
+                        {row.stage_plot_raster_url ? (
+                          <button
+                            type="button"
+                            disabled={savingSvg}
+                            onClick={async () => {
+                              try {
+                                const mode = await downloadStagePlotRasterUrl(
+                                  row.stage_plot_raster_url,
+                                  stagePlotRowDownloadName(row),
+                                );
+                                if (mode === "tab") {
+                                  toast.message(
+                                    "Se abrió la imagen. Guardala desde el navegador.",
+                                  );
+                                }
+                              } catch (err) {
+                                toast.error(
+                                  err?.message || "No se pudo descargar el PNG.",
+                                );
+                              }
+                            }}
+                            className="inline-flex items-center gap-1 rounded border border-slate-200 bg-white px-2 py-1 text-[10px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                            title="Guardar una copia del PNG o WebP actual"
+                          >
+                            <IconDownload size={12} />{" "}
+                            {stagePlotRasterDownloadExt(row.stage_plot_raster_url) ===
+                            "webp"
+                              ? "Descargar WebP"
+                              : "Descargar PNG"}
+                          </button>
+                        ) : null}
+                        {canEdit ? (
+                          <>
                           <label className="inline-flex cursor-pointer items-center gap-1 rounded border border-slate-200 bg-white px-2 py-1 text-[10px] font-semibold text-slate-700 hover:bg-slate-50">
                             <IconUpload size={12} />
                             Subir SVG
                             <input
                               type="file"
                               accept=".svg,image/svg+xml"
-                              className="sr-only"
+                              className={STAGE_PLOT_FILE_INPUT_CLASS}
                               onChange={async (e) => {
                                 const file = e.target.files?.[0];
                                 e.target.value = "";
@@ -406,7 +463,7 @@ function InstrumentRowList({
                             <input
                               type="file"
                               accept=".png,.webp,image/png,image/webp"
-                              className="sr-only"
+                              className={STAGE_PLOT_FILE_INPUT_CLASS}
                               disabled={savingSvg}
                               onChange={async (e) => {
                                 const file = e.target.files?.[0];
@@ -441,10 +498,11 @@ function InstrumentRowList({
                             <IconPencil size={12} />
                             {savingSize ? "Guardando…" : "Guardar tamaño"}
                           </button>
-                        </div>
-                      ) : (
-                        <p className="text-[10px] text-slate-400">Solo lectura</p>
-                      )}
+                          </>
+                        ) : (
+                          <p className="self-center text-[10px] text-slate-400">Solo lectura</p>
+                        )}
+                      </div>
                       <p className="text-[9px] leading-snug text-slate-400">
                         {STAGE_PLOT_RASTER_HINT} Subir un SVG nuevo quita el PNG para que se vea el dibujo vectorial.
                       </p>
@@ -791,7 +849,7 @@ function CreateInstrumentoModal({
                 <input
                   type="file"
                   accept=".svg,image/svg+xml"
-                  className="sr-only"
+                  className={STAGE_PLOT_FILE_INPUT_CLASS}
                   onChange={async (e) => {
                     const file = e.target.files?.[0];
                     e.target.value = "";
@@ -845,7 +903,7 @@ function CreateInstrumentoModal({
                 <input
                   type="file"
                   accept=".png,.webp,image/png,image/webp"
-                  className="sr-only"
+                  className={STAGE_PLOT_FILE_INPUT_CLASS}
                   onChange={async (e) => {
                     const file = e.target.files?.[0];
                     e.target.value = "";

@@ -26,21 +26,7 @@ import {
 } from "../../utils/fimbaRider";
 import { resolveEventFimbaPropuestas } from "../../utils/fimbaAgendaConsulta";
 import StagePlotViewerModal from "../Giras/StagePlotViewerModal";
-
-function eventStagePlotId(evt) {
-  const rows = evt?.stage_plot_eventos;
-  if (!Array.isArray(rows) || rows.length === 0) return null;
-  return rows[0]?.id_stage_plot || null;
-}
-
-function eventStagePlotNombre(evt) {
-  const rows = evt?.stage_plot_eventos;
-  if (!Array.isArray(rows) || rows.length === 0) return null;
-  const plot = rows[0]?.stage_plots;
-  const raw = Array.isArray(plot) ? plot[0]?.nombre : plot?.nombre;
-  const n = String(raw || "").trim();
-  return n || null;
-}
+import { stagePlotLinksFromEventRow } from "../../services/stagePlotService";
 
 function Field({ label, children }) {
   return (
@@ -121,8 +107,7 @@ export default function FimbaBacklineConsultaModal({
     nombre: evento?.planta_escenario_nombre,
   });
   const previewUrl = buildDriveFilePreviewUrl(plantaUrl);
-  const plotId = eventStagePlotId(evento);
-  const plotNombre = eventStagePlotNombre(evento);
+  const plotLinks = stagePlotLinksFromEventRow(evento);
   const descHtml = evento?.backline_descripcion;
 
   if (!open || !evento) return null;
@@ -286,17 +271,29 @@ export default function FimbaBacklineConsultaModal({
                         ) : null}
                       </div>
                     ) : null}
-                    {plotId ? (
-                      <button
-                        type="button"
-                        onClick={() => setStagePlotOpen(true)}
-                        className="inline-flex items-center gap-1.5 self-start text-sm font-semibold text-indigo-700 hover:text-indigo-900"
-                      >
-                        <IconLayout size={14} />
-                        {plotNombre || "Ver escenario"}
-                      </button>
+                    {plotLinks.length > 0 ? (
+                      <div className="flex flex-col items-start gap-1.5">
+                        {plotLinks.map((link) => (
+                          <span
+                            key={link.id}
+                            className="text-sm font-semibold text-slate-800"
+                          >
+                            {link.nombre}
+                          </span>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={() => setStagePlotOpen(true)}
+                          className="inline-flex items-center gap-1.5 self-start text-sm font-semibold text-indigo-700 hover:text-indigo-900"
+                        >
+                          <IconLayout size={14} />
+                          {plotLinks.length > 1
+                            ? "Elegir y exportar"
+                            : "Ver escenario"}
+                        </button>
+                      </div>
                     ) : null}
-                    {!plantaUrl && !plotId ? (
+                    {!plantaUrl && plotLinks.length === 0 ? (
                       <span className="fimba-muted" style={{ fontStyle: "italic" }}>
                         Sin planta
                       </span>
@@ -321,7 +318,7 @@ export default function FimbaBacklineConsultaModal({
       )}
 
       <StagePlotViewerModal
-        open={stagePlotOpen && !!plotId}
+        open={stagePlotOpen && plotLinks.length > 0}
         onClose={() => setStagePlotOpen(false)}
         supabase={supabaseClient}
         evento={evento}

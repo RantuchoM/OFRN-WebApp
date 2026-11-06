@@ -47,6 +47,7 @@ import {
   ensureStagePlotForEvent,
   linkEventToStagePlot,
   listStagePlotsByPrograma,
+  stagePlotLinksFromEventRow,
   unlinkEventFromStagePlot,
 } from "../../services/stagePlotService";
 import { supabase } from "../../services/supabase";
@@ -119,22 +120,6 @@ function FimbaArtistaChips({ artistas }) {
       ))}
     </div>
   );
-}
-
-function eventStagePlotId(evt) {
-  const rows = evt?.stage_plot_eventos;
-  if (!Array.isArray(rows) || rows.length === 0) return null;
-  return rows[0]?.id_stage_plot || null;
-}
-
-/** Nombre del stage_plot vinculado (si el select anidó `stage_plots`). */
-function eventStagePlotNombre(evt) {
-  const rows = evt?.stage_plot_eventos;
-  if (!Array.isArray(rows) || rows.length === 0) return null;
-  const plot = rows[0]?.stage_plots;
-  const raw = Array.isArray(plot) ? plot[0]?.nombre : plot?.nombre;
-  const n = String(raw || "").trim();
-  return n || null;
 }
 
 function stagePlotLinkRow(plotId, plotNombre = null) {
@@ -649,13 +634,12 @@ function BacklinePlantaCell({
   const eventoId = evento?.id;
   const storedUrl = String(evento?.planta_escenario_url || "").trim();
   const storedNombre = String(evento?.planta_escenario_nombre || "").trim();
-  const plotId = eventStagePlotId(evento);
+  const plotLinks = stagePlotLinksFromEventRow(evento);
+  const plotId = plotLinks.length === 1 ? plotLinks[0].id : null;
   const stagePlotTo =
     showStagePlotEditorLink && plotId
       ? buildStandaloneEscenarioTo({ plotId, edicionId })
-      : showStagePlotEditorLink && edicionId != null
-        ? buildStandaloneEscenarioTo({ plotId: null, edicionId })
-        : null;
+      : null;
 
   const [draftUrl, setDraftUrl] = useState(storedUrl);
   const [draftNombre, setDraftNombre] = useState(storedNombre);
@@ -676,7 +660,9 @@ function BacklinePlantaCell({
     nombre: storedNombre,
   });
   const plotChipLabel =
-    eventStagePlotNombre(evento) || "Escenario asignado";
+    plotLinks.length > 1
+      ? plotLinks.map((link) => link.nombre).join(" · ")
+      : plotLinks[0]?.nombre || "Escenario asignado";
   const previewUrl = buildDriveFilePreviewUrl(storedUrl);
 
   useEffect(() => {
@@ -1219,10 +1205,10 @@ function BacklinePlantaCell({
             onClick={() => closeMenuRun(() => onChooseStagePlot?.(evento))}
           >
             <IconLink size={14} />{" "}
-            {plotId ? "Cambiar escenario" : "Elegir escenario"}
+            {plotLinks.length ? "Vincular otra planta" : "Elegir escenario"}
           </button>
         )}
-        {!plotId && !readOnly && (
+        {!plotLinks.length && !readOnly && (
           <button
             type="button"
             role="menuitem"
@@ -1238,7 +1224,7 @@ function BacklinePlantaCell({
             Crear escenario
           </button>
         )}
-        {plotId && !readOnly && (
+        {plotLinks.length > 0 && !readOnly && (
           <button
             type="button"
             role="menuitem"
@@ -1246,7 +1232,8 @@ function BacklinePlantaCell({
             disabled={creating}
             onClick={() => closeMenuRun(() => onUnlinkStagePlot?.(evento))}
           >
-            <IconLinkOff size={14} /> Desvincular escenario
+            <IconLinkOff size={14} />{" "}
+            {plotLinks.length > 1 ? "Desvincular todas" : "Desvincular escenario"}
           </button>
         )}
       </div>,
@@ -1290,7 +1277,7 @@ function BacklinePlantaCell({
               {chipLabel}
             </span>
           </button>
-        ) : plotId ? (
+        ) : plotLinks.length ? (
           <button
             type="button"
             className="fimba-btn fimba-chip"
@@ -1347,11 +1334,10 @@ function BacklinePlantaCell({
 }
 
 /**
- * Modal: vincular un stage_plot existente O crear uno nuevo (vacío / copia de referencia)
- * vía stage_plot_eventos (UNIQUE id_evento → un plot por evento).
- * Si ya hay vínculo: **Desvincular** (borra solo el link).
+ * Modal: vincular un stage_plot existente o crear uno nuevo.
+ * Un concierto puede tener varias plantas. Vincular suma; no reemplaza.
  *
- * Pasos: "link" (lista + Vincular + Desvincular) | "create" (vacío o duplicar referencia).
+ * Pasos: "link" (ya vinculadas + elegir otra + crear) | "create" (vacío o duplicar).
  */
 function ChooseStagePlotModal({ open, evento, onClose, onLinked, onUnlinked }) {
   const { confirm, dialog: confirmDialog } = useConfirmDialog();
@@ -1360,6 +1346,7 @@ function ChooseStagePlotModal({ open, evento, onClose, onLinked, onUnlinked }) {
   const [saving, setSaving] = useState(false);
   const [selectedPlotId, setSelectedPlotId] = useState(null);
   const [loadError, setLoadError] = useState(null);
+  const [linked, setLinked] = useState([]);
   /** @type {"link" | "create"} */
   const [step, setStep] = useState("link");
   /** @type {"blank" | "reference"} */
@@ -1368,8 +1355,14 @@ function ChooseStagePlotModal({ open, evento, onClose, onLinked, onUnlinked }) {
 
   const programId =
     evento?.id_gira ?? evento?.programas?.id ?? evento?.id_programa ?? null;
-  const currentPlotId = eventStagePlotId(evento);
-  const hasExistingLink = !!currentPlotId;
+
+  useEffect(() => {
+    if (!open) {
+      setLinked([]);
+      return;
+    }
+    setLinked(stagePlotLinksFromEventRow(evento));
+  }, [open, evento]);
 
   useEffect(() => {
     if (!open || programId == null) {
@@ -1397,13 +1390,15 @@ function ChooseStagePlotModal({ open, evento, onClose, onLinked, onUnlinked }) {
       }
       const list = data || [];
       setPlots(list);
-      setSelectedPlotId(currentPlotId || list[0]?.id || null);
+      const already = stagePlotLinksFromEventRow(evento);
+      const firstFree = list.find((p) => !already.some((link) => link.id === p.id));
+      setSelectedPlotId(firstFree?.id || list[0]?.id || null);
       setReferencePlotId(list[0]?.id || null);
     })();
     return () => {
       cancelled = true;
     };
-  }, [open, programId, currentPlotId, evento?.id]);
+  }, [open, programId, evento]);
 
   const options = useMemo(
     () =>
@@ -1419,6 +1414,10 @@ function ChooseStagePlotModal({ open, evento, onClose, onLinked, onUnlinked }) {
 
   const handleConfirmLink = async () => {
     if (!evento?.id || !selectedPlotId) return;
+    if (linked.some((link) => link.id === selectedPlotId)) {
+      toast.message("Esa planta ya está vinculada a este concierto");
+      return;
+    }
     setSaving(true);
     const { error } = await linkEventToStagePlot(
       supabase,
@@ -1434,7 +1433,7 @@ function ChooseStagePlotModal({ open, evento, onClose, onLinked, onUnlinked }) {
       sameIdSet(p.id, selectedPlotId),
     );
     onLinked?.(evento.id, selectedPlotId, selected?.nombre);
-    toast.success("Escenario vinculado al concierto");
+    toast.success("Planta vinculada al concierto");
     onClose?.();
   };
 
@@ -1464,12 +1463,28 @@ function ChooseStagePlotModal({ open, evento, onClose, onLinked, onUnlinked }) {
     onClose?.();
   };
 
+  const handleUnlinkOne = async (plotId) => {
+    if (!evento?.id || !plotId) return;
+    setSaving(true);
+    const { error } = await unlinkEventFromStagePlot(supabase, evento.id, plotId);
+    setSaving(false);
+    if (error) {
+      toast.error(error.message || "No se pudo desvincular el escenario");
+      return;
+    }
+    setLinked((prev) => prev.filter((link) => link.id !== plotId));
+    onUnlinked?.(evento.id, plotId);
+    toast.success("Planta desvinculada del concierto");
+  };
+
   const handleUnlink = async () => {
-    if (!evento?.id || !hasExistingLink) return;
+    if (!evento?.id || linked.length === 0) return;
     const ok = await confirm({
-      title: "Desvincular escenario",
+      title: linked.length > 1 ? "Desvincular todas" : "Desvincular escenario",
       message:
-        "¿Desvincular este concierto del escenario actual? El lienzo no se elimina; solo se quita el vínculo.",
+        linked.length > 1
+          ? `¿Quitar las ${linked.length} plantas de este concierto? Los lienzos no se eliminan.`
+          : "¿Desvincular esta planta del concierto? El lienzo no se elimina.",
       destructive: true,
       confirmText: "Desvincular",
       overlayClassName: "z-[110]",
@@ -1482,23 +1497,19 @@ function ChooseStagePlotModal({ open, evento, onClose, onLinked, onUnlinked }) {
       toast.error(error.message || "No se pudo desvincular el escenario");
       return;
     }
+    setLinked([]);
     onUnlinked?.(evento.id);
-    toast.success("Escenario desvinculado del concierto");
+    toast.success("Plantas desvinculadas del concierto");
     onClose?.();
   };
 
   if (!open) return null;
 
-  const title =
-    step === "create"
-      ? "Crear escenario nuevo"
-      : hasExistingLink
-        ? "Cambiar Escenario"
-        : "Elegir Escenario";
+  const title = step === "create" ? "Crear escenario nuevo" : "Vincular planta";
   const subtitle =
     step === "create"
       ? "Creá un lienzo vacío o duplicá otro de la gira como referencia."
-      : "Vincular un lienzo RiderMaker existente de la gira, o crear uno nuevo.";
+      : "Un concierto puede tener varias plantas. En Ver escenario se eligen por nombre para exportar.";
 
   return createPortal(
     <div
@@ -1556,13 +1567,51 @@ function ChooseStagePlotModal({ open, evento, onClose, onLinked, onUnlinked }) {
           <div className="fimba-error">{loadError}</div>
         ) : step === "link" ? (
           <>
+            {linked.length > 0 && (
+              <div style={{ marginBottom: "0.85rem" }}>
+                <label className="fimba-label">Plantas de este concierto</label>
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}>
+                  {linked.map((link) => (
+                    <div
+                      key={link.id}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: "0.5rem",
+                        border: "1px solid var(--fimba-border, #e2e8f0)",
+                        borderRadius: 8,
+                        padding: "0.35rem 0.5rem",
+                      }}
+                    >
+                      <span style={{ fontSize: "0.82rem", fontWeight: 600, minWidth: 0 }}>
+                        {link.nombre}
+                      </span>
+                      <button
+                        type="button"
+                        className="fimba-btn fimba-btn-ghost"
+                        style={{
+                          padding: "0.2rem 0.45rem",
+                          color: "var(--fimba-danger, #be123c)",
+                          flexShrink: 0,
+                        }}
+                        disabled={saving}
+                        onClick={() => void handleUnlinkOne(link.id)}
+                      >
+                        Quitar
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             {options.length === 0 ? (
               <p className="fimba-muted" style={{ fontSize: "0.85rem", marginBottom: "0.75rem" }}>
                 No hay escenarios en esta gira todavía. Creá uno nuevo para este concierto.
               </p>
             ) : (
               <div style={{ marginBottom: "0.75rem" }}>
-                <label className="fimba-label">Lienzo existente</label>
+                <label className="fimba-label">Agregar otra planta</label>
                 <SearchableSelect
                   options={options}
                   value={selectedPlotId}
@@ -1592,7 +1641,7 @@ function ChooseStagePlotModal({ open, evento, onClose, onLinked, onUnlinked }) {
             >
               <IconPlus size={14} /> Crear uno nuevo
             </button>
-            {hasExistingLink && (
+            {linked.length > 0 && (
               <button
                 type="button"
                 className="fimba-btn fimba-btn-ghost"
@@ -1605,7 +1654,8 @@ function ChooseStagePlotModal({ open, evento, onClose, onLinked, onUnlinked }) {
                 onClick={() => void handleUnlink()}
                 disabled={saving}
               >
-                <IconLinkOff size={14} /> Desvincular
+                <IconLinkOff size={14} />{" "}
+                {linked.length > 1 ? "Desvincular todas" : "Desvincular"}
               </button>
             )}
           </>
@@ -2270,34 +2320,48 @@ export default function FimbaBacklinePage() {
 
   const handleLinkedPlot = useCallback((eventoId, plotId, plotNombre = null) => {
     setEvents((prev) =>
-      prev.map((row) =>
-        sameIdSet(row.id, eventoId)
-          ? {
-              ...row,
-              stage_plot_eventos: [stagePlotLinkRow(plotId, plotNombre)],
-            }
-          : row,
-      ),
+      prev.map((row) => {
+        if (!sameIdSet(row.id, eventoId)) return row;
+        const current = Array.isArray(row.stage_plot_eventos)
+          ? row.stage_plot_eventos
+          : [];
+        if (current.some((link) => link.id_stage_plot === plotId)) return row;
+        return {
+          ...row,
+          stage_plot_eventos: [
+            ...current,
+            stagePlotLinkRow(plotId, plotNombre),
+          ],
+        };
+      }),
     );
   }, []);
 
-  const handleUnlinkedPlot = useCallback((eventoId) => {
+  const handleUnlinkedPlot = useCallback((eventoId, plotId = null) => {
     setEvents((prev) =>
-      prev.map((row) =>
-        sameIdSet(row.id, eventoId)
-          ? { ...row, stage_plot_eventos: [] }
-          : row,
-      ),
+      prev.map((row) => {
+        if (!sameIdSet(row.id, eventoId)) return row;
+        if (!plotId) return { ...row, stage_plot_eventos: [] };
+        return {
+          ...row,
+          stage_plot_eventos: (row.stage_plot_eventos || []).filter(
+            (link) => link.id_stage_plot !== plotId,
+          ),
+        };
+      }),
     );
   }, []);
 
   const handleUnlinkStagePlot = useCallback(
     async (evt) => {
-      if (readOnly || !evt?.id || !eventStagePlotId(evt)) return;
+      const links = stagePlotLinksFromEventRow(evt);
+      if (readOnly || !evt?.id || links.length === 0) return;
       const ok = await confirm({
-        title: "Desvincular escenario",
+        title: links.length > 1 ? "Desvincular todas" : "Desvincular escenario",
         message:
-          "¿Quitar el vínculo RiderMaker de este evento? El lienzo no se borra; solo deja de estar asociado a esta fila.",
+          links.length > 1
+            ? `¿Quitar las ${links.length} plantas (${links.map((link) => link.nombre).join(", ")}) de este concierto? Los lienzos no se borran.`
+            : "¿Quitar el vínculo de este concierto? El lienzo no se borra.",
         destructive: true,
         confirmText: "Desvincular",
         overlayClassName: "z-[110]",
@@ -2311,7 +2375,7 @@ export default function FimbaBacklinePage() {
         return;
       }
       handleUnlinkedPlot(evt.id);
-      toast.success("Escenario desvinculado");
+      toast.success("Plantas desvinculadas");
     },
     [confirm, handleUnlinkedPlot, readOnly],
   );

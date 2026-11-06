@@ -167,32 +167,34 @@ Plots son **first-class por programa** (`id_programa`), no 1:1 con bloque. Filas
 | Pieza | Rol |
 |-------|-----|
 | `stage_plots` | N filas por `id_programa`. Columnas: `payload`, `nombre`, `sort_order`, `bloque_ids bigint[]` (opcional). Sin UNIQUE en `id_programa`. |
-| `stage_plot_eventos` | Junction plot ↔ evento. **UNIQUE(`id_evento`)**: un evento tiene a lo sumo un plot; un plot puede cubrir varios eventos. |
+| `stage_plot_eventos` | Junction plot ↔ evento, **N:N**. PK `(id_stage_plot, id_evento)`. Un evento puede tener varias plantas; un plot puede cubrir varios eventos. En «Ver escenario» del concierto se listan por nombre para elegir cuál exportar. |
 | `eventos.id_repertorio` | Bloque opcional del evento (FK `programas_repertorios`, ON DELETE SET NULL). Fallback para técnicos. |
 
-Migraciones: `20260826162040_stage_plots` → `20260827095903_stage_plots_multi_canvas` → `20260827100106_stage_plot_eventos` (aplicadas en linked).
+Migraciones: `20260826162040_stage_plots` → `20260827095903_stage_plots_multi_canvas` → `20260827100106_stage_plot_eventos` → `20261106011735_stage_plot_eventos_many_per_event` (aplicadas en linked).
 
 ### Dirección de asociación
 
 1. **Plot → bloques** (`bloque_ids`): filtra **orgánico**. Vacío = roster confirmado de toda la gira. Con IDs = unión de grupos de esos bloques; bloque sin grupos aporta todo el confirmado.
-2. **Plot → eventos** (`stage_plot_eventos`): qué ven técnicos en «Ver escenario» para ese ensayo/concierto.
+2. **Plot → eventos** (`stage_plot_eventos`): qué plantas ve el técnico en «Ver escenario» para ese ensayo/concierto. Varias filas = varias plantas con nombre.
 3. **Evento → bloque** (`eventos.id_repertorio`): opcional; solo entra en resolución de fallback.
 
 ### Resolución técnico (`resolveStagePlotForEvent`)
 
-1. Link directo en `stage_plot_eventos` para `id_evento`.
-2. Si el evento tiene `id_repertorio`: primer plot del programa cuyo `bloque_ids` lo contiene.
-3. Default gira: primer plot (`sort_order` / `created_at`).
+1. Links directos en `stage_plot_eventos` para `id_evento`, ordenados por `sort_order`. Si hay uno o más, «Ver escenario» de ese concierto muestra **solo esas plantas, por nombre**, y PDF/JPG exportan la marcada. `resolveStagePlotForEvent` devuelve la primera (`reason: event_link`) como default.
+2. Si no hay link y el evento tiene `id_repertorio`: primer plot del programa cuyo `bloque_ids` lo contiene. El viewer muestra todos los lienzos de la gira.
+3. Default gira: primer plot (`sort_order` / `created_at`). Mismo viewer con todos los lienzos.
 4. Sin plots → vacío.
+
+Asociar en el editor (panel **Asociar**) o en FIMBA Backline **suma** la planta: no le quita el concierto a otra. Quitar el tilde en un lienzo solo borra ese par.
 
 ### UI
 
 - Editor: switcher multi-lienzo = label **Elegir lienzo** + `SearchableSelect` (lista de plots) + **lápiz** renombrar (`IconPencil`, input inline Enter/blur / Escape) **junto al dropdown** + botón **+ Lienzo**; eliminar (mín. 1), panel **Asociar**, dropdown desktop **Importar / Exportar** (PDF, JPG, Descargar JSON, Importar archivo/otra gira → `StagePlotImportModal`), botón **Plantillas** → `StagePlotTemplatesModal`. (No pills horizontales.)
 - Orgánico: `isConfirmedConvocadoForSeatingReports` + filtro por `bloque_ids`.
-- Agenda: botón «Ver escenario» en concierto/ensayo (técnico / editor / management) → `StagePlotViewerModal` (preview en vivo + opacidades locales + PDF/JPG).
+- Agenda: botón «Ver escenario» en concierto/ensayo (técnico / editor / management) → `StagePlotViewerModal` (pills por nombre de las plantas vinculadas; si no hay vínculo, lienzos de la gira + preview en vivo + opacidades locales + PDF/JPG de la planta marcada).
 - **GiraCard** (menú ⋮, ítem top-level cerca del final, antes de Edición/Eliminar): «Ver escenario» (técnico / editor / management / admin; oculto para solo-difusión) → mismo `StagePlotViewerModal` con `gira` (sin evento). Multi-lienzo: pills en el modal; sin evento elige el primer plot (`sort_order`). Sin plots → mensaje vacío en el modal (igual que Agenda). «Escenario» bajo Repertorio sigue yendo al editor (Seating → Escenario).
 - **FIMBA Venues** (`/fimba/edicion/:id/venues`): listado por locación de conciertos (`id_tipo_evento = 1`) de la gira enlazada a la edición. Metadata operativa en `fimba_venue_info` (referente, rider, sillas, agua, observaciones); nombre/dirección/aforo numérico desde `locaciones`. Espectáculos: artistas taggeados, grupos OFRN, bloque repertorio, **observaciones aforo** (`eventos.observaciones_aforo`). Acciones: **Ver escenario** (`StagePlotViewerModal`); enlace al editor OFRN (Seating → Escenario) solo staff `isManagement`; edición de evento vía `FimbaEventoFormModal` (staff no RO). Link **Agenda** filtrada por locación. **Sin** estado de venue OFRN. Consulta / token `/c`: lectura + Ver escenario.
-- **FIMBA Backline** (`/fimba/edicion/:id/backline`): planilla una fila por concierto; `backline_descripcion` (HTML) / `backline_monto` / `planta_escenario_url` + `planta_escenario_nombre` (chip + preview modal; menú ⋮ con acciones Drive y RiderMaker: Elegir/Cambiar/Crear/Desvincular / Ver Escenario).
+- **FIMBA Backline** (`/fimba/edicion/:id/backline`): planilla una fila por concierto; `backline_descripcion` (HTML) / `backline_monto` / `planta_escenario_url` + `planta_escenario_nombre` (chip Drive + preview). RiderMaker: un concierto puede tener varias plantas (`stage_plot_eventos` N:N). El chip muestra los nombres. Menú ⋮: Ver escenario, Vincular otra planta (suma, no reemplaza; Quitar por nombre), Crear si no hay ninguna, Desvincular todas. «Ver escenario» lista esas plantas por nombre para elegir el PDF/JPG.
 
 ### Plantillas globales (implementado)
 
@@ -269,6 +271,7 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
 - [x] Backward compat payloads sin cm
 - [x] `resolveFormationFacingPoint` usa posición del director (o canónica si no hay ítem)
 - [x] Multi-lienzo por gira + `bloque_ids` + `stage_plot_eventos` + resolución técnico
+- [x] Varias plantas por concierto (`20261106011735_stage_plot_eventos_many_per_event`): N:N, asociar suma, «Ver escenario» elige por nombre cuál exportar
 - [x] Export/import JSON + import desde otra gira
 - [x] «Ver escenario» técnico (agenda + GiraCard ⋮ + FIMBA Espacios / Backline / Venues) con preview en vivo + 4 opacidades Lienzo + PDF/JPG
 - [x] Preview técnico: `StagePlotLivePreview` vía `renderStagePlotToCanvas` (mismas guías/opacidades que export; desktop + móvil)
@@ -665,7 +668,7 @@ Parámetros en **px de escenario** (`cm × STAGE_PLOT_CM_TO_PX`). Defaults (íte
 - **Familia** = clasificación de usuario; **`stage_plot_type`** = clave de ícono/paleta (preferir única al crear; compartir permitido para variantes).
 - **Cadena**: PNG/WebP (`stage_plot_raster_url`, bucket `stage-plot-icons`) → SVG de DB → `public/stage-plot/icons/` → silueta (`stagePlotIconAssets.js`); tamaños en `setStagePlotDbSizeOverrides`.
 - **PNG/WebP por instrumento o elemento** (migración `20261105185927`): el binario no entra en `svg_icon`. Contrato: fondo transparente (canal alpha), lado largo ≥ 1024 px, máx. 1 MB, solo `image/png` o `image/webp`. Al reemplazar se borra el objeto anterior. Guardar un SVG nuevo (Editor o Datos → Instrumentos, `saveInstrumentoSvgIcon`) quita el PNG para que se vea el vector; dejar el SVG vacío no toca el PNG. El raster no se tiñe (`currentColor` no aplica). JPEG/GIF se rechazan. Varias filas pueden compartir `stage_plot_type`: el plano usa una sola imagen por clave (la última URL no vacía, igual que la huella). Cada subida usa un path nuevo, así el cache del CDN de la URL anterior no vuelve al lienzo.
-- **Admin / editor**: Escenario panel izquierdo **Editor** (familia, **tamaño de huella** Ancho×Profundo cm → DB, SVG, clave demoted; **Crear instrumento**), Datos → Instrumentos (**Clave de ícono (plano)** + Ancho/Profundo huella cm, placeholder **50**; SVG) e Inventario → elementos (`elementos_escenario.svg_icon`). Todo pasa por `sanitizeStagePlotSvgMarkup` (`stagePlotSvgSanitize.js`).
+- **Admin / editor**: Escenario panel izquierdo **Editor** (familia, **tamaño de huella** Ancho×Profundo cm → DB, SVG, clave demoted; **Crear instrumento**), Datos → Instrumentos (**Clave de ícono (plano)** + Ancho/Profundo huella cm, placeholder **50**; SVG) e Inventario → elementos (`elementos_escenario.svg_icon`). Todo pasa por `sanitizeStagePlotSvgMarkup` (`stagePlotSvgSanitize.js`). **Descargar SVG / Descargar PNG** (o WebP): copia local del archivo ya guardado, antes de reemplazarlo. Los `<input type="file">` de Subir SVG / PNG usan `STAGE_PLOT_FILE_INPUT_CLASS` (`position: fixed`, 1px, fuera del scroll). No `sr-only`: ese clip es absoluto y, al enfocar el control, Chrome estira el lienzo y abre un panel vacío debajo del escenario. Editor: al expandir el instrumento, si hay `svg_icon` y/o `stage_plot_raster_url`. Datos → Instrumentos: mismos botones en el modal de edición. El SVG se baja tal cual está en la fila (sin volver a sanitizar). El raster se baja del bucket; si el navegador bloquea el fetch, se abre la URL.
 - **Pipeline de sanitizado (app)**:
   1. **Entrada usuario**: Escenario → Editor (upload SVG), Crear instrumento (upload), Datos → Instrumentos (`SvgIconField`: upload + paste), Inventario → Nuevo elemento (upload + paste).
   2. **Antes de guardar**: `prepareInstrumentSvgIconForSave` / `sanitizeStagePlotSvgMarkup` / `upsertElementoEscenario` compactan (DOCTYPE AI, foreignObject, switch, metadata Inkscape/Adobe, elementos `a:`/`i:`/`graph:`) y rechazan XSS (`script`, eventos, `use`, URLs peligrosas) + markup que no parsea como SVG (DOMParser en browser). Límite `STAGE_PLOT_SVG_MAX_CHARS` (500.000). Si se limpió metadata, toast/hint «SVG limpiado…».

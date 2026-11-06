@@ -12,6 +12,7 @@ import { useGiraRoster } from "../../hooks/useGiraRosterQuery";
 import {
   resolveStagePlotForEvent,
   listStagePlotsByPrograma,
+  listStagePlotsLinkedToEvent,
 } from "../../services/stagePlotService";
 import {
   applyStagePlotStagePatch,
@@ -44,6 +45,7 @@ export default function StagePlotViewerModal({
   const [plots, setPlots] = useState([]);
   const [activeId, setActiveId] = useState(null);
   const [resolveReason, setResolveReason] = useState(null);
+  const [eventScoped, setEventScoped] = useState(false);
   const [payload, setPayload] = useState(() => normalizeStagePlotPayload(null));
   const [exporting, setExporting] = useState(false);
   const isNarrow = useStagePlotNarrowViewport();
@@ -73,22 +75,39 @@ export default function StagePlotViewerModal({
         setLoading(false);
         return;
       }
-      setPlots(list || []);
-
+      let rows = list || [];
       let preferred = null;
       let reason = "default";
+      let scoped = false;
       if (evento?.id) {
-        const resolved = await resolveStagePlotForEvent(supabase, {
-          ...evento,
-          id_gira: programId,
-        });
-        if (!cancelled && resolved.data) {
-          preferred = resolved.data;
-          reason = resolved.reason;
+        const linked = await listStagePlotsLinkedToEvent(supabase, evento.id);
+        if (cancelled) return;
+        if (linked.error) {
+          toast.error(linked.error.message || "No se pudieron cargar las plantas");
+          setPlots([]);
+          setLoading(false);
+          return;
+        }
+        if (linked.data?.length) {
+          rows = linked.data;
+          preferred = linked.data[0];
+          reason = "event_link";
+          scoped = true;
+        } else {
+          const resolved = await resolveStagePlotForEvent(supabase, {
+            ...evento,
+            id_gira: programId,
+          });
+          if (!cancelled && resolved.data) {
+            preferred = resolved.data;
+            reason = resolved.reason;
+          }
         }
       }
-      if (!preferred && list?.length) preferred = list[0];
+      if (!preferred && rows.length) preferred = rows[0];
       if (cancelled) return;
+      setPlots(rows);
+      setEventScoped(scoped);
       setResolveReason(reason);
       setActiveId(preferred?.id || null);
       setPayload(normalizeStagePlotPayload(preferred?.payload));
@@ -141,14 +160,15 @@ export default function StagePlotViewerModal({
 
   if (!open) return null;
 
-  const reasonLabel =
-    resolveReason === "event_link"
-      ? "Asociado a este evento"
-      : resolveReason === "bloque"
-        ? "Por bloque de repertorio"
-        : resolveReason === "default"
-          ? "Lienzo por defecto de la gira"
-          : null;
+  const reasonLabel = eventScoped
+    ? plots.length > 1
+      ? "Plantas de este concierto"
+      : "Planta de este concierto"
+    : resolveReason === "bloque"
+      ? "Por bloque de repertorio"
+      : resolveReason === "default" && evento?.id
+        ? "Lienzo por defecto de la gira"
+        : null;
 
   return createPortal(
     <div
@@ -197,11 +217,18 @@ export default function StagePlotViewerModal({
             </p>
           ) : (
             <>
-              <div className="flex flex-wrap gap-1.5">
+              {plots.length > 1 && (
+                <p className="text-[11px] font-medium text-slate-500">
+                  Elegí la planta por nombre. PDF y JPG exportan la que está marcada.
+                </p>
+              )}
+              <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Plantas">
                 {plots.map((p, idx) => (
                   <button
                     key={p.id}
                     type="button"
+                    role="tab"
+                    aria-selected={p.id === activeId}
                     onClick={() => setActiveId(p.id)}
                     className={`rounded-full border px-3 py-1 text-xs font-medium ${
                       p.id === activeId
