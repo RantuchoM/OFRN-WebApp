@@ -28,12 +28,16 @@ import {
   stagePlotTarimaDimensionsCm,
 } from "./stagePlotOrganico";
 import {
+  choirFigureSizePx,
+  computeChoirFigures,
   computeFormationSlots,
   formationGuideLinePoints,
   formationSlotMarkerSize,
+  isChoirFormation,
   parseSlotId,
   resolveFormationFacingPoint,
 } from "./stagePlotFormations";
+import { loadChoirFigureImages } from "./stagePlotChoirAssets";
 import {
   STAGE_PLOT_SILHOUETTE_VIEWBOX,
   getStagePlotSilhouettePath,
@@ -209,7 +213,8 @@ export async function exportStagePlotPdf(
   const ox = margin + (plotW - sw * scale) / 2;
   const oy = plotTop + 8;
 
-  drawStageGuidesOnPdf(doc, payload, ox, oy, scale, sw, sh);
+  const choirImages = await loadChoirFigureImages();
+  drawStageGuidesOnPdf(doc, payload, ox, oy, scale, sw, sh, choirImages);
   await drawStageItemsOnPdf(doc, payload, ox, oy, scale);
 
   // Dimensiones sobre los bordes del rectángulo del escenario (escala real).
@@ -440,7 +445,8 @@ export async function renderStagePlotToCanvas(payloadRaw, options = {}) {
   ctx.fillText("FONDO", ox + stageW / 2, oy + 14);
   ctx.fillText("PÚBLICO", ox + stageW / 2, oy + stageH - 8);
 
-  drawStageGuidesOnCanvas(ctx, payload, ox, oy, scale, sw, sh);
+  const choirImages = await loadChoirFigureImages();
+  drawStageGuidesOnCanvas(ctx, payload, ox, oy, scale, sw, sh, choirImages);
   await drawStageItemsOnCanvas(ctx, payload, ox, oy, scale);
 
   if (includeChrome) {
@@ -519,7 +525,7 @@ function rayEndpoint(ox, oy, angleDeg, width, height) {
  * Semántica: 0 = oculto, 1 = opaco (ex-toggles OFF/ON).
  * @param {ReturnType<typeof normalizeStagePlotPayload>} payload
  */
-function drawStageGuidesOnPdf(doc, payload, ox, oy, scale, sw, sh) {
+function drawStageGuidesOnPdf(doc, payload, ox, oy, scale, sw, sh, choirImages) {
   const op = readStagePlotLayerOpacities(payload.stage || {});
   if (op.gridOpacity > 0) {
     withPdfOpacity(doc, op.gridOpacity, () => {
@@ -533,7 +539,7 @@ function drawStageGuidesOnPdf(doc, payload, ox, oy, scale, sw, sh) {
   }
   if (op.formationGuidesOpacity > 0) {
     withPdfOpacity(doc, op.formationGuidesOpacity, () => {
-      drawFormationGuidesOnPdf(doc, payload, ox, oy, scale);
+      drawFormationGuidesOnPdf(doc, payload, ox, oy, scale, choirImages);
     });
   }
 }
@@ -542,7 +548,7 @@ function drawStageGuidesOnPdf(doc, payload, ox, oy, scale, sw, sh) {
  * @param {CanvasRenderingContext2D} ctx
  * @param {ReturnType<typeof normalizeStagePlotPayload>} payload
  */
-function drawStageGuidesOnCanvas(ctx, payload, ox, oy, scale, sw, sh) {
+function drawStageGuidesOnCanvas(ctx, payload, ox, oy, scale, sw, sh, choirImages) {
   const op = readStagePlotLayerOpacities(payload.stage || {});
   if (op.gridOpacity > 0) {
     ctx.save();
@@ -559,7 +565,7 @@ function drawStageGuidesOnCanvas(ctx, payload, ox, oy, scale, sw, sh) {
   if (op.formationGuidesOpacity > 0) {
     ctx.save();
     ctx.globalAlpha *= op.formationGuidesOpacity;
-    drawFormationGuidesOnCanvas(ctx, payload, ox, oy, scale);
+    drawFormationGuidesOnCanvas(ctx, payload, ox, oy, scale, choirImages);
     ctx.restore();
   }
 }
@@ -668,7 +674,7 @@ function drawRadialGuideOnCanvas(ctx, payload, ox, oy, scale, sw, sh) {
  * @param {import("jspdf").jsPDF} doc
  * @param {ReturnType<typeof normalizeStagePlotPayload>} payload
  */
-function drawFormationGuidesOnPdf(doc, payload, ox, oy, scale) {
+function drawFormationGuidesOnPdf(doc, payload, ox, oy, scale, choirImages) {
   const formations = payload.formations || [];
   if (!formations.length) return;
   const occupied = new Set(
@@ -701,6 +707,10 @@ function drawFormationGuidesOnPdf(doc, payload, ox, oy, scale) {
       }
     }
 
+    if (isChoirFormation(formation)) {
+      drawChoirFiguresOnPdf(doc, formation, facing, ox, oy, scale, choirImages);
+      continue;
+    }
     const slots = computeFormationSlots(formation, facing);
     for (const slot of slots) {
       const filled = occupied.has(String(slot.slotId));
@@ -722,7 +732,7 @@ function drawFormationGuidesOnPdf(doc, payload, ox, oy, scale) {
  * @param {CanvasRenderingContext2D} ctx
  * @param {ReturnType<typeof normalizeStagePlotPayload>} payload
  */
-function drawFormationGuidesOnCanvas(ctx, payload, ox, oy, scale) {
+function drawFormationGuidesOnCanvas(ctx, payload, ox, oy, scale, choirImages) {
   const formations = payload.formations || [];
   if (!formations.length) return;
   const occupied = new Set(
@@ -753,6 +763,10 @@ function drawFormationGuidesOnCanvas(ctx, payload, ox, oy, scale) {
       ctx.restore();
     }
 
+    if (isChoirFormation(formation)) {
+      drawChoirFiguresOnCanvas(ctx, formation, facing, ox, oy, scale, choirImages);
+      continue;
+    }
     const slots = computeFormationSlots(formation, facing);
     for (const slot of slots) {
       const filled = occupied.has(String(slot.slotId));
@@ -765,6 +779,51 @@ function drawFormationGuidesOnCanvas(ctx, payload, ox, oy, scale) {
         filled,
       );
     }
+  }
+}
+
+function choirFigureDrawSize(person, image, scale) {
+  const box = choirFigureSizePx(person.scale);
+  const ih = image?.naturalHeight || image?.height || 0;
+  const iw = image?.naturalWidth || image?.width || 0;
+  if (!iw || !ih) return null;
+  const h = box.heightPx * scale;
+  return { w: h * (iw / ih), h };
+}
+
+function drawChoirFiguresOnPdf(doc, formation, facing, ox, oy, scale, choirImages) {
+  for (const person of computeChoirFigures(formation, facing)) {
+    const image = person.variant === "man" ? choirImages?.man : choirImages?.woman;
+    const size = choirFigureDrawSize(person, image, scale);
+    if (!image || !size) continue;
+    drawImageRotated(
+      doc,
+      image,
+      ox + person.x * scale,
+      oy + person.y * scale,
+      size.w,
+      size.h,
+      person.rotation,
+      person.flipX,
+    );
+  }
+}
+
+function drawChoirFiguresOnCanvas(ctx, formation, facing, ox, oy, scale, choirImages) {
+  for (const person of computeChoirFigures(formation, facing)) {
+    const image = person.variant === "man" ? choirImages?.man : choirImages?.woman;
+    const size = choirFigureDrawSize(person, image, scale);
+    if (!image || !size) continue;
+    drawImageRotatedOnCanvas(
+      ctx,
+      image,
+      ox + person.x * scale,
+      oy + person.y * scale,
+      size.w,
+      size.h,
+      person.rotation,
+      person.flipX,
+    );
   }
 }
 

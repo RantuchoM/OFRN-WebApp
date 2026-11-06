@@ -44,6 +44,40 @@ export const STAGE_PLOT_SLOT_MODE_LABELS = {
   symmetric: "Simétrico",
 };
 
+/** Formación poblada: las plazas dibujan coristas, no asientos. */
+export const STAGE_PLOT_CHOIR_ROLE = "choir";
+/** Paso entre filas de un arco, hacia el exterior. Menor que el alto para que se toquen. */
+export const STAGE_PLOT_CHOIR_ROW_PITCH_CM = 32;
+/** Paso inicial entre filas de una línea recta (se edita con el asa vertical). */
+export const STAGE_PLOT_CHOIR_LINE_PITCH_MIN_CM = 4;
+export const STAGE_PLOT_CHOIR_LINE_PITCH_MAX_CM = 400;
+export const STAGE_PLOT_CHOIR_ROWS_MAX = 4;
+/** Alto de la figura al 100%. El ancho sigue la foto (de perfil, angosta). */
+export const STAGE_PLOT_CHORISTER_HEIGHT_CM = 70;
+export const STAGE_PLOT_CHORISTER_WIDTH_CM = 26;
+export const STAGE_PLOT_CHOIR_FIGURE_SCALE_MIN = 0.4;
+export const STAGE_PLOT_CHOIR_FIGURE_SCALE_MAX = 2.5;
+export const STAGE_PLOT_CHORISTER_TYPE = "chorister";
+
+export function isChoirFormation(formation) {
+  return formation?.role === STAGE_PLOT_CHOIR_ROLE;
+}
+
+export function clampChoirRows(n) {
+  const v = Math.round(Number(n));
+  if (!Number.isFinite(v)) return 1;
+  return clamp(v, 1, STAGE_PLOT_CHOIR_ROWS_MAX);
+}
+
+export function clampChoirFigureScale(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v) || v <= 0) return 1;
+  return Math.min(
+    STAGE_PLOT_CHOIR_FIGURE_SCALE_MAX,
+    Math.max(STAGE_PLOT_CHOIR_FIGURE_SCALE_MIN, v),
+  );
+}
+
 
 
 /** Defaults semi-arco: 2 laterales/ala + 4 en arco → total 8. */
@@ -595,7 +629,7 @@ function defaultParams(kind) {
  * @param {number} y
  * @param {number} [slots]
  */
-export function createStagePlotFormation(kind, x, y, slots = 8) {
+export function createStagePlotFormation(kind, x, y, slots = 8, options = {}) {
   const k = STAGE_PLOT_FORMATIONATION_KINDS.includes(kind) ? kind : "arc";
   const base = {
     id: newId(),
@@ -620,14 +654,60 @@ export function createStagePlotFormation(kind, x, y, slots = 8) {
               clamp(Math.round(Number(slots) || 8), 1, 64) - 2 * wingSlots,
             ),
           );
-    return {
-      ...base,
-      wingSlots,
-      arcSlots,
-      slots: semiArcTotalSlots(wingSlots, arcSlots),
+    return applyChoirCreateOptions(
+      {
+        ...base,
+        wingSlots,
+        arcSlots,
+        slots: semiArcTotalSlots(wingSlots, arcSlots),
+      },
+      options,
+    );
+  }
+  return applyChoirCreateOptions(base, options);
+}
+
+function applyChoirCreateOptions(formation, options) {
+  if (options?.role !== STAGE_PLOT_CHOIR_ROLE) return formation;
+  const next = {
+    ...formation,
+    role: STAGE_PLOT_CHOIR_ROLE,
+    rows: clampChoirRows(options.rows),
+  };
+  if (next.kind === "line") {
+    next.params = {
+      ...next.params,
+      rowPitch: stagePlotCmToPx(STAGE_PLOT_CHOIR_ROW_PITCH_CM),
     };
   }
-  return base;
+  return next;
+}
+
+/**
+ * Cambia la forma y conserva centro, rotación, plazas y, si es coro, filas.
+ * @param {object} formation
+ * @param {string} nextKind
+ */
+export function withFormationKind(formation, nextKind) {
+  if (!formation) return formation;
+  const kind = STAGE_PLOT_FORMATIONATION_KINDS.includes(nextKind)
+    ? nextKind
+    : formation.kind;
+  if (kind === formation.kind) return formation;
+  const slots = clamp(Math.round(Number(formation.slots) || 8), 1, 64);
+  const created = createStagePlotFormation(kind, formation.x, formation.y, slots, {
+    role: formation.role,
+    rows: formation.rows,
+  });
+  return {
+    ...created,
+    id: formation.id,
+    rotation: Number(formation.rotation) || 0,
+    facing: formation.facing || "conductor",
+    ...(formation.role === STAGE_PLOT_CHOIR_ROLE
+      ? { figureScale: clampChoirFigureScale(formation.figureScale) }
+      : {}),
+  };
 }
 
 /**
@@ -717,6 +797,17 @@ export function normalizeStagePlotFormation(raw) {
   if (kind === "semi_arc") {
     out.wingSlots = wingSlots;
     out.arcSlots = arcSlots;
+  }
+  if (o.role === STAGE_PLOT_CHOIR_ROLE) {
+    out.role = STAGE_PLOT_CHOIR_ROLE;
+    out.rows = clampChoirRows(o.rows);
+    out.figureScale = clampChoirFigureScale(o.figureScale);
+    if (kind === "line") {
+      out.params = {
+        ...params,
+        rowPitch: clampChoirLinePitch(paramsIn.rowPitch),
+      };
+    }
   }
   return out;
 }
@@ -913,6 +1004,120 @@ export function computeFormationSlots(formation, facingPoint) {
     });
   }
   return slots;
+}
+
+/**
+ * Filas de una línea: paralelas, hacia abajo de la guía (local +Y).
+ * @param {object} formation
+ */
+function choirLineRowUnit(formation) {
+  return rotateLocal(0, 1, formation?.rotation || 0);
+}
+
+function clampChoirLinePitch(n) {
+  const fallback = stagePlotCmToPx(STAGE_PLOT_CHOIR_ROW_PITCH_CM);
+  const v = Number(n);
+  const pitch = Number.isFinite(v) ? v : fallback;
+  return Math.min(
+    stagePlotCmToPx(STAGE_PLOT_CHOIR_LINE_PITCH_MAX_CM),
+    Math.max(stagePlotCmToPx(STAGE_PLOT_CHOIR_LINE_PITCH_MIN_CM), pitch),
+  );
+}
+
+function choirLinePitchPx(formation) {
+  return clampChoirLinePitch(formation?.params?.rowPitch);
+}
+
+/**
+ * Hacia afuera de la forma.
+ * Arco, semi-arco, herradura y rectángulo crecen desde el centro.
+ * La línea recta apila filas en paralelo, en vertical local.
+ * @param {object} formation
+ * @param {{ x: number, y: number }|null|undefined} facingPoint
+ * @param {{ x: number, y: number }} slot
+ */
+function choirOutwardUnit(formation, facingPoint, slot) {
+  if (formation?.kind === "line") return choirLineRowUnit(formation);
+  if (slot) {
+    const cx = slot.x - (Number(formation?.x) || 0);
+    const cy = slot.y - (Number(formation?.y) || 0);
+    const radial = Math.hypot(cx, cy);
+    if (radial >= stagePlotCmToPx(8)) return { x: cx / radial, y: cy / radial };
+  }
+  return choirLineRowUnit(formation);
+}
+
+/**
+ * Personas equidistantes de punta a punta de la guía.
+ * Agrandar la forma agranda el paso entre ellas.
+ * @param {object} formation
+ * @param {number} count
+ */
+function choirPackedLocals(formation, count) {
+  const n = Math.max(0, Math.round(Number(count) || 0));
+  const localPts = formationGuidePointsLocal(formation);
+  const { cum, total } = polylineCumLengths(localPts);
+  if (n <= 0 || total <= 0) return [];
+  if (n === 1) return [pointAtArcLength(localPts, cum, total, total / 2)];
+  const step = total / (n - 1);
+  const locals = [];
+  for (let i = 0; i < n; i++) {
+    locals.push(pointAtArcLength(localPts, cum, total, i * step));
+  }
+  return locals;
+}
+
+/**
+ * Una figura por persona y por fila, equidistantes sobre la guía.
+ * `scale` es el % de tamaño del coro. La rotación es la de la formación
+ * (no se inclinan al moverla). De la mitad local hacia la derecha, espejo horizontal.
+ * @param {object} formation
+ * @param {{ x: number, y: number }} facingPoint
+ */
+export function computeChoirFigures(formation, facingPoint) {
+  if (!isChoirFormation(formation)) return [];
+  const n = clamp(Math.round(Number(formation.slots) || 0), 0, 64);
+  const locals = choirPackedLocals(formation, n);
+  const rows = clampChoirRows(formation?.rows);
+  const figureScale = clampChoirFigureScale(formation.figureScale);
+  const people = [];
+  const pitch =
+    formation.kind === "line"
+      ? choirLinePitchPx(formation)
+      : stagePlotCmToPx(STAGE_PLOT_CHOIR_ROW_PITCH_CM);
+  const rot = formation.rotation || 0;
+  for (let row = 0; row < rows; row++) {
+    locals.forEach((local, index) => {
+      const world = rotateLocal(local.x, local.y, rot);
+      const base = {
+        x: (Number(formation.x) || 0) + world.x,
+        y: (Number(formation.y) || 0) + world.y,
+      };
+      const dir = choirOutwardUnit(formation, facingPoint, base);
+      const x = base.x + dir.x * pitch * row;
+      const y = base.y + dir.y * pitch * row;
+      people.push({
+        row,
+        index,
+        x,
+        y,
+        rotation: rot,
+        scale: figureScale,
+        variant: (index + row) % 2 === 0 ? "woman" : "man",
+        flipX: local.x > 1,
+      });
+    });
+  }
+  return people;
+}
+
+/** @param {number} [figureScale] */
+export function choirFigureSizePx(figureScale = 1) {
+  const s = Number(figureScale) > 0 ? Number(figureScale) : 1;
+  return {
+    widthPx: stagePlotCmToPx(STAGE_PLOT_CHORISTER_WIDTH_CM) * s,
+    heightPx: stagePlotCmToPx(STAGE_PLOT_CHORISTER_HEIGHT_CM) * s,
+  };
 }
 
 /**
@@ -1208,9 +1413,17 @@ export function getFormationBoundsLocal(formation, facingPoint = null) {
     points.push(g.leftTip, g.rightTip);
   }
   if (facingPoint) {
-    for (const slot of computeFormationSlots(formation, facingPoint)) {
+    const marks = isChoirFormation(formation)
+      ? computeChoirFigures(formation, facingPoint)
+      : computeFormationSlots(formation, facingPoint);
+    for (const slot of marks) {
       points.push(worldToFormationLocal(formation, slot.x, slot.y));
     }
+  }
+  if (isChoirFormation(formation) && formation.kind === "line") {
+    const span =
+      choirLinePitchPx(formation) * Math.max(1, clampChoirRows(formation.rows) - 1);
+    points.push({ x: 0, y: span });
   }
   const pad = FORMATION_BOUNDS_BOX_PADDING_PX;
   let minX = Infinity;
@@ -1260,7 +1473,8 @@ export function formationTopLeftInsertAnchor(
   kind,
   insetPx = STAGE_PLOT_FORMATIONATION_INSERT_INSET_PX,
 ) {
-  const draft = createStagePlotFormation(kind, 0, 0, 8);
+  const geometry = STAGE_PLOT_FORMATIONATION_KINDS.includes(kind) ? kind : "arc";
+  const draft = createStagePlotFormation(geometry, 0, 0, 8);
   const b = getFormationBoundsLocal(draft, null);
   const inset = Number.isFinite(Number(insetPx))
     ? Number(insetPx)
@@ -1483,6 +1697,59 @@ export function scaleFormationUniform(formation, scaleFactor, anchorLocal) {
 }
 
 /**
+ * El asa vertical de una línea de coro cambia solo la distancia entre filas.
+ * La fila de adelante queda sobre la guía.
+ * @param {object} baseFormation
+ * @param {string} handleId
+ * @param {number} worldX
+ * @param {number} worldY
+ * @param {{ x: number, y: number }|null} facingPoint
+ */
+function choirLinePitchFromVerticalDrag(
+  baseFormation,
+  handleId,
+  worldX,
+  worldY,
+  facingPoint,
+) {
+  const positions = formationBoundsBoxHandlePositionsLocal(
+    baseFormation,
+    facingPoint,
+  );
+  const dragged = positions.find((h) => h.id === handleId);
+  const anchorId = FORMATION_BOUNDS_BOX_HANDLE_OPPOSITE[handleId];
+  const anchor = positions.find((h) => h.id === anchorId);
+  if (!dragged || !anchor) return baseFormation;
+
+  const dragLocal = worldToFormationLocal(baseFormation, worldX, worldY);
+  const baseDy = dragged.y - anchor.y;
+  const newDy = dragLocal.y - anchor.y;
+  if (!(Math.abs(baseDy) > 1e-6) || !Number.isFinite(newDy)) return baseFormation;
+  const sy = newDy / baseDy;
+  if (!Number.isFinite(sy) || sy <= 0) return baseFormation;
+
+  const steps = Math.max(1, clampChoirRows(baseFormation.rows) - 1);
+  const pitch0 = choirLinePitchPx(baseFormation);
+  const pitch1 = clampChoirLinePitch(pitch0 * sy);
+  const next = {
+    ...baseFormation,
+    params: {
+      ...(baseFormation.params || {}),
+      rowPitch: pitch1,
+    },
+  };
+  if (handleId !== "box_n") return next;
+
+  const before = formationLocalToWorld(baseFormation, 0, pitch0 * steps);
+  const after = formationLocalToWorld(next, 0, pitch1 * steps);
+  return {
+    ...next,
+    x: next.x + (before.x - after.x),
+    y: next.y + (before.y - after.y),
+  };
+}
+
+/**
  * Redimensionado del recuadro gris (asas box_*).
  * - Bordes L/R (`box_e`/`box_w`): solo ancho (sx); alto intacto.
  * - Bordes T/B (`box_n`/`box_s`): solo alto (sy); ancho intacto.
@@ -1497,6 +1764,19 @@ export function formationFromBoundsBoxHandleDrag(
   facingPoint = null,
 ) {
   if (!handleId?.startsWith("box_")) return baseFormation;
+  if (
+    isChoirFormation(baseFormation) &&
+    baseFormation.kind === "line" &&
+    (handleId === "box_n" || handleId === "box_s")
+  ) {
+    return choirLinePitchFromVerticalDrag(
+      baseFormation,
+      handleId,
+      worldX,
+      worldY,
+      facingPoint,
+    );
+  }
   const positions = formationBoundsBoxHandlePositionsLocal(
     baseFormation,
     facingPoint,
@@ -1563,6 +1843,7 @@ export function findNearestFreeSlot(
   let bestDist = threshold;
 
   for (const fm of formations || []) {
+    if (isChoirFormation(fm)) continue;
     const facing = resolveFormationFacingPoint(items, stage, fm.facing);
     const slots = computeFormationSlots(fm, facing);
     for (const slot of slots) {

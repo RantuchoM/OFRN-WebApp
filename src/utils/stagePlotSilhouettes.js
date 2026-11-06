@@ -76,6 +76,9 @@ export const STAGE_PLOT_SILHOUETTES = {
   // Atril: plato + 1 pata −Y (músico) + 2 patas +Y (director); alineado a music-stand.svg
   music_stand:
     "M8 10 H56 V17 H8 Z M31 14 H33 V5 H31 Z M32 15 L41 22 L39.5 23.5 Z M32 15 L23 22 L24.5 23.5 Z",
+  /** Corista genérico, de pie y de frente. Más angosto que las voces y el director. */
+  chorister:
+    "M29 2h6v7h-6V2zM24 11h16l1 14H23l1-14zM22 27h8v28h-6V33h-2V27zm12 0h8v6h-2v22h-6V27z",
   conductor:
     "M28 6h8v6h-8V6zm-6 8h20c2 0 3.5 1.5 3.5 3.5V28H18.5V17.5c0-2 1.5-3.5 3.5-3.5zM14 30h36v6H40v20h-4V36H28v20h-4V36H14v-6zM24 18h4v6h-4v-6zm12 0h4v6h-4v-6z",
   // Voces, de frente: vestido o traje, para distinguirlas en el plano.

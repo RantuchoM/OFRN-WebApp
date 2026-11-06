@@ -83,6 +83,7 @@ import {
   getStagePlotSilhouettePath,
   stagePlotSilhouetteSvgMarkup,
 } from "../../utils/stagePlotSilhouettes";
+import { loadChoirFigureImages } from "../../utils/stagePlotChoirAssets";
 import {
   getStagePlotImageNaturalSize,
   getStagePlotItemVisualBounds,
@@ -170,8 +171,11 @@ import {
   applySemiArcSlotCounts,
   clearFormationAnchors,
   cloneStagePlotFormation,
+  choirFigureSizePx,
+  computeChoirFigures,
   computeFormationSlots,
   createStagePlotFormation,
+  isChoirFormation,
   findNearestFreeSlot,
   formationAllResizeHandlesWorld,
   formationBoundsBoxLinePoints,
@@ -191,6 +195,11 @@ import {
   resolveFormationFacingPoint,
   setFormationSlotT,
   snapFormationXToConductorCenter,
+  STAGE_PLOT_CHOIR_ROWS_MAX,
+  STAGE_PLOT_CHOIR_FIGURE_SCALE_MIN,
+  STAGE_PLOT_CHOIR_FIGURE_SCALE_MAX,
+  STAGE_PLOT_FORMATIONATION_KINDS,
+  withFormationKind,
 } from "../../utils/stagePlotFormations";
 import {
   buildStagePlotOrganicoCompare,
@@ -2454,6 +2463,21 @@ function StagePlotItemContextMenu({
   );
 }
 
+function useChoirFigureImages(enabled) {
+  const [images, setImages] = useState(null);
+  useEffect(() => {
+    if (!enabled) return undefined;
+    let cancelled = false;
+    loadChoirFigureImages().then((loaded) => {
+      if (!cancelled) setImages(loaded);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled]);
+  return images;
+}
+
 function FormationShape({
   formation,
   items,
@@ -2474,7 +2498,10 @@ function FormationShape({
   onWrapCursorClear,
 }) {
   const facing = resolveFormationFacingPoint(items, stage, formation.facing);
+  const choir = isChoirFormation(formation);
   const slots = computeFormationSlots(formation, facing);
+  const choirFigures = choir ? computeChoirFigures(formation, facing) : [];
+  const choirImages = useChoirFigureImages(choir);
   const linePts = formationGuideLinePoints(formation);
   const marker = formationSlotMarkerSize();
   const stroke = selected ? "#4f46e5" : "#64748b";
@@ -2560,7 +2587,7 @@ function FormationShape({
         lineJoin="round"
         listening={false}
       />
-      {/* Hit area invisible around guide — always hittable in Select and Move */}
+      {/* La guía recibe el clic. En un coro solo las figuras. */}
       <Line
         name="stage-plot-formation-hit"
         points={linePts}
@@ -2568,6 +2595,7 @@ function FormationShape({
         strokeWidth={Math.max(40, marker * 0.35)}
         lineCap="round"
         lineJoin="round"
+        listening={!choir}
       />
       {selected && (
         <Line
@@ -2581,7 +2609,34 @@ function FormationShape({
           listening={false}
         />
       )}
-      {slots.map((slot) => {
+      {choir
+        ? choirFigures.map((person) => {
+            const image =
+              person.variant === "man" ? choirImages?.man : choirImages?.woman;
+            if (!image) return null;
+            const box = choirFigureSizePx(person.scale);
+            const iw = image.naturalWidth || image.width;
+            const ih = image.naturalHeight || image.height;
+            if (!iw || !ih) return null;
+            const silScale = box.heightPx / ih;
+            return (
+              <KonvaImage
+                key={`choir-${person.row}-${person.index}`}
+                image={image}
+                x={person.x}
+                y={person.y}
+                rotation={person.rotation}
+                scaleX={silScale * (person.flipX ? -1 : 1)}
+                scaleY={silScale}
+                offsetX={iw / 2}
+                offsetY={ih / 2}
+                width={iw}
+                height={ih}
+                name="stage-plot-formation"
+              />
+            );
+          })
+        : slots.map((slot) => {
         const filled = occupied.has(slot.slotId);
         const isSnapTarget = highlightSlotId === slot.slotId;
         return (
@@ -3253,6 +3308,15 @@ function FormationPaletteIcon({ kind, size = 18 }) {
       return (
         <svg {...common}>
           <path d="M3 12 L21 12" />
+        </svg>
+      );
+    case "choir":
+      return (
+        <svg {...common}>
+          <path d="M4 16 A8 5.5 0 0 1 20 16" />
+          <circle cx="8" cy="14" r="1.3" fill="currentColor" stroke="none" />
+          <circle cx="12" cy="11" r="1.3" fill="currentColor" stroke="none" />
+          <circle cx="16" cy="14" r="1.3" fill="currentColor" stroke="none" />
         </svg>
       );
     default:
@@ -5660,7 +5724,14 @@ export default function ProgramStagePlot({
 
   const addFormationAt = (kind, x, y) => {
     if (!canEdit) return;
-    const fm = createStagePlotFormation(kind, x, y, 8);
+    const choir = kind === "choir";
+    const fm = createStagePlotFormation(
+      choir ? "arc" : kind,
+      x,
+      y,
+      choir ? 12 : 8,
+      choir ? { role: "choir", rows: 1 } : undefined,
+    );
     commitPayload((prev) => ({
       ...prev,
       formations: [...(prev.formations || []), fm],
@@ -5730,6 +5801,15 @@ export default function ProgramStagePlot({
 
     document.addEventListener("pointermove", move);
     document.addEventListener("pointerup", up);
+  };
+
+  const setSelectedFormationKind = (kind) => {
+    if (!canEdit || !selectedFormationId) return;
+    patchFormationsAndReanchor((formations) =>
+      formations.map((f) =>
+        f.id === selectedFormationId ? withFormationKind(f, kind) : f,
+      ),
+    );
   };
 
   const updateSelectedFormation = (patch) => {
@@ -8081,6 +8161,17 @@ export default function ProgramStagePlot({
                         </button>
                       ),
                     )}
+                    <button
+                      type="button"
+                      onPointerDown={(e) =>
+                        startFormationPalettePointerDrag(e, "choir", "Coro")
+                      }
+                      title="Coro: arco de personas. La forma, las plazas y las filas se cambian al seleccionar."
+                      className="flex w-full cursor-grab touch-none items-center gap-2 rounded border border-indigo-200 bg-indigo-50 px-1.5 py-1.5 text-left text-[10px] font-medium text-indigo-800 hover:bg-indigo-100 active:cursor-grabbing"
+                    >
+                      <FormationPaletteIcon kind="choir" size={18} />
+                      <span>Coro</span>
+                    </button>
                   </div>
                 </div>
               )}
@@ -8374,6 +8465,7 @@ export default function ProgramStagePlot({
                     slotsDraggable={
                       canEdit &&
                       selectedFormationId === fm.id &&
+                      !isChoirFormation(fm) &&
                       normalizeStagePlotSlotMode(fm.slotMode) !== "fixed"
                     }
                     onSelect={handleSelectFormation}
@@ -8675,6 +8767,36 @@ export default function ProgramStagePlot({
                   >
                     +15°
                   </button>
+                  {isChoirFormation(selectedFormation) && (
+                    <>
+                      <button
+                        type="button"
+                        title="Cambiar la forma del coro"
+                        onClick={() => {
+                          const kinds = STAGE_PLOT_FORMATIONATION_KINDS;
+                          const i = kinds.indexOf(selectedFormation.kind);
+                          setSelectedFormationKind(kinds[(i + 1) % kinds.length]);
+                        }}
+                        className="flex h-10 items-center justify-center rounded-full px-2 text-xs font-medium text-slate-600 active:bg-indigo-50 active:text-indigo-700"
+                      >
+                        {STAGE_PLOT_FORMATIONATION_LABELS[selectedFormation.kind] ||
+                          "Forma"}
+                      </button>
+                      <button
+                        type="button"
+                        title="Filas: la siguiente sale hacia afuera, pegada a la anterior"
+                        onClick={() => {
+                          const rows = selectedFormation.rows || 1;
+                          updateSelectedFormation({
+                            rows: rows >= STAGE_PLOT_CHOIR_ROWS_MAX ? 1 : rows + 1,
+                          });
+                        }}
+                        className="flex h-10 items-center justify-center rounded-full px-2 text-xs font-medium text-slate-600 active:bg-indigo-50 active:text-indigo-700"
+                      >
+                        {selectedFormation.rows || 1} filas
+                      </button>
+                    </>
+                  )}
                   <button
                     type="button"
                     title="Copiar formación"
@@ -8785,10 +8907,41 @@ export default function ProgramStagePlot({
             {selectedFormation && canEdit ? (
               <>
                 <span className="shrink-0 text-[11px] font-bold text-indigo-700">
-                  Formación ·{" "}
-                  {STAGE_PLOT_FORMATIONATION_LABELS[selectedFormation.kind] ||
-                    selectedFormation.kind}
+                  {isChoirFormation(selectedFormation)
+                    ? `Coro · ${
+                        STAGE_PLOT_FORMATIONATION_LABELS[selectedFormation.kind] ||
+                        selectedFormation.kind
+                      } · ${
+                        (selectedFormation.rows || 1) *
+                        (selectedFormation.slots || 0)
+                      }`
+                    : `Formación · ${
+                        STAGE_PLOT_FORMATIONATION_LABELS[selectedFormation.kind] ||
+                        selectedFormation.kind
+                      }`}
                 </span>
+                {isChoirFormation(selectedFormation) && (
+                  <div className="flex shrink-0 items-center gap-0.5 rounded border border-slate-200 p-0.5">
+                    {STAGE_PLOT_FORMATIONATION_KINDS.map((kind) => {
+                      const active = selectedFormation.kind === kind;
+                      return (
+                        <button
+                          key={kind}
+                          type="button"
+                          onClick={() => setSelectedFormationKind(kind)}
+                          className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                            active
+                              ? "bg-indigo-600 text-white"
+                              : "text-slate-600 hover:bg-slate-50"
+                          }`}
+                          title={STAGE_PLOT_FORMATIONATION_LABELS[kind]}
+                        >
+                          {STAGE_PLOT_FORMATIONATION_LABELS[kind]}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
                 {selectedFormation.kind === "semi_arc" ? (
                   <>
                     <FormationPlazasCountInput
@@ -8820,15 +8973,42 @@ export default function ProgramStagePlot({
                   </>
                 ) : (
                   <FormationPlazasCountInput
-                    label="Plazas"
+                    label={isChoirFormation(selectedFormation) ? "Personas" : "Plazas"}
                     value={selectedFormation.slots}
                     min={1}
                     max={64}
                     inputClassName="w-14 rounded border border-slate-200 px-1.5 py-0.5 text-xs"
-                    title="Enter o blur aplica; Escape cancela. No aplica en cada tecla."
+                    title={
+                      isChoirFormation(selectedFormation)
+                        ? "Personas en cada fila, repartidas de punta a punta. El tamaño de la forma cambia el espacio entre ellas."
+                        : "Enter o blur aplica; Escape cancela. No aplica en cada tecla."
+                    }
                     onCommit={(slots) => updateSelectedFormation({ slots })}
                   />
                 )}
+                {isChoirFormation(selectedFormation) && (
+                  <>
+                  <FormationPlazasCountInput
+                    label="Filas"
+                    value={selectedFormation.rows || 1}
+                    min={1}
+                    max={STAGE_PLOT_CHOIR_ROWS_MAX}
+                    title="1 = sobre la guía. En arco, herradura y rectángulo la fila sale hacia afuera. En la línea recta es una copia paralela hacia abajo; el asa vertical cambia esa distancia."
+                    onCommit={(rows) => updateSelectedFormation({ rows })}
+                  />
+                  <FormationPlazasCountInput
+                    label="Tamaño %"
+                    value={Math.round((selectedFormation.figureScale || 1) * 100)}
+                    min={Math.round(STAGE_PLOT_CHOIR_FIGURE_SCALE_MIN * 100)}
+                    max={Math.round(STAGE_PLOT_CHOIR_FIGURE_SCALE_MAX * 100)}
+                    title="Escala de las figuras del coro. 100% es el tamaño base."
+                    onCommit={(pct) =>
+                      updateSelectedFormation({ figureScale: pct / 100 })
+                    }
+                  />
+                  </>
+                )}
+                {!isChoirFormation(selectedFormation) && (
                 <div className="flex shrink-0 items-center gap-0.5 rounded border border-slate-200 p-0.5">
                   {STAGE_PLOT_SLOT_MODES.map((mode) => {
                     const active =
@@ -8857,6 +9037,7 @@ export default function ProgramStagePlot({
                     );
                   })}
                 </div>
+                )}
                 {selectedFormation.kind === "arc" ? (
 
                   <>

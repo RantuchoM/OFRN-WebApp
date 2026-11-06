@@ -291,6 +291,16 @@ export function StagePlotMobileAddSheet({
               />
             ),
           )}
+          <AddSheetTile
+            label="Coro"
+            color="#4f46e5"
+            disabled={!canEdit}
+            onClick={() => {
+              if (!canEdit) return;
+              onAddFormation?.("choir");
+              onClose?.();
+            }}
+          />
         </AddSheetSection>
 
         {musicians.map(({ category, items }) => (
