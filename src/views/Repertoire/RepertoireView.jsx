@@ -66,6 +66,7 @@ import {
   getObraEstadoBadgeClass,
   getObraEstadoTitleTag,
 } from "../../utils/obraEstadoStyles";
+import { composerPersonLabel } from "../../utils/composerPersonLabel";
 
 // --- ICONOS ADICIONALES ---
 const IconColumns = ({ size = 20, className = "" }) => (
@@ -863,19 +864,11 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
       titulo_plain: getPlainRichText(w.titulo),
       instValues,
       compositor_full:
-        listComposers
-          ?.map(
-            (oc) =>
-              `${oc.compositores?.apellido}, ${oc.compositores?.nombre}`,
-          )
-          .join(" / ") || "",
+        listComposers?.map((oc) => composerPersonLabel(oc.compositores)).join(" / ") ||
+        "",
       arreglador_full:
-        listArrangers
-          ?.map(
-            (oc) =>
-              `${oc.compositores?.apellido}, ${oc.compositores?.nombre}`,
-          )
-          .join(" / ") || "",
+        listArrangers?.map((oc) => composerPersonLabel(oc.compositores)).join(" / ") ||
+        "",
       pais_nombre:
         listComposers
           ?.map((oc) => oc.compositores?.paises?.nombre)

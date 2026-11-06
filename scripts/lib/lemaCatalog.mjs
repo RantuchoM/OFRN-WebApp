@@ -90,7 +90,7 @@ export const LEMA_WORKS = [
     compositors: [{ apellido: "Leguizamon", nombre: 'Gustavo "Cuchi"' }],
     action: "update",
     obraId: 1432,
-    driveFolderId: "1YHbkF0eajhuEZI2QaIpWtuMwDQyTlfzV",
+    driveFolderId: "1jccTRWVayHLcq2-mQ4kUij3dlcpyiJfg",
   },
   {
     sourceFolder: "El Cosechero percus",

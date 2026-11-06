@@ -31,6 +31,7 @@ import {
 import { formatSecondsToTime, inputToSeconds } from "../../utils/time";
 import { useAuth } from "../../context/AuthContext";
 import { calculateInstrumentation } from "../../utils/instrumentation";
+import { composerPersonLabel } from "../../utils/composerPersonLabel";
 import DriveMatcherModal from "../../components/repertoire/DriveMatcherModal";
 import BowingSetManager from "../../components/repertoire/BowingSetManager";
 import ComposersManager from "./ComposersManager";
@@ -569,7 +570,7 @@ export default function WorkForm({
   const handleQuickCompCreated = (newComp) => {
     const newOption = {
       id: newComp.id,
-      label: `${newComp.apellido}, ${newComp.nombre}`,
+      label: composerPersonLabel(newComp),
     };
 
     // 1. Actualizar la lista de opciones para que aparezca en los Selects
@@ -709,7 +710,7 @@ export default function WorkForm({
       .order("apellido");
     if (data)
       setComposersOptions(
-        data.map((c) => ({ id: c.id, label: `${c.apellido}, ${c.nombre}` })),
+        data.map((c) => ({ id: c.id, label: composerPersonLabel(c) })),
       );
   };
 
@@ -1102,7 +1103,7 @@ export default function WorkForm({
       // Actualizar opciones locales
       const newOption = {
         id: data.id,
-        label: `${data.apellido}, ${data.nombre}`,
+        label: composerPersonLabel(data),
       };
       setComposersOptions((prev) =>
         [...prev, newOption].sort((a, b) => a.label.localeCompare(b.label)),

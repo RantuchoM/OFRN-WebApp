@@ -381,6 +381,25 @@ Optimizar `src/views/Repertoire/RepertoireView.jsx` en pantallas móviles para m
 - [x] Seed ejecutado en Supabase (obra 3787, 6 particellas)
 - [ ] Deuda: obra 2727 (`Cuarteto de Cuerdas en Re Mayor, No 1 op 11`) tiene `link_drive` apuntando a esta misma carpeta; revisar.
 
+### Folklore en CUERDAS — Abuelita Lorenza, Pastorcita, La Nochera, Tucumana (2026-11-06)
+- Zip `partiturasparasubiralarchivo.zip`: partes ya separadas (sin split). Destino `Archivo General OFRN\CUERDAS`, no Para acomodar.
+- **Abuelita Lorenza (Chacarera doble)** obra **3880**. Carpeta [Drive](https://drive.google.com/drive/folders/1iM1VQ12BYF7jDL0UOCEEjgmhbYA_PdMw) `González, E. - Abuelita Lorenza`. Cuarteto `Str` (Vln 1, Vln 2, Vla, Vc). Compositor Edmundo Nicolás "Pimpe" González (Catamarca); arreglador `Chazarreta, L.` (698). Los PDF dicen `González, E`.
+- **Pastorcita de Antinaco (Carnavalito)** obra **3881**. Carpeta [Drive](https://drive.google.com/drive/folders/1DcHNjLY4mXj0KK5POzudyjHq3GfYn4DB) `Chazarreta, L. - Pastorcita de Antinaco`. Mismo cuarteto y mismos créditos.
+- **La Nochera (Zamba)** obra **3882**. Carpeta [Drive](https://drive.google.com/drive/folders/1o0nHzCxnkZY8N2gPdh2bh75KOkPQV7nJ) `Cabezas, E. - La Nochera`. Compositor nuevo Cabezas, Ernesto; arreglador `D´Antona, Esteban` (75). Poesía de Jaime Dávalos queda en observaciones (no hay rol letrista).
+- **Si Llega A Ser Tucumana** obra **1432** (ya existía): arreglo de vibráfono, marimba y bajo eléctrico. Carpeta [Drive](https://drive.google.com/drive/folders/1jccTRWVayHLcq2-mQ4kUij3dlcpyiJfg) `Leguizamón-Lema - Si llega a ser tucumana`. Particellas: Bajo, Marimba 1, Marimba 2, Vibráfono, SCORE. El id `1YHbkF0eajhuEZI2QaIpWtuMwDQyTlfzV` ya no lista archivos.
+- **Si Llega A Ser Tucumana [cuerdas]** obra **3883**. Carpeta [Drive](https://drive.google.com/drive/folders/1u6R_pl_ptssE1fQkXlZl-DGSCjsZ8-of) `Leguizamón-Lema - Si Llega A Ser Tucumana [cuerdas]`. `Str` (Vln 1, Vln 2, Vla, Vc, Cb + SCORE). Compositor Gustavo "Cuchi" Leguizamón (196); arreglador Lema (198). Las particellas de cuerdas salieron de la 1432.
+
+| Script | Rol |
+|--------|-----|
+| `scripts/lib/cuerdasFolkloreLoteCatalog.mjs` | Metadata, carpetas y partes de Tucumana |
+| `scripts/process-cuerdas-folklore-lote-local.mjs` | Copia el zip a CUERDAS con nombre canónico |
+| `scripts/generate-cuerdas-folklore-lote-sync.mjs` | Genera `supabase/seed_cuerdas_folklore_lote_sync.sql` |
+
+- [x] PDFs en CUERDAS y seed ejecutado en Supabase (3880, 3881, 3882)
+- [x] Tucumana cuerdas separada de la 1432 (2026-11-06): carpeta `[cuerdas]` y obra propia; la 1432 queda con vibráfono, marimba y bajo
+- [x] El archivo no muestra «Tradicional, null»: `composerPersonLabel` omite el nombre cuando está vacío (`RepertoireView`, `WorkForm`).
+- [x] Abuelita Lorenza: compositor corregido a Edmundo Nicolás "Pimpe" González (2026-11-06). Pastorcita sigue como Tradicional.
+
 ### Silva — Marcha de San Lorenzo [cuerdas] (2026-06-22)
 - Carpeta [Para acomodar](https://drive.google.com/drive/folders/1jBCHMNcerv3K9aoq17q9V_ekoCxhFAry): 1 PDF combinado → **5 particellas** (SCORE + 4 cuerdas).
 - Obra BD **id 3537** (insert nueva; distinta de **2276** versión vientos): `Str`.
