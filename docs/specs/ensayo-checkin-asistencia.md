@@ -130,7 +130,7 @@ Migraciones:
 - [x] Tras **salida**, re-sync para programar el siguiente inicio
 - [x] Gate de prueba admin (`EnsayoLocalRemindersSync` + banner); abrir a todos cuando salga de prueba
 - [x] Cron Web Push + email de **ingreso** en servidor (`ensayo-inicio-recordatorios`, solo admins)
-- [x] Mail diario de asistencia (`ensayo-diario-reporte` → filarmonica.scrn+asistencas, 22:00 ART)
+- [x] Mail diario de asistencia (`ensayo-diario-reporte` → filarmonica.scrn+asistencias, 22:00 ART)
 
 ## Despliegue
 
@@ -140,7 +140,7 @@ Aplicar las migraciones en Supabase antes de usar check-in o reportes en producc
 
 - Edge Function: `ensayo-diario-reporte`.
 - Cron: `0 1 * * *` UTC (22:00 ART), migración `20260806200000_ensayo_diario_reporte_cron.sql`.
-- Destinatarios: `filarmonica.scrn+asistencas@gmail.com` (override `ENSAYO_DIARIO_TO`).
+- Destinatarios: `filarmonica.scrn+asistencias@gmail.com` (override `ENSAYO_DIARIO_TO`).
 - Si el día no tiene ensayos (`id_tipo_evento` de ensayo), la función responde `ok: true` con `omitido: "sin ensayos"` y **no envía** el mail.
 - Contenido HTML en cuerpo + adjunto **PDF** (`YYYY-MM-DD-asistencia-ensayos.pdf`):
   1. Título con **N ensayos** del día ART.

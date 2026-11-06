@@ -117,7 +117,7 @@ import_map = "./functions/ensayo-diario-reporte/deno.json"
 entrypoint = "./functions/ensayo-diario-reporte/index.ts"
 # pg_cron 01:00 UTC (22:00 ART) — migración 20260806200000.
 # Secrets: GMAIL_*, ENSAYO_DIARIO_CRON_SECRET (o SALIDA/DB_BACKUP), APP_BASE_URL
-# Opcional: ENSAYO_DIARIO_TO=mail1,mail2 (default filarmonica.scrn+asistencas@gmail.com)
+# Opcional: ENSAYO_DIARIO_TO=mail1,mail2 (default filarmonica.scrn+asistencias@gmail.com)
 # Header: x-ensayo-diario-cron-secret
 # Body opcional: {"fecha":"YYYY-MM-DD"}
 # Sin ensayos ese día: no se envía el mail (respuesta omitido: "sin ensayos").
