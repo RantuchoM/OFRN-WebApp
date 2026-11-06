@@ -265,6 +265,25 @@ function flush() {
 }
 
 {
+  const escenario =
+    "/?tab=giras&view=REPERTOIRE&giraId=14&subTab=seating&seatingView=escenario";
+  const host = createHost({
+    pathname: "/refrescar.html",
+    search: "?tab=giras&view=REPERTOIRE&giraId=14&subTab=seating&seatingView=escenario",
+  });
+  installChunkRescue(host);
+  assert(host.replaced.length === 1, "el shell con el query de Escenario se rescata");
+  assert(
+    isRescueUrl(host.replaced[0], escenario),
+    "no tira el query de Escenario al armar next",
+  );
+  assert(
+    freshStartDestination(host.replaced[0].slice(host.replaced[0].indexOf("?"))) === escenario,
+    "esa next abre Escenario",
+  );
+}
+
+{
   const now = 1_700_000_000_000;
   const host = createHost({
     now,
