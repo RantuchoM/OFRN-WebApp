@@ -7,6 +7,12 @@ export const FRESH_START_STORAGE_KEY = "ofrn:cache-reset";
 export const FRESH_START_LOG_KEY = "ofrn:cache-reset-log";
 /** La app que se abre después no debe mostrar «Actualizar versión» por un version.json viejo. */
 export const FRESH_OPEN_KEY = "ofrn:fresh-open";
+/**
+ * El banner ya mandó a esta página. Sobrevive el rescate para no volver a entrar
+ * solo si `version.json` sigue desfasado un momento. El tap del usuario no lo mira.
+ */
+export const FRESH_NAV_KEY = "ofrn:fresh-nav-at";
+export const FRESH_NAV_WINDOW_MS = 60_000;
 /** Recargas de esta misma página mientras el SW viejo sigue en control. */
 export const FRESH_START_MAX_ATTEMPTS = 2;
 
@@ -65,6 +71,38 @@ export function takeFreshOpenMark(storage) {
     return on;
   } catch {
     return false;
+  }
+}
+
+/** URL de rescate que vuelve a `next` (solo path interno; si no, abre `/`). */
+export function freshStartHref(next = "/") {
+  const safe = freshStartDestination(`?next=${encodeURIComponent(String(next || "/"))}`);
+  if (!safe || safe === "/") return FRESH_START_PATH;
+  return `${FRESH_START_PATH}?next=${encodeURIComponent(safe)}`;
+}
+
+export function markFreshNav(storage, now = Date.now()) {
+  try {
+    storage?.setItem(FRESH_NAV_KEY, String(now));
+  } catch {
+    /* ignore */
+  }
+}
+
+export function freshNavRecently(storage, now = Date.now(), windowMs = FRESH_NAV_WINDOW_MS) {
+  try {
+    const stamp = Number(storage?.getItem(FRESH_NAV_KEY) || 0);
+    return stamp > 0 && now - stamp < windowMs;
+  } catch {
+    return false;
+  }
+}
+
+export function clearFreshNav(storage) {
+  try {
+    storage?.removeItem(FRESH_NAV_KEY);
+  } catch {
+    /* ignore */
   }
 }
 

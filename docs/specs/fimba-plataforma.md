@@ -1156,4 +1156,4 @@ Migraciones: `20260811150000` (histórica en propuestas) + `20260811160000_fimba
 
 ## Deploys / PWA vs edición dirty
 
-Los deploys en Vercel **no** deben forzar reload mid-form. Banner «Nueva versión — Actualizar versión» (un tap: skipWaiting + controllerchange, o last resort unregister/caches); `FimbaEventoFormModal` dirty y planillas (`.fimba-row-dirty`) bloquean auto-apply. Detalle: `docs/specs/pwa-version-updates.md`.
+Los deploys en Vercel **no** deben forzar reload mid-form. Banner «Nueva versión — Actualizar versión» (un tap abre `/refrescar.html?next=`); `FimbaEventoFormModal` dirty y planillas (`.fimba-row-dirty`) bloquean auto-apply. Detalle: `docs/specs/pwa-version-updates.md`.

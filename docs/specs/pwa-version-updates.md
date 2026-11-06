@@ -18,27 +18,21 @@ El control **«Actualizar versión»** (banner) a menudo **no hacía nada en el 
 | Contexto | Qué pasa |
 |----------|----------|
 | Staff mid-sesión (misma ruta) | Banner **«Nueva versión disponible — Actualizar versión»**; **no** reload forzado |
-| Staff pulsa **Actualizar versión** | Un tap: overlay → espera `waiting` (`update()` + `updatefound` → `installed` si hace falta) → `SKIP_WAITING` → espera `controllerchange` (timeout 3.5 s) → reload. Si no hay waiting y hay red: last resort **unregister + clear caches + reload**. Si falla: toast y se puede reintentar (no más clicks ciegos). |
-| Staff cambia de ruta, sin dirty | Misma ruta fiable de apply (no reload prematuro) |
+| Staff pulsa **Actualizar versión** | Un tap: `location.replace` a `/refrescar.html?next=` (ruta actual). Esa página suelta el SW, borra la caché y vuelve. Sin red: toast, no navega. El tap no espera un SW en `waiting`. |
+| Staff cambia de ruta, sin dirty | Misma ida a `/refrescar.html?next=`. Si esta sesión ya salió hacia ahí hace menos de 60 s (`ofrn:fresh-nav-at`), no se repite sola: queda el banner. |
 | Staff cambia de ruta o pulsa Actualizar **con dirty** | No auto-aplica; confirm si el usuario fuerza Actualizar |
-| `/entradas/*`, `/viaticos-manual`, `/rendiciones-manual` (público) | Al cargar, si `version.json` o el service worker traen un build nuevo, se aplica y se recarga la página sin banner, overlay ni toast. Mismo camino si el build nuevo aparece con la pestaña abierta. Tope anti-bucle: 2 recargas en 15 s. |
-| `/transporte-scrn` | Al cargar (o al detectar build nuevo con la pestaña abierta), si hay versión nueva se dispara el **mismo** `beginApplyUpdate` / `applyPwaUpdate` del botón, sin esperar el click. El botón queda para reintentar, con estética SCRN (borde `#c5d0dc`, azul `#0054a6`, `IconRefresh`, `scrn-btn-primary`). Viáticos y rendiciones no usan este banner. Anti-bucle: sello `sessionStorage` `ofrn:transporte-auto-apply-at` (60 s, se limpia al salir de la ruta o cuando el build coincide) más el tope de 2 recargas en 15 s. No se hace unregister si la versión ya está al día. |
+| `/entradas/*`, `/viaticos-manual`, `/rendiciones-manual` (público) | Al cargar, si `version.json` o el service worker traen un build nuevo, van a `/refrescar.html?next=` sin banner ni toast. Mismo camino si el build nuevo aparece con la pestaña abierta. El sello de 60 s corta un segundo intento automático. |
+| `/transporte-scrn` | Al cargar (o al detectar build nuevo con la pestaña abierta), si hay versión nueva va al **mismo** `/refrescar.html?next=` del botón, sin esperar el click. El botón queda para reintentar, con estética SCRN (borde `#c5d0dc`, azul `#0054a6`, `IconRefresh`, `scrn-btn-primary`). Viáticos y rendiciones no usan este banner. Anti-bucle: `ofrn:transporte-auto-apply-at` (60 s, se limpia al salir de la ruta o cuando el build coincide) y `ofrn:fresh-nav-at`. |
 | `vite:preloadError` o el entry `/assets/*.js` no carga | Un aviso y pide `/refrescar.html` por `fetch` (el SW viejo no intercepta eso como navegación) y escribe ese HTML en el documento. Si esta sesión ya lo intentó hace menos de 60 s, el aviso queda quieto con **Abrir de nuevo** (ese tap hace el mismo `fetch`+write). Excepción: si el SW devolvió el shell en `/refrescar.html`, ese sello no frena el primer `fetch`+write. Un segundo shell dentro del minuto sí queda quieto (`ofrn:chunk-rescue-shell-at`), y ese `fetch` no navega si vuelve a traer la app. Si el aviso vuelve, hay que cerrar la app del todo. Sin conexión no navega ni borra caché. |
 | Entry `/assets/index-*.js` 404/MIME tras deploy | Rewrite Vercel solo si `Accept` incluye `text/html`; SW `navigateFallbackDenylist` incluye `/assets/`. El script inline de `index.html` no recarga el mismo documento: va a `/refrescar.html`. |
 | Pantalla trabada (shell viejo) | Abrir `/refrescar.html` (opcional `?next=/ruta`). Muestra cada paso, desregistra el SW, borra Cache Storage, activa el SW nuevo y entra a esa versión sin el botón «Actualizar versión». Si `register("/sw.js")` no termina en 4 s, avisa y abre igual. No toca `localStorage` ni IndexedDB. |
 
 ### Ruta de apply (un tap)
-Implementada en `src/utils/pwaApplyUpdate.js`, usada por `ReloadPrompt`:
+El botón, la navegación limpia, Transporte y las rutas silenciosas abren `/refrescar.html?next=` (`freshStartHref` en `src/utils/freshStart.js`). No hay overlay esperando `waiting`: un `location.reload()` con el SW viejo volvía a servir el precache, y borrar la caché mientras ese SW seguía en control dejaba la navegación rota.
 
-1. Resolver el `ServiceWorkerRegistration` (ref Workbox **o** `navigator.serviceWorker.getRegistration()` / `ready`). No depender de que `onRegistered` haya corrido.
-2. Si hay `waiting`: `postMessage({ type: "SKIP_WAITING" })` + `updateServiceWorker(true)` (plugin).
-3. Si solo hay `installing`: esperar `statechange` → `installed`.
-4. Si no hay ninguno: `await registration.update()` y esperar `updatefound` → `installed`/`waiting` (hasta 20 s). Overlay visible todo el tiempo.
-5. Esperar `controllerchange` (3.5 s; iOS a menudo no lo dispara) y recargar **después**, no antes.
-6. Last resort (online, sin waiting): `unregister()` de todos los SW + `caches.delete` + reload, para no seguir sirviendo precache viejo.
-7. Si el apply no puede completar: toast (staff) y se resetea el overlay. Tope anti-bucle de reload (2 en 15 s) se mantiene.
+`/refrescar.html` hace el trabajo (desregistrar, borrar Cache Storage recién sin controlador, activar `/sw.js`, volver al `next`). `src/utils/pwaApplyUpdate.js` queda para el probe de Transporte en `npm run dev` (`allowNuke: false`, sin reload) y para la limpieza que llama esa página.
 
-Auto-update (navegación limpia del staff, y en silencio en `/entradas`, `/viaticos-manual` y `/rendiciones-manual`) usa **la misma** ruta. En staff no se recarga mid-form si hay trabajo sin guardar.
+Auto-update usa el mismo destino. Si `ofrn:fresh-nav-at` tiene menos de 60 s, no se repite solo. El tap del usuario sí puede reintentar. En staff no se sale del formulario si hay trabajo sin guardar. Sin red no navega.
 
 Dirty detectado vía:
 - Registro `src/utils/unsavedWork.js` (`markUnsavedWork` / `clearUnsavedWork`)
@@ -91,7 +85,7 @@ Detección de build: `VITE_APP_BUILD_ID` embebido + poll de `/version.json` (foc
 - [x] Recuperación inline si falla el entry script hasheado
 - [x] DEV: sin ReloadPrompt / preload hard-reload; build id estable en serve
 - [x] Poll de versión menos agresivo (15 min + skip hidden + cache 60 s) para bajar Edge Requests de Hobby/Pro
-- [x] Un tap en «Actualizar versión» espera waiting + skipWaiting + controllerchange (o last resort); toast si falla
+- [x] Un tap en «Actualizar versión» abre `/refrescar.html?next=` (2026-11-05). El auto-apply usa el mismo destino y no se repite dentro de 60 s. Sin red: toast. Ya no espera `skipWaiting` ni recarga el documento en control del SW viejo.
 - [x] **Viáticos y rendiciones manuales (2026-09-25):** `/viaticos-manual` y `/rendiciones-manual` actualizan en silencio al detectar versión nueva (`isSilentVersionUpdateRoute`), igual que `/entradas`. El formulario vive en `localStorage`, así que la recarga no descarta lo ya escrito. El staff sigue con banner.
 - [x] **Transporte SCRN (2026-10-01):** `/transporte-scrn` auto-aplica la versión nueva al entrar (`isTransporteScrnRoute`), con el mismo apply del botón y banner restilado. En `npm run dev` no hay banner ni reload: se llama `applyPwaUpdate({ allowNuke: false, reload: () => false })` una vez por entrada para no disparar el falso positivo de `version.json`.
 - [x] **Rescate por URL (2026-11-02):** `/refrescar.html` desregistra el service worker, borra Cache Storage y abre `/` de cero. No precacheada; `Cache-Control: no-cache`. No borra sesión ni borradores.

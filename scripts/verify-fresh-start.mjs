@@ -8,7 +8,11 @@ import {
   FRESH_START_MAX_ATTEMPTS,
   FRESH_START_STORAGE_KEY,
   activateLatestServiceWorker,
+  FRESH_NAV_KEY,
+  clearFreshNav,
+  freshNavRecently,
   freshStartDestination,
+  freshStartHref,
   freshStartStatusBusy,
   freshStartStatusLabel,
   planFreshStart,
@@ -97,6 +101,24 @@ assert(freshStartDestination("?next=https://evil.test/x") === "/", "rechaza abso
 assert(freshStartDestination("?next=//evil.test") === "/", "rechaza protocol-relative");
 assert(freshStartDestination("?next=/refrescar.html") === "/", "no vuelve a la misma página");
 assert(freshStartDestination("?next=/%2e%2e/secreto") === "/", "rechaza ..");
+assert(freshStartHref("/giras") === "/refrescar.html?next=" + encodeURIComponent("/giras"), "el botón vuelve a la ruta");
+assert(
+  freshStartHref("/entradas?view=mis-reservas") ===
+    "/refrescar.html?next=" + encodeURIComponent("/entradas?view=mis-reservas"),
+  "el botón conserva el query",
+);
+assert(freshStartHref("https://evil.test/x") === "/refrescar.html", "el botón no acepta una URL externa");
+assert(freshStartHref("/refrescar.html") === "/refrescar.html", "el botón no se apunta a sí mismo");
+{
+  const storage = memoryStorage();
+  const now = 1_700_000_000_000;
+  assert(!freshNavRecently(storage, now), "sin sello el auto-apply puede ir a refrescar");
+  storage.setItem(FRESH_NAV_KEY, String(now));
+  assert(freshNavRecently(storage, now + 1000), "el sello frena un segundo auto-apply");
+  assert(!freshNavRecently(storage, now + 61_000), "pasado el minuto el auto-apply puede repetir");
+  clearFreshNav(storage);
+  assert(!freshNavRecently(storage, now + 1000), "al coincidir la versión se borra el sello");
+}
 
 {
   registration.calls = 0;

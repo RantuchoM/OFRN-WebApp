@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { toast } from "sonner";
 import { useRegisterSW } from "virtual:pwa-register/react";
-import { IconLoader, IconRefresh, IconX } from "./Icons";
+import { IconRefresh, IconX } from "./Icons";
 import {
   applyPwaUpdate,
   isSilentVersionUpdateRoute,
@@ -10,54 +10,25 @@ import {
   resolveServiceWorkerRegistration,
 } from "../../utils/pwaApplyUpdate";
 import { hasUnsavedWork } from "../../utils/unsavedWork";
-import { FRESH_OPEN_KEY } from "../../utils/freshStart.js";
+import {
+  clearFreshNav,
+  freshNavRecently,
+  freshStartHref,
+  markFreshNav,
+  FRESH_OPEN_KEY,
+} from "../../utils/freshStart.js";
 
 /** Idle poll: 15 min, and only while the tab is visible. Focus / visibility / navegación siguen chequeando al toque. */
 const VERSION_POLL_MS = 15 * 60 * 1000;
 const SILENT_SW_POLL_MS = 15 * 60 * 1000;
-const RELOAD_GUARD_KEY = "ofrn:pwa-reload-guard";
-const PRELOAD_RELOAD_KEY = "ofrn:preload-reload";
-const RELOAD_GUARD_WINDOW_MS = 15_000;
-const RELOAD_GUARD_MAX = 2;
 /** Una auto-aplicación por entrada a Transporte. Sobrevive el reload del apply y corta el bucle. */
 const TRANSPORTE_AUTO_KEY = "ofrn:transporte-auto-apply-at";
 const TRANSPORTE_AUTO_WINDOW_MS = 60_000;
 const LOCAL_BUILD_ID = import.meta.env.VITE_APP_BUILD_ID ?? "";
 
-function readReloadGuard() {
-  try {
-    const raw = sessionStorage.getItem(RELOAD_GUARD_KEY);
-    if (!raw) return { count: 0, startedAt: 0 };
-    return JSON.parse(raw);
-  } catch {
-    return { count: 0, startedAt: 0 };
-  }
-}
-
-function markReloadAttempt() {
-  const now = Date.now();
-  const prev = readReloadGuard();
-  const inWindow = prev.startedAt && now - prev.startedAt < RELOAD_GUARD_WINDOW_MS;
-  const count = inWindow ? prev.count + 1 : 1;
-  const startedAt = inWindow ? prev.startedAt : now;
-  try {
-    sessionStorage.setItem(RELOAD_GUARD_KEY, JSON.stringify({ count, startedAt }));
-  } catch {
-    /* ignore */
-  }
-  return count;
-}
-
-function clearReloadGuards() {
-  try {
-    sessionStorage.removeItem(RELOAD_GUARD_KEY);
-    sessionStorage.removeItem(PRELOAD_RELOAD_KEY);
-    // No borrar `ofrn:chunk-rescue-at` acá: lo limpia `/refrescar.html` cuando
-    // ya soltó el SW. Si el match de versión lo borra y un chunk sigue en 404,
-    // el aviso volvería a abrir /refrescar.html en bucle.
-  } catch {
-    /* ignore */
-  }
+function clearVersionMatchStamps() {
+  clearFreshNav(sessionStorage);
+  clearTransporteAutoStamp();
 }
 
 function readTransporteAutoStamp() {
@@ -235,56 +206,33 @@ function ReloadPrompt() {
 /**
  * Actualizaciones de deploy (Vercel + PWA):
  * - Staff: nunca fuerza reload mid-sesión; banner «Nueva versión / Actualizar versión».
- * - Al cambiar de ruta sin trabajo dirty: aplica la SW waiting (navegación limpia).
+ * - Al cambiar de ruta sin trabajo dirty: abre `/refrescar.html?next=` (mismo rescate que el botón).
  * - Si hay dirty (FIMBA planilla/modal, data-unsaved-work): solo banner.
- * - /entradas, /viaticos-manual y /rendiciones-manual: al cargar (y al detectar
- *   build nuevo) recargan solas, sin banner ni overlay.
- * - /transporte-scrn: al detectar build nuevo, aplica solo (mismo `beginApplyUpdate`
- *   que el botón). Una vez por entrada (sessionStorage 60 s) para no recargar en bucle.
- *   El botón queda para reintentar, con estética SCRN. Viáticos y rendiciones no cambian.
+ * - /entradas, /viaticos-manual y /rendiciones-manual: al detectar build nuevo
+ *   van solas a `/refrescar.html`, sin banner. El sello de 60 s corta el bucle.
+ * - /transporte-scrn: al detectar build nuevo, el mismo destino, una vez por entrada.
+ *   El botón queda para reintentar, con estética SCRN.
  * - version.json: poll 15 min (pestaña visible) + check en foco/navegación; cache browser 60 s.
- * - Un tap: espera waiting (updatefound → installed) → skipWaiting → controllerchange → reload.
- *   Si no hay waiting y el build está desfasado: unregister + clear caches + reload.
+ * - Un tap: `location.replace` a `/refrescar.html?next=` (la página suelta el SW y vuelve).
+ *   Sin red: toast. El auto-apply no repite dentro de 60 s; el tap sí.
  */
 function ReloadPromptProd() {
-  const { pathname } = useLocation();
+  const { pathname, search } = useLocation();
   const silentVersionUpdate = isSilentVersionUpdateRoute(pathname);
   const isTransporte = isTransporteScrnRoute(pathname);
   const transporteAutoFiredRef = useRef(false);
   const swRegistrationRef = useRef(null);
-  const restartStartedRef = useRef(false);
-  const reloadPendingRef = useRef(false);
   const pathnameRef = useRef(pathname);
-  const [isRestarting, setIsRestarting] = useState(false);
+  const searchRef = useRef(search);
   const [bannerDismissed, setBannerDismissed] = useState(false);
   /** Build remoto distinto del embebido (sin depender solo del SW). */
   const [buildOutdated, setBuildOutdated] = useState(false);
   /** Entrada desde /refrescar.html: la página ya es la versión nueva. */
   const [openedFresh, setOpenedFresh] = useState(readFreshOpen);
 
-  const resetApplyUi = useCallback(() => {
-    reloadPendingRef.current = false;
-    restartStartedRef.current = false;
-    setIsRestarting(false);
-  }, []);
-
-  const reloadPageWithGuard = useCallback(() => {
-    if (reloadPendingRef.current) return false;
-    const count = markReloadAttempt();
-    if (count > RELOAD_GUARD_MAX) {
-      console.warn("[PWA] Recargas repetidas detectadas; se detiene la actualización automática.");
-      resetApplyUi();
-      return false;
-    }
-    reloadPendingRef.current = true;
-    window.location.reload();
-    return true;
-  }, [resetApplyUi]);
-
   const {
     offlineReady: [offlineReady, setOfflineReady],
     needRefresh: [needRefresh],
-    updateServiceWorker,
   } = useRegisterSW({
     onRegistered(r) {
       if (r) swRegistrationRef.current = r;
@@ -295,59 +243,40 @@ function ReloadPromptProd() {
     onRegisterError(error) {
       console.error("SW registration error", error);
     },
-    onNeedReload() {
-      reloadPageWithGuard();
-    },
   });
 
   const updateAvailable = needRefresh || buildOutdated;
 
-  const failApplyUpdate = useCallback(
-    (message) => {
-      console.warn("[PWA] No se pudo aplicar la actualización:", message);
-      resetApplyUi();
-      if (!silentVersionUpdate) {
-        toast.error(message);
+  const openFreshStart = useCallback(
+    (manual) => {
+      const online = typeof navigator === "undefined" || navigator.onLine !== false;
+      if (!online) {
+        if (!silentVersionUpdate) {
+          toast.error(
+            "No hay conexión para completar la actualización. Intentá de nuevo cuando tengas red.",
+          );
+        }
+        return false;
       }
-      return false;
-    },
-    [silentVersionUpdate, resetApplyUi],
-  );
-
-  const applyWaitingServiceWorker = useCallback(async () => {
-    try {
-      const registration = await resolveServiceWorkerRegistration(
-        swRegistrationRef.current,
-      );
-      if (registration) swRegistrationRef.current = registration;
-      const result = await applyPwaUpdate({
-        registration,
-        updateServiceWorker,
-        allowNuke: true,
-        reload: reloadPageWithGuard,
-      });
-      if (!result.ok) {
-        return failApplyUpdate(
-          result.error ||
+      if (!manual && freshNavRecently(sessionStorage)) return false;
+      markFreshNav(sessionStorage);
+      if (isTransporte) markTransporteAutoStamp();
+      const next = `${pathnameRef.current}${searchRef.current || ""}`;
+      try {
+        window.location.replace(freshStartHref(next));
+      } catch (error) {
+        console.error("SW update failed", error);
+        if (!silentVersionUpdate) {
+          toast.error(
             "No se pudo actualizar. Cerrá la app y volvé a abrirla, o intentá de nuevo.",
-        );
+          );
+        }
+        return false;
       }
       return true;
-    } catch (error) {
-      console.error("SW update failed", error);
-      return failApplyUpdate(
-        "No se pudo actualizar. Cerrá la app y volvé a abrirla, o intentá de nuevo.",
-      );
-    }
-  }, [failApplyUpdate, reloadPageWithGuard, updateServiceWorker]);
-
-  const beginApplyUpdate = useCallback(() => {
-    if (restartStartedRef.current) return;
-    if (isTransporte) markTransporteAutoStamp();
-    restartStartedRef.current = true;
-    setIsRestarting(true);
-    void applyWaitingServiceWorker();
-  }, [applyWaitingServiceWorker, isTransporte]);
+    },
+    [isTransporte, silentVersionUpdate],
+  );
 
   const checkForNewVersion = useCallback(async () => {
     const registration = await resolveServiceWorkerRegistration(
@@ -363,8 +292,7 @@ function ReloadPromptProd() {
     if (openedFresh) setOpenedFresh(false);
     if (!remote) return;
     if (remote === LOCAL_BUILD_ID) {
-      clearReloadGuards();
-      clearTransporteAutoStamp();
+      clearVersionMatchStamps();
       setBuildOutdated(false);
       return;
     }
@@ -376,25 +304,26 @@ function ReloadPromptProd() {
   useEffect(() => {
     const prevPath = pathnameRef.current;
     pathnameRef.current = pathname;
+    searchRef.current = search;
     void checkForNewVersion();
 
     if (openedFresh) return;
     if (prevPath === pathname) return;
     if (silentVersionUpdate) return;
     if (!needRefresh && !buildOutdated) return;
-    if (restartStartedRef.current) return;
     if (hasUnsavedWork()) {
       setBannerDismissed(false);
       return;
     }
-    beginApplyUpdate();
+    openFreshStart(false);
   }, [
     pathname,
+    search,
     checkForNewVersion,
     silentVersionUpdate,
     needRefresh,
     buildOutdated,
-    beginApplyUpdate,
+    openFreshStart,
     openedFresh,
   ]);
 
@@ -414,12 +343,11 @@ function ReloadPromptProd() {
       return;
     }
     if (silentVersionUpdate) {
-      if (restartStartedRef.current) return;
-      beginApplyUpdate();
+      openFreshStart(false);
       return;
     }
     if (!isTransporte) return;
-    if (restartStartedRef.current || transporteAutoFiredRef.current) return;
+    if (transporteAutoFiredRef.current) return;
     if (hasUnsavedWork()) {
       setBannerDismissed(false);
       return;
@@ -430,8 +358,8 @@ function ReloadPromptProd() {
     }
     transporteAutoFiredRef.current = true;
     markTransporteAutoStamp();
-    beginApplyUpdate();
-  }, [silentVersionUpdate, isTransporte, needRefresh, buildOutdated, beginApplyUpdate, openedFresh]);
+    openFreshStart(false);
+  }, [silentVersionUpdate, isTransporte, needRefresh, buildOutdated, openFreshStart, openedFresh]);
 
   useEffect(() => {
     if (!LOCAL_BUILD_ID) return undefined;
@@ -457,19 +385,14 @@ function ReloadPromptProd() {
   }, [checkForNewVersion]);
 
   const handleApplyUpdate = useCallback(() => {
-    if (restartStartedRef.current) return;
-
     if (hasUnsavedWork()) {
       const ok = window.confirm(
         "Hay cambios sin guardar. Si actualizás ahora, se pueden perder. ¿Actualizar de todos modos?"
       );
       if (!ok) return;
     }
-
-    // Un tap siempre entra al apply: espera waiting si hace falta.
-    // El early-return previo (update() sin await) era un no-op silencioso.
-    beginApplyUpdate();
-  }, [beginApplyUpdate]);
+    openFreshStart(true);
+  }, [openFreshStart]);
 
   useEffect(() => {
     if (!offlineReady) return;
@@ -499,11 +422,7 @@ function ReloadPromptProd() {
   }, [silentVersionUpdate]);
 
   const showBanner =
-    updateAvailable &&
-    !openedFresh &&
-    !silentVersionUpdate &&
-    !isRestarting &&
-    !bannerDismissed;
+    updateAvailable && !openedFresh && !silentVersionUpdate && !bannerDismissed;
 
   const bannerSubtitle = hasUnsavedWork()
     ? "Hay cambios sin guardar: guardá o descartá antes de actualizar."
@@ -522,31 +441,6 @@ function ReloadPromptProd() {
           }}
           subtitle={bannerSubtitle}
         />
-      )}
-      {isRestarting && !silentVersionUpdate && (
-        <div
-          className="fixed inset-0 z-[10000] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-6"
-          role="alert"
-          aria-live="assertive"
-          aria-busy="true"
-        >
-          <div
-            className={
-              isTransporte
-                ? "scrn-square flex max-w-sm flex-col items-center gap-4 border border-[#c5d0dc] border-t-4 border-t-[#0054a6] bg-white p-8 text-center shadow-sm"
-                : "bg-white border-2 border-indigo-500 rounded-2xl shadow-2xl p-8 flex flex-col items-center gap-4 max-w-sm text-center"
-            }
-          >
-            <IconLoader size={32} className={isTransporte ? "text-[#0054a6]" : "text-indigo-600"} />
-            <p className="text-sm font-black text-slate-800 uppercase tracking-tight leading-snug">
-              Estamos reiniciando la aplicación para que disfrutes de la versión más
-              actualizada
-            </p>
-            <p className="text-[11px] font-semibold text-slate-500 leading-snug">
-              Un momento: estamos activando la versión nueva.
-            </p>
-          </div>
-        </div>
       )}
     </>
   );
