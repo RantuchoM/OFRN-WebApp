@@ -27,6 +27,7 @@ import {
   IconBulb,
   IconInfo,
   IconLayout,
+  IconMail,
 } from "../../components/ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 import { useGiraRoster } from "../../hooks/useGiraRosterQuery";
@@ -58,6 +59,7 @@ import {
   CreateParticellaModal,
 } from "../../components/seating/SeatingControls";
 import OmitPartsModal from "../../components/seating/OmitPartsModal";
+import SeatingObraEmailsModal from "../../components/seating/SeatingObraEmailsModal";
 import ParticellaExportBusyOverlay from "../../components/seating/ParticellaExportBusyOverlay";
 import PartNameLabel from "../../components/seating/PartNameLabel";
 import FuncionGiraInline from "../../components/giras/FuncionGiraInline";
@@ -444,6 +446,7 @@ const MobileSeatingTable = ({
   onMusicianSlotAssign,
   onStringPersonAssign,
   onRequestCreate,
+  onOpenObraEmails = null,
   musiciansWithoutParts = new Set(),
   musicianTooltipById = {},
 }) => {
@@ -538,29 +541,42 @@ const MobileSeatingTable = ({
                         </span>
                       </button>
                       {isEditor && (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setEditingObraId((current) =>
-                              current === obra.obra_id ? null : obra.obra_id,
-                            )
-                          }
-                          className={`mx-auto inline-flex items-center justify-center gap-0.5 rounded-full border px-1 py-0 text-[8px] font-bold transition-colors ${
-                            isEditingThisWork
-                              ? "bg-white text-indigo-700 border-white"
-                              : "bg-slate-700 text-slate-100 border-slate-500 hover:bg-slate-600"
-                          }`}
-                          title={
-                            isEditingThisWork
-                              ? "Cerrar edición"
-                              : "Editar seating de esta obra"
-                          }
-                        >
-                          <IconEdit size={10} />
-                          <span className="sr-only">
-                            {isEditingThisWork ? "Cerrar edición" : "Editar"}
-                          </span>
-                        </button>
+                        <div className="mx-auto flex items-center justify-center gap-0.5">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setEditingObraId((current) =>
+                                current === obra.obra_id ? null : obra.obra_id,
+                              )
+                            }
+                            className={`inline-flex items-center justify-center gap-0.5 rounded-full border px-1 py-0 text-[8px] font-bold transition-colors ${
+                              isEditingThisWork
+                                ? "bg-white text-indigo-700 border-white"
+                                : "bg-slate-700 text-slate-100 border-slate-500 hover:bg-slate-600"
+                            }`}
+                            title={
+                              isEditingThisWork
+                                ? "Cerrar edición"
+                                : "Editar seating de esta obra"
+                            }
+                          >
+                            <IconEdit size={10} />
+                            <span className="sr-only">
+                              {isEditingThisWork ? "Cerrar edición" : "Editar"}
+                            </span>
+                          </button>
+                          {onOpenObraEmails && (
+                            <button
+                              type="button"
+                              onClick={() => onOpenObraEmails(obra)}
+                              className="inline-flex items-center justify-center rounded-full border border-slate-500 bg-slate-700 px-1 py-0 text-slate-100 hover:bg-slate-600 transition-colors"
+                              title="Copiar mails por instrumento"
+                              aria-label={`Copiar mails de ${obra.title || "esta obra"}`}
+                            >
+                              <IconMail size={10} />
+                            </button>
+                          )}
+                        </div>
                       )}
                     </div>
                   </th>
@@ -1153,6 +1169,8 @@ export default function ProgramSeating({
   /** { mode: 'omit'|'restore', obra, parts } */
   const [omitModal, setOmitModal] = useState(null);
   const [omitSaving, setOmitSaving] = useState(false);
+  /** { obra, instruments } — copiar mails por instrumento de una obra */
+  const [obraEmailsModal, setObraEmailsModal] = useState(null);
   const [expandedStringContainerIds, setExpandedStringContainerIds] =
     useState([]);
   const musicianTooltipById = useMemo(() => {
@@ -2542,6 +2560,81 @@ export default function ProgramSeating({
   }, [filteredRoster]);
 
   // --- MODALS & UPDATES ---
+  const openObraEmailsModal = (obra) => {
+    if (!obra?.obra_id) return;
+    const obraId = obra.obra_id;
+    const rosterById = new Map(
+      (filteredRoster || []).map((m) => [String(m.id), m]),
+    );
+    const byInstr = new Map();
+
+    const addMusician = (musician) => {
+      if (!musician || isVacancyMusician(musician)) return;
+      const instrId = String(musician.id_instr || "sin-instr");
+      const label =
+        musician.instrumentos?.instrumento ||
+        musician.integrantes?.instrumentos?.instrumento ||
+        "Sin instrumento";
+      if (!byInstr.has(instrId)) {
+        byInstr.set(instrId, {
+          id: instrId,
+          label,
+          members: new Map(),
+        });
+      }
+      byInstr.get(instrId).members.set(String(musician.id), musician);
+    };
+
+    seatingContainers.forEach((c) => {
+      const hasContainer = Boolean(assignments[`C-${c.id}-${obraId}`]);
+      (c.items || []).forEach((item) => {
+        const musicianId = item?.id_musico;
+        if (musicianId == null) return;
+        const hasIndividual =
+          getMusicianPartIds(
+            musicianAssignments,
+            `M-${musicianId}-${obraId}`,
+          ).length > 0;
+        if (!hasIndividual && !hasContainer) return;
+        const fromRoster = rosterById.get(String(musicianId));
+        addMusician(
+          fromRoster || {
+            id: musicianId,
+            id_instr: c.id_instrumento,
+            instrumentos: item.integrantes?.instrumentos,
+            mail: null,
+            es_simulacion: item.integrantes?.es_simulacion,
+          },
+        );
+      });
+    });
+
+    otherMusicians.forEach((m) => {
+      if (
+        getMusicianPartIds(musicianAssignments, `M-${m.id}-${obraId}`).length >
+        0
+      ) {
+        addMusician(m);
+      }
+    });
+
+    const instruments = [...byInstr.values()].map((group) => {
+      const emails = [];
+      group.members.forEach((m) => {
+        const mail = String(m.mail || "").trim();
+        if (mail) emails.push(mail);
+      });
+      return {
+        id: group.id,
+        label: group.label,
+        emails,
+        memberCount: group.members.size,
+      };
+    });
+
+    setObraEmailsModal({ obra, instruments });
+  };
+
   const openOmitPartsModal = (obra, mode = "omit") => {
     if (!isEditor || !obra) return;
     const obraParts = availablePartsByWork[obra.obra_id] || [];
@@ -3065,6 +3158,13 @@ export default function ProgramSeating({
         obraTitle={omitModal?.obra?.title || ""}
         parts={omitModal?.parts || []}
         saving={omitSaving}
+      />
+
+      <SeatingObraEmailsModal
+        isOpen={!!obraEmailsModal}
+        onClose={() => setObraEmailsModal(null)}
+        obraTitle={obraEmailsModal?.obra?.title || ""}
+        instruments={obraEmailsModal?.instruments || []}
       />
 
       {isAcceptingAllSuggestions && (
@@ -3678,6 +3778,7 @@ export default function ProgramSeating({
             onMusicianSlotAssign={handleMusicianSlotAssign}
             onStringPersonAssign={handleStringPersonAssign}
             onRequestCreate={openCreateModal}
+            onOpenObraEmails={openObraEmailsModal}
             musiciansWithoutParts={musiciansWithoutParts}
             musicianTooltipById={musicianTooltipById}
           />
@@ -3742,6 +3843,15 @@ export default function ProgramSeating({
                               aria-label={`Editar obra ${obra.title || ""}`}
                             >
                               <IconEdit size={14} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openObraEmailsModal(obra)}
+                              className="text-slate-400 hover:text-white transition-colors"
+                              title="Copiar mails por instrumento"
+                              aria-label={`Copiar mails de ${obra.title || "esta obra"}`}
+                            >
+                              <IconMail size={14} />
                             </button>
                           </div>
                         )}
