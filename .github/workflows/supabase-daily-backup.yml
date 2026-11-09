@@ -44,29 +44,33 @@ jobs:
           fi
           PROJECT_REF="${PROJECT_REF:-muxrbuivopnawnxlcjxq}"
           DB_REGION="${DB_REGION:-aws-1-us-east-2}"
-          # Default: rol dedicado ofrn_backup (no la password de postgres del dashboard)
+          # Rol dedicado ofrn_backup (SELECT). pg_dump directo: supabase db dump exige SET ROLE postgres.
           DB_USER="${SUPABASE_DB_USER:-ofrn_backup}"
-          ENCODED_PASS=$(python3 -c "import urllib.parse, os; print(urllib.parse.quote(os.environ['SUPABASE_DB_PASSWORD'], safe=''))")
-          DB_URL="postgresql://${DB_USER}.${PROJECT_REF}:${ENCODED_PASS}@${DB_REGION}.pooler.supabase.com:6543/postgres"
           STAMP=$(date -u +%Y-%m-%d_%H%M%SZ)
           echo "STAMP=$STAMP" >> "$GITHUB_ENV"
+          export PGPASSWORD="$SUPABASE_DB_PASSWORD"
+          # Session mode (5432) — pg_dump no funciona bien en transaction pooler (6543)
+          PGHOST="${DB_REGION}.pooler.supabase.com"
+          PGPORT=5432
+          PGUSER="${DB_USER}.${PROJECT_REF}"
+          PGDATABASE=postgres
 
-          supabase db dump --db-url "$DB_URL" \
-            --schema public,auth,storage \
-            -f "ofrn-schema-${STAMP}.sql"
-          supabase db dump --db-url "$DB_URL" \
-            --data-only \
-            --use-copy \
-            --schema public,auth,storage \
-            -f "ofrn-data-${STAMP}.sql"
-
-          {
-            echo "-- OFRN full backup ${STAMP}"
-            echo "-- schemas: public, auth, storage"
-            cat "ofrn-schema-${STAMP}.sql"
-            echo
-            cat "ofrn-data-${STAMP}.sql"
-          } > "ofrn-db-${STAMP}.sql"
+          docker run --rm \
+            -e PGPASSWORD \
+            -v "$PWD:/out" \
+            postgres:17 \
+            pg_dump \
+              --host="$PGHOST" \
+              --port="$PGPORT" \
+              --username="$PGUSER" \
+              --dbname="$PGDATABASE" \
+              --format=plain \
+              --no-owner \
+              --no-privileges \
+              --schema=public \
+              --schema=auth \
+              --schema=storage \
+              --file="/out/ofrn-db-${STAMP}.sql"
 
           gzip -9 "ofrn-db-${STAMP}.sql"
           ls -lh "ofrn-db-${STAMP}.sql.gz"
