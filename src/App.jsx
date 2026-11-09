@@ -1111,6 +1111,7 @@ const ProtectedApp = ({ initialTab }) => {
               "viaticos_seguimiento",
               "contrataciones",
               "constancias",
+              "plantillas_mails",
             ]}
           />
         );

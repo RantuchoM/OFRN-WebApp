@@ -98,6 +98,18 @@ export const MANAGEMENT_PALETTE_ENTRIES = [
     ],
   },
   {
+    slug: "plantillas_mails",
+    id: "mgmt-plantillas-mails",
+    label: "Gestión: Plantillas de mails",
+    section: "Informes de Gestión",
+    aliases: [
+      "mails",
+      "plantillas de correo",
+      "textos de mails",
+      "convocatoria mail",
+    ],
+  },
+  {
     id: "mgmt-horas",
     label: "Horas",
     section: "Informes de Gestión",

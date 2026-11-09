@@ -22,6 +22,7 @@ import {
   IconClock,
   IconClipboardCheck,
   IconFileText,
+  IconMail,
 } from "../../components/ui/Icons";
 import { VenuesManager } from "../../components/management/VenuesManager";
 import SeatingReports from "./SeatingReports";
@@ -35,6 +36,7 @@ import ServiciosCantidadReport from "./ServiciosCantidadReport";
 import ViaticosSeguimientoReport from "./ViaticosSeguimientoReport";
 import ContratacionesHub from "./ContratacionesHub";
 import ConstanciasHub from "./ConstanciasHub";
+import MailPlantillasHub from "./MailPlantillasHub";
 import ManagementSectionCard from "./ManagementSectionCard";
 
 const DEFAULT_SECTIONS = [
@@ -50,6 +52,7 @@ const DEFAULT_SECTIONS = [
   "viaticos_seguimiento",
   "contrataciones",
   "constancias",
+  "plantillas_mails",
 ];
 
 const HOME_VIEW = "home";
@@ -98,6 +101,7 @@ const SECTION_ORDER = [
   "viaticos_seguimiento",
   "contrataciones",
   "constancias",
+  "plantillas_mails",
 ];
 
 const SECTION_CONFIG = {
@@ -256,6 +260,19 @@ const SECTION_CONFIG = {
     iconClasses:
       "bg-indigo-50 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white",
     titleClasses: "text-indigo-900 group-hover:text-indigo-700",
+  },
+  plantillas_mails: {
+    title: "Plantillas de mails",
+    tabLabel: "Plantillas mails",
+    subtitle: "Textos de mails de producción",
+    description:
+      "Editá asuntos y textos de las plantillas (convocatoria, viáticos, repertorio, constancias). Los cambios aplican al próximo envío, sin redeploy.",
+    icon: IconMail,
+    cardClasses:
+      "border-sky-100 hover:border-sky-300 hover:shadow-md focus-visible:ring-sky-300",
+    iconClasses:
+      "bg-sky-50 text-sky-600 group-hover:bg-sky-600 group-hover:text-white",
+    titleClasses: "text-sky-900 group-hover:text-sky-700",
   },
   horas: {
     title: "Horas",
@@ -444,7 +461,8 @@ export default function ManagementView({
     activeTab === "audiencia" ||
     activeTab === "viaticos_seguimiento" ||
     activeTab === "contrataciones" ||
-    activeTab === "constancias";
+    activeTab === "constancias" ||
+    activeTab === "plantillas_mails";
 
   const headerSubtitle = isHomeView
     ? "Selecciona el informe que deseas abrir. Las vistas se cargan bajo demanda."
@@ -599,6 +617,12 @@ export default function ManagementView({
           enabledSections.has("constancias") && (
             <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
               <ConstanciasHub />
+            </div>
+          )}
+        {activeTab === "plantillas_mails" &&
+          enabledSections.has("plantillas_mails") && (
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+              <MailPlantillasHub supabase={supabase} />
             </div>
           )}
       </div>

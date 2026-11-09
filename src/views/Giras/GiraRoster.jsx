@@ -51,23 +51,6 @@ import {
   removeCoberturaCoverPerson,
 } from "../../utils/coberturaGira";
 import {
-  buildAltaMailAsunto,
-  buildAusenteMailAsunto,
-  buildAusenteMailNotification,
-  buildBajaGiraMailNotification,
-  buildBajaMailAsunto,
-  buildCoberturaAltaCubreMail,
-  buildCoberturaBajaAmbosCubreMail,
-  buildCoberturaBajaAmbosTitularMail,
-  buildCoberturaFinCubreMail,
-  buildCoberturaRestituirCubreMail,
-  buildCoberturaRestituirTitularMail,
-  buildExclusionEnsambleMailNotification,
-  buildExclusionFamiliaMailNotification,
-  buildInclusionGrupalMailNotification,
-  buildPresenteMailNotification,
-} from "../../utils/rosterBajaMotivos";
-import {
   integranteActiveOnProgramRange,
   filterMembershipRowsForProgramDate,
   membershipActiveOnProgramDate,
@@ -1792,9 +1775,9 @@ export default function GiraRoster({
           {
             id: `alta-detallada-${newMusician.id}-${Date.now()}`,
             variant: "ALTA",
+            plantillaVariant: "ALTA",
             emails: [newMusician.mail],
             nombres: [nombreCompleto],
-            reason: "Se te convoca individualmente",
           },
         ]);
       }
@@ -1916,26 +1899,31 @@ export default function GiraRoster({
           m.estado_gira === "confirmado",
       );
       added.forEach((m) => {
-        let reason = "Se te convoca a la gira";
         const musicianEnsembleIds =
           m.integrantes_ensambles?.map((ie) => ie.ensambles?.id).filter(Boolean) || [];
         const matchedEnsemble = [...ensembles].find((eid) =>
           musicianEnsembleIds.includes(eid),
         );
+        let plantillaVariant = "ALTA";
+        let ensambleLabel = "";
+        let familiaLabel = "";
         if (matchedEnsemble) {
-          const ensLabel = ensemblesList.find((e) => e.value === matchedEnsemble)?.label;
-          reason = ensLabel ? `Se te convoca con el ensamble ${ensLabel}` : reason;
+          ensambleLabel =
+            ensemblesList.find((e) => e.value === matchedEnsemble)?.label || "";
+          plantillaVariant = "ALTA:inclusion_ensamble";
         } else if (m.instrumentos?.familia && families.has(m.instrumentos.familia)) {
-          reason = `Se te convoca con la familia de ${m.instrumentos.familia}`;
+          familiaLabel = m.instrumentos.familia;
+          plantillaVariant = "ALTA:inclusion_familia";
         }
         setPendingNotifications((prev) => [
           ...prev,
           {
             id: `alta-groups-${m.id}-${Date.now()}`,
             variant: "ALTA",
+            plantillaVariant,
             emails: [m.mail],
             nombres: [m.nombre_completo || seatingApellidoNombre(m)],
-            reason,
+            vars: { ensamble: ensambleLabel, familia: familiaLabel },
           },
         ]);
       });
@@ -2121,32 +2109,25 @@ export default function GiraRoster({
         const nombreCompleto =
           member.nombre_completo ||
           seatingApellidoNombre(member);
-        const mail =
-          causeKind === "familia"
-            ? buildExclusionFamiliaMailNotification({
-                motivoText: bajaMotivoText,
-                motivoId: bajaMotivoId,
-                familiaLabel: causeLabel,
-              })
-            : buildExclusionEnsambleMailNotification({
-                motivoText: bajaMotivoText,
-                motivoId: bajaMotivoId,
-                ensLabel: causeLabel,
-              });
         bajaNotificationTasks.push({
           id: `baja-excl-${member.id}-${Date.now()}`,
           variant: "BAJA",
+          plantillaVariant:
+            causeKind === "familia"
+              ? "BAJA:exclusion_familia"
+              : "BAJA:exclusion_ensamble",
           emails: [member.mail],
           nombres: [nombreCompleto],
-          reason: mail.reason,
-          reasonFootnote: mail.reasonFootnote || undefined,
-          motivoBajaId: mail.motivoBajaId || undefined,
-          asunto: buildBajaMailAsunto({
-            motivoText: bajaMotivoText,
-            motivoId: bajaMotivoId,
-            giraNombre: giraMailContext?.nombre_gira || "",
-            exclusionKind: causeKind === "familia" ? "familia" : "ensamble",
-          }),
+          motivoText: bajaMotivoText,
+          motivoBajaId: bajaMotivoId || undefined,
+          exclusionKind: causeKind === "familia" ? "familia" : "ensamble",
+          ensambleLabel: causeKind === "ensamble" ? causeLabel : undefined,
+          familiaLabel: causeKind === "familia" ? causeLabel : undefined,
+          vars: {
+            motivo: bajaMotivoText,
+            ensamble: causeKind === "ensamble" ? causeLabel : "",
+            familia: causeKind === "familia" ? causeLabel : "",
+          },
         });
       });
     }
@@ -2166,13 +2147,30 @@ export default function GiraRoster({
         const nombreCompleto =
           member.nombre_completo ||
           seatingApellidoNombre(member);
-        const mail = buildInclusionGrupalMailNotification(person);
+        const inclusionKind =
+          person?.causeKind === "mixto"
+            ? "mixto"
+            : person?.causeKind === "ensamble"
+              ? "ensamble"
+              : "familia";
         altaNotificationTasks.push({
           id: `alta-groups-${member.id}-${Date.now()}`,
           variant: "ALTA",
+          plantillaVariant:
+            inclusionKind === "mixto"
+              ? "ALTA:inclusion_mixta"
+              : inclusionKind === "ensamble"
+                ? "ALTA:inclusion_ensamble"
+                : "ALTA:inclusion_familia",
           emails: [member.mail],
           nombres: [nombreCompleto],
-          reason: mail.reason,
+          inclusionKind,
+          ensambleLabel: person?.ensambleLabel || "",
+          familiaLabel: person?.familiaLabel || "",
+          vars: {
+            ensamble: person?.ensambleLabel || person?.causeLabel || "",
+            familia: person?.familiaLabel || person?.causeLabel || "",
+          },
         });
       });
     }
@@ -2369,9 +2367,9 @@ export default function GiraRoster({
         {
           id: `alta-manual-${integranteKey(idLink)}-${Date.now()}`,
           variant: "ALTA",
+          plantillaVariant: "ALTA",
           emails: [musicianData.mail],
           nombres: [nombreCompleto],
-          reason: "Se te convoca individualmente",
         },
       ]);
     }
@@ -2511,33 +2509,32 @@ export default function GiraRoster({
       return { prevCoverId: prevId, nextCoverId: nextId };
     }
 
-    const giraNombre = giraMailContext?.nombre_gira || "";
     const tasks = [];
     if (prevId != null && prevId !== nextId) {
       const prev = await resolveIntegranteNotifyInfo(prevId);
       if (prev?.mail) {
-        const mail = buildCoberturaFinCubreMail({ titularLabel });
         tasks.push({
           id: `cobertura-baja-${prev.id}-${Date.now()}`,
           variant: "BAJA",
+          plantillaVariant: "BAJA:cobertura_fin",
           emails: [prev.mail],
           nombres: [prev.nombre],
-          reason: mail.reason,
-          asunto: buildBajaMailAsunto({ giraNombre }),
+          titularLabel,
+          vars: { titular: titularLabel },
         });
       }
     }
     if (nextId != null && nextId !== prevId) {
       const next = await resolveIntegranteNotifyInfo(nextId);
       if (next?.mail) {
-        const mail = buildCoberturaAltaCubreMail({ titularLabel });
         tasks.push({
           id: `cobertura-alta-${next.id}-${Date.now()}`,
           variant: "ALTA",
+          plantillaVariant: "ALTA:cobertura",
           emails: [next.mail],
           nombres: [next.nombre],
-          reason: mail.reason,
-          asunto: buildAltaMailAsunto({ giraNombre }),
+          titularLabel,
+          vars: { titular: titularLabel },
         });
       }
     }
@@ -2789,30 +2786,27 @@ export default function GiraRoster({
           motivo: "No se requiere el servicio (cobertura)",
         });
         if (shouldNotify) {
-          const giraNombre = giraMailContext?.nombre_gira || "";
           const tasks = [];
           if (musician.mail) {
-            const mail = buildCoberturaBajaAmbosTitularMail({ coverLabel });
             tasks.push({
               id: `cob-baja-ambos-titular-${musician.id}-${Date.now()}`,
               variant: "BAJA",
+              plantillaVariant: "BAJA:ambos_titular",
               emails: [musician.mail],
               nombres: [titularLabel],
-              reason: mail.reason,
-              asunto: buildBajaMailAsunto({ giraNombre }),
+              coverLabel,
+              vars: { quien_cubre: coverLabel },
             });
           }
           if (coverInfo?.mail) {
-            const mail = buildCoberturaBajaAmbosCubreMail({
-              titularLabel,
-            });
             tasks.push({
               id: `cob-baja-ambos-cubre-${coverInfo.id}-${Date.now()}`,
               variant: "BAJA",
+              plantillaVariant: "BAJA:ambos_cubre",
               emails: [coverInfo.mail],
               nombres: [coverInfo.nombre],
-              reason: mail.reason,
-              asunto: buildBajaMailAsunto({ giraNombre }),
+              titularLabel,
+              vars: { titular: titularLabel },
             });
           }
           if (tasks.length) await sendNotificationsNow(tasks);
@@ -2841,34 +2835,27 @@ export default function GiraRoster({
           { onConflict: "id_gira, id_integrante" },
         );
         if (shouldNotify) {
-          const giraNombre = giraMailContext?.nombre_gira || "";
           const tasks = [];
           if (musician.mail) {
-            const mail = buildCoberturaRestituirTitularMail({ coverLabel });
             tasks.push({
               id: `cob-restituir-titular-${musician.id}-${Date.now()}`,
               variant: "ALTA",
+              plantillaVariant: "ALTA:restituir_titular",
               emails: [musician.mail],
               nombres: [titularLabel],
-              reason: mail.reason,
-              asunto: buildAltaMailAsunto({
-                giraNombre,
-                suffix: mail.asuntoSuffix || "Anulación de cobertura",
-              }),
+              coverLabel,
+              vars: { quien_cubre: coverLabel },
             });
           }
           if (coverInfo?.mail) {
-            const mail = buildCoberturaRestituirCubreMail({ titularLabel });
             tasks.push({
               id: `cob-restituir-cubre-${coverInfo.id}-${Date.now()}`,
               variant: "BAJA",
+              plantillaVariant: "BAJA:restituir_cubre",
               emails: [coverInfo.mail],
               nombres: [coverInfo.nombre],
-              reason: mail.reason,
-              asunto: buildBajaMailAsunto({
-                giraNombre,
-                suffix: mail.asuntoSuffix || "Anulación de cobertura",
-              }),
+              titularLabel,
+              vars: { titular: titularLabel },
             });
           }
           if (tasks.length) await sendNotificationsNow(tasks);
@@ -2899,17 +2886,13 @@ export default function GiraRoster({
         { onConflict: "id_gira, id_integrante" },
       );
       if (shouldNotifyMusician) {
-        const mail = buildPresenteMailNotification();
-        const giraNombre = giraMailContext?.nombre_gira || "";
         await sendNotificationsNow([
           {
             id: `presente-${musician.id}-${Date.now()}`,
             variant: "ALTA",
+            plantillaVariant: "ALTA:presente",
             emails: [musician.mail],
             nombres: [nombreCompleto],
-            reason: mail.reason,
-            altaLead: mail.altaLead || undefined,
-            asunto: buildAltaMailAsunto({ giraNombre }),
           },
         ]);
       }
@@ -2953,21 +2936,16 @@ export default function GiraRoster({
         );
       }
       if (shouldNotifyMusician) {
-        const mail = buildAusenteMailNotification({ motivoText, motivoId });
-        const giraNombre = giraMailContext?.nombre_gira || "";
         await sendNotificationsNow([
           {
             id: `toggle-${musician.id}-${Date.now()}`,
             variant: "AUSENTE",
+            plantillaVariant: "AUSENTE",
             emails: [musician.mail],
             nombres: [nombreCompleto],
-            reason: mail.reason,
-            reasonFootnote: mail.reasonFootnote || undefined,
-            motivoBajaId: mail.motivoBajaId || undefined,
-            asunto: buildAusenteMailAsunto({
-              motivoText,
-              giraNombre,
-            }),
+            motivoText,
+            motivoBajaId: motivoId || undefined,
+            vars: { motivo: motivoText },
           },
         ]);
       }
@@ -2979,22 +2957,19 @@ export default function GiraRoster({
       });
     } else {
       if (shouldNotifyMusician) {
-        const mail = buildBajaGiraMailNotification({ motivoText, motivoId });
-        const giraNombre = giraMailContext?.nombre_gira || "";
+        const isBalance =
+          motivoId === "balance_orquestal" ||
+          /balance\s*orquestal/i.test(String(motivoText || ""));
         await sendNotificationsNow([
           {
             id: `baja-${musician.id}-${Date.now()}`,
             variant: "BAJA",
+            plantillaVariant: isBalance ? "BAJA:balance" : "BAJA",
             emails: [musician.mail],
             nombres: [nombreCompleto],
-            reason: mail.reason,
-            reasonFootnote: mail.reasonFootnote || undefined,
-            motivoBajaId: mail.motivoBajaId || undefined,
-            asunto: buildBajaMailAsunto({
-              motivoText,
-              motivoId,
-              giraNombre,
-            }),
+            motivoText,
+            motivoBajaId: motivoId || undefined,
+            vars: { motivo: motivoText },
           },
         ]);
       }
@@ -3576,10 +3551,7 @@ export default function GiraRoster({
         variant: "ALTA",
         emails: [musicianInfo.mail],
         nombres: [nombreCompleto],
-        reason: "Se te asignó en forma individual.",
-        asunto: buildAltaMailAsunto({
-          giraNombre: giraMailContext?.nombre_gira || "",
-        }),
+        plantillaVariant: "ALTA:titular_vacante",
       },
     ]);
   };

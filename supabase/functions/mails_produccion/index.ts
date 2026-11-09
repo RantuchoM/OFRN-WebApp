@@ -1,6 +1,13 @@
     import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
     import nodemailer from "npm:nodemailer@6.9.7";
     import { MAIL_ICON_PNGS } from "./mailIcons.ts";
+    import {
+      applyPlantillaToDetalle,
+      buildMailVars,
+      fetchMailPlantilla,
+      resolvePlantillaVariantKey,
+      slotOf,
+    } from "./mailPlantillas.ts";
 
     const GMAIL_USER = Deno.env.get("GMAIL_USER");
     const GMAIL_PASS = Deno.env.get("GMAIL_PASS");
@@ -565,7 +572,7 @@
         const linkRepertorio = d?.link_repertorio || "";
         const nomenclador = d?.nomenclador || gira;
         const reason = d?.reason || "";
-        const reasonFootnote = resolveReasonFootnote(d, reason);
+        const reasonFootnote = resolveReasonFootnote(d, reason) || slotOf(d, "footnote", "");
         const rawDesde = d?.fecha_desde || "";
         const rawHasta = d?.fecha_hasta || "";
         const zona = d?.zona || "";
@@ -586,35 +593,49 @@
         const reasonFootnoteBlock = reasonFootnote
           ? `<p style="margin: 10px 0; padding: 10px; background: #f8fafc; border-left: 4px solid #94a3b8; border-radius: 4px; font-size: 13px; color: #334155;">${String(reasonFootnote).replace(/</g, "&lt;").replace(/>/g, "&gt;")}</p>`
           : "";
+        const footerText = slotOf(
+          d,
+          "footer",
+          "Orquesta Filarmónica de Río Negro – Sistema de Gestión",
+        );
 
-        let titulo = "Convocatoria OFRN";
+        let titulo = slotOf(d, "titulo_interno", "Convocatoria OFRN");
         let parrafo = "";
 
         if (variant === "INITIAL_BROADCAST") {
-          titulo = "Convocatoria a gira";
+          titulo = slotOf(d, "titulo_interno", "Convocatoria a gira");
+          const lead = slotOf(
+            d,
+            "lead",
+            `Te convocamos a la gira <strong>${gira}</strong> (${nomenclador}).`,
+          );
+          const linkTexto = slotOf(d, "link_texto", "Ver repertorio y material de la gira");
+          const cierre = slotOf(d, "cierre", "Cualquier consulta, respondé a este correo.");
           parrafo = `
             <p>${saludo}</p>
-            <p>Te convocamos a la gira <strong>${gira}</strong> (${nomenclador}).</p>
+            <p>${lead}</p>
             ${fechasZonaBlock}
             <p>Podés consultar el repertorio y material en el siguiente enlace:</p>
-            <p><a href="${linkRepertorio || "#"}" style="color:#4f46e5; font-weight:bold;">Ver repertorio y material de la gira</a></p>
-            <p>Cualquier consulta, respondé a este correo.</p>
+            <p><a href="${linkRepertorio || "#"}" style="color:#4f46e5; font-weight:bold;">${linkTexto}</a></p>
+            <p>${cierre}</p>
           `;
         } else if (variant === "ALTA") {
-          titulo = "Alta en gira";
-          const altaLeadRaw = String(d?.alta_lead || "").trim();
+          titulo = slotOf(d, "titulo_interno", "Alta en gira");
+          const altaLeadRaw = String(d?.alta_lead || slotOf(d, "lead", "")).trim();
           const altaLeadHtml = altaLeadRaw
             ? altaLeadRaw
                 .replace(/\{gira\}/g, gira)
                 .replace(/\{nomenclador\}/g, nomenclador)
             : `Fuiste dado/a de <strong>alta</strong> en la gira <strong>${gira}</strong> (${nomenclador}).`;
+          const linkTexto = slotOf(d, "link_texto", "Ver repertorio y material");
+          const cierre = slotOf(d, "cierre", "Saludos.");
           parrafo = `
             <p>${saludo}</p>
             <p>${altaLeadHtml}</p>
             ${reasonBlock}
             ${fechasZonaBlock}
-            ${linkRepertorio ? `<p><a href="${linkRepertorio}" style="color:#4f46e5; font-weight:bold;">Ver repertorio y material</a></p>` : ""}
-            <p>Saludos.</p>
+            ${linkRepertorio ? `<p><a href="${linkRepertorio}" style="color:#4f46e5; font-weight:bold;">${linkTexto}</a></p>` : ""}
+            <p>${cierre}</p>
           `;
         } else if (variant === "ALTA_ACCESO_PERSONAL") {
           // Alta de no estable / refuerzo / invitado: convocatoria + link /share/:token + guía de vistas
@@ -693,36 +714,62 @@
             <p>¡Saludos!<br>Orquesta Filarmónica de Río Negro</p>
           `;
         } else if (variant === "BAJA") {
-          titulo = "Baja de gira";
+          titulo = slotOf(d, "titulo_interno", "Baja de gira");
+          const leadBaja = slotOf(
+            d,
+            "lead",
+            `Se registró tu <strong>baja</strong> de la gira <strong>${gira}</strong> (${nomenclador}).`,
+          );
+          const cierreBaja = slotOf(d, "cierre", "Si tenés dudas, respondé a este correo.");
           parrafo = `
             <p>${saludo}</p>
-            <p>Se registró tu <strong>baja</strong> de la gira <strong>${gira}</strong> (${nomenclador}).</p>
+            <p>${leadBaja}</p>
             ${reasonBlock}
             ${reasonFootnoteBlock}
             ${fechasZonaBlock}
-            <p>Si tenés dudas, respondé a este correo.</p>
+            <p>${cierreBaja}</p>
           `;
         } else if (variant === "AUSENTE") {
-          titulo = "Ausencia en gira";
+          titulo = slotOf(d, "titulo_interno", "Ausencia en gira");
+          const leadAus = slotOf(
+            d,
+            "lead",
+            `Se registró tu situación de <strong>ausente</strong> en la gira <strong>${gira}</strong> (${nomenclador}).`,
+          );
+          const cierreAus = slotOf(
+            d,
+            "cierre",
+            "Para cualquier cambio, contactá a la administración.",
+          );
           parrafo = `
             <p>${saludo}</p>
-            <p>Se registró tu situación de <strong>ausente</strong> en la gira <strong>${gira}</strong> (${nomenclador}).</p>
+            <p>${leadAus}</p>
             ${reasonBlock}
             ${reasonFootnoteBlock}
             ${fechasZonaBlock}
-            <p>Para cualquier cambio, contactá a la administración.</p>
+            <p>${cierreAus}</p>
           `;
         } else if (variant === "GIRA_ELIMINADA") {
-          titulo = "Gira cancelada";
+          titulo = slotOf(d, "titulo_interno", "Gira cancelada");
           const nombreGiraUnico = gira || nomenclador || "esta gira";
+          const leadDel = slotOf(
+            d,
+            "lead",
+            `Te informamos que la gira <strong>${nombreGiraUnico}</strong> ha sido <strong>cancelada definitivamente</strong> y eliminada del cronograma.`,
+          );
+          const cierreDel = slotOf(
+            d,
+            "cierre",
+            "Si tenés consultas, contactá a la administración.",
+          );
           parrafo = `
             <p>${saludo}</p>
-            <p>Te informamos que la gira <strong>${nombreGiraUnico}</strong> ha sido <strong>cancelada definitivamente</strong> y eliminada del cronograma.</p>
+            <p>${leadDel}</p>
             ${fechasZonaBlock}
-            <p>Si tenés consultas, contactá a la administración.</p>
+            <p>${cierreDel}</p>
           `;
         } else if (variant === "SEATING_CAMBIO") {
-          titulo = "Novedades de seating";
+          titulo = slotOf(d, "titulo_interno", "Novedades de seating");
           const novedades = Array.isArray(d?.novedades) ? d.novedades : [];
           const novedadesItems = novedades
             .map((n: any) => {
@@ -764,7 +811,7 @@
               <h2 style="margin-top:0; color: #111;">${titulo}</h2>
               ${parrafo}
             </div>
-            <p style="color: #666; font-size: 12px;">Orquesta Filarmónica de Río Negro – Sistema de Gestión</p>
+            <p style="color: #666; font-size: 12px;">${footerText}</p>
           </body>
           </html>
         `;
@@ -1095,17 +1142,24 @@
           }
           const generateHTML = templates[tid as keyof typeof templates];
           const nombreGira = gira || "";
-          const det = detalle || {};
+          let det = detalle || {};
           const nombreParaTemplate =
             tid === "convocatoria_gira"
               ? ((Array.isArray(bcc) && bcc.length > 1)
                   ? ""
                   : nombreSaludoConvocatoria(nombre || "", det))
               : nombre || "";
+          const plantillaVariant = resolvePlantillaVariantKey(tid, det);
+          const plantillaRow = await fetchMailPlantilla(tid, plantillaVariant);
+          const mailVars = buildMailVars(nombreParaTemplate, nombreGira, det);
+          det = applyPlantillaToDetalle(plantillaRow, mailVars, det);
           const htmlContent = generateHTML(nombreParaTemplate, nombreGira, det);
 
           let subject = `Aviso OFRN`;
-          if (tid === 'viaticos_simple') {
+          const plantillaAsunto = String(det?._plantilla_asunto || det?.asunto || "").trim();
+          if (plantillaAsunto) {
+            subject = plantillaAsunto;
+          } else if (tid === 'viaticos_simple') {
             subject = `Viáticos OFRN | ${nombreGira}`;
           } else if (tid === 'confirmacion_comidas') {
             subject = `Confirmación de Comidas | ${nombreGira}`;
@@ -1126,10 +1180,7 @@
             subject = `[Repertorio] Ajuste entregado: ${detalle?.titulo || 'Obra'}`;
           } else if (tid === 'convocatoria_gira') {
             const v = (detalle?.variant || 'INITIAL_BROADCAST').toUpperCase();
-            const asuntoOverride = String(detalle?.asunto || "").trim();
-            if (asuntoOverride) {
-              subject = asuntoOverride;
-            } else if (v === 'INITIAL_BROADCAST') subject = `Convocatoria a gira | ${nombreGira}`;
+            if (v === 'INITIAL_BROADCAST') subject = `Convocatoria a gira | ${nombreGira}`;
             else if (v === 'ALTA') subject = `Alta en gira | ${nombreGira}`;
             else if (v === 'ALTA_ACCESO_PERSONAL') {
               subject = detalle?.es_modelo

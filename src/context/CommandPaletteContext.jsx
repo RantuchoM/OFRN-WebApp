@@ -40,6 +40,7 @@ import {
     IconMusicNote, IconList, IconBell, IconBookOpen, IconEdit,
     IconBulb, IconSpiralNotebook, IconManagement, IconSettingsWheel,
     IconHistory, IconMap, IconClipboardCheck, IconTrophy, IconClock,
+    IconMail,
 } from '../components/ui/Icons';
 
 const MANAGEMENT_SECTION_ICONS = {
@@ -55,6 +56,7 @@ const MANAGEMENT_SECTION_ICONS = {
   viaticos_seguimiento: IconDollarSign,
   contrataciones: IconClipboardCheck,
   constancias: IconFileText,
+  plantillas_mails: IconMail,
   horas: IconClock,
 };
 
