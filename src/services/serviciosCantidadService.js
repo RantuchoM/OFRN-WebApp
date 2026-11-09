@@ -243,8 +243,14 @@ export function formatServicioEventSubtitle(evt, ensambleById, programaById) {
 export async function resolveRostersForPrograms(supabase, programas) {
   const list = programas || [];
   const entries = await mapInBatches(list, ROSTER_CONCURRENCY, async (g) => {
-    const { countedIds, preAltaIds, reemplazoIds, licenciaIds } =
-      await resolveGiraRosterForMatrix(supabase, g.id);
+    const {
+      countedIds,
+      preAltaIds,
+      reemplazoIds,
+      licenciaIds,
+      coberturaAusenteIds,
+      coberturaCubreIds,
+    } = await resolveGiraRosterForMatrix(supabase, g.id);
     return [
       g.id,
       {
@@ -252,6 +258,8 @@ export async function resolveRostersForPrograms(supabase, programas) {
         preAlta: preAltaIds,
         reemplazo: reemplazoIds,
         licencia: licenciaIds,
+        coberturaAusente: coberturaAusenteIds,
+        coberturaCubre: coberturaCubreIds,
       },
     ];
   });
@@ -642,6 +650,8 @@ async function loadFimbaProrrateo(supabase, events, programas) {
     preAlta: detail?.preAltaIds || new Set(),
     reemplazo: detail?.reemplazoIds || new Set(),
     licencia: detail?.licenciaIds || new Set(),
+    coberturaAusente: detail?.coberturaAusenteIds || new Set(),
+    coberturaCubre: detail?.coberturaCubreIds || new Set(),
   };
   const { data: grupos, error: gruposError } = await supabase
     .from("giras_grupos")

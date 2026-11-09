@@ -13,6 +13,7 @@ import {
   STAGE_PLOT_CHAIR_SQUARE_STROKE,
   STAGE_PLOT_CHAIR_SQUARE_MAGNETIZED_FILL,
   STAGE_PLOT_CHAIR_SQUARE_MAGNETIZED_STROKE,
+  STAGE_PLOT_SOLOIST_STROKE,
   STAGE_PLOT_TARIMA_FILL,
   STAGE_PLOT_TARIMA_STROKE,
   STAGE_PLOT_TARIMA_LABEL_FILL,
@@ -28,6 +29,7 @@ import {
 import {
   computeStagePlotFurnitureSummary,
   stagePlotFurniturePdfTableBody,
+  stagePlotItemIsSoloist,
   stagePlotTarimaDimensionsCm,
 } from "./stagePlotOrganico";
 import {
@@ -59,6 +61,12 @@ import {
   normalizeStagePlotTextFill,
   readStagePlotLayerOpacities,
 } from "./stagePlotPayload";
+import {
+  drawSoloistOutlineOnCanvas,
+  stagePlotSoloistOutlineMetrics,
+  stagePlotSoloistOutlinePx,
+  getSoloistOutlineCanvas,
+} from "./stagePlotSoloistOutline";
 
 const VB = STAGE_PLOT_SILHOUETTE_VIEWBOX;
 const GRID_MINOR = stagePlotGridMinorPx();
@@ -74,6 +82,87 @@ const SLOT_IDLE_STROKE = "#334155";
 const SLOT_FILLED_STROKE = "#4f46e5";
 const SLOT_IDLE_FILL = "rgba(255,255,255,0.92)";
 const SLOT_FILLED_FILL = "rgba(79,70,229,0.28)";
+const SOLOIST_STROKE_RGB = hexToRgb(STAGE_PLOT_SOLOIST_STROKE);
+
+/**
+ * Contorno dorado de solista en PDF: silueta opaca (no AABB), vía canvas 2D.
+ * @param {import("jspdf").jsPDF} doc
+ * @param {CanvasImageSource} source
+ * @param {number} cx
+ * @param {number} cy
+ * @param {number} wMm
+ * @param {number} hMm
+ * @param {number} rotationDeg
+ * @param {boolean} [flipX=false]
+ */
+function drawSoloistOutlineOnPdf(
+  doc,
+  source,
+  cx,
+  cy,
+  wMm,
+  hMm,
+  rotationDeg,
+  flipX = false,
+) {
+  if (typeof document === "undefined" || !source) return;
+  const widthMm = Number(wMm);
+  const heightMm = Number(hMm);
+  if (!Number.isFinite(widthMm) || !Number.isFinite(heightMm)) return;
+  if (widthMm <= 0 || heightMm <= 0) return;
+  const { w: iw, h: ih } = getStagePlotImageNaturalSize(source);
+  if (!iw || !ih) return;
+  const pxW = Math.max(48, Math.round(widthMm * 6));
+  const pxH = Math.max(48, Math.round(heightMm * 6));
+  const fit = fitContainInBox(pxW, pxH, iw, ih);
+  if (!fit.drawW || !fit.drawH) return;
+  const strokePx = stagePlotSoloistOutlinePx(fit.drawW, fit.drawH);
+  const outline = getSoloistOutlineCanvas(source, {
+    drawW: fit.drawW,
+    drawH: fit.drawH,
+    strokePx,
+    color: STAGE_PLOT_SOLOIST_STROKE,
+    punchInterior: true,
+  });
+  if (!outline) return;
+  const { outW, outH } = stagePlotSoloistOutlineMetrics(
+    fit.drawW,
+    fit.drawH,
+    strokePx,
+  );
+  const padCanvas = Math.ceil(Math.sqrt(outW * outW + outH * outH)) + 4;
+  const canvas = document.createElement("canvas");
+  canvas.width = padCanvas;
+  canvas.height = padCanvas;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  ctx.translate(padCanvas / 2, padCanvas / 2);
+  if (rotationDeg) ctx.rotate((rotationDeg * Math.PI) / 180);
+  if (flipX) ctx.scale(-1, 1);
+  ctx.drawImage(outline, -outW / 2, -outH / 2, outW, outH);
+  const outMm = padCanvas / 6;
+  try {
+    doc.addImage(
+      canvas.toDataURL("image/png"),
+      "PNG",
+      cx - outMm / 2,
+      cy - outMm / 2,
+      outMm,
+      outMm,
+      undefined,
+      "FAST",
+    );
+  } catch (err) {
+    console.warn("[stagePlotPdf] soloist outline:", err);
+    doc.setDrawColor(
+      SOLOIST_STROKE_RGB.r,
+      SOLOIST_STROKE_RGB.g,
+      SOLOIST_STROKE_RGB.b,
+    );
+    doc.setLineWidth(0.4);
+    doc.rect(cx - widthMm / 2, cy - heightMm / 2, widthMm, heightMm, "S");
+  }
+}
 
 /**
  * @param {ReturnType<typeof normalizeStagePlotPayload>} payload
@@ -923,8 +1012,21 @@ async function drawStageItemsOnPdf(doc, payload, ox, oy, scale) {
       const iconCx = cx - iconOffY * Math.sin(rad);
       const iconCy = cy + iconOffY * Math.cos(rad);
       const paintTimpani = timpaniSizePaintLocal(item);
+      const isSoloist = stagePlotItemIsSoloist(item);
       const iconImg = await loadStagePlotIconImage(item.type, hex);
       if (iconImg) {
+        if (isSoloist) {
+          drawSoloistOutlineOnPdf(
+            doc,
+            iconImg,
+            iconCx,
+            iconCy,
+            iconBoxW,
+            iconBoxH,
+            rotation,
+            item.flipX === true,
+          );
+        }
         drawImageRotated(
           doc,
           iconImg,
@@ -950,10 +1052,16 @@ async function drawStageItemsOnPdf(doc, payload, ox, oy, scale) {
             rgb,
             item.flipX === true,
             paintTimpani,
+            isSoloist,
           );
         } else {
           doc.setFillColor(rgb.r, rgb.g, rgb.b);
-          doc.setDrawColor(30);
+          doc.setDrawColor(
+            isSoloist ? SOLOIST_STROKE_RGB.r : 30,
+            isSoloist ? SOLOIST_STROKE_RGB.g : 30,
+            isSoloist ? SOLOIST_STROKE_RGB.b : 30,
+          );
+          doc.setLineWidth(isSoloist ? 0.55 : 0.2);
           doc.rect(
             iconCx - iconBoxW / 2,
             iconCy - iconBoxH / 2,
@@ -1147,8 +1255,21 @@ async function drawStageItemsOnCanvas(ctx, payload, ox, oy, scale) {
       const iconCx = cx - iconOffY * Math.sin(rad);
       const iconCy = cy + iconOffY * Math.cos(rad);
       const paintTimpani = timpaniSizePaintLocal(item);
+      const isSoloist = stagePlotItemIsSoloist(item);
       const iconImg = await loadStagePlotIconImage(item.type, hex);
       if (iconImg) {
+        if (isSoloist) {
+          drawSoloistOutlineOnCanvas(
+            ctx,
+            iconImg,
+            iconCx,
+            iconCy,
+            iconBoxW,
+            iconBoxH,
+            rotation,
+            item.flipX === true,
+          );
+        }
         drawImageRotatedOnCanvas(
           ctx,
           iconImg,
@@ -1174,6 +1295,7 @@ async function drawStageItemsOnCanvas(ctx, payload, ox, oy, scale) {
             rgb,
             item.flipX === true,
             paintTimpani,
+            isSoloist,
           );
         } else {
           ctx.save();
@@ -1184,8 +1306,10 @@ async function drawStageItemsOnCanvas(ctx, payload, ox, oy, scale) {
             ctx.scale(-1, 1);
           }
           ctx.fillStyle = `rgb(${rgb.r},${rgb.g},${rgb.b})`;
-          ctx.strokeStyle = "#1e293b";
-          ctx.lineWidth = 1;
+          ctx.strokeStyle = isSoloist
+            ? STAGE_PLOT_SOLOIST_STROKE
+            : "#1e293b";
+          ctx.lineWidth = isSoloist ? 2.5 : 1;
           ctx.fillRect(-iconBoxW / 2, -iconBoxH / 2, iconBoxW, iconBoxH);
           ctx.strokeRect(-iconBoxW / 2, -iconBoxH / 2, iconBoxW, iconBoxH);
           if (item.flipX === true) ctx.restore();
@@ -1578,14 +1702,16 @@ function drawSilhouetteOnPdf(
   rgb,
   flipX = false,
   paintLocal = null,
+  isSoloist = false,
 ) {
   if (typeof document === "undefined" || !pathD) return;
   const widthMm = Number(wMm);
   const heightMm = Number(hMm);
   if (!Number.isFinite(widthMm) || !Number.isFinite(heightMm)) return;
   if (widthMm <= 0 || heightMm <= 0) return;
-  const pxW = Math.max(48, Math.round(widthMm * 6));
-  const pxH = Math.max(48, Math.round(heightMm * 6));
+  const strokeExtra = isSoloist ? 8 : 0;
+  const pxW = Math.max(48, Math.round(widthMm * 6)) + strokeExtra;
+  const pxH = Math.max(48, Math.round(heightMm * 6)) + strokeExtra;
   const canvas = document.createElement("canvas");
   canvas.width = pxW;
   canvas.height = pxH;
@@ -1596,21 +1722,24 @@ function drawSilhouetteOnPdf(
     pathD,
     pxW / 2,
     pxH / 2,
-    pxW,
-    pxH,
+    Math.max(48, Math.round(widthMm * 6)),
+    Math.max(48, Math.round(heightMm * 6)),
     rotationDeg,
     rgb,
     flipX,
     paintLocal,
+    isSoloist,
   );
+  const outW = widthMm * (pxW / Math.max(48, Math.round(widthMm * 6)));
+  const outH = heightMm * (pxH / Math.max(48, Math.round(heightMm * 6)));
   try {
     doc.addImage(
       canvas.toDataURL("image/png"),
       "PNG",
-      cx - widthMm / 2,
-      cy - heightMm / 2,
-      widthMm,
-      heightMm,
+      cx - outW / 2,
+      cy - outH / 2,
+      outW,
+      outH,
       undefined,
       "FAST",
     );
@@ -1630,6 +1759,7 @@ function drawSilhouetteOnCanvas(
   rgb,
   flipX = false,
   paintLocal = null,
+  isSoloist = false,
 ) {
   if (!pathD) return;
   ctx.save();
@@ -1645,10 +1775,18 @@ function drawSilhouetteOnCanvas(
   ctx.scale(silScale, silScale);
   ctx.translate(-VB / 2, -VB / 2);
   const path = new Path2D(pathD);
-  ctx.fillStyle = `rgb(${rgb.r},${rgb.g},${rgb.b})`;
-  ctx.strokeStyle = "#0f172a";
-  ctx.lineWidth = 1.2 / silScale;
   ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+  if (isSoloist) {
+    // Contorno dorado del path (silueta vectorial), no AABB.
+    ctx.strokeStyle = STAGE_PLOT_SOLOIST_STROKE;
+    ctx.lineWidth =
+      Math.max(3.2, stagePlotSoloistOutlinePx(wPx, hPx)) / silScale;
+    ctx.stroke(path);
+  }
+  ctx.fillStyle = `rgb(${rgb.r},${rgb.g},${rgb.b})`;
+  ctx.strokeStyle = isSoloist ? STAGE_PLOT_SOLOIST_STROKE : "#0f172a";
+  ctx.lineWidth = (isSoloist ? 2.4 : 1.2) / silScale;
   ctx.fill(path);
   ctx.stroke(path);
   ctx.restore();

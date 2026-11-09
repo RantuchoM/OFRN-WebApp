@@ -21,7 +21,7 @@ Permitir que los integrantes de la OFRN gestionen sus propios reportes de feedba
 
 ## Esquema
 - Tabla: `public.app_feedback`
-- Campos clave: `id`, `user_email`, `estado`, `admin_comments`, `titulo`, `mensaje`.
+- Campos clave: `id`, `user_email`, `estado`, `admin_comments`, `admin_reply_images` (`text[]`, máx. 2 URLs públicas), `titulo`, `mensaje`.
 
 ## Vista FeedbackAdmin
 
@@ -35,7 +35,9 @@ Permitir que los integrantes de la OFRN gestionen sus propios reportes de feedba
 
 - **Administración – Resolución:**
   - Al seleccionar estado "Resuelto", se habilita el input para `admin_comments`.
-  - Al guardar (estado + comentario), invocar `send-feedback-email` con `is_resolution: true` y `admin_comments`.
+  - Se pueden adjuntar hasta **2 imágenes** (`admin_reply_images`): se comprimen en cliente, se suben a Storage (`archivos_generales/feedback/admin_reply_*`) y se guardan como URLs públicas.
+  - Al guardar (estado + comentario + imágenes), invocar `send-feedback-email` con `is_resolution: true`, `admin_comments` y el `record` con `admin_reply_images`.
+  - En **Mis Pedidos** y en la nota admin se muestran miniaturas clicables; el mail de resolución incluye las imágenes embebidas (con enlace).
 
 ## Edge Function `send-feedback-email`
 
@@ -101,6 +103,7 @@ Cuando se envía el mail de resolución (`is_resolution: true`), el cuerpo inclu
 2. **Tipo del pedido:** bloque con estética según tipo (verde Sugerencia, rojo Error, amarillo Ayuda) para que el usuario recuerde en qué categoría lo envió.
 3. **Tu mensaje:** el texto original del pedido (`record.mensaje`) en un bloque destacado, para que el UX pueda recordar qué pidió.
 4. **Comentario de administración:** la respuesta de administración (`admin_comments`).
+5. **Imágenes de respuesta (opcional):** hasta 2 URLs de `admin_reply_images`, embebidas en el HTML del mail.
 
 La Edge Function `send-feedback-email` aplica en el HTML del mail los mismos criterios de estilo por tipo (fondo y borde verde/rojo/ámbar) para el bloque "Tipo".
 
@@ -110,3 +113,4 @@ La Edge Function `send-feedback-email` aplica en el HTML del mail los mismos cri
 - **Completado:** Implementado pestañas (Mis Pedidos / Administración), edición de pedidos Pendientes con modal y notificación por `is_update`, resolución con `admin_comments` y notificación al usuario por `is_resolution`. Edge Function actualizada para ambos flujos.
 - **Completado (UX/email):** Barra izquierda por estado (naranja/azul/verde); iconos por tipo en Admin y Widget; email de resolución con tipo y mensaje del pedido y estética por tipo.
 - **Completado (capturas):** `screenshot_path` se guarda como URL pública de Storage (`archivos_generales`). En Admin y en el mail de nuevo feedback, las rutas relativas legacy se resuelven con `getPublicUrl` / `SUPABASE_URL` para que "Ver captura" no apunte al dominio de Vercel.
+- **Completado (2026-11-07):** Respuesta admin con hasta 2 imágenes (`admin_reply_images text[]`): UI de adjuntar en FeedbackAdmin, miniaturas en Mis Pedidos / nota admin, imágenes en mail de resolución.

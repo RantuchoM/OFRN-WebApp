@@ -22,6 +22,10 @@ export default function SearchableSelect({
     onCreateWhenEmpty = null,
     createWhenEmptyLabel = null,
     invalid = false,
+    /** Mostrar cruz para limpiar selección (single). Default true. */
+    clearable = true,
+    /** Campo «Escribí para filtrar…» en el dropdown. Default true. */
+    searchable = true,
     /** En <md el trigger es un botón redondo con IconUser (p. ej. «Ver como»). */
     mobileIconTrigger = false,
     /** Incrementar para abrir el listado desde afuera (p. ej. «este evento en otro lugar»). */
@@ -49,13 +53,13 @@ export default function SearchableSelect({
 
     // Filtrado local (sin tildes/mayúsculas; mejores matches primero)
     const filteredOptions = useMemo(() => {
-        if (!search.trim()) return normalizedOptions.slice(0, 300);
+        if (!searchable || !search.trim()) return normalizedOptions.slice(0, 300);
         return filterAndRankMultiTokenSearch(
             normalizedOptions,
             (o) => [o.label, o.subLabel],
             search,
         ).slice(0, 80);
-    }, [normalizedOptions, search]);
+    }, [normalizedOptions, search, searchable]);
 
     // Opción seleccionada (Single); trim para alinear con datos viejos con espacios
     const selectedOption = useMemo(() => {
@@ -250,7 +254,9 @@ export default function SearchableSelect({
                                     ) : null}
                                     <span className="truncate text-slate-700 font-medium">{selectedLabel}</span>
                                 </div>
-                                <button onClick={(e) => { e.stopPropagation(); onChange(null); }} className="p-0.5 hover:bg-slate-100 rounded text-slate-400 shrink-0"><IconX size={12}/></button>
+                                {clearable ? (
+                                    <button onClick={(e) => { e.stopPropagation(); onChange(null); }} className="p-0.5 hover:bg-slate-100 rounded text-slate-400 shrink-0"><IconX size={12}/></button>
+                                ) : null}
                             </div>
                         ) : (
                             <span className={`text-slate-400 ${iconMobile ? "hidden md:inline" : ""}`}>{placeholder}</span>
@@ -264,25 +270,27 @@ export default function SearchableSelect({
                     className={`searchable-portal fixed bg-white border border-slate-300 shadow-xl rounded-lg flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-100 ${isDropUp ? 'origin-bottom' : 'origin-top'}`}
                     style={dropdownStyle}
                 >
-                    <div className="p-2 border-b border-slate-100 bg-slate-50">
-                        <div className="relative">
-                            <IconSearch size={14} className="absolute left-2 top-2 text-slate-400"/>
-                            <input
-                                type="text"
-                                className="w-full pl-7 pr-2 py-1.5 text-xs border rounded outline-none focus:border-indigo-500"
-                                placeholder="Escribí para filtrar…"
-                                value={search}
-                                onChange={(e) => setSearch(e.target.value)}
-                                onKeyDown={(e) => {
-                                    if (e.key === "Escape") {
-                                        setIsOpen(false);
-                                        setSearch("");
-                                    }
-                                }}
-                                autoFocus
-                            />
+                    {searchable ? (
+                        <div className="p-2 border-b border-slate-100 bg-slate-50">
+                            <div className="relative">
+                                <IconSearch size={14} className="absolute left-2 top-2 text-slate-400"/>
+                                <input
+                                    type="text"
+                                    className="w-full pl-7 pr-2 py-1.5 text-xs border rounded outline-none focus:border-indigo-500"
+                                    placeholder="Escribí para filtrar…"
+                                    value={search}
+                                    onChange={(e) => setSearch(e.target.value)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === "Escape") {
+                                            setIsOpen(false);
+                                            setSearch("");
+                                        }
+                                    }}
+                                    autoFocus
+                                />
+                            </div>
                         </div>
-                    </div>
+                    ) : null}
                     <div className="overflow-y-auto max-h-60">
                         {iconMobile && selectedLabel && (
                             <button

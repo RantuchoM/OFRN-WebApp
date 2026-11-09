@@ -259,6 +259,20 @@ function markBadge(mark) {
       </span>
     );
   }
+  if (mark === "cobertura_ausente") {
+    return (
+      <span className="rounded bg-red-100 px-1 py-px text-[10px] font-bold uppercase text-red-700">
+        C
+      </span>
+    );
+  }
+  if (mark === "cobertura_cubre") {
+    return (
+      <span className="rounded bg-emerald-100 px-1 py-px text-[10px] font-bold uppercase text-emerald-700">
+        C
+      </span>
+    );
+  }
   return null;
 }
 

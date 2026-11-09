@@ -66,6 +66,12 @@ const handler = async (req: Request): Promise<Response> => {
     const is_update = payload?.is_update === true || payload?.is_update === "true"
     const is_resolution = payload?.is_resolution === true || payload?.is_resolution === "true"
     const admin_comments = (payload?.admin_comments ?? record?.admin_comments ?? "") as string
+    const adminReplyImagesRaw = payload?.admin_reply_images ?? record?.admin_reply_images
+    const adminReplyImages = (Array.isArray(adminReplyImagesRaw) ? adminReplyImagesRaw : [])
+      .filter((u): u is string => typeof u === "string" && !!u.trim())
+      .slice(0, 2)
+      .map((u) => resolveScreenshotUrl(u))
+      .filter((u): u is string => !!u)
 
     // console.log("[send-feedback-email] payload:", {
     //   hasRecord: !!record,
@@ -154,6 +160,23 @@ const handler = async (req: Request): Promise<Response> => {
               <strong>Comentario de administración:</strong><br/>
               ${esc(admin_comments || "Sin comentario adicional.").replace(/\n/g, "<br/>")}
             </div>
+            ${
+              adminReplyImages.length
+                ? `<div style="margin: 16px 0;">
+              <strong>Imágenes adjuntas:</strong>
+              <div style="margin-top: 10px;">
+                ${adminReplyImages
+                  .map(
+                    (url, i) =>
+                      `<a href="${url}" style="display:inline-block;margin:0 8px 8px 0;" target="_blank" rel="noopener">
+                        <img src="${url}" alt="Adjunto ${i + 1}" style="max-width:240px;max-height:180px;border-radius:8px;border:1px solid #e2e8f0;" />
+                      </a>`
+                  )
+                  .join("")}
+              </div>
+            </div>`
+                : ""
+            }
             <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;" />
             <small>OFRN - Centro de Feedback</small>
           </div>

@@ -9,6 +9,7 @@ import {
   IconMusic,
   IconMap,
   IconFilter,
+  IconX,
 } from "../../components/ui/Icons";
 import DateInput from "../../components/ui/DateInput";
 import AppNavLink from "../../components/ui/AppNavLink";
@@ -26,6 +27,9 @@ export default function GirasListControls({
   toggleFilterType,
   filterStatus,
   toggleFilterStatus,
+  filterEnsambleId = null,
+  setFilterEnsambleId,
+  ensambleFilterOptions = [],
   listLayout = "cards",
   setListLayout,
   expandAllConcerts = false,
@@ -296,6 +300,48 @@ export default function GirasListControls({
               );
             })}
           </div>
+
+          {setFilterEnsambleId && ensambleFilterOptions.length > 0 && (
+            <>
+              <div className="h-6 w-px bg-slate-200 hidden lg:block"></div>
+              <div className="flex w-full items-center gap-1 md:w-auto md:min-w-[11rem] md:max-w-[15rem]">
+                <select
+                  value={filterEnsambleId ?? ""}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setFilterEnsambleId(v === "" ? null : Number(v));
+                  }}
+                  className={`min-w-0 flex-1 h-8 md:h-7 rounded-md border px-2 text-[11px] font-semibold bg-white ${
+                    filterEnsambleId != null
+                      ? "border-indigo-300 text-indigo-700"
+                      : "border-slate-200 text-slate-500"
+                  }`}
+                  title="Programas donde el ensamble está convocado (directo, por familia o por CF)"
+                  aria-label="Filtrar por ensamble convocado"
+                >
+                  <option value="">Ensamble…</option>
+                  {ensambleFilterOptions.map((opt) => (
+                    <option key={opt.id} value={opt.id}>
+                      {opt.subLabel
+                        ? `${opt.label} (${opt.subLabel})`
+                        : opt.label}
+                    </option>
+                  ))}
+                </select>
+                {filterEnsambleId != null && (
+                  <button
+                    type="button"
+                    onClick={() => setFilterEnsambleId(null)}
+                    className="shrink-0 rounded-md border border-slate-200 bg-white p-1.5 text-slate-400 hover:border-slate-300 hover:text-slate-600"
+                    title="Quitar filtro de ensamble"
+                    aria-label="Quitar filtro de ensamble"
+                  >
+                    <IconX size={14} />
+                  </button>
+                )}
+              </div>
+            </>
+          )}
         </div>
       )}
     </div>

@@ -17,7 +17,8 @@ function viewerSummary(viewers, selfId) {
 }
 
 /**
- * Tomar / ceder el candado del lienzo y quién lo mira.
+ * Tomar / ceder el candado del lienzo — solo con concurrencia
+ * (otro presente o locked_by ajeno con latido fresco).
  */
 export default function StagePlotLockControls({
   staffCanEdit,
@@ -29,8 +30,11 @@ export default function StagePlotLockControls({
   selfId,
   onTake,
   onRelease,
+  showLockUi = false,
   compact = false,
 }) {
+  if (!showLockUi) return null;
+
   const watching = viewerSummary(viewers, selfId);
   const status = settling
     ? "Sincronizando el plano…"
@@ -71,7 +75,7 @@ export default function StagePlotLockControls({
           onClick={onRelease}
           disabled={busy || settling}
           className="inline-flex items-center gap-1 rounded border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
-          title="Soltar el control y dejar el plano en solo lectura"
+          title="Soltar el control para que otra persona pueda editar"
         >
           <IconLockOpen size={14} />
           Ceder control

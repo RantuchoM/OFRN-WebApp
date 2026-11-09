@@ -19,7 +19,7 @@ import { fetchVisibleProgramIds } from "./useGirasList";
 const GIRAS_YEAR_SELECT = `
   id, nombre_gira, fecha_desde, fecha_hasta, tipo, estado,
   giras_fuentes(*),
-  giras_integrantes(id_integrante, estado, abona_reemplazo, abona_licencia),
+  giras_integrantes(id_integrante, estado, abona_reemplazo, abona_licencia, es_cobertura, cobertura_id_integrante, cobertura_nombre),
   eventos(id, fecha, id_tipo_evento)
 `;
 
@@ -85,9 +85,18 @@ async function fetchYearProgramsForUser(
     });
     if (!ids.length) return [];
     const programs = await fetchProgramsByIds(supabase, ids);
-    const result = programs.filter((g) =>
-      programOverlapsDateRange(g, desde, hasta, listReferenceDate),
-    );
+    const uid = Number(user.id);
+    const result = programs.filter((g) => {
+      if (!programOverlapsDateRange(g, desde, hasta, listReferenceDate)) {
+        return false;
+      }
+      // Cobertura (C verde): viaja pero no suma en el resumen personal.
+      const ov = (g.giras_integrantes || []).find(
+        (gi) => Number(gi.id_integrante) === uid,
+      );
+      if (ov?.es_cobertura) return false;
+      return true;
+    });
     result.sort((a, b) => compareProgramsForList(a, b, listReferenceDate));
     return result;
   }

@@ -15,6 +15,15 @@ import {
 } from "./stagePlotConstants";
 
 /**
+ * Flag de solista en el payload del ítem (jsonb).
+ * No confundir con elementos de catálogo `male_soloist` / `female_soloist`.
+ * @param {{ isSoloist?: boolean, soloist?: boolean }|null|undefined} item
+ */
+export function stagePlotItemIsSoloist(item) {
+  return item?.isSoloist === true || item?.soloist === true;
+}
+
+/**
  * Filas de orgánico para comparar plano vs roster convocado.
  * `types` = tipos del catálogo stage-plot que suman al dibujado.
  * Cuerdas se desglosan por id_instr (01–04); piano+celesta agrupan teclado.
@@ -60,7 +69,7 @@ export const STAGE_PLOT_ORGANICO_ROWS = [
   },
   {
     key: "horn",
-    label: "Trompa",
+    label: "Corno",
     types: ["horn"],
     nameMatch: ["corno", "trompa"],
   },
@@ -204,16 +213,152 @@ for (const row of STAGE_PLOT_ORGANICO_ROWS) {
   for (const t of row.types) TYPE_TO_KEY.set(t, row.key);
 }
 
-/** @param {Array<{ type?: string }>} items */
+/** @param {Array<{ type?: string, isSoloist?: boolean, soloist?: boolean }>} items */
 export function countStagePlotDrawnByOrganico(items = []) {
   const acc = Object.fromEntries(
     STAGE_PLOT_ORGANICO_ROWS.map((r) => [r.key, 0]),
   );
   for (const it of items) {
+    if (stagePlotItemIsSoloist(it)) continue;
     const key = TYPE_TO_KEY.get(it?.type);
     if (key) acc[key] += 1;
   }
   return acc;
+}
+
+/** Ítems-instrumento con flag solista (excluidos del conteo por familia). */
+export function countStagePlotSoloists(items = []) {
+  let n = 0;
+  for (const it of items || []) {
+    if (!stagePlotItemHasInstrumentFootprint(it?.type)) continue;
+    if (stagePlotItemIsSoloist(it)) n += 1;
+  }
+  return n;
+}
+
+const DRAWN_WW_BRASS = {
+  flute: "fl",
+  oboe: "ob",
+  cor_anglais: "ob",
+  clarinet: "cl",
+  bass_clarinet: "cl",
+  bassoon: "bn",
+  horn: "hn",
+  trumpet: "tpt",
+  trombone: "tbn",
+  tuba: "tba",
+};
+const DRAWN_STR_TYPES = new Set(["violin", "viola", "cello", "bass"]);
+const DRAWN_PERC_OTHER = new Set([
+  "marimba",
+  "vibraphone",
+  "bass_drum",
+  "snare",
+  "cymbals",
+  "xylophone",
+  "tubular_bells",
+  "perc",
+]);
+const DRAWN_KEY_TYPES = new Set(["piano", "celesta"]);
+const DRAWN_OTHER_LABELS = {
+  guitar: "Guitarra",
+  bandoneon: "Bandoneón",
+};
+
+/**
+ * Contador compacto del plano: `2.2.2.2 - 4.2.3.1 - Str - Timp+2 · Sol 1`.
+ * Solistas no suman en la familia; van al sufijo `· Sol N`.
+ * Timbales: presencia → `Timp` / `Timp+N` (N = otros íconos de perc.).
+ * @param {Array<{ type?: string, isSoloist?: boolean, soloist?: boolean }>} items
+ */
+export function formatStagePlotDrawnOrganicoString(items = []) {
+  const counts = {
+    fl: 0,
+    ob: 0,
+    cl: 0,
+    bn: 0,
+    hn: 0,
+    tpt: 0,
+    tbn: 0,
+    tba: 0,
+    harp: 0,
+    key: 0,
+  };
+  let hasStr = false;
+  let hasTimp = false;
+  let otherPerc = 0;
+  /** @type {Record<string, number>} */
+  const others = {};
+  let soloists = 0;
+
+  for (const it of items || []) {
+    const type = it?.type;
+    if (!type) continue;
+    if (
+      stagePlotItemIsSoloist(it) &&
+      stagePlotItemHasInstrumentFootprint(type)
+    ) {
+      soloists += 1;
+      continue;
+    }
+    const wwBrass = DRAWN_WW_BRASS[type];
+    if (wwBrass) {
+      counts[wwBrass] += 1;
+      continue;
+    }
+    if (DRAWN_STR_TYPES.has(type)) {
+      hasStr = true;
+      continue;
+    }
+    if (type === "timpani") {
+      hasTimp = true;
+      continue;
+    }
+    if (DRAWN_PERC_OTHER.has(type)) {
+      otherPerc += 1;
+      continue;
+    }
+    if (type === "harp") {
+      counts.harp += 1;
+      continue;
+    }
+    if (DRAWN_KEY_TYPES.has(type)) {
+      counts.key += 1;
+      continue;
+    }
+    const otherLabel = DRAWN_OTHER_LABELS[type];
+    if (otherLabel) {
+      others[otherLabel] = (others[otherLabel] || 0) + 1;
+    }
+  }
+
+  let standardStr = `${counts.fl}.${counts.ob}.${counts.cl}.${counts.bn} - ${counts.hn}.${counts.tpt}.${counts.tbn}.${counts.tba}`;
+
+  let percStr = "";
+  if (hasTimp) {
+    percStr = otherPerc > 0 ? `Timp+${otherPerc}` : "Timp";
+  } else if (otherPerc === 1) {
+    percStr = "Perc";
+  } else if (otherPerc > 1) {
+    percStr = `Perc.x${otherPerc}`;
+  }
+  if (percStr) standardStr += ` - ${percStr}`;
+  if (counts.harp > 0) {
+    standardStr += ` - ${counts.harp > 1 ? counts.harp : ""}Hp`;
+  }
+  if (counts.key > 0) standardStr += " - Key";
+  if (hasStr) standardStr += " - Str";
+
+  const otherKeys = Object.keys(others);
+  if (otherKeys.length > 0) {
+    const othersStr = otherKeys
+      .map((k) => (others[k] > 1 ? `${k} x${others[k]}` : k))
+      .join(", ");
+    standardStr += ` + ${othersStr}`;
+  }
+  if (soloists > 0) standardStr += ` · Sol ${soloists}`;
+
+  return standardStr;
 }
 
 /**
@@ -832,7 +977,10 @@ export function buildStagePlotAtrilDetail({
 export function buildStagePlotOrganicoCompare(items = [], roster = []) {
   const drawn = countStagePlotDrawnByOrganico(items);
   const required = computeStagePlotOrganicoFromRoster(roster);
-  const timpaniBySize = summarizeStagePlotTimpaniBySize(items);
+  // Medidas de timbal en el panel orgánico: sin solistas (mobiliario/PDF sigue contando todos).
+  const timpaniBySize = summarizeStagePlotTimpaniBySize(
+    (items || []).filter((it) => !stagePlotItemIsSoloist(it)),
+  );
 
   return STAGE_PLOT_ORGANICO_ROWS.map((row) => {
     const d = drawn[row.key] || 0;

@@ -31,7 +31,12 @@ const TIPOS_PROGRAMA_CONFLICTO = new Set([
   "Camerata Filarmonica",
 ]);
 function isConvocadoGiraMark(mark) {
-  return mark === "counted" || mark === "reemplazo" || mark === "licencia";
+  return (
+    mark === "counted" ||
+    mark === "reemplazo" ||
+    mark === "licencia" ||
+    mark === "cobertura_ausente"
+  );
 }
 
 /**
@@ -52,6 +57,8 @@ export function matrixRosterFromGiraRoster(roster) {
   const counted = new Set();
   const reemplazo = new Set();
   const licencia = new Set();
+  const coberturaAusente = new Set();
+  const coberturaCubre = new Set();
   const preAlta = new Set();
   for (const person of roster || []) {
     const id = integranteKey(person.id ?? person.id_integrante);
@@ -62,12 +69,30 @@ export function matrixRosterFromGiraRoster(roster) {
     if (estado === "ausente") {
       if (person.abona_reemplazo) reemplazo.add(id);
       else if (person.abona_licencia) licencia.add(id);
+      else if (
+        person.cobertura_id_integrante != null ||
+        String(person.cobertura_nombre || "").trim() ||
+        person.cobertura_label
+      ) {
+        coberturaAusente.add(id);
+      }
       continue;
     }
     if (estado === "baja" || estado === "no_convocado") continue;
+    if (person.es_cobertura) {
+      coberturaCubre.add(id);
+      continue;
+    }
     counted.add(id);
   }
-  return { counted, preAlta, reemplazo, licencia };
+  return {
+    counted,
+    preAlta,
+    reemplazo,
+    licencia,
+    coberturaAusente,
+    coberturaCubre,
+  };
 }
 function isProgramaTipoConflicto(program) {
   const tipo = String(program?.tipo || "").trim();

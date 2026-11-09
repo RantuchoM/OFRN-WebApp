@@ -602,9 +602,15 @@
           `;
         } else if (variant === "ALTA") {
           titulo = "Alta en gira";
+          const altaLeadRaw = String(d?.alta_lead || "").trim();
+          const altaLeadHtml = altaLeadRaw
+            ? altaLeadRaw
+                .replace(/\{gira\}/g, gira)
+                .replace(/\{nomenclador\}/g, nomenclador)
+            : `Fuiste dado/a de <strong>alta</strong> en la gira <strong>${gira}</strong> (${nomenclador}).`;
           parrafo = `
             <p>${saludo}</p>
-            <p>Fuiste dado/a de <strong>alta</strong> en la gira <strong>${gira}</strong> (${nomenclador}).</p>
+            <p>${altaLeadHtml}</p>
             ${reasonBlock}
             ${fechasZonaBlock}
             ${linkRepertorio ? `<p><a href="${linkRepertorio}" style="color:#4f46e5; font-weight:bold;">Ver repertorio y material</a></p>` : ""}
@@ -1120,7 +1126,10 @@
             subject = `[Repertorio] Ajuste entregado: ${detalle?.titulo || 'Obra'}`;
           } else if (tid === 'convocatoria_gira') {
             const v = (detalle?.variant || 'INITIAL_BROADCAST').toUpperCase();
-            if (v === 'INITIAL_BROADCAST') subject = `Convocatoria a gira | ${nombreGira}`;
+            const asuntoOverride = String(detalle?.asunto || "").trim();
+            if (asuntoOverride) {
+              subject = asuntoOverride;
+            } else if (v === 'INITIAL_BROADCAST') subject = `Convocatoria a gira | ${nombreGira}`;
             else if (v === 'ALTA') subject = `Alta en gira | ${nombreGira}`;
             else if (v === 'ALTA_ACCESO_PERSONAL') {
               subject = detalle?.es_modelo

@@ -116,8 +116,7 @@ export default function RosterTableRow({
   onEdit,
   onSwap,
   onDeleteVacancy,
-  onToggleAbonaReemplazo,
-  onToggleAbonaLicencia,
+  onRequestOpcionAusencia,
   onRequestBaja,
   pendingBajaForRow,
   onCopyLink,
@@ -268,6 +267,31 @@ export default function RosterTableRow({
               {funcionTag.label}
             </span>
           ))}
+        {m.es_cobertura && (
+          <span
+            className="mt-0.5 inline-flex max-w-full truncate px-1 py-px rounded border text-[8px] font-bold uppercase tracking-tight bg-emerald-50 text-emerald-800 border-emerald-200"
+            title={
+              m.cobertura_cubre_a_label
+                ? `Cubre a ${m.cobertura_cubre_a_label}`
+                : "Cobertura (no cuenta servicio)"
+            }
+          >
+            {m.cobertura_cubre_a_label
+              ? `Cubre a ${m.cobertura_cubre_a_label}`
+              : "Cobertura"}
+          </span>
+        )}
+        {m.estado_gira === "ausente" &&
+          (m.cobertura_label ||
+            m.cobertura_id_integrante != null ||
+            String(m.cobertura_nombre || "").trim()) && (
+            <span
+              className="mt-0.5 inline-flex max-w-full truncate px-1 py-px rounded border text-[8px] font-bold uppercase tracking-tight bg-red-50 text-red-700 border-red-200"
+              title={`Cobertura: ${m.cobertura_label || m.cobertura_nombre || ""}`}
+            >
+              Cubre: {m.cobertura_label || m.cobertura_nombre}
+            </span>
+          )}
       </td>
 
       {/* APELLIDO, NOMBRE + NOTA INTERNA - 30% móvil */}
@@ -469,7 +493,7 @@ export default function RosterTableRow({
         </td>
       )}
 
-      {/* ESTADO - 15% móvil (sin atenuar: A, R y motivo) */}
+      {/* ESTADO - 15% móvil (sin atenuar: A, chip R/L/C y motivo) */}
       <td className="py-1.5 px-1 md:px-3 w-[15%] md:w-16 text-center border-r border-slate-100/50 relative z-10">
         <div className="flex items-center justify-center opacity-100 grayscale-0">
           {m.es_simulacion ? (
@@ -477,18 +501,22 @@ export default function RosterTableRow({
           ) : pendingBajaForRow ? (
             <div
               className={`relative w-7 h-7 md:w-10 md:h-10 rounded flex items-center justify-center bg-white border-2 mx-auto animate-pulse ${
-                pendingBajaForRow.action === "presente"
+                pendingBajaForRow.action === "presente" ||
+                pendingBajaForRow.action === "resolucion_cobertura"
                   ? "border-emerald-300 text-emerald-600"
                   : "border-red-300 text-red-600"
               }`}
               title={
-                pendingBajaForRow.action === "presente"
-                  ? "Alta pendiente de confirmación"
-                  : "Baja pendiente de confirmación"
+                pendingBajaForRow.action === "resolucion_cobertura"
+                  ? "Resolución de cobertura pendiente"
+                  : pendingBajaForRow.action === "presente"
+                    ? "Alta pendiente de confirmación"
+                    : "Baja pendiente de confirmación"
               }
             >
               <span className="text-[11px] font-bold">
-                {pendingBajaForRow.action === "presente"
+                {pendingBajaForRow.action === "presente" ||
+                pendingBajaForRow.action === "resolucion_cobertura"
                   ? "P"
                   : pendingBajaForRow.action === "desconvocar"
                     ? "—"
@@ -502,64 +530,65 @@ export default function RosterTableRow({
                 onClick={() => isEditor && onRequestBaja?.(m, "presente")}
                 disabled={!isEditor}
                 className="w-full h-full rounded flex items-center justify-center text-[9px] md:text-[10px] font-bold bg-white text-red-600 border border-red-200 hover:bg-red-50 shadow-sm transition-all opacity-100"
-                title="Marcar presente"
+                title={
+                  m.cobertura_id_integrante != null ||
+                  String(m.cobertura_nombre || "").trim()
+                    ? "Resolver cobertura (restituir o baja a ambos)"
+                    : "Marcar presente"
+                }
               >
                 A
               </button>
-              {isEditor && (
-                <>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      onToggleAbonaReemplazo?.(m);
-                    }}
-                    className={`absolute -top-0.5 -right-0.5 w-3 h-3 md:w-4 md:h-4 rounded-full border shadow flex items-center justify-center text-[7px] md:text-[8px] font-bold z-[6] transition-colors ${
-                      m.abona_reemplazo
-                        ? "bg-sky-500 text-white border-sky-600 hover:bg-sky-600"
-                        : "bg-white text-sky-400 border-sky-200 hover:bg-sky-50 hover:text-sky-600 hover:border-sky-300"
-                    }`}
-                    title={
-                      m.abona_reemplazo
-                        ? "Quitar abono reemplazo"
-                        : "Abona reemplazo (cuenta como servicio)"
-                    }
-                    aria-label={
-                      m.abona_reemplazo
-                        ? "Quitar abono reemplazo"
-                        : "Marcar abono reemplazo"
-                    }
-                  >
-                    R
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      onToggleAbonaLicencia?.(m);
-                    }}
-                    className={`absolute -top-0.5 -left-0.5 w-3 h-3 md:w-4 md:h-4 rounded-full border shadow flex items-center justify-center text-[7px] md:text-[8px] font-bold z-[6] transition-colors ${
-                      m.abona_licencia
-                        ? "bg-amber-500 text-white border-amber-600 hover:bg-amber-600"
-                        : "bg-white text-amber-400 border-amber-200 hover:bg-amber-50 hover:text-amber-600 hover:border-amber-300"
-                    }`}
-                    title={
-                      m.abona_licencia
-                        ? "Quitar licencia"
-                        : "Licencia (cuenta como servicio)"
-                    }
-                    aria-label={
-                      m.abona_licencia
-                        ? "Quitar licencia"
-                        : "Marcar licencia"
-                    }
-                  >
-                    L
-                  </button>
-                </>
-              )}
+              {isEditor &&
+                (() => {
+                  const hasCobertura =
+                    m.cobertura_id_integrante != null ||
+                    String(m.cobertura_nombre || "").trim();
+                  const chip = m.abona_reemplazo
+                    ? {
+                        letter: "R",
+                        className:
+                          "bg-sky-500 text-white border-sky-600 hover:bg-sky-600",
+                        title: "Abona reemplazo · cambiar opción",
+                      }
+                    : m.abona_licencia
+                      ? {
+                          letter: "L",
+                          className:
+                            "bg-amber-500 text-white border-amber-600 hover:bg-amber-600",
+                          title: "Licencia · cambiar opción",
+                        }
+                      : hasCobertura
+                        ? {
+                            letter: "C",
+                            className:
+                              "bg-red-500 text-white border-red-600 hover:bg-red-600",
+                            title: m.cobertura_label || m.cobertura_nombre
+                              ? `Cobertura: ${m.cobertura_label || m.cobertura_nombre} · cambiar`
+                              : "Cobertura · cambiar opción",
+                          }
+                        : {
+                            letter: "·",
+                            className:
+                              "bg-white text-slate-400 border-slate-300 hover:bg-slate-50 hover:text-slate-600",
+                            title: "Opción de ausencia (R / L / C)",
+                          };
+                  return (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        onRequestOpcionAusencia?.(m);
+                      }}
+                      className={`absolute -top-0.5 -right-0.5 w-3.5 h-3.5 md:w-4 md:h-4 rounded-full border shadow flex items-center justify-center text-[7px] md:text-[8px] font-bold z-[6] transition-colors ${chip.className}`}
+                      title={chip.title}
+                      aria-label="Editar opción de ausencia"
+                    >
+                      {chip.letter}
+                    </button>
+                  );
+                })()}
               {motivoStick}
             </div>
           ) : (

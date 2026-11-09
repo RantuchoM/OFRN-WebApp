@@ -350,10 +350,12 @@ export function formatEventDurationLabel(evt) {
   return formatSecondsToHm(secs);
 }
 
-/** R / L para exportes planos (PDF/Excel). Vacío si es asistencia normal. */
+/** R / L / C para exportes planos (PDF/Excel). Vacío si es asistencia normal. */
 export function formatServicioMarkLetter(mark) {
   if (mark === "reemplazo") return "R";
   if (mark === "licencia") return "L";
+  if (mark === "cobertura_ausente") return "C";
+  if (mark === "cobertura_cubre") return "C";
   return "";
 }
 
@@ -506,9 +508,14 @@ export function resolveServicioForIntegrante(evt, integranteId, ctx) {
     return null;
   }
 
-  // Misma marca que Gestión → Convocatorias (incluye ausente+abona R/L).
+  // Misma marca que Gestión → Convocatorias (incluye ausente+abona R/L/C).
   const mark = getAsistenciaMatrixCellMark(rosterByGiraId[giraId], iid);
-  if (mark !== "counted" && mark !== "reemplazo" && mark !== "licencia") {
+  if (
+    mark !== "counted" &&
+    mark !== "reemplazo" &&
+    mark !== "licencia" &&
+    mark !== "cobertura_ausente"
+  ) {
     return null;
   }
 
@@ -863,7 +870,12 @@ function applyGiraEstimatesToAtomic(atomic, integranteId, ctx) {
   for (const giraId of ids) {
     if (!matchesGiraIdFilter(giraId, ctx.giraIdFilter)) continue;
     const mark = getAsistenciaMatrixCellMark(ctx.rosterByGiraId?.[giraId], iid);
-    if (mark !== "counted" && mark !== "reemplazo" && mark !== "licencia") {
+    if (
+      mark !== "counted" &&
+      mark !== "reemplazo" &&
+      mark !== "licencia" &&
+      mark !== "cobertura_ausente"
+    ) {
       continue;
     }
     const avg = resolveEstimateForGira(giraId, ctx);
@@ -886,7 +898,12 @@ export function buildGiraEstimateHits(integranteId, ctx) {
   for (const giraId of ids) {
     if (!matchesGiraIdFilter(giraId, ctx.giraIdFilter)) continue;
     const mark = getAsistenciaMatrixCellMark(ctx.rosterByGiraId?.[giraId], iid);
-    if (mark !== "counted" && mark !== "reemplazo" && mark !== "licencia") {
+    if (
+      mark !== "counted" &&
+      mark !== "reemplazo" &&
+      mark !== "licencia" &&
+      mark !== "cobertura_ausente"
+    ) {
       continue;
     }
     const avg = resolveEstimateForGira(giraId, ctx);
@@ -929,7 +946,9 @@ function addToBucket(buckets, kind, mark, value) {
       ? "reemplazo"
       : mark === "licencia"
         ? "licencia"
-        : "counted";
+        : mark === "cobertura_ausente"
+          ? "counted"
+          : "counted";
   buckets[kind][key] = Number(buckets[kind][key] || 0) + Number(value || 0);
 }
 

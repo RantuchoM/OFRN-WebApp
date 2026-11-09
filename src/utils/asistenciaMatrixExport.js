@@ -5,17 +5,19 @@ import { saveAs } from "file-saver";
 import { compareInstrumentIds } from "./giraUtils";
 import { integranteKey } from "./integranteIds";
 
-/** @typedef {{ counted: Set<string>, preAlta: Set<string>, reemplazo?: Set<string>, licencia?: Set<string> }} MatrixRosterEntry */
+/** @typedef {{ counted: Set<string>, preAlta: Set<string>, reemplazo?: Set<string>, licencia?: Set<string>, coberturaAusente?: Set<string>, coberturaCubre?: Set<string> }} MatrixRosterEntry */
 
 /**
- * Marca de celda en la matriz: convocado contabilizado, reemplazo, licencia, pre-alta, o sin participación.
- * @returns {'counted'|'reemplazo'|'licencia'|'pre_alta'|null}
+ * Marca de celda en la matriz: convocado contabilizado, reemplazo, licencia, cobertura, pre-alta, o sin participación.
+ * @returns {'counted'|'reemplazo'|'licencia'|'cobertura_ausente'|'cobertura_cubre'|'pre_alta'|null}
  */
 export function getAsistenciaMatrixCellMark(rosterEntry, integranteId) {
   const iid = integranteKey(integranteId);
   if (!iid || !rosterEntry) return null;
   if (rosterEntry.reemplazo?.has(iid)) return "reemplazo";
   if (rosterEntry.licencia?.has(iid)) return "licencia";
+  if (rosterEntry.coberturaAusente?.has(iid)) return "cobertura_ausente";
+  if (rosterEntry.coberturaCubre?.has(iid)) return "cobertura_cubre";
   if (rosterEntry.counted?.has(iid)) return "counted";
   if (rosterEntry.preAlta?.has(iid)) return "pre_alta";
   return null;
@@ -26,6 +28,7 @@ export function asistenciaMatrixCellSymbol(mark) {
   if (mark === "counted") return "X";
   if (mark === "reemplazo") return "R";
   if (mark === "licencia") return "L";
+  if (mark === "cobertura_ausente" || mark === "cobertura_cubre") return "C";
   if (mark === "pre_alta") return "*";
   return "";
 }
@@ -34,7 +37,12 @@ export function countMatrixRosterCounted(rosterEntry, memberIds) {
   if (!rosterEntry) return 0;
   return memberIds.filter((id) => {
     const mark = getAsistenciaMatrixCellMark(rosterEntry, id);
-    return mark === "counted" || mark === "reemplazo" || mark === "licencia";
+    return (
+      mark === "counted" ||
+      mark === "reemplazo" ||
+      mark === "licencia" ||
+      mark === "cobertura_ausente"
+    );
   }).length;
 }
 
@@ -220,7 +228,12 @@ export function computeAsistenciaMatrixRowTotals(
   const iid = integranteKey(integranteId);
   const active = (gid) => {
     const mark = getAsistenciaMatrixCellMark(rosterByGiraId[gid], iid);
-    return mark === "counted" || mark === "reemplazo" || mark === "licencia";
+    return (
+      mark === "counted" ||
+      mark === "reemplazo" ||
+      mark === "licencia" ||
+      mark === "cobertura_ausente"
+    );
   };
   const countTipo = (tipo) =>
     filteredProgramas.filter((g) => g.tipo === tipo && active(g.id)).length;

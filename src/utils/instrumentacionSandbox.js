@@ -6,6 +6,7 @@ import {
   integranteActiveOnProgramRange,
 } from "./ensembleMembership";
 import {
+  hasGiraCobertura,
   partitionRosterForMatrix,
   selectRosterIdsAfterExclusions,
 } from "./rosterMatrixIds";
@@ -177,7 +178,14 @@ export function computeMemberSinfCfTotal(integranteId, programas, rosterByGiraId
   for (const g of programas) {
     if (!SANDBOX_SINF_CF_TIPOS.includes(g.tipo)) continue;
     const mark = getAsistenciaMatrixCellMark(rosterByGiraId[g.id], iid);
-    if (mark === "counted" || mark === "reemplazo" || mark === "licencia") total += 1;
+    if (
+      mark === "counted" ||
+      mark === "reemplazo" ||
+      mark === "licencia" ||
+      mark === "cobertura_ausente"
+    ) {
+      total += 1;
+    }
   }
   return total;
 }
@@ -323,6 +331,8 @@ export function matrixEntryFromRosterDetail(detail) {
     preAlta: detail.preAltaIds || new Set(),
     reemplazo: detail.reemplazoIds || new Set(),
     licencia: detail.licenciaIds || new Set(),
+    coberturaAusente: detail.coberturaAusenteIds || new Set(),
+    coberturaCubre: detail.coberturaCubreIds || new Set(),
   };
 }
 
@@ -462,7 +472,8 @@ function resolveMatrixRosterFromCache(program, sandboxMap, cache) {
         (o) =>
           o.estado === "ausente" &&
           !o.abona_reemplazo &&
-          !o.abona_licencia,
+          !o.abona_licencia &&
+          !hasGiraCobertura(o),
       )
       .map((o) => integranteKey(o.id_integrante)),
   );
@@ -476,6 +487,22 @@ function resolveMatrixRosterFromCache(program, sandboxMap, cache) {
       .filter((o) => o.estado === "ausente" && o.abona_licencia)
       .map((o) => integranteKey(o.id_integrante)),
   );
+  const coberturaAusenteIds = new Set(
+    overrides
+      .filter(
+        (o) =>
+          o.estado === "ausente" &&
+          !o.abona_reemplazo &&
+          !o.abona_licencia &&
+          hasGiraCobertura(o),
+      )
+      .map((o) => integranteKey(o.id_integrante)),
+  );
+  const coberturaCubreIds = new Set(
+    overrides
+      .filter((o) => o.estado !== "ausente" && o.es_cobertura)
+      .map((o) => integranteKey(o.id_integrante)),
+  );
 
   const allIds = selectRosterIdsAfterExclusions({
     integrantesIds,
@@ -484,6 +511,7 @@ function resolveMatrixRosterFromCache(program, sandboxMap, cache) {
     ausentesIds,
     reemplazoIds,
     licenciaIds,
+    coberturaAusenteIds,
   });
 
   return partitionRosterForMatrix({
@@ -491,6 +519,8 @@ function resolveMatrixRosterFromCache(program, sandboxMap, cache) {
     manualIds,
     reemplazoIds,
     licenciaIds,
+    coberturaAusenteIds,
+    coberturaCubreIds,
     vigenciaByKey: cache.vigenciaById,
     programRefDesde,
     programRefHasta,
@@ -541,7 +571,9 @@ export async function createMatrixRosterResolverCache(
     programIds.length
       ? supabase
           .from("giras_integrantes")
-          .select("id_gira, id_integrante, estado, abona_reemplazo, abona_licencia")
+          .select(
+            "id_gira, id_integrante, estado, abona_reemplazo, abona_licencia, cobertura_id_integrante, cobertura_nombre, es_cobertura",
+          )
           .in("id_gira", programIds)
       : Promise.resolve({ data: [], error: null }),
     supabase.from("integrantes").select("id, fecha_alta, fecha_baja"),
@@ -578,6 +610,9 @@ export async function createMatrixRosterResolverCache(
       estado: row.estado ?? "confirmado",
       abona_reemplazo: Boolean(row.abona_reemplazo),
       abona_licencia: Boolean(row.abona_licencia),
+      cobertura_id_integrante: row.cobertura_id_integrante ?? null,
+      cobertura_nombre: row.cobertura_nombre ?? null,
+      es_cobertura: Boolean(row.es_cobertura),
     });
   }
 

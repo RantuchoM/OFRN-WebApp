@@ -14,6 +14,10 @@ import {
 import { fetchGiraSegmentosBundle } from "../services/giraSegmentosService";
 import { resolvePersonIsLocal } from "../utils/giraTramos";
 import { cubreALabelFromRef, normalizeFuncionGira } from "../utils/funcionGira";
+import {
+  buildCoberturaCubreLabelMap,
+  coberturaLabelFromRef,
+} from "../utils/coberturaGira";
 
 const INTEGRANTES_SELECT_FULL = `id, nombre, apellido, nombre_preferencia, apellido_preferencia, fecha_alta, fecha_baja, condicion, telefono, mail, domicilio, alimentacion, es_simulacion, id_instr,
            id_localidad, id_loc_viaticos, id_domicilio_laboral, documentacion, docred, firma, nota_interna, cargo, jornada, motivo,
@@ -86,7 +90,7 @@ export async function fetchRosterForGira(supabase, gira, options = {}) {
     const { data, error: errOverrides } = await supabase
       .from("giras_integrantes")
       .select(
-        "*, creado_por_ref:integrantes!giras_integrantes_creado_por_fkey(nombre, apellido, nombre_preferencia, apellido_preferencia), cubre_a:integrantes!giras_integrantes_id_cubre_a_fkey(nombre, apellido, nombre_preferencia, apellido_preferencia)",
+        "*, creado_por_ref:integrantes!giras_integrantes_creado_por_fkey(nombre, apellido, nombre_preferencia, apellido_preferencia), cubre_a:integrantes!giras_integrantes_id_cubre_a_fkey(nombre, apellido, nombre_preferencia, apellido_preferencia), cobertura_de:integrantes!giras_integrantes_cobertura_id_integrante_fkey(nombre, apellido, nombre_preferencia, apellido_preferencia)",
       )
       .eq("id_gira", gira.id);
     if (errOverrides) throw errOverrides;
@@ -115,6 +119,10 @@ export async function fetchRosterForGira(supabase, gira, options = {}) {
       motivo_estado_actualizado_at: o.motivo_estado_actualizado_at ?? null,
       abona_reemplazo: Boolean(o.abona_reemplazo),
       abona_licencia: Boolean(o.abona_licencia),
+      cobertura_id_integrante: o.cobertura_id_integrante ?? null,
+      cobertura_nombre: o.cobertura_nombre ?? null,
+      es_cobertura: Boolean(o.es_cobertura),
+      cobertura_ref: o.cobertura_de ?? null,
       created_at: o.created_at ?? null,
       creado_por_ref: o.creado_por_ref ?? null,
       funcion: normalizeFuncionGira(o.funcion),
@@ -314,6 +322,14 @@ export async function fetchRosterForGira(supabase, gira, options = {}) {
                 manualData.motivo_estado_actualizado_at ?? null,
               abona_reemplazo: Boolean(manualData.abona_reemplazo),
               abona_licencia: Boolean(manualData.abona_licencia),
+              cobertura_id_integrante:
+                manualData.cobertura_id_integrante ?? null,
+              cobertura_nombre: manualData.cobertura_nombre ?? null,
+              es_cobertura: Boolean(manualData.es_cobertura),
+              cobertura_label: coberturaLabelFromRef(
+                manualData.cobertura_ref,
+                manualData.cobertura_nombre,
+              ),
               roster_alta_at: manualData.created_at ?? null,
               roster_alta_por_label: manualData.creado_por_ref
                 ? seatingApellidoNombre(manualData.creado_por_ref)
@@ -328,6 +344,10 @@ export async function fetchRosterForGira(supabase, gira, options = {}) {
               motivo_estado_actualizado_at: null,
               abona_reemplazo: false,
               abona_licencia: false,
+              cobertura_id_integrante: null,
+              cobertura_nombre: null,
+              es_cobertura: false,
+              cobertura_label: "",
               roster_alta_at: null,
               roster_alta_por_label: "",
               funcion_gira: null,
@@ -337,6 +357,13 @@ export async function fetchRosterForGira(supabase, gira, options = {}) {
       });
     }
   });
+
+  const coberturaCubreLabels = buildCoberturaCubreLabelMap(finalRoster);
+  for (const row of finalRoster) {
+    if (!row.es_cobertura) continue;
+    row.cobertura_cubre_a_label =
+      coberturaCubreLabels.get(integranteKey(row.id)) || "";
+  }
 
   const sorted = finalRoster.sort((a, b) => {
     if (a.estado_gira === "ausente" && b.estado_gira !== "ausente") return 1;

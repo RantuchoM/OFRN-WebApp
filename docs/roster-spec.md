@@ -30,11 +30,16 @@ Al agregar o convocar (auto-roster, alta individual, ficha nueva en gira): `infe
 
 Aparte de `rol`. Valores: `reemplazo`, `refuerzo`, `pasante`, o null. Solo se puede elegir si la persona **no es Estable** y el rol efectivo es **`musico`**. Son excluyentes.
 
-- **Reemplazo:** `id_cubre_a` obligatorio (integrante ausente de la misma gira). Fila celeste y tag «Reemplazo de {apellido}».
+- **Reemplazo:** `id_cubre_a` obligatorio (integrante ausente de la misma gira). Fila celeste y tag «Reemplazo de {apellido}». **No confundir con Cobertura** (opción de ausencia que cuenta servicio al ausente y no al que cubre).
 - **Refuerzo:** tag y fila violeta. No apunta a un ausente.
 - **Pasante:** tag y fila verde. En logística no entra al cálculo automático de hotel ni de transporte (solo alcance Persona, asignación manual). En comidas solo matchea `GRP:TUTTI`.
 - **Indiv:** no se persiste. Con rol `musico`, sin función y con fila en `giras_integrantes` (convocado de a uno, no solo por ensamble o familia), la nómina conserva el color de fila de hoy y muestra el tag Indiv. Quien entra solo por ensamble o familia no lleva esa tercera línea. Otros roles tampoco.
 - El tag está en la tercera línea de la columna Rol / Instr. Tocarlo (o el nombre del rol, si no es músico) abre el modal de rol. Las opciones Indiv, Reemplazo, Refuerzo y Pasante usan el color de la función (gris, celeste, violeta, verde) en ese modal, en Convocar y al asignar titular de una vacante. Al salir de `musico` o si la persona es Estable, `funcion` e `id_cubre_a` quedan nulos.
+
+### 3.3 Cobertura (opción de ausencia)
+
+Distinta de `funcion = reemplazo`. El ausente manda a otra persona **sin abonar**; el servicio le cuenta a él (**C** roja en matriz). En el modal: **Integrante** = condición Estable; **Externo** = el resto del padrón (más «Crear persona» o solo nombre sin ficha). Listado con instrumento entre paréntesis. **No puede cubrir** quien ya está en la gira (presente, ausente o cobertura); al cambiar hay que elegir a otra persona fuera de la nómina actual (`rawRoster`). Quien cubre con ficha entra presente con `es_cobertura` (logística/seating propios; **C** verde; no suma). Solo nombre → `cobertura_nombre`. Excluyente con `abona_reemplazo` / `abona_licencia`. En filas ausentes hay **un solo chip** (R / L / C / ·) que abre `RosterBajaModal`. Portal: el cubierto ve la gira en Giras (tag «Te cubre…», sin Agenda); quien cubre la ve en Giras y Agenda (tag «Cubrís a…»).
+- **Botón A** con cobertura: abre `RosterCoberturaResolucionModal` (`action: resolucion_cobertura`), no el presente simple. Opciones: **Restituir** (alta del titular + baja de quien cubre) o **Baja a ambos** (no se requiere el servicio). Mails específicos a titular y cubridor; catálogo en `docs/mails-giras-plantillas.html`.
 - Convocar abre un modal: Individual (tildes, búsqueda por nombre o instrumento) y Grupal en cuatro listas: Ensambles, Cameratas (fila en `ensambles_cf` como `id_ensamble_cf`, o nombre con prefijo CF / Jazz Band), Familias y Excluir ensambles. Al abrir, lo tildado queda arriba. Camerata no es un tipo de fuente nuevo: sigue en `ENSAMBLE` / `EXCL_ENSAMBLE`.
 - Actualizar propone el mail de baja (destildar ensamble o familia, o excluir) y el de alta (sumar ensamble, camerata o familia, o sacar una exclusión). El texto distingue ensamble y familia. Si se confirma notificar, los mails quedan en el panel inferior. Con esa cola abierta no se puede cambiar de pantalla ni cerrar la pestaña hasta Enviar o Cancelar.
 

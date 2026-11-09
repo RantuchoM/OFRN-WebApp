@@ -81,6 +81,14 @@ import {
 } from "../../components/giras/GiraManipulationModals";
 import { moveGira, duplicateGira } from "../../services/giraActions";
 import { touchOrganicoConvocado } from "../../services/organicoConvocadoService";
+import {
+  attachEnsambleCfIds,
+  classifyProgramaEnsambleConvocatoria,
+} from "../../utils/serviciosEnsambleReport";
+import {
+  filterEnsamblesForConvocatoriaView,
+  isEnsamblePruebaLabel,
+} from "../../utils/convocatoriaEnsambleViews";
 import { addDays, differenceInCalendarDays, format, parseISO, subMonths } from "date-fns";
 import { es } from "date-fns/locale";
 
@@ -131,26 +139,37 @@ function readGirasListFilters(userId) {
     if (!Array.isArray(parsed?.types) || !Array.isArray(parsed?.statuses)) {
       return null;
     }
+    const ensambleRaw = parsed.ensambleId;
+    const ensambleId =
+      ensambleRaw == null || ensambleRaw === ""
+        ? null
+        : Number(ensambleRaw);
     return {
       types: parsed.types.filter((type) => GIRAS_PROGRAM_TYPES.includes(type)),
       statuses: parsed.statuses.filter((status) =>
         GIRAS_PROGRAM_STATUSES.includes(status),
       ),
+      ensambleId: Number.isFinite(ensambleId) ? ensambleId : null,
     };
   } catch {
     return null;
   }
 }
 
-function writeGirasListFilters(userId, types, statuses) {
+function writeGirasListFilters(userId, types, statuses, ensambleId = null) {
   const key = girasListFiltersKey(userId);
   if (!key) return;
+  const eid =
+    ensambleId == null || ensambleId === ""
+      ? null
+      : Number(ensambleId);
   try {
     localStorage.setItem(
       key,
       JSON.stringify({
         types: [...types],
         statuses: [...statuses],
+        ensambleId: Number.isFinite(eid) ? eid : null,
       }),
     );
   } catch {
@@ -555,6 +574,10 @@ export default function GirasView({ supabase, trigger = 0 }) {
     if (stored) return new Set(stored.statuses);
     return new Set(["Vigente", "Borrador", "Pausada"]);
   });
+  const [filterEnsambleId, setFilterEnsambleId] = useState(() => {
+    const stored = readGirasListFilters(user?.id);
+    return stored?.ensambleId ?? null;
+  });
   const PROGRAM_TYPES = GIRAS_PROGRAM_TYPES;
   const [editingId, setEditingId] = useState(null);
   const [isAdding, setIsAdding] = useState(false);
@@ -576,6 +599,8 @@ export default function GirasView({ supabase, trigger = 0 }) {
   const [selectedStaff, setSelectedStaff] = useState([]);
   const [locationsList, setLocationsList] = useState([]);
   const [ensemblesList, setEnsemblesList] = useState([]);
+  /** Catálogo con familia/CF para filtro de convocatoria (mismo motor que servicios). */
+  const [ensemblesCatalog, setEnsemblesCatalog] = useState([]);
   const [allIntegrantes, setAllIntegrantes] = useState([]);
 
   const [highlightedGiraId, setHighlightedGiraId] = useState(() => {
@@ -674,6 +699,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
     if (stored) {
       setFilterType(new Set(stored.types));
       setFilterStatus(new Set(stored.statuses));
+      setFilterEnsambleId(stored.ensambleId ?? null);
       return;
     }
 
@@ -738,9 +764,22 @@ export default function GirasView({ supabase, trigger = 0 }) {
     if (data) setLocationsList(data);
   };
   const fetchEnsemblesList = async () => {
-    const { data } = await supabase.from("ensambles").select("id, ensamble");
-    if (data)
-      setEnsemblesList(data.map((e) => ({ value: e.id, label: e.ensamble })));
+    const [ensamblesRaw, ensCfRaw] = await Promise.all([
+      supabase
+        .from("ensambles")
+        .select("id, ensamble, id_familia, es_ensamble_local")
+        .order("ensamble"),
+      supabase.from("ensambles_cf").select("id_ensamble, id_ensamble_cf"),
+    ]);
+    if (ensamblesRaw.error || !ensamblesRaw.data) return;
+    const withCf = attachEnsambleCfIds(
+      ensamblesRaw.data,
+      ensCfRaw.data || [],
+    );
+    setEnsemblesCatalog(withCf);
+    setEnsemblesList(
+      withCf.map((e) => ({ value: e.id, label: e.ensamble })),
+    );
   };
   const fetchIntegrantesList = async () => {
     const { data } = await supabase
@@ -1422,9 +1461,57 @@ export default function GirasView({ supabase, trigger = 0 }) {
       const newSet = new Set(prev);
       if (newSet.has(status)) newSet.delete(status);
       else newSet.add(status);
-      writeGirasListFilters(user?.id, filterType, newSet);
+      writeGirasListFilters(user?.id, filterType, newSet, filterEnsambleId);
       return newSet;
     });
+
+  const ensambleFilterOptions = useMemo(() => {
+    // Solo ensambles regionales: sin CF ni Jazz Band (siguen matcheando vía familia/CF).
+    return filterEnsamblesForConvocatoriaView(ensemblesCatalog, "ensambles")
+      .filter((e) => !isEnsamblePruebaLabel(e?.ensamble))
+      .sort((a, b) =>
+        String(a.ensamble || "").localeCompare(String(b.ensamble || ""), "es"),
+      )
+      .map((e) => ({
+        id: e.id,
+        label: e.ensamble,
+        subLabel: e.id_familia || undefined,
+      }));
+  }, [ensemblesCatalog]);
+
+  const selectedFilterEnsamble = useMemo(() => {
+    if (filterEnsambleId == null) return null;
+    return (
+      ensemblesCatalog.find((e) => Number(e.id) === Number(filterEnsambleId)) ||
+      null
+    );
+  }, [ensemblesCatalog, filterEnsambleId]);
+
+  useEffect(() => {
+    if (filterEnsambleId == null || ensambleFilterOptions.length === 0) return;
+    const allowed = ensambleFilterOptions.some(
+      (o) => Number(o.id) === Number(filterEnsambleId),
+    );
+    if (allowed) return;
+    setFilterEnsambleId(null);
+    writeGirasListFilters(user?.id, filterType, filterStatus, null);
+  }, [
+    filterEnsambleId,
+    ensambleFilterOptions,
+    user?.id,
+    filterType,
+    filterStatus,
+  ]);
+
+  const setFilterEnsambleAndPersist = (ensambleId) => {
+    const eid =
+      ensambleId == null || ensambleId === ""
+        ? null
+        : Number(ensambleId);
+    const next = Number.isFinite(eid) ? eid : null;
+    setFilterEnsambleId(next);
+    writeGirasListFilters(user?.id, filterType, filterStatus, next);
+  };
 
   const listReferenceDate = toLocalDateString();
 
@@ -1445,6 +1532,13 @@ export default function GirasView({ supabase, trigger = 0 }) {
         const estadoGira = g.estado || "Borrador";
         if (filterStatus.size > 0 && !filterStatus.has(estadoGira)) return false;
         if (isOrchestralDraftHidden(g)) return false;
+        if (selectedFilterEnsamble) {
+          const cls = classifyProgramaEnsambleConvocatoria(
+            g,
+            selectedFilterEnsamble,
+          );
+          if (cls.status !== "convocado") return false;
+        }
         return true;
       })
       .sort((a, b) => compareProgramsForList(a, b, listReferenceDate));
@@ -1456,6 +1550,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
     filterStatus,
     listReferenceDate,
     isOrchestralDraftHidden,
+    selectedFilterEnsamble,
   ]);
 
   const toggleFilterType = (type) =>
@@ -1463,7 +1558,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
       const newSet = new Set(prev);
       if (newSet.has(type)) newSet.delete(type);
       else newSet.add(type);
-      writeGirasListFilters(user?.id, newSet, filterStatus);
+      writeGirasListFilters(user?.id, newSet, filterStatus, filterEnsambleId);
       return newSet;
     });
 
@@ -1827,6 +1922,9 @@ export default function GirasView({ supabase, trigger = 0 }) {
                 PROGRAM_TYPES={PROGRAM_TYPES}
                 filterStatus={filterStatus}
                 toggleFilterStatus={toggleFilterStatus}
+                filterEnsambleId={filterEnsambleId}
+                setFilterEnsambleId={setFilterEnsambleAndPersist}
+                ensambleFilterOptions={ensambleFilterOptions}
                 listLayout={listLayout}
                 setListLayout={updateListLayout}
                 expandAllConcerts={expandAllConcerts}

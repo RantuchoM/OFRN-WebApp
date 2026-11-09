@@ -43,7 +43,30 @@ import {
   stampRosterActor,
 } from "../../utils/giraUtils";
 import { bajaGirasIntegrantes } from "../../services/giraRosterAudit";
-import { buildAusenteMailNotification, buildBajaGiraMailNotification, buildExclusionEnsambleMailNotification, buildExclusionFamiliaMailNotification, buildInclusionGrupalMailNotification, buildPresenteMailNotification } from "../../utils/rosterBajaMotivos";
+import {
+  buildCoberturaAusenteFields,
+  coberturaLabelFromMusician,
+  emptyCoberturaFields,
+  hasGiraCobertura,
+  removeCoberturaCoverPerson,
+} from "../../utils/coberturaGira";
+import {
+  buildAltaMailAsunto,
+  buildAusenteMailAsunto,
+  buildAusenteMailNotification,
+  buildBajaGiraMailNotification,
+  buildBajaMailAsunto,
+  buildCoberturaAltaCubreMail,
+  buildCoberturaBajaAmbosCubreMail,
+  buildCoberturaBajaAmbosTitularMail,
+  buildCoberturaFinCubreMail,
+  buildCoberturaRestituirCubreMail,
+  buildCoberturaRestituirTitularMail,
+  buildExclusionEnsambleMailNotification,
+  buildExclusionFamiliaMailNotification,
+  buildInclusionGrupalMailNotification,
+  buildPresenteMailNotification,
+} from "../../utils/rosterBajaMotivos";
 import {
   integranteActiveOnProgramRange,
   filterMembershipRowsForProgramDate,
@@ -59,6 +82,7 @@ import RosterTableRow from "../../components/giras/RosterTableRow";
 import RosterGroupSeparatorRow from "../../components/giras/RosterGroupSeparatorRow";
 import RosterMotivoModal from "../../components/giras/RosterMotivoModal";
 import RosterBajaModal from "../../components/giras/RosterBajaModal";
+import RosterCoberturaResolucionModal from "../../components/giras/RosterCoberturaResolucionModal";
 import RosterGroupsModal from "../../components/giras/RosterGroupsModal";
 import RosterBulkImportModal from "../../components/giras/RosterBulkImportModal";
 import ConvocarModal from "../../components/giras/ConvocarModal";
@@ -2117,6 +2141,12 @@ export default function GiraRoster({
           reason: mail.reason,
           reasonFootnote: mail.reasonFootnote || undefined,
           motivoBajaId: mail.motivoBajaId || undefined,
+          asunto: buildBajaMailAsunto({
+            motivoText: bajaMotivoText,
+            motivoId: bajaMotivoId,
+            giraNombre: giraMailContext?.nombre_gira || "",
+            exclusionKind: causeKind === "familia" ? "familia" : "ensamble",
+          }),
         });
       });
     }
@@ -2399,9 +2429,16 @@ export default function GiraRoster({
   };
   const requestBaja = (musician, action) => {
     if (pendingBaja) return;
+    let nextAction = action;
+    if (action === "presente") {
+      const hasCobertura =
+        musician?.cobertura_id_integrante != null ||
+        String(musician?.cobertura_nombre || "").trim();
+      if (hasCobertura) nextAction = "resolucion_cobertura";
+    }
     setPendingBaja({
       integranteId: musician.id,
-      action,
+      action: nextAction,
       musician,
     });
   };
@@ -2410,14 +2447,196 @@ export default function GiraRoster({
     setPendingBaja(null);
   };
 
+  const clearMusicianCobertura = async (musician, motivo = "Fin de cobertura") => {
+    const prevCoverId = musician?.cobertura_id_integrante;
+    if (prevCoverId != null) {
+      await removeCoberturaCoverPerson(supabase, {
+        idGira: gira.id,
+        actorId,
+        coverIntegranteId: prevCoverId,
+        motivo,
+      });
+    }
+  };
+
+  const resolveIntegranteNotifyInfo = async (integranteId) => {
+    const id = Number(integranteId);
+    if (!Number.isFinite(id)) return null;
+    const fromRoster = (rawRoster || []).find(
+      (m) => Number(m.id) === id || String(m.id) === String(integranteId),
+    );
+    if (fromRoster?.mail) {
+      return {
+        id,
+        mail: fromRoster.mail,
+        nombre:
+          fromRoster.nombre_completo || seatingApellidoNombre(fromRoster),
+      };
+    }
+    const { data, error } = await supabase
+      .from("integrantes")
+      .select(
+        "id, mail, nombre, apellido, nombre_preferencia, apellido_preferencia",
+      )
+      .eq("id", id)
+      .maybeSingle();
+    if (error || !data?.mail) return null;
+    return {
+      id,
+      mail: data.mail,
+      nombre: seatingApellidoNombre(data),
+    };
+  };
+
+  /**
+   * Notifica alta al nuevo cubridor y/o baja al anterior (si tienen mail).
+   * @returns {{ prevCoverId: number|null, nextCoverId: number|null }}
+   */
+  const notifyCoberturaCoverChange = async ({
+    prevCoverId,
+    nextCoverId,
+    notify,
+    titularLabel = "",
+  }) => {
+    const prevId =
+      prevCoverId != null && Number.isFinite(Number(prevCoverId))
+        ? Number(prevCoverId)
+        : null;
+    const nextId =
+      nextCoverId != null && Number.isFinite(Number(nextCoverId))
+        ? Number(nextCoverId)
+        : null;
+    if (!notify) return { prevCoverId: prevId, nextCoverId: nextId };
+    if (!localNotificacionInicialEnviada || !notificacionesHabilitadas) {
+      return { prevCoverId: prevId, nextCoverId: nextId };
+    }
+
+    const giraNombre = giraMailContext?.nombre_gira || "";
+    const tasks = [];
+    if (prevId != null && prevId !== nextId) {
+      const prev = await resolveIntegranteNotifyInfo(prevId);
+      if (prev?.mail) {
+        const mail = buildCoberturaFinCubreMail({ titularLabel });
+        tasks.push({
+          id: `cobertura-baja-${prev.id}-${Date.now()}`,
+          variant: "BAJA",
+          emails: [prev.mail],
+          nombres: [prev.nombre],
+          reason: mail.reason,
+          asunto: buildBajaMailAsunto({ giraNombre }),
+        });
+      }
+    }
+    if (nextId != null && nextId !== prevId) {
+      const next = await resolveIntegranteNotifyInfo(nextId);
+      if (next?.mail) {
+        const mail = buildCoberturaAltaCubreMail({ titularLabel });
+        tasks.push({
+          id: `cobertura-alta-${next.id}-${Date.now()}`,
+          variant: "ALTA",
+          emails: [next.mail],
+          nombres: [next.nombre],
+          reason: mail.reason,
+          asunto: buildAltaMailAsunto({ giraNombre }),
+        });
+      }
+    }
+    if (tasks.length) await sendNotificationsNow(tasks);
+    return { prevCoverId: prevId, nextCoverId: nextId };
+  };
+
+  const applyCoberturaPair = async (musician, cobertura, motivoPayload = {}) => {
+    const prevCoverId = musician?.cobertura_id_integrante;
+    const nextId =
+      cobertura?.idIntegrante != null ? Number(cobertura.idIntegrante) : null;
+    const nextNombre = String(cobertura?.nombre || "").trim();
+    const clearing = Boolean(cobertura?.clear) || (!nextId && !nextNombre);
+
+    if (clearing) {
+      await clearMusicianCobertura(musician);
+      await supabase.from("giras_integrantes").upsert(
+        buildGiraIntegranteUpsert(
+          gira.id,
+          musician,
+          {
+            estado: "ausente",
+            ...emptyCoberturaFields(),
+            ...motivoPayload,
+          },
+          actorId,
+        ),
+        { onConflict: "id_gira, id_integrante" },
+      );
+      return { prevCoverId, nextCoverId: null };
+    }
+
+    const fields = buildCoberturaAusenteFields({
+      coberturaIdIntegrante: nextId,
+      coberturaNombre: nextNombre,
+    });
+
+    if (
+      prevCoverId != null &&
+      Number(prevCoverId) !== Number(fields.cobertura_id_integrante)
+    ) {
+      await removeCoberturaCoverPerson(supabase, {
+        idGira: gira.id,
+        actorId,
+        coverIntegranteId: prevCoverId,
+        motivo: "Cambio de cobertura",
+      });
+    }
+
+    await supabase.from("giras_integrantes").upsert(
+      buildGiraIntegranteUpsert(
+        gira.id,
+        musician,
+        {
+          estado: "ausente",
+          ...fields,
+          ...motivoPayload,
+        },
+        actorId,
+      ),
+      { onConflict: "id_gira, id_integrante" },
+    );
+
+    if (fields.cobertura_id_integrante != null) {
+      const coverMusician = { id: fields.cobertura_id_integrante };
+      await supabase.from("giras_integrantes").upsert(
+        buildGiraIntegranteUpsert(
+          gira.id,
+          coverMusician,
+          {
+            estado: "confirmado",
+            es_cobertura: true,
+            abona_reemplazo: false,
+            abona_licencia: false,
+            cobertura_id_integrante: null,
+            cobertura_nombre: null,
+            rol: "musico",
+          },
+          actorId,
+        ),
+        { onConflict: "id_gira, id_integrante" },
+      );
+    }
+    return {
+      prevCoverId,
+      nextCoverId: fields.cobertura_id_integrante ?? null,
+    };
+  };
+
   const confirmBaja = async ({
     motivoText,
     motivoId,
     notify,
     abonaReemplazo,
     abonaLicencia,
+    cobertura,
     selectionById,
     desconvocateById,
+    option: resolucionOption,
   }) => {
     if (!pendingBaja) return;
     const {
@@ -2429,6 +2648,62 @@ export default function GiraRoster({
       bajaContext,
     } = pendingBaja;
     const toggleById = selectionById || desconvocateById || {};
+
+    if (action === "editar_cobertura") {
+      const prevCoverId = musician?.cobertura_id_integrante ?? null;
+      const wantsCoberturaEdit = Boolean(cobertura) && !cobertura.clear;
+      let nextCoverId = null;
+      if (wantsCoberturaEdit) {
+        const result = await applyCoberturaPair(musician, cobertura, {});
+        nextCoverId = result?.nextCoverId ?? null;
+      } else if (abonaReemplazo || abonaLicencia) {
+        await clearMusicianCobertura(musician);
+        await supabase.from("giras_integrantes").upsert(
+          buildGiraIntegranteUpsert(
+            gira.id,
+            musician,
+            {
+              estado: "ausente",
+              es_cobertura: false,
+              cobertura_id_integrante: null,
+              cobertura_nombre: null,
+              abona_reemplazo: Boolean(abonaReemplazo),
+              abona_licencia: Boolean(abonaLicencia) && !abonaReemplazo,
+            },
+            actorId,
+          ),
+          { onConflict: "id_gira, id_integrante" },
+        );
+      } else {
+        await applyCoberturaPair(musician, { clear: true }, {});
+        await supabase.from("giras_integrantes").upsert(
+          buildGiraIntegranteUpsert(
+            gira.id,
+            musician,
+            {
+              estado: "ausente",
+              es_cobertura: false,
+              cobertura_id_integrante: null,
+              cobertura_nombre: null,
+              abona_reemplazo: false,
+              abona_licencia: false,
+            },
+            actorId,
+          ),
+          { onConflict: "id_gira, id_integrante" },
+        );
+      }
+      await notifyCoberturaCoverChange({
+        prevCoverId,
+        nextCoverId: wantsCoberturaEdit ? nextCoverId : null,
+        notify,
+        titularLabel:
+          musician?.nombre_completo || seatingApellidoNombre(musician),
+      });
+      setPendingBaja(null);
+      await refreshRoster();
+      return;
+    }
 
     if (action === "cambio_grupos_baja") {
       if (chainedAlta?.length) {
@@ -2498,7 +2773,114 @@ export default function GiraRoster({
       motivo_estado_actualizado_at: new Date().toISOString(),
     };
 
+    if (action === "resolucion_cobertura") {
+      const coverId = musician?.cobertura_id_integrante ?? null;
+      const coverLabel = coberturaLabelFromMusician(musician);
+      const titularLabel = nombreCompleto;
+      const coverInfo =
+        coverId != null ? await resolveIntegranteNotifyInfo(coverId) : null;
+
+      if (resolucionOption === "baja_ambos") {
+        await clearMusicianCobertura(musician, "Baja: no se requiere el servicio");
+        await bajaGirasIntegrantes(supabase, {
+          idGira: gira.id,
+          actorId,
+          integranteIds: [musician.id],
+          motivo: "No se requiere el servicio (cobertura)",
+        });
+        if (shouldNotify) {
+          const giraNombre = giraMailContext?.nombre_gira || "";
+          const tasks = [];
+          if (musician.mail) {
+            const mail = buildCoberturaBajaAmbosTitularMail({ coverLabel });
+            tasks.push({
+              id: `cob-baja-ambos-titular-${musician.id}-${Date.now()}`,
+              variant: "BAJA",
+              emails: [musician.mail],
+              nombres: [titularLabel],
+              reason: mail.reason,
+              asunto: buildBajaMailAsunto({ giraNombre }),
+            });
+          }
+          if (coverInfo?.mail) {
+            const mail = buildCoberturaBajaAmbosCubreMail({
+              titularLabel,
+            });
+            tasks.push({
+              id: `cob-baja-ambos-cubre-${coverInfo.id}-${Date.now()}`,
+              variant: "BAJA",
+              emails: [coverInfo.mail],
+              nombres: [coverInfo.nombre],
+              reason: mail.reason,
+              asunto: buildBajaMailAsunto({ giraNombre }),
+            });
+          }
+          if (tasks.length) await sendNotificationsNow(tasks);
+        }
+      } else {
+        // restituir: alta titular + baja quien cubre
+        await clearMusicianCobertura(
+          musician,
+          "Fin de cobertura: titular restituido",
+        );
+        await supabase.from("giras_integrantes").upsert(
+          buildGiraIntegranteUpsert(
+            gira.id,
+            musician,
+            {
+              estado: "confirmado",
+              abona_reemplazo: false,
+              abona_licencia: false,
+              es_cobertura: false,
+              ...emptyCoberturaFields(),
+              motivo_estado: null,
+              motivo_estado_actualizado_at: null,
+            },
+            actorId,
+          ),
+          { onConflict: "id_gira, id_integrante" },
+        );
+        if (shouldNotify) {
+          const giraNombre = giraMailContext?.nombre_gira || "";
+          const tasks = [];
+          if (musician.mail) {
+            const mail = buildCoberturaRestituirTitularMail({ coverLabel });
+            tasks.push({
+              id: `cob-restituir-titular-${musician.id}-${Date.now()}`,
+              variant: "ALTA",
+              emails: [musician.mail],
+              nombres: [titularLabel],
+              reason: mail.reason,
+              asunto: buildAltaMailAsunto({
+                giraNombre,
+                suffix: mail.asuntoSuffix || "Anulación de cobertura",
+              }),
+            });
+          }
+          if (coverInfo?.mail) {
+            const mail = buildCoberturaRestituirCubreMail({ titularLabel });
+            tasks.push({
+              id: `cob-restituir-cubre-${coverInfo.id}-${Date.now()}`,
+              variant: "BAJA",
+              emails: [coverInfo.mail],
+              nombres: [coverInfo.nombre],
+              reason: mail.reason,
+              asunto: buildBajaMailAsunto({
+                giraNombre,
+                suffix: mail.asuntoSuffix || "Anulación de cobertura",
+              }),
+            });
+          }
+          if (tasks.length) await sendNotificationsNow(tasks);
+        }
+      }
+      setPendingBaja(null);
+      await refreshRoster();
+      return;
+    }
+
     if (action === "presente") {
+      await clearMusicianCobertura(musician);
       await supabase.from("giras_integrantes").upsert(
         buildGiraIntegranteUpsert(
           gira.id,
@@ -2507,6 +2889,8 @@ export default function GiraRoster({
             estado: "confirmado",
             abona_reemplazo: false,
             abona_licencia: false,
+            es_cobertura: false,
+            ...emptyCoberturaFields(),
             motivo_estado: null,
             motivo_estado_actualizado_at: null,
           },
@@ -2516,6 +2900,7 @@ export default function GiraRoster({
       );
       if (shouldNotifyMusician) {
         const mail = buildPresenteMailNotification();
+        const giraNombre = giraMailContext?.nombre_gira || "";
         await sendNotificationsNow([
           {
             id: `presente-${musician.id}-${Date.now()}`,
@@ -2523,6 +2908,8 @@ export default function GiraRoster({
             emails: [musician.mail],
             nombres: [nombreCompleto],
             reason: mail.reason,
+            altaLead: mail.altaLead || undefined,
+            asunto: buildAltaMailAsunto({ giraNombre }),
           },
         ]);
       }
@@ -2531,23 +2918,43 @@ export default function GiraRoster({
       return;
     }
 
+    const wantsCobertura = Boolean(cobertura) && !cobertura.clear;
+    const wantsAbono =
+      !wantsCobertura && (Boolean(abonaReemplazo) || Boolean(abonaLicencia));
+
     if (action === "ausente") {
-      await supabase.from("giras_integrantes").upsert(
-        buildGiraIntegranteUpsert(
-          gira.id,
+      const prevCoverId = musician?.cobertura_id_integrante ?? null;
+      let nextCoverId = null;
+      if (wantsCobertura) {
+        const result = await applyCoberturaPair(
           musician,
-          {
-            estado: "ausente",
-            abona_reemplazo: Boolean(abonaReemplazo),
-            abona_licencia: Boolean(abonaLicencia) && !abonaReemplazo,
-            ...motivoPayload,
-          },
-          actorId,
-        ),
-        { onConflict: "id_gira, id_integrante" },
-      );
+          cobertura,
+          motivoPayload,
+        );
+        nextCoverId = result?.nextCoverId ?? null;
+      } else {
+        await clearMusicianCobertura(musician);
+        await supabase.from("giras_integrantes").upsert(
+          buildGiraIntegranteUpsert(
+            gira.id,
+            musician,
+            {
+              estado: "ausente",
+              es_cobertura: false,
+              cobertura_id_integrante: null,
+              cobertura_nombre: null,
+              abona_reemplazo: Boolean(abonaReemplazo),
+              abona_licencia: Boolean(abonaLicencia) && !abonaReemplazo,
+              ...motivoPayload,
+            },
+            actorId,
+          ),
+          { onConflict: "id_gira, id_integrante" },
+        );
+      }
       if (shouldNotifyMusician) {
         const mail = buildAusenteMailNotification({ motivoText, motivoId });
+        const giraNombre = giraMailContext?.nombre_gira || "";
         await sendNotificationsNow([
           {
             id: `toggle-${musician.id}-${Date.now()}`,
@@ -2557,12 +2964,23 @@ export default function GiraRoster({
             reason: mail.reason,
             reasonFootnote: mail.reasonFootnote || undefined,
             motivoBajaId: mail.motivoBajaId || undefined,
+            asunto: buildAusenteMailAsunto({
+              motivoText,
+              giraNombre,
+            }),
           },
         ]);
       }
+      await notifyCoberturaCoverChange({
+        prevCoverId,
+        nextCoverId: wantsCobertura ? nextCoverId : null,
+        notify,
+        titularLabel: nombreCompleto,
+      });
     } else {
       if (shouldNotifyMusician) {
         const mail = buildBajaGiraMailNotification({ motivoText, motivoId });
+        const giraNombre = giraMailContext?.nombre_gira || "";
         await sendNotificationsNow([
           {
             id: `baja-${musician.id}-${Date.now()}`,
@@ -2572,16 +2990,34 @@ export default function GiraRoster({
             reason: mail.reason,
             reasonFootnote: mail.reasonFootnote || undefined,
             motivoBajaId: mail.motivoBajaId || undefined,
+            asunto: buildBajaMailAsunto({
+              motivoText,
+              motivoId,
+              giraNombre,
+            }),
           },
         ]);
       }
-      if (abonaReemplazo || abonaLicencia) {
+      const prevCoverId = musician?.cobertura_id_integrante ?? null;
+      let nextCoverId = null;
+      if (wantsCobertura) {
+        const result = await applyCoberturaPair(
+          musician,
+          cobertura,
+          motivoPayload,
+        );
+        nextCoverId = result?.nextCoverId ?? null;
+      } else if (wantsAbono) {
+        await clearMusicianCobertura(musician);
         await supabase.from("giras_integrantes").upsert(
           buildGiraIntegranteUpsert(
             gira.id,
             musician,
             {
               estado: "ausente",
+              es_cobertura: false,
+              cobertura_id_integrante: null,
+              cobertura_nombre: null,
               abona_reemplazo: Boolean(abonaReemplazo),
               abona_licencia: Boolean(abonaLicencia) && !abonaReemplazo,
               ...motivoPayload,
@@ -2591,11 +3027,20 @@ export default function GiraRoster({
           { onConflict: "id_gira, id_integrante" },
         );
       } else {
+        await clearMusicianCobertura(musician);
         await bajaGirasIntegrantes(supabase, {
           idGira: gira.id,
           actorId,
           integranteIds: [musician.id],
           motivo: motivoText,
+        });
+      }
+      if (wantsCobertura || prevCoverId != null) {
+        await notifyCoberturaCoverChange({
+          prevCoverId,
+          nextCoverId: wantsCobertura ? nextCoverId : null,
+          notify,
+          titularLabel: nombreCompleto,
         });
       }
     }
@@ -2671,10 +3116,20 @@ export default function GiraRoster({
   const toggleAbonaReemplazo = async (musician) => {
     if (!isEditor || musician.estado_gira !== "ausente") return;
     const next = !musician.abona_reemplazo;
+    if (next && hasGiraCobertura(musician)) {
+      await clearMusicianCobertura(musician);
+    }
     setLocalRoster((prev) =>
       prev.map((m) =>
         m.id === musician.id
-          ? { ...m, abona_reemplazo: next, abona_licencia: next ? false : m.abona_licencia }
+          ? {
+              ...m,
+              abona_reemplazo: next,
+              abona_licencia: next ? false : m.abona_licencia,
+              cobertura_id_integrante: next ? null : m.cobertura_id_integrante,
+              cobertura_nombre: next ? null : m.cobertura_nombre,
+              cobertura_label: next ? "" : m.cobertura_label,
+            }
           : m,
       ),
     );
@@ -2686,6 +3141,8 @@ export default function GiraRoster({
           estado: "ausente",
           abona_reemplazo: next,
           abona_licencia: false,
+          cobertura_id_integrante: next ? null : musician.cobertura_id_integrante ?? null,
+          cobertura_nombre: next ? null : musician.cobertura_nombre ?? null,
         },
         actorId,
       ),
@@ -2716,10 +3173,20 @@ export default function GiraRoster({
   const toggleAbonaLicencia = async (musician) => {
     if (!isEditor || musician.estado_gira !== "ausente") return;
     const next = !musician.abona_licencia;
+    if (next && hasGiraCobertura(musician)) {
+      await clearMusicianCobertura(musician);
+    }
     setLocalRoster((prev) =>
       prev.map((m) =>
         m.id === musician.id
-          ? { ...m, abona_licencia: next, abona_reemplazo: next ? false : m.abona_reemplazo }
+          ? {
+              ...m,
+              abona_licencia: next,
+              abona_reemplazo: next ? false : m.abona_reemplazo,
+              cobertura_id_integrante: next ? null : m.cobertura_id_integrante,
+              cobertura_nombre: next ? null : m.cobertura_nombre,
+              cobertura_label: next ? "" : m.cobertura_label,
+            }
           : m,
       ),
     );
@@ -2731,6 +3198,8 @@ export default function GiraRoster({
           estado: "ausente",
           abona_licencia: next,
           abona_reemplazo: false,
+          cobertura_id_integrante: next ? null : musician.cobertura_id_integrante ?? null,
+          cobertura_nombre: next ? null : musician.cobertura_nombre ?? null,
         },
         actorId,
       ),
@@ -2758,13 +3227,17 @@ export default function GiraRoster({
     refreshRoster();
   };
 
+  const notificationsReady =
+    Boolean(localNotificacionInicialEnviada) &&
+    Boolean(notificacionesHabilitadas);
   const pendingBajaCanNotify =
+    notificationsReady &&
     (pendingBaja?.action === "exclusion_ensamble" ||
-    pendingBaja?.action === "cambio_grupos_baja" ||
-    pendingBaja?.action === "cambio_grupos_alta" ||
-    Boolean(pendingBaja?.musician?.mail)) &&
-    localNotificacionInicialEnviada &&
-    notificacionesHabilitadas;
+      pendingBaja?.action === "cambio_grupos_baja" ||
+      pendingBaja?.action === "cambio_grupos_alta" ||
+      pendingBaja?.action === "editar_cobertura" ||
+      pendingBaja?.action === "resolucion_cobertura" ||
+      Boolean(pendingBaja?.musician?.mail));
 
   const saveMotivoFromModal = async (texto) => {
     if (!motivoModalMusician?.id || !gira?.id) return;
@@ -3103,7 +3576,10 @@ export default function GiraRoster({
         variant: "ALTA",
         emails: [musicianInfo.mail],
         nombres: [nombreCompleto],
-        reason: "Se te asignó como titular en la gira",
+        reason: "Se te asignó en forma individual.",
+        asunto: buildAltaMailAsunto({
+          giraNombre: giraMailContext?.nombre_gira || "",
+        }),
       },
     ]);
   };
@@ -3141,7 +3617,7 @@ export default function GiraRoster({
     }
 
     if (m.estado_gira === "ausente") {
-      if (m.abona_reemplazo || m.abona_licencia) {
+      if (m.abona_reemplazo || m.abona_licencia || hasGiraCobertura(m)) {
         baseStyle.className +=
           " bg-slate-100 text-slate-700 border-l-slate-400";
       } else {
@@ -3157,6 +3633,12 @@ export default function GiraRoster({
     if (m.es_simulacion) {
       // Vacante
       baseStyle.className += " bg-amber-100 border-l-amber-400 text-slate-800";
+      return baseStyle;
+    }
+
+    if (m.es_cobertura) {
+      baseStyle.className +=
+        " bg-emerald-50/80 border-l-emerald-400 text-slate-800";
       return baseStyle;
     }
 
@@ -4085,8 +4567,9 @@ export default function GiraRoster({
                       onEdit={setEditingMusician}
                       onSwap={setSwapTarget}
                       onDeleteVacancy={handleDeleteVacancy}
-                      onToggleAbonaReemplazo={toggleAbonaReemplazo}
-                      onToggleAbonaLicencia={toggleAbonaLicencia}
+                      onRequestOpcionAusencia={(musician) =>
+                        requestBaja(musician, "editar_cobertura")
+                      }
                       onRequestBaja={requestBaja}
                       pendingBajaForRow={
                         pendingBaja && pendingBaja.integranteId === m.id
@@ -4156,6 +4639,19 @@ export default function GiraRoster({
       />
 
       <RosterBajaModal
+        pendingBaja={
+          pendingBaja?.action === "resolucion_cobertura" ? null : pendingBaja
+        }
+        canNotify={pendingBajaCanNotify}
+        notificationsReady={notificationsReady}
+        isEditor={isEditor}
+        onClose={cancelBaja}
+        onConfirm={confirmBaja}
+        supabase={supabase}
+        rosterIds={(rawRoster || []).map((m) => m.id)}
+      />
+
+      <RosterCoberturaResolucionModal
         pendingBaja={pendingBaja}
         canNotify={pendingBajaCanNotify}
         isEditor={isEditor}

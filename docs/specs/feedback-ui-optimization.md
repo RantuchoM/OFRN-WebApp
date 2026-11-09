@@ -43,7 +43,7 @@ Maximizar la densidad de información y mejorar la jerarquía visual del Centro 
 
 ### Detalle expandible
 - Clic en la fila expande/colapsa el detalle debajo.
-- En el detalle expandido se muestra: mensaje completo, respuesta de administración (si existe), nota admin editable (admin), enlace a captura y ruta de pantalla.
+- En el detalle expandido se muestra: mensaje completo, respuesta de administración (si existe, con hasta 2 miniaturas de `admin_reply_images`), nota admin editable (admin, con adjuntar imágenes), enlace a captura y ruta de pantalla.
 - Al hacer clic en "Resolver" o "Comentar", la fila se expande automáticamente para mostrar el editor de comentarios.
 
 ---

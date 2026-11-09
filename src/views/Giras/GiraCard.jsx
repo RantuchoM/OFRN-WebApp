@@ -33,6 +33,7 @@ import {
   stayNightMarks,
 } from "../../utils/hotelStayEvents";
 import { createPortal } from "react-dom";
+import { resolveMiCoberturaForUser } from "../../utils/coberturaGira";
 
 const sliceTime = (value, fallback) => {
   if (value == null || value === "") return fallback;
@@ -340,6 +341,36 @@ export default function GiraCard({
   const desktopBtnClass =
     "w-7 h-7 flex items-center justify-center bg-white/80 backdrop-blur rounded-full shadow-sm border border-black/5 transition-all hover:scale-105 active:scale-95 cursor-pointer";
 
+  const miCobertura = resolveMiCoberturaForUser(gira, user?.id, {
+    includeAsistis: !isPersonal,
+  });
+  const isCubiertoPorCobertura = miCobertura?.kind === "cubierto";
+  const hideAgendaForCobertura =
+    Boolean(isPersonal) && Boolean(miCobertura?.hideAgenda);
+  const cardPrimaryView = isDifusion
+    ? "DIFUSION"
+    : hideAgendaForCobertura
+      ? "REPERTOIRE"
+      : "AGENDA";
+
+  const renderMiCoberturaTag = (className = "") => {
+    if (!miCobertura?.text) return null;
+    const tone =
+      miCobertura.kind === "cubre"
+        ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+        : miCobertura.kind === "asistis"
+          ? "bg-indigo-50 text-indigo-800 border-indigo-200"
+          : "bg-red-50 text-red-700 border-red-200";
+    return (
+      <span
+        className={`relative z-[2] inline-flex max-w-full truncate px-1.5 py-0.5 rounded border text-[9px] font-bold uppercase tracking-tight shadow-sm ${tone} ${className}`}
+        title={miCobertura.text}
+      >
+        {miCobertura.text}
+      </span>
+    );
+  };
+
   const renderPersonnelCompact = () => {
     const roster = gira.giras_integrantes || [];
     const directors = roster.filter(
@@ -499,13 +530,19 @@ export default function GiraCard({
               </div>
             )}
         </div>
-        <AppNavLink
-          className="text-[10px] text-center opacity-60 mt-1 pt-1 border-t border-black/5 block hover:opacity-100"
-          giraId={gira.id}
-          view={isDifusion ? "DIFUSION" : "AGENDA"}
-        >
-          Ver Agenda Completa
-        </AppNavLink>
+        {!hideAgendaForCobertura ? (
+          <AppNavLink
+            className="text-[10px] text-center opacity-60 mt-1 pt-1 border-t border-black/5 block hover:opacity-100"
+            giraId={gira.id}
+            view={cardPrimaryView}
+          >
+            Ver Agenda Completa
+          </AppNavLink>
+        ) : (
+          <p className="text-[10px] text-center text-slate-400 mt-1 pt-1 border-t border-black/5">
+            Sin agenda (te cubren)
+          </p>
+        )}
       </div>
     );
   };
@@ -728,8 +765,14 @@ export default function GiraCard({
   return (
     <div
       id={`gira-card-${gira.id}`}
-      className={`relative rounded-xl border p-0 overflow-visible transition-all duration-700 ease-out ${isMenuOpen ? "z-50" : "z-0"} ${cardClasses} ${isHighlighted ? "ring-4 ring-offset-2 ring-indigo-200 z-40" : "shadow-sm hover:shadow-md"}`}
+      className={`relative rounded-xl border p-0 overflow-visible transition-all duration-700 ease-out ${isMenuOpen ? "z-50" : "z-0"} ${cardClasses} ${isHighlighted ? "ring-4 ring-offset-2 ring-indigo-200 z-40" : "shadow-sm hover:shadow-md"} ${isCubiertoPorCobertura ? "text-slate-500" : ""}`}
     >
+      {isCubiertoPorCobertura ? (
+        <div
+          className="pointer-events-none absolute inset-0 z-[1] rounded-[inherit] bg-slate-200/55"
+          aria-hidden
+        />
+      ) : null}
       {/* VISTA MÓVIL */}
       <div className="md:hidden relative">
         {showQuickAccessSidebar ? (
@@ -777,14 +820,23 @@ export default function GiraCard({
             </div>
             {/* Columna derecha: 5 iconos de acceso rápido */}
             <div className="w-11 flex flex-col items-center justify-evenly py-1 flex-1 min-h-0 border-l border-black/5">
-              <AppNavLink
-                giraId={gira.id}
-                view="AGENDA"
-                className="p-2 rounded-full text-slate-500 hover:bg-white hover:text-fixed-indigo-600 transition-colors"
-                title="Agenda"
-              >
-                <IconCalendar size={14} />
-              </AppNavLink>
+              {!hideAgendaForCobertura ? (
+                <AppNavLink
+                  giraId={gira.id}
+                  view="AGENDA"
+                  className="p-2 rounded-full text-slate-500 hover:bg-white hover:text-fixed-indigo-600 transition-colors"
+                  title="Agenda"
+                >
+                  <IconCalendar size={14} />
+                </AppNavLink>
+              ) : (
+                <span
+                  className="p-2 rounded-full text-slate-300 cursor-not-allowed"
+                  title="Sin agenda: te cubren en esta gira"
+                >
+                  <IconCalendar size={14} />
+                </span>
+              )}
               <AppNavLink
                 giraId={gira.id}
                 view="REPERTOIRE"
@@ -900,6 +952,7 @@ export default function GiraCard({
                 <span className="opacity-30">|</span>
                 <span className={typeColorClass}>{gira.mes_letra}</span>
               </div>
+              {renderMiCoberturaTag("mt-1 max-w-[9rem]")}
               <div className="flex flex-col items-center justify-center flex-1">
                 {dateAccessory ? (
                   <div className="mb-1.5 flex justify-center">{dateAccessory}</div>
@@ -958,7 +1011,7 @@ export default function GiraCard({
               ) : null}
               <AppNavLink
                 giraId={gira.id}
-                view={isDifusion ? "DIFUSION" : "AGENDA"}
+                view={cardPrimaryView}
                 className="text-center pb-1 block"
               >
                 <h3 className="text-sm font-bold text-slate-800 leading-tight line-clamp-2">
@@ -1028,7 +1081,7 @@ export default function GiraCard({
           <AppNavLink
             className="cursor-pointer flex-1 min-w-0 pt-0.5 block"
             giraId={gira.id}
-            view={isDifusion ? "DIFUSION" : "AGENDA"}
+            view={cardPrimaryView}
           >
             <div className="flex flex-wrap items-center gap-2 text-xs mb-1">
               <span
@@ -1055,6 +1108,7 @@ export default function GiraCard({
               )}
               {getSourcesDisplayDesktop()}
             </div>
+            {renderMiCoberturaTag("mb-1 max-w-[14rem]")}
             <div className="mb-1">
               <h3 className="text-base font-bold text-slate-800 truncate leading-tight">
                 {gira.nombre_gira}
@@ -1108,15 +1162,24 @@ export default function GiraCard({
             <>
               {showQuickAccessSidebar ? (
                 <>
-                  <AppNavLink
-                    giraId={gira.id}
-                    view="AGENDA"
-                    onClick={(e) => e.stopPropagation()}
-                    className={`${desktopBtnClass} hover:text-fixed-indigo-600`}
-                    title="Agenda"
-                  >
-                    <IconCalendar size={14} />
-                  </AppNavLink>
+                  {!hideAgendaForCobertura ? (
+                    <AppNavLink
+                      giraId={gira.id}
+                      view="AGENDA"
+                      onClick={(e) => e.stopPropagation()}
+                      className={`${desktopBtnClass} hover:text-fixed-indigo-600`}
+                      title="Agenda"
+                    >
+                      <IconCalendar size={14} />
+                    </AppNavLink>
+                  ) : (
+                    <span
+                      className={`${desktopBtnClass} text-slate-300 cursor-not-allowed`}
+                      title="Sin agenda: te cubren en esta gira"
+                    >
+                      <IconCalendar size={14} />
+                    </span>
+                  )}
                   <AppNavLink
                     giraId={gira.id}
                     view="REPERTOIRE"

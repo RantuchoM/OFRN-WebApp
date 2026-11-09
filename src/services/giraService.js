@@ -39,6 +39,7 @@ import {
 } from "../utils/integranteDomicilioViaticos";
 import { isRepertorioPlaceholder } from "../utils/repertorioRowDisplay";
 import {
+  hasGiraCobertura,
   partitionRosterForMatrix,
   selectRosterIdsAfterExclusions,
 } from "../utils/rosterMatrixIds";
@@ -72,7 +73,9 @@ async function resolveGiraRosterDetail(supabase, giraId, sandboxOverride = null)
       } else {
         const { data: prodOverrides } = await supabase
           .from("giras_integrantes")
-          .select("id_integrante, estado, abona_reemplazo, abona_licencia")
+          .select(
+            "id_integrante, estado, abona_reemplazo, abona_licencia, cobertura_id_integrante, cobertura_nombre, es_cobertura",
+          )
           .eq("id_gira", giraId);
         overrides = prodOverrides || [];
       }
@@ -81,7 +84,9 @@ async function resolveGiraRosterDetail(supabase, giraId, sandboxOverride = null)
         supabase.from("giras_fuentes").select("*").eq("id_gira", giraId),
         supabase
           .from("giras_integrantes")
-          .select("id_integrante, estado, abona_reemplazo, abona_licencia")
+          .select(
+            "id_integrante, estado, abona_reemplazo, abona_licencia, cobertura_id_integrante, cobertura_nombre, es_cobertura",
+          )
           .eq("id_gira", giraId),
       ]);
       fuentes = fuentesRes.data || [];
@@ -185,14 +190,16 @@ async function resolveGiraRosterDetail(supabase, giraId, sandboxOverride = null)
       });
     }
 
-    // G. Ausentes (sin abono) vs. ausentes que abonan reemplazo o licencia (cuentan servicio)
+    // G. Ausentes (sin abono/cobertura) vs. R / L / C-ausente (cuentan servicio).
+    // Presentes con es_cobertura viajan pero no suman (C verde).
     const ausentesIds = new Set(
       overrides
         .filter(
           (o) =>
             o.estado === "ausente" &&
             !o.abona_reemplazo &&
-            !o.abona_licencia,
+            !o.abona_licencia &&
+            !hasGiraCobertura(o),
         )
         .map((o) => integranteKey(o.id_integrante)),
     );
@@ -206,6 +213,22 @@ async function resolveGiraRosterDetail(supabase, giraId, sandboxOverride = null)
         .filter((o) => o.estado === "ausente" && o.abona_licencia)
         .map((o) => integranteKey(o.id_integrante)),
     );
+    const coberturaAusenteIds = new Set(
+      overrides
+        .filter(
+          (o) =>
+            o.estado === "ausente" &&
+            !o.abona_reemplazo &&
+            !o.abona_licencia &&
+            hasGiraCobertura(o),
+        )
+        .map((o) => integranteKey(o.id_integrante)),
+    );
+    const coberturaCubreIds = new Set(
+      overrides
+        .filter((o) => o.estado !== "ausente" && o.es_cobertura)
+        .map((o) => integranteKey(o.id_integrante)),
+    );
 
     // Presente personal queda aunque el ensamble esté excluido. Ausente sin abono sale.
     const allIds = selectRosterIdsAfterExclusions({
@@ -215,6 +238,7 @@ async function resolveGiraRosterDetail(supabase, giraId, sandboxOverride = null)
       ausentesIds,
       reemplazoIds,
       licenciaIds,
+      coberturaAusenteIds,
     });
 
     const vigenciaByKey = new Map();
@@ -235,6 +259,8 @@ async function resolveGiraRosterDetail(supabase, giraId, sandboxOverride = null)
       manualIds,
       reemplazoIds,
       licenciaIds,
+      coberturaAusenteIds,
+      coberturaCubreIds,
       vigenciaByKey,
       programRefDesde,
       programRefHasta,
@@ -246,6 +272,8 @@ async function resolveGiraRosterDetail(supabase, giraId, sandboxOverride = null)
       preAltaIds: partitioned.preAltaIds,
       reemplazoIds: partitioned.reemplazoIds,
       licenciaIds: partitioned.licenciaIds,
+      coberturaAusenteIds: partitioned.coberturaAusenteIds,
+      coberturaCubreIds: partitioned.coberturaCubreIds,
     };
   } catch (error) {
     console.error("[GiraService] Error resolviendo roster IDs:", error);
@@ -255,6 +283,8 @@ async function resolveGiraRosterDetail(supabase, giraId, sandboxOverride = null)
       preAltaIds: new Set(),
       reemplazoIds: new Set(),
       licenciaIds: new Set(),
+      coberturaAusenteIds: new Set(),
+      coberturaCubreIds: new Set(),
     };
   }
 }
@@ -267,7 +297,7 @@ export const resolveGiraRosterIds = async (supabase, giraId) => {
 
 /**
  * Nómina para matriz de convocatorias: separa convocatoria contabilizada vs. pre-alta.
- * @returns {{ allIds: string[], countedIds: Set<string>, preAltaIds: Set<string>, reemplazoIds: Set<string>, licenciaIds: Set<string> }}
+ * @returns {{ allIds: string[], countedIds: Set<string>, preAltaIds: Set<string>, reemplazoIds: Set<string>, licenciaIds: Set<string>, coberturaAusenteIds: Set<string>, coberturaCubreIds: Set<string> }}
  */
 export const resolveGiraRosterForMatrix = resolveGiraRosterDetail;
 

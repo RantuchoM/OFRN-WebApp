@@ -47,6 +47,8 @@ export async function sendConvocatoriaNotificationTasks(
             reason: task.reason ?? undefined,
             reason_footnote: task.reasonFootnote || undefined,
             motivo_baja_id: task.motivoBajaId || undefined,
+            asunto: task.asunto || undefined,
+            alta_lead: task.altaLead || undefined,
             novedades: task.novedades?.length ? task.novedades : undefined,
             primer_integrante_nombre: task.nombrePrimero || undefined,
             primer_integrante_apellido: task.apellidoPrimero || undefined,

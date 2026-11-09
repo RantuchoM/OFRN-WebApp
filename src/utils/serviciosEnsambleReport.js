@@ -432,12 +432,19 @@ function rosterMarkOf(rosterEntry, iid) {
   if (!iid || !rosterEntry) return null;
   if (rosterEntry.reemplazo?.has(iid)) return "reemplazo";
   if (rosterEntry.licencia?.has(iid)) return "licencia";
+  if (rosterEntry.coberturaAusente?.has(iid)) return "cobertura_ausente";
+  if (rosterEntry.coberturaCubre?.has(iid)) return "cobertura_cubre";
   if (rosterEntry.counted?.has(iid)) return "counted";
   return null;
 }
 
 function rosterMarkCounts(mark) {
-  return mark === "counted" || mark === "reemplazo" || mark === "licencia";
+  return (
+    mark === "counted" ||
+    mark === "reemplazo" ||
+    mark === "licencia" ||
+    mark === "cobertura_ausente"
+  );
 }
 
 /**

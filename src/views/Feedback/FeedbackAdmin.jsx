@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
+import imageCompression from "browser-image-compression";
 import {
   IconCheck,
   IconX,
@@ -14,12 +15,15 @@ import {
   IconClipboard,
   IconAlertCircle,
   IconHelpCircle,
+  IconClip,
 } from "../../components/ui/Icons";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { toast } from "sonner";
 import { matchesMultiTokenSearch } from "../../utils/sanitize";
 import { useAuth } from "../../context/AuthContext";
+
+const MAX_ADMIN_REPLY_IMAGES = 2;
 
 // Configuración de Estados y Colores (filtros y badges)
 const STATUS_CONFIG = {
@@ -92,6 +96,35 @@ function resolveFeedbackScreenshotUrl(supabase, path) {
   return data?.publicUrl || path;
 }
 
+function normalizeReplyImages(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((u) => typeof u === "string" && u.trim()).slice(0, MAX_ADMIN_REPLY_IMAGES);
+}
+
+function ReplyImagesGallery({ supabase, urls, className = "" }) {
+  const list = normalizeReplyImages(urls);
+  if (!list.length) return null;
+  return (
+    <div className={`flex flex-wrap gap-2 mt-2 ${className}`}>
+      {list.map((url, idx) => {
+        const href = resolveFeedbackScreenshotUrl(supabase, url);
+        return (
+          <a
+            key={`${url}-${idx}`}
+            href={href}
+            target="_blank"
+            rel="noreferrer"
+            className="block w-20 h-20 rounded-md overflow-hidden border border-slate-200 bg-white hover:border-indigo-400 transition-colors"
+            title={`Ver imagen ${idx + 1}`}
+          >
+            <img src={href} alt={`Adjunto ${idx + 1}`} className="w-full h-full object-cover" />
+          </a>
+        );
+      })}
+    </div>
+  );
+}
+
 /** Tipos usados en filtro (valores en BD pueden ser Sugerencia, Error, BUG, Ayuda). */
 const TIPO_FILTER_KEYS = ["Sugerencia", "Error", "Ayuda"];
 
@@ -142,6 +175,10 @@ export default function FeedbackAdmin({ supabase }) {
   // Edición inline de comentarios (Admin)
   const [editingId, setEditingId] = useState(null);
   const [tempComment, setTempComment] = useState("");
+  /** Borrador de adjuntos: { id, preview, url?, file? } — máx. 2 */
+  const [tempReplyImages, setTempReplyImages] = useState([]);
+  const [uploadingReplyImage, setUploadingReplyImage] = useState(false);
+  const replyImageInputRef = useRef(null);
   const [resolvingId, setResolvingId] = useState(null);
 
   // Modal editar pedido (Mis Pedidos, solo estado Pendiente)
@@ -211,16 +248,103 @@ export default function FeedbackAdmin({ supabase }) {
     }
   };
 
+  const revokeLocalPreviews = (list) => {
+    (list || []).forEach((img) => {
+      if (img?.file && img?.preview && String(img.preview).startsWith("blob:")) {
+        try { URL.revokeObjectURL(img.preview); } catch { /* ignore */ }
+      }
+    });
+  };
+
   const startEditing = (item) => {
+    revokeLocalPreviews(tempReplyImages);
     setEditingId(item.id);
     setTempComment(item.admin_comments || "");
+    setTempReplyImages(
+      normalizeReplyImages(item.admin_reply_images).map((url, i) => ({
+        id: `existing-${i}-${url}`,
+        preview: resolveFeedbackScreenshotUrl(supabase, url),
+        url,
+      }))
+    );
     setExpandedId(item.id);
   };
 
   const cancelEditing = () => {
+    revokeLocalPreviews(tempReplyImages);
     setEditingId(null);
     setTempComment("");
+    setTempReplyImages([]);
     setResolvingId(null);
+    if (replyImageInputRef.current) replyImageInputRef.current.value = "";
+  };
+
+  const compressReplyImage = async (imageFile) => {
+    try {
+      return await imageCompression(imageFile, {
+        maxSizeMB: 1,
+        maxWidthOrHeight: 1920,
+        useWebWorker: false,
+      });
+    } catch (err) {
+      console.error("Error comprimiendo imagen de respuesta:", err);
+      return imageFile;
+    }
+  };
+
+  const handleReplyImagePick = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (tempReplyImages.length >= MAX_ADMIN_REPLY_IMAGES) {
+      toast.error(`Máximo ${MAX_ADMIN_REPLY_IMAGES} imágenes.`);
+      e.target.value = "";
+      return;
+    }
+    setUploadingReplyImage(true);
+    try {
+      const compressed = await compressReplyImage(file);
+      const preview = URL.createObjectURL(compressed);
+      setTempReplyImages((prev) => [
+        ...prev.slice(0, MAX_ADMIN_REPLY_IMAGES - 1),
+        { id: `local-${Date.now()}`, preview, file: compressed },
+      ]);
+    } catch (err) {
+      toast.error("No se pudo cargar la imagen: " + (err?.message || "error"));
+    } finally {
+      setUploadingReplyImage(false);
+      e.target.value = "";
+    }
+  };
+
+  const removeTempReplyImage = (id) => {
+    setTempReplyImages((prev) => {
+      const target = prev.find((img) => img.id === id);
+      if (target?.file && target?.preview?.startsWith?.("blob:")) {
+        try { URL.revokeObjectURL(target.preview); } catch { /* ignore */ }
+      }
+      return prev.filter((img) => img.id !== id);
+    });
+  };
+
+  const uploadPendingReplyImages = async () => {
+    const urls = [];
+    for (const img of tempReplyImages.slice(0, MAX_ADMIN_REPLY_IMAGES)) {
+      if (img.url) {
+        urls.push(img.url);
+        continue;
+      }
+      if (!img.file) continue;
+      const fileName = `feedback/admin_reply_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.jpg`;
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from(FEEDBACK_SCREENSHOT_BUCKET)
+        .upload(fileName, img.file, { contentType: img.file.type || "image/jpeg" });
+      if (uploadError) throw uploadError;
+      const { data: urlData } = supabase.storage
+        .from(FEEDBACK_SCREENSHOT_BUCKET)
+        .getPublicUrl(uploadData.path);
+      urls.push(urlData.publicUrl);
+    }
+    return urls;
   };
 
   const saveComment = async (id) => {
@@ -229,7 +353,11 @@ export default function FeedbackAdmin({ supabase }) {
     setSavingResolution(true);
     const isResolving = resolvingId === id;
     try {
-      const updatePayload = { admin_comments: tempComment };
+      const replyImageUrls = await uploadPendingReplyImages();
+      const updatePayload = {
+        admin_comments: tempComment,
+        admin_reply_images: replyImageUrls,
+      };
       if (isResolving) updatePayload.estado = "RESUELTO";
 
       const { error } = await supabase
@@ -240,11 +368,18 @@ export default function FeedbackAdmin({ supabase }) {
       if (error) throw error;
 
       const newEstado = isResolving ? "RESUELTO" : item.estado;
-      const updated = { ...item, admin_comments: tempComment, estado: newEstado };
+      const updated = {
+        ...item,
+        admin_comments: tempComment,
+        admin_reply_images: replyImageUrls,
+        estado: newEstado,
+      };
       setItems((prev) =>
         prev.map((i) => (i.id === id ? updated : i))
       );
+      revokeLocalPreviews(tempReplyImages);
       setEditingId(null);
+      setTempReplyImages([]);
       setResolvingId(null);
 
       const body = {
@@ -648,10 +783,13 @@ export default function FeedbackAdmin({ supabase }) {
                         <p className="text-slate-700 whitespace-pre-wrap rounded bg-white p-2 border border-slate-100 mb-2">
                           {item.mensaje}
                         </p>
-                        {activeTab === TAB_MIS_PEDIDOS && item.admin_comments && (
+                        {activeTab === TAB_MIS_PEDIDOS && (item.admin_comments || normalizeReplyImages(item.admin_reply_images).length > 0) && (
                           <div className="mb-2 p-2 rounded bg-emerald-50 border border-emerald-100">
                             <span className="font-semibold text-emerald-800 text-xs uppercase tracking-wider block mb-1">Respuesta de administración</span>
-                            <p className="text-slate-800 whitespace-pre-wrap text-sm">{item.admin_comments}</p>
+                            {item.admin_comments && (
+                              <p className="text-slate-800 whitespace-pre-wrap text-sm">{item.admin_comments}</p>
+                            )}
+                            <ReplyImagesGallery supabase={supabase} urls={item.admin_reply_images} />
                           </div>
                         )}
                         {isAdminView && editingId === item.id ? (
@@ -664,10 +802,51 @@ export default function FeedbackAdmin({ supabase }) {
                               onChange={(e) => setTempComment(e.target.value)}
                               autoFocus
                             />
+                            <div className="mt-2 flex flex-wrap items-center gap-2">
+                              {tempReplyImages.map((img) => (
+                                <div key={img.id} className="relative w-16 h-16 rounded-md overflow-hidden border border-amber-200 bg-white group">
+                                  <img src={img.preview} alt="" className="w-full h-full object-cover" />
+                                  <button
+                                    type="button"
+                                    onClick={() => removeTempReplyImage(img.id)}
+                                    className="absolute top-0.5 right-0.5 p-0.5 rounded bg-black/60 text-white hover:bg-red-600"
+                                    title="Quitar imagen"
+                                  >
+                                    <IconX size={10} />
+                                  </button>
+                                </div>
+                              ))}
+                              {tempReplyImages.length < MAX_ADMIN_REPLY_IMAGES && (
+                                <button
+                                  type="button"
+                                  onClick={() => replyImageInputRef.current?.click()}
+                                  disabled={uploadingReplyImage || savingResolution}
+                                  className="w-16 h-16 rounded-md border border-dashed border-amber-300 bg-amber-50/80 text-amber-700 hover:bg-amber-100 flex flex-col items-center justify-center gap-0.5 text-[10px] font-semibold disabled:opacity-50"
+                                  title="Adjuntar imagen (máx. 2)"
+                                >
+                                  {uploadingReplyImage ? (
+                                    <IconLoader size={14} className="animate-spin" />
+                                  ) : (
+                                    <>
+                                      <IconClip size={14} />
+                                      Adjuntar
+                                    </>
+                                  )}
+                                </button>
+                              )}
+                              <input
+                                ref={replyImageInputRef}
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                onChange={handleReplyImagePick}
+                              />
+                            </div>
+                            <p className="text-[10px] text-slate-500 mt-1">Hasta {MAX_ADMIN_REPLY_IMAGES} imágenes en la respuesta.</p>
                             <div className="flex gap-2 mt-1">
                               <button
                                 onClick={() => saveComment(item.id)}
-                                disabled={savingResolution}
+                                disabled={savingResolution || uploadingReplyImage}
                                 className={`px-2 py-1 text-white text-xs font-semibold rounded disabled:opacity-50 flex items-center gap-1 ${
                                   resolvingId === item.id
                                     ? "bg-emerald-600 hover:bg-emerald-700"
@@ -682,16 +861,19 @@ export default function FeedbackAdmin({ supabase }) {
                               </button>
                             </div>
                           </div>
-                        ) : isAdminView && item.admin_comments && (
+                        ) : isAdminView && (item.admin_comments || normalizeReplyImages(item.admin_reply_images).length > 0) && (
                           <div
                             onClick={() => startEditing(item)}
                             className="p-2 rounded bg-amber-50 border border-amber-100 text-amber-800 text-xs cursor-pointer hover:border-amber-300 mb-2"
                           >
                             <span className="font-semibold text-amber-900/70 uppercase text-[10px] block mb-1">Nota Admin</span>
-                            <p className="whitespace-pre-wrap">{item.admin_comments}</p>
+                            {item.admin_comments && (
+                              <p className="whitespace-pre-wrap">{item.admin_comments}</p>
+                            )}
+                            <ReplyImagesGallery supabase={supabase} urls={item.admin_reply_images} />
                           </div>
                         )}
-                        {isAdminView && !item.admin_comments && editingId !== item.id && (
+                        {isAdminView && !item.admin_comments && normalizeReplyImages(item.admin_reply_images).length === 0 && editingId !== item.id && (
                           <button
                             onClick={() => startEditing(item)}
                             className="text-xs text-slate-500 hover:text-indigo-600 flex items-center gap-1 mb-2"

@@ -598,8 +598,14 @@ export default function AsistenciaMatrixReport({ supabase }) {
       setRosterLoading(true);
       const entries = await Promise.all(
         giras.map(async (g) => {
-          const { countedIds, preAltaIds, reemplazoIds, licenciaIds } =
-            await resolveGiraRosterForMatrix(supabase, g.id);
+          const {
+            countedIds,
+            preAltaIds,
+            reemplazoIds,
+            licenciaIds,
+            coberturaAusenteIds,
+            coberturaCubreIds,
+          } = await resolveGiraRosterForMatrix(supabase, g.id);
           return [
             g.id,
             {
@@ -607,6 +613,8 @@ export default function AsistenciaMatrixReport({ supabase }) {
               preAlta: preAltaIds,
               reemplazo: reemplazoIds,
               licencia: licenciaIds,
+              coberturaAusente: coberturaAusenteIds,
+              coberturaCubre: coberturaCubreIds,
             },
           ];
         }),
@@ -1260,7 +1268,7 @@ export default function AsistenciaMatrixReport({ supabase }) {
                 </label>
                 <label
                   className="flex cursor-pointer items-center gap-1.5 text-[11px] font-medium text-slate-600 dark:text-slate-300"
-                  title="De mayor a menor según la columna Total (X, R y L). Si también agrupás por ensambles, ordena cada ensamble por la suma de servicios."
+                  title="De mayor a menor según la columna Total (X, R, L y C roja). Si también agrupás por ensambles, ordena cada ensamble por la suma de servicios."
                 >
                   <input
                     type="checkbox"
@@ -1548,6 +1556,20 @@ export default function AsistenciaMatrixReport({ supabase }) {
                                     title="Ausente en licencia (cuenta en totales)"
                                   >
                                     L
+                                  </span>
+                                ) : mark === "cobertura_ausente" ? (
+                                  <span
+                                    className="text-base font-bold text-red-600 dark:text-red-400"
+                                    title="Ausente con cobertura (cuenta en totales)"
+                                  >
+                                    C
+                                  </span>
+                                ) : mark === "cobertura_cubre" ? (
+                                  <span
+                                    className="text-base font-bold text-emerald-600 dark:text-emerald-400"
+                                    title="Cubre a un ausente (no cuenta en totales)"
+                                  >
+                                    C
                                   </span>
                                 ) : mark === "pre_alta" ? (
                                   <span

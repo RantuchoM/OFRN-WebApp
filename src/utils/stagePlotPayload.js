@@ -703,6 +703,9 @@ function normalizeStagePlotItem(it, idx) {
     o.slotId == null || o.slotId === "" ? null : String(o.slotId);
   const groupId =
     o.groupId == null || o.groupId === "" ? null : String(o.groupId);
+  const isSoloist =
+    stagePlotItemHasInstrumentFootprint(type) &&
+    (o.isSoloist === true || o.soloist === true);
   const base = {
     id: String(o.id || newId()),
     type,
@@ -720,6 +723,8 @@ function normalizeStagePlotItem(it, idx) {
     slotId,
     ...(groupId ? { groupId } : {}),
     ...(o.flipX === true ? { flipX: true } : {}),
+    // Default false: solo persistimos true (jsonb del ítem).
+    ...(isSoloist ? { isSoloist: true } : {}),
   };
   if (type === "timpani") {
     // Sin medida (planos ya guardados) = parche de 32. No reescribe el label.

@@ -7,6 +7,8 @@ import {
   programOverlapsDateRange,
   toLocalDateString,
 } from "../utils/giraDateRange";
+import { seatingApellidoNombre } from "../utils/integranteDisplayName";
+import { personalCoberturaTagFromRow } from "../utils/coberturaGira";
 
 /** Select completo (editores / management): nómina anidada para tarjetas densas. */
 export const GIRAS_LIST_SELECT = `
@@ -14,8 +16,9 @@ export const GIRAS_LIST_SELECT = `
   giras_localidades(id_localidad, localidades(localidad)),
   giras_integrantes(
     id_integrante, rol, estado,
+    es_cobertura, cobertura_id_integrante, cobertura_nombre,
     integrantes!giras_integrantes_id_integrante_fkey(
-      id, nombre, apellido, id_localidad,
+      id, nombre, apellido, nombre_preferencia, apellido_preferencia, id_localidad,
       instrumentos(familia),
       integrantes_ensambles(id_ensamble, fecha_desde, fecha_hasta)
     )
@@ -31,12 +34,16 @@ export const GIRAS_LIST_SELECT = `
 
 /**
  * Select liviano para rol personal: sin expandir toda la orquesta.
+ * Incluye campos de cobertura para tags en GiraCard.
  * GiraCard resuelve el perfil propio vía meConvocadoFallback si hace falta.
  */
 export const GIRAS_LIST_SELECT_PERSONAL = `
   *,
   giras_localidades(id_localidad, localidades(localidad)),
-  giras_integrantes(id_integrante, rol, estado),
+  giras_integrantes(
+    id_integrante, rol, estado,
+    es_cobertura, cobertura_id_integrante, cobertura_nombre
+  ),
   giras_fuentes(*),
   eventos(
     id, fecha, hora_inicio, hora_fin, id_tipo_evento, id_locacion, id_gira, convocados, is_deleted,
@@ -45,6 +52,132 @@ export const GIRAS_LIST_SELECT_PERSONAL = `
     eventos_asistencia(id, id_integrante, estado)
   )
 `;
+
+/**
+ * Adjunta `mi_cobertura` en cada programa (tag personal cubierto/cubre/Asistís).
+ * @param {{ includeAsistis?: boolean }} [opts] — editors: también «Asistís» si van presentes.
+ */
+async function enrichPersonalCoberturaTags(
+  supabase,
+  programs,
+  userId,
+  { includeAsistis = false } = {},
+) {
+  const uid = Number(userId);
+  if (!Number.isFinite(uid) || !programs?.length) return programs || [];
+
+  const nameIds = new Set();
+  const giraIdsWhereICover = [];
+
+  for (const g of programs) {
+    const mine = (g.giras_integrantes || []).find(
+      (r) => Number(r.id_integrante) === uid,
+    );
+    if (!mine) continue;
+    if (
+      String(mine.estado || "").toLowerCase() === "ausente" &&
+      mine.cobertura_id_integrante != null
+    ) {
+      nameIds.add(Number(mine.cobertura_id_integrante));
+    }
+    if (mine.es_cobertura) {
+      giraIdsWhereICover.push(g.id);
+      const covered = (g.giras_integrantes || []).find(
+        (r) => Number(r.cobertura_id_integrante) === uid,
+      );
+      if (covered?.id_integrante != null) {
+        nameIds.add(Number(covered.id_integrante));
+      }
+    }
+  }
+
+  // Por si el ausente no vino en el nested slim (RLS raro): lookup directo.
+  let coveredByGira = new Map();
+  if (giraIdsWhereICover.length) {
+    const { data: coveredRows, error: coveredErr } = await supabase
+      .from("giras_integrantes")
+      .select("id_gira, id_integrante")
+      .eq("cobertura_id_integrante", uid)
+      .in("id_gira", giraIdsWhereICover);
+    if (!coveredErr) {
+      for (const row of coveredRows || []) {
+        coveredByGira.set(Number(row.id_gira), Number(row.id_integrante));
+        if (row.id_integrante != null) nameIds.add(Number(row.id_integrante));
+      }
+    }
+  }
+
+  const nameById = new Map();
+  // Preferir nombres ya anidados (select de editores) antes de ir a DB.
+  for (const g of programs) {
+    for (const r of g.giras_integrantes || []) {
+      const id = Number(r.id_integrante);
+      if (!Number.isFinite(id) || !r.integrantes) continue;
+      const label = seatingApellidoNombre(r.integrantes);
+      if (label) nameById.set(id, label);
+    }
+  }
+  const missingIds = [...nameIds].filter(
+    (id) => Number.isFinite(id) && !nameById.has(id),
+  );
+  if (missingIds.length) {
+    const { data: people, error } = await supabase
+      .from("integrantes")
+      .select(
+        "id, nombre, apellido, nombre_preferencia, apellido_preferencia",
+      )
+      .in("id", missingIds);
+    if (!error) {
+      for (const p of people || []) {
+        nameById.set(Number(p.id), seatingApellidoNombre(p));
+      }
+    }
+  }
+
+  return programs.map((g) => {
+    const mine = (g.giras_integrantes || []).find(
+      (r) => Number(r.id_integrante) === uid,
+    );
+    if (!mine) return { ...g, mi_cobertura: null };
+
+    let teCubreLabel = "";
+    let cubrisALabel = "";
+    if (mine.cobertura_id_integrante != null) {
+      teCubreLabel =
+        nameById.get(Number(mine.cobertura_id_integrante)) || "";
+    } else if (String(mine.cobertura_nombre || "").trim()) {
+      teCubreLabel = String(mine.cobertura_nombre).trim();
+    }
+
+    if (mine.es_cobertura) {
+      const coveredId =
+        coveredByGira.get(Number(g.id)) ??
+        (g.giras_integrantes || []).find(
+          (r) => Number(r.cobertura_id_integrante) === uid,
+        )?.id_integrante;
+      if (coveredId != null) {
+        cubrisALabel = nameById.get(Number(coveredId)) || "";
+      }
+    }
+
+    const tag = personalCoberturaTagFromRow(mine, {
+      teCubreLabel,
+      cubrisALabel,
+      includeAsistis,
+    });
+    return {
+      ...g,
+      mi_cobertura: tag
+        ? {
+            ...tag,
+            estado: mine.estado,
+            es_cobertura: Boolean(mine.es_cobertura),
+            hideAgenda: tag.kind === "cubierto",
+          }
+        : null,
+    };
+  });
+}
 
 async function fetchProgramsByProgramDates(
   supabase,
@@ -193,9 +326,14 @@ async function fetchPersonalGiras(
     ids,
     GIRAS_LIST_SELECT_PERSONAL,
   );
+  const enriched = await enrichPersonalCoberturaTags(
+    supabase,
+    programs,
+    user.id,
+  );
 
   const listReferenceDate = toLocalDateString();
-  const result = programs.filter((g) =>
+  const result = enriched.filter((g) =>
     programOverlapsDateRange(
       g,
       filterDateStart,
@@ -251,6 +389,13 @@ async function fetchAuthenticatedGiras(
 
   let merged = mergeProgramsById([byProgramDates, extraByConcerts]);
 
+  // Editores/admins: cobertura + «Asistís» si van presentes en la nómina.
+  if (user?.id && user.id !== "guest-general") {
+    merged = await enrichPersonalCoberturaTags(supabase, merged, user.id, {
+      includeAsistis: true,
+    });
+  }
+
   const listReferenceDate = toLocalDateString();
   let result = merged.filter((g) =>
     programOverlapsDateRange(
@@ -284,6 +429,7 @@ export function girasListQueryKey({
     .join(",");
   return [
     "giras-list",
+    "cobertura-tags-v1",
     userId,
     isGuest,
     userRole,

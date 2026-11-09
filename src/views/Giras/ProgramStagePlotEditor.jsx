@@ -48,6 +48,7 @@ import {
   IconPencil,
   IconX,
   IconList,
+  IconSettings,
 } from "../../components/ui/Icons";
 import StagePlotLockControls from "./StagePlotLockControls";
 import SearchableSelect from "../../components/ui/SearchableSelect";
@@ -98,6 +99,11 @@ import {
   setStagePlotTimpaniSizeOverrides,
 } from "../../utils/stagePlotIconAssets";
 import {
+  getSoloistOutlineCanvas,
+  stagePlotSoloistOutlineMetrics,
+  stagePlotSoloistOutlinePx,
+} from "../../utils/stagePlotSoloistOutline";
+import {
   STAGE_PLOT_DEFAULT_HEIGHT_CM,
   STAGE_PLOT_DEFAULT_WIDTH_CM,
   STAGE_PLOT_HEIGHT_CM_MAX,
@@ -140,6 +146,7 @@ import {
   STAGE_PLOT_CHAIR_SQUARE_STROKE,
   STAGE_PLOT_CHAIR_SQUARE_MAGNETIZED_FILL,
   STAGE_PLOT_CHAIR_SQUARE_MAGNETIZED_STROKE,
+  STAGE_PLOT_SOLOIST_STROKE,
   STAGE_PLOT_ITEM_SCALE_MIN,
   STAGE_PLOT_ITEM_SCALE_MAX,
   STAGE_PLOT_TARIMA_DEFAULT_WIDTH_CM,
@@ -217,9 +224,11 @@ import {
   buildStagePlotOrganicoCompare,
   computeOrganicoInsertPositions,
   computeStagePlotFurnitureSummary,
+  formatStagePlotDrawnOrganicoString,
   organicoRowIndex,
   organicoRowMissingCount,
   pickOrganicoRowCatalogType,
+  stagePlotItemIsSoloist,
   stagePlotTarimaDimensionsCm,
   summarizeStagePlotOrganico,
 } from "../../utils/stagePlotOrganico";
@@ -1002,11 +1011,25 @@ function StageLienzoPopover({
   flushRef,
   locaciones = [],
   onApplyLocacionPreset,
+  assocOpen = false,
+  assocCount = 0,
+  onToggleAsociar,
+  onExportPdf,
+  onExportJpg,
+  onExportJson,
+  onImport,
+  onOpenTemplates,
 }) {
   const popoverRef = useRef(null);
   const flushersRef = useRef(null);
   if (!flushersRef.current) flushersRef.current = new Set();
-  const [pos, setPos] = useState({ left: 0, top: 0 });
+  const [pos, setPos] = useState({
+    left: 0,
+    top: 0,
+    bottom: "auto",
+    maxHeight: undefined,
+  });
+  const [importExportExpanded, setImportExportExpanded] = useState(false);
 
   const locacionOptions = useMemo(
     () => [
@@ -1035,13 +1058,45 @@ function StageLienzoPopover({
   }, [flushRef, flushAllDrafts]);
 
   useLayoutEffect(() => {
-    if (!open || !anchorRef.current) return;
-    const rect = anchorRef.current.getBoundingClientRect();
-    setPos({
-      left: Math.max(8, Math.min(rect.left, window.innerWidth - 320)),
-      top: rect.bottom + 6,
-    });
-  }, [open, anchorRef]);
+    if (!open || !anchorRef.current) return undefined;
+    const MARGIN = 8;
+    const GAP = 6;
+    const POPOVER_W = 288; // w-72
+    const updatePos = () => {
+      if (!anchorRef.current) return;
+      const rect = anchorRef.current.getBoundingClientRect();
+      const left = Math.max(
+        MARGIN,
+        Math.min(rect.left, window.innerWidth - POPOVER_W - MARGIN),
+      );
+      const spaceBelow = window.innerHeight - rect.bottom - GAP - MARGIN;
+      const spaceAbove = rect.top - GAP - MARGIN;
+      const preferBelow =
+        spaceBelow >= 220 || spaceBelow >= spaceAbove;
+      if (preferBelow) {
+        setPos({
+          left,
+          top: rect.bottom + GAP,
+          bottom: "auto",
+          maxHeight: Math.max(160, spaceBelow),
+        });
+      } else {
+        setPos({
+          left,
+          top: "auto",
+          bottom: window.innerHeight - rect.top + GAP,
+          maxHeight: Math.max(160, spaceAbove),
+        });
+      }
+    };
+    updatePos();
+    window.addEventListener("resize", updatePos);
+    return () => window.removeEventListener("resize", updatePos);
+  }, [open, anchorRef, importExportExpanded]);
+
+  useEffect(() => {
+    if (!open) setImportExportExpanded(false);
+  }, [open]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -1075,16 +1130,30 @@ function StageLienzoPopover({
   if (!open) return null;
 
   const flushRegistry = flushersRef.current;
+  const runAndClose = (fn) => {
+    flushAllDrafts();
+    onClose();
+    fn?.();
+  };
 
   return createPortal(
     <div
       ref={popoverRef}
       role="dialog"
       aria-label="Ajustes del lienzo"
-      className="fixed w-72 rounded-md border border-slate-200 bg-white p-3 shadow-lg"
-      style={{ left: pos.left, top: pos.top, zIndex: overlayZ }}
+      className="fixed w-72 overflow-y-auto overscroll-contain rounded-md border border-slate-200 bg-white p-3 shadow-lg"
+      style={{
+        left: pos.left,
+        top: pos.top,
+        bottom: pos.bottom,
+        maxHeight: pos.maxHeight,
+        zIndex: overlayZ,
+      }}
     >
-      <p className="mb-2 text-[11px] font-bold text-slate-700">Lienzo</p>
+      <p className="mb-2 flex items-center gap-1.5 text-[11px] font-bold text-slate-700">
+        <IconSettings size={12} className="text-slate-500" />
+        Lienzo
+      </p>
       <div className="mb-2 grid grid-cols-2 gap-2">
         <StageLienzoDimensionInput
           label="Ancho (cm)"
@@ -1228,6 +1297,103 @@ function StageLienzoPopover({
           </button>
         </>
       )}
+      <div className="mt-2 space-y-1 border-t border-slate-100 pt-2">
+        {canEdit && onToggleAsociar && (
+          <button
+            type="button"
+            onClick={() => runAndClose(onToggleAsociar)}
+            className={`inline-flex w-full items-center gap-1.5 rounded border px-2 py-1.5 text-left text-[11px] font-medium ${
+              assocOpen
+                ? "border-indigo-300 bg-indigo-50 text-indigo-700"
+                : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+            }`}
+            title="Bloques y eventos asociados"
+          >
+            <IconLink size={13} /> Asociar
+            {assocCount > 0 && (
+              <span className="ml-auto rounded-full bg-indigo-100 px-1.5 text-[10px] text-indigo-700">
+                {assocCount}
+              </span>
+            )}
+          </button>
+        )}
+        <div className="overflow-hidden rounded border border-slate-200">
+          <button
+            type="button"
+            onClick={() => setImportExportExpanded((o) => !o)}
+            className={`inline-flex w-full items-center gap-1.5 px-2 py-1.5 text-left text-[11px] font-medium ${
+              importExportExpanded
+                ? "bg-indigo-50 text-indigo-700"
+                : "bg-white text-slate-700 hover:bg-slate-50"
+            }`}
+            title="Importar / exportar escenario"
+            aria-expanded={importExportExpanded}
+          >
+            <IconUpload size={13} /> Importar / Exportar
+            <IconChevronDown
+              size={12}
+              className={`ml-auto transition-transform ${
+                importExportExpanded ? "rotate-180" : ""
+              }`}
+            />
+          </button>
+          {importExportExpanded && (
+            <div className="border-t border-slate-100 bg-white" role="menu">
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => runAndClose(onExportPdf)}
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[11px] font-medium text-slate-700 hover:bg-indigo-50 hover:text-indigo-800"
+              >
+                <IconFileText size={13} className="text-indigo-600" />
+                Exportar PDF
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => runAndClose(onExportJpg)}
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[11px] font-medium text-slate-700 hover:bg-slate-50"
+                title="Exportar plano (solo escenario; sin hoja de mobiliario)"
+              >
+                <IconPhoto size={13} className="text-slate-500" />
+                Exportar JPG
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => runAndClose(onExportJson)}
+                className="flex w-full items-center gap-2 border-t border-slate-100 px-3 py-1.5 text-left text-[11px] font-medium text-slate-700 hover:bg-slate-50"
+              >
+                <IconDownload size={13} className="text-slate-500" />
+                Descargar JSON
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                disabled={!canEdit}
+                onClick={() => {
+                  if (!canEdit) return;
+                  runAndClose(onImport);
+                }}
+                className="flex w-full items-center gap-2 border-t border-slate-100 px-3 py-1.5 text-left text-[11px] font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+              >
+                <IconUpload size={13} className="text-slate-500" />
+                Importar (archivo / otra gira)…
+              </button>
+            </div>
+          )}
+        </div>
+        {canEdit && onOpenTemplates && (
+          <button
+            type="button"
+            onClick={() => runAndClose(onOpenTemplates)}
+            className="inline-flex w-full items-center gap-1.5 rounded border border-slate-200 bg-white px-2 py-1.5 text-left text-[11px] font-medium text-slate-700 hover:bg-slate-50"
+            title="Plantillas de escenario (crear, aplicar, editar)"
+          >
+            <IconLayers size={13} /> Plantillas
+          </button>
+        )}
+      </div>
     </div>,
     document.body,
   );
@@ -2447,6 +2613,7 @@ function StagePlotItemContextMenu({
   onAddAtril,
   onAddSharedAtril,
   onAddPairAndAtril,
+  onToggleSoloist,
   overlayZ = 100,
 }) {
   const menuRef = useRef(null);
@@ -2483,6 +2650,8 @@ function StagePlotItemContextMenu({
   const canAddAtril = !!menu.canAddAtril;
   const canAddSharedAtril = !!menu.canAddSharedAtril;
   const canAddPairAndAtril = !!menu.canAddPairAndAtril;
+  const canToggleSoloist = !!menu.canToggleSoloist;
+  const isSoloist = !!menu.isSoloist;
 
   const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
   const left = clamp(menu.x, 8, window.innerWidth - 240);
@@ -2573,6 +2742,21 @@ function StagePlotItemContextMenu({
         </button>
       )}
       {(canAddAtril || canAddSharedAtril || canAddPairAndAtril) && (
+        <div className="my-1 border-t border-slate-100" role="separator" />
+      )}
+      {canToggleSoloist && (
+        <button
+          type="button"
+          role="menuitem"
+          className={`block w-full px-3 py-2 text-left text-xs hover:bg-amber-50 hover:text-amber-900 ${
+            isSoloist ? "font-semibold text-amber-700" : "text-slate-700"
+          }`}
+          onClick={onToggleSoloist}
+        >
+          {isSoloist ? "Quitar solista" : "Solista"}
+        </button>
+      )}
+      {canToggleSoloist && (
         <div className="my-1 border-t border-slate-100" role="separator" />
       )}
       {formationId && (
@@ -2920,9 +3104,22 @@ const ItemShape = React.memo(function ItemShape({
     fill,
     catalogEpoch,
   );
-  /** Selección: índigo (alineado al Transformer); visible sin depender de asas. */
-  const stroke = selected ? "#4f46e5" : "#0f172a";
-  const strokeW = selected ? 2.2 : 1.1;
+  const isSoloist =
+    hasFootprint && stagePlotItemIsSoloist(item);
+  /**
+   * Selección: índigo en Path/fallback.
+   * Solista: dorado en Path (contorno vectorial) o outline raster cacheado;
+   * el hit Rect ya no dibuja AABB dorado.
+   */
+  const stroke = isSoloist
+    ? STAGE_PLOT_SOLOIST_STROKE
+    : selected
+      ? "#4f46e5"
+      : "#0f172a";
+  const strokeW = isSoloist || selected ? 2.2 : 1.1;
+  const hitStroke =
+    selected && !isTarima && !isSoloist ? "#4f46e5" : undefined;
+  const hitStrokeW = selected && !isTarima && !isSoloist ? 2 : 0;
   const iconNatural = useMemo(
     () => (iconImage ? getStagePlotImageNaturalSize(iconImage) : null),
     [iconImage],
@@ -2970,6 +3167,23 @@ const ItemShape = React.memo(function ItemShape({
   ]);
   const drawW = visualBounds.drawW;
   const drawH = visualBounds.drawH;
+  /** Anillo dorado siguiendo alpha opaco; cacheado por URL/tamaño (no en cada drag). */
+  const soloistOutline = useMemo(() => {
+    if (!isSoloist || !iconImage || !iconNatural?.w || !iconNatural?.h) {
+      return null;
+    }
+    const strokePx = stagePlotSoloistOutlinePx(drawW, drawH);
+    const canvas = getSoloistOutlineCanvas(iconImage, {
+      drawW,
+      drawH,
+      strokePx,
+      color: STAGE_PLOT_SOLOIST_STROKE,
+      punchInterior: true,
+    });
+    if (!canvas) return null;
+    const metrics = stagePlotSoloistOutlineMetrics(drawW, drawH, strokePx);
+    return { canvas, ...metrics, strokePx };
+  }, [isSoloist, iconImage, iconNatural, drawW, drawH]);
   const timpaniSizeLabel =
     item.type === "timpani"
       ? String(normalizeTimpaniSize(item.timpaniSize))
@@ -3265,9 +3479,9 @@ const ItemShape = React.memo(function ItemShape({
         offsetX={boundsW / 2}
         offsetY={boundsH / 2}
         fill="rgba(0,0,0,0.001)"
-        stroke={selected && !isTarima ? "#4f46e5" : undefined}
-        strokeWidth={selected && !isTarima ? 2 : 0}
-        dash={selected && !isTarima ? [4, 3] : undefined}
+        stroke={hitStroke}
+        strokeWidth={hitStrokeW}
+        dash={selected && !isTarima && !isSoloist ? [4, 3] : undefined}
         strokeScaleEnabled={false}
       />
       {isTarima ? (
@@ -3367,16 +3581,31 @@ const ItemShape = React.memo(function ItemShape({
         <>
         <Group scaleX={item.flipX ? -1 : 1} listening={false}>
           {iconImage && iconNatural?.w && iconNatural?.h ? (
-            <KonvaImage
-              image={iconImage}
-              x={0}
-              y={iconOffsetY}
-              offsetX={drawW / 2}
-              offsetY={drawH / 2}
-              width={drawW}
-              height={drawH}
-              listening={false}
-            />
+            <>
+              {soloistOutline?.canvas ? (
+                <KonvaImage
+                  image={soloistOutline.canvas}
+                  x={0}
+                  y={iconOffsetY}
+                  offsetX={soloistOutline.outW / 2}
+                  offsetY={soloistOutline.outH / 2}
+                  width={soloistOutline.outW}
+                  height={soloistOutline.outH}
+                  listening={false}
+                  perfectDrawEnabled={false}
+                />
+              ) : null}
+              <KonvaImage
+                image={iconImage}
+                x={0}
+                y={iconOffsetY}
+                offsetX={drawW / 2}
+                offsetY={drawH / 2}
+                width={drawW}
+                height={drawH}
+                listening={false}
+              />
+            </>
           ) : pathD ? (
             <Path
               data={pathD}
@@ -3384,7 +3613,10 @@ const ItemShape = React.memo(function ItemShape({
               y={iconOffsetY}
               fill={fill}
               stroke={stroke}
-              strokeWidth={strokeW / Math.max(silScale, 1e-6)}
+              strokeWidth={
+                (isSoloist ? Math.max(strokeW, 3.2) : strokeW) /
+                Math.max(silScale, 1e-6)
+              }
               scaleX={silScale}
               scaleY={silScale}
               offsetX={VB / 2}
@@ -3402,6 +3634,8 @@ const ItemShape = React.memo(function ItemShape({
               width={drawW}
               height={drawH}
               fill={fill}
+              stroke={isSoloist ? STAGE_PLOT_SOLOIST_STROKE : undefined}
+              strokeWidth={isSoloist ? 2.2 : 0}
               cornerRadius={3}
               listening={false}
             />
@@ -3706,8 +3940,6 @@ export default function ProgramStagePlot({
   const [assocOpen, setAssocOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [templatesOpen, setTemplatesOpen] = useState(false);
-  /** Dropdown desktop Importar / Exportar (PDF, JPG, JSON, modal import). */
-  const [importExportOpen, setImportExportOpen] = useState(false);
   /** `{ kind: 'pdf'|'jpg' }` o null — modal de opciones antes de exportar. */
   const [exportModal, setExportModal] = useState(null);
   const [selectedIds, setSelectedIds] = useState([]);
@@ -3809,7 +4041,6 @@ export default function ProgramStagePlot({
   /** Dropdown Copiar… en la barra inferior (formación seleccionada). */
   const [formationCopyMenuOpen, setFormationCopyMenuOpen] = useState(false);
   const formationCopyMenuRef = useRef(null);
-  const importExportMenuRef = useRef(null);
   /** Tooltip hover sobre ítem dibujado. */
   const [itemHoverTooltip, setItemHoverTooltip] = useState(null);
   const itemDraggingRef = useRef(false);
@@ -4468,23 +4699,6 @@ export default function ProgramStagePlot({
   ]);
 
   useEffect(() => {
-    if (!importExportOpen) return undefined;
-    const onPointerDown = (e) => {
-      if (importExportMenuRef.current?.contains(e.target)) return;
-      setImportExportOpen(false);
-    };
-    const onKeyDown = (e) => {
-      if (e.key === "Escape") setImportExportOpen(false);
-    };
-    document.addEventListener("mousedown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [importExportOpen]);
-
-  useEffect(() => {
     if (!selectedFormationId) setFormationCopyMenuOpen(false);
   }, [selectedFormationId]);
 
@@ -4742,6 +4956,10 @@ export default function ProgramStagePlot({
   const organicoSummary = useMemo(
     () => summarizeStagePlotOrganico(organicoRows),
     [organicoRows],
+  );
+  const drawnOrganicoString = useMemo(
+    () => formatStagePlotDrawnOrganicoString(payload.items),
+    [payload.items],
   );
   const furnitureSummary = useMemo(
     () =>
@@ -6761,12 +6979,35 @@ export default function ProgramStagePlot({
         canAddAtril: stagePlotSelectionCanAddAtril(selItems),
         canAddSharedAtril: stagePlotSelectionCanAddSharedAtril(selItems),
         canAddPairAndAtril: STAGE_PLOT_STRING_PAIR_TYPES.has(item.type),
+        canToggleSoloist: stagePlotItemHasInstrumentFootprint(item.type),
+        isSoloist: stagePlotItemIsSoloist(item),
         x: nativeEvt?.clientX ?? 0,
         y: nativeEvt?.clientY ?? 0,
       });
     },
     [canEdit, hideItemHoverTooltip],
   );
+
+  const toggleSoloistFromContext = useCallback(() => {
+    if (!canEdit || !itemContextMenu) return;
+    const ids = new Set(
+      itemContextMenu.selectedIds?.length
+        ? itemContextMenu.selectedIds
+        : [itemContextMenu.itemId],
+    );
+    const nextFlag = !itemContextMenu.isSoloist;
+    commitPayload((prev) => ({
+      ...prev,
+      items: prev.items.map((it) => {
+        if (!ids.has(it.id)) return it;
+        if (!stagePlotItemHasInstrumentFootprint(it.type)) return it;
+        if (nextFlag) return { ...it, isSoloist: true };
+        const { isSoloist: _drop, soloist: _legacy, ...rest } = it;
+        return rest;
+      }),
+    }));
+    closeItemContextMenu();
+  }, [canEdit, itemContextMenu, commitPayload, closeItemContextMenu]);
 
   /** Clic derecho en vacío: menú de la selección actual (no deselecciona). */
   const handleStageContextMenu = useCallback(
@@ -7044,6 +7285,7 @@ export default function ProgramStagePlot({
           ? { scaleY: Number(src.scaleY) }
           : {}),
         includeInChannels: src.includeInChannels,
+        ...(stagePlotItemIsSoloist(src) ? { isSoloist: true } : {}),
         ...(src.type === "timpani"
           ? { timpaniSize: normalizeTimpaniSize(src.timpaniSize) }
           : {}),
@@ -7892,6 +8134,7 @@ export default function ProgramStagePlot({
           holderName={stagePlotLock.holderName}
           viewers={stagePlotLock.viewers}
           selfId={integranteId}
+          showLockUi={stagePlotLock.showLockUi}
           onTake={() => {
             void stagePlotLock.takeControl();
           }}
@@ -7978,6 +8221,7 @@ export default function ProgramStagePlot({
             holderName={stagePlotLock.holderName}
             viewers={stagePlotLock.viewers}
             selfId={integranteId}
+            showLockUi={stagePlotLock.showLockUi}
             onTake={() => {
               void stagePlotLock.takeControl();
             }}
@@ -8012,9 +8256,6 @@ export default function ProgramStagePlot({
             </span>
           )}
           <div className="flex max-w-full min-w-0 flex-wrap items-center gap-2">
-            <span className="shrink-0 text-[11px] font-medium text-slate-500">
-              Elegir lienzo
-            </span>
             <div className="w-44 min-w-0 sm:w-52">
               <SearchableSelect
                 options={plotSelectOptions}
@@ -8026,6 +8267,8 @@ export default function ProgramStagePlot({
                 placeholder="Elegir lienzo…"
                 dropdownMinWidth={220}
                 className="text-[11px]"
+                clearable={false}
+                searchable={false}
               />
             </div>
             {canEdit &&
@@ -8083,6 +8326,14 @@ export default function ProgramStagePlot({
                 <IconPlus size={12} /> Lienzo
               </button>
             )}
+            <div
+              className="min-w-0 max-w-full flex-1 sm:max-w-md"
+              title="Orgánico del lienzo (ítems dibujados; solistas aparte)"
+            >
+              <p className="truncate font-mono text-[11px] tabular-nums text-slate-700 sm:text-xs">
+                {drawnOrganicoString || "0.0.0.0 - 0.0.0.0"}
+              </p>
+            </div>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -8094,6 +8345,7 @@ export default function ProgramStagePlot({
             holderName={stagePlotLock.holderName}
             viewers={stagePlotLock.viewers}
             selfId={integranteId}
+            showLockUi={stagePlotLock.showLockUi}
             onTake={() => {
               void stagePlotLock.takeControl();
             }}
@@ -8101,118 +8353,6 @@ export default function ProgramStagePlot({
               void stagePlotLock.releaseControl();
             }}
           />
-          {canEdit && (
-            <button
-              type="button"
-              onClick={() => setAssocOpen((o) => !o)}
-              className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-xs font-medium ${
-                assocOpen
-                  ? "border-indigo-300 bg-indigo-50 text-indigo-700"
-                  : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-              }`}
-              title="Bloques y eventos asociados"
-            >
-              <IconLink size={14} /> Asociar
-              {(bloqueIds.length > 0 || eventoIds.length > 0) && (
-                <span className="rounded-full bg-indigo-100 px-1.5 text-[10px] text-indigo-700">
-                  {bloqueIds.length + eventoIds.length}
-                </span>
-              )}
-            </button>
-          )}
-          <div className="relative shrink-0" ref={importExportMenuRef}>
-            <button
-              type="button"
-              onClick={() => setImportExportOpen((o) => !o)}
-              className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-xs font-medium ${
-                importExportOpen
-                  ? "border-indigo-300 bg-indigo-50 text-indigo-700"
-                  : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-              }`}
-              title="Importar / exportar escenario"
-              aria-expanded={importExportOpen}
-              aria-haspopup="menu"
-            >
-              <IconUpload size={14} /> Importar / Exportar
-              <IconChevronDown
-                size={12}
-                className={`transition-transform ${importExportOpen ? "rotate-180" : ""}`}
-              />
-            </button>
-            {importExportOpen && (
-              <div
-                className="absolute left-0 top-full z-[110] mt-1 w-56 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl"
-                style={{ zIndex: portalMenuZ }}
-                role="menu"
-              >
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setImportExportOpen(false);
-                    handleExportPdf();
-                  }}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-indigo-50 hover:text-indigo-800"
-                >
-                  <IconFileText size={14} className="text-indigo-600" />
-                  Exportar PDF
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setImportExportOpen(false);
-                    handleExportJpg();
-                  }}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50"
-                  title="Exportar plano (solo escenario; sin hoja de mobiliario)"
-                >
-                  <IconPhoto size={14} className="text-slate-500" />
-                  Exportar JPG
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setImportExportOpen(false);
-                    handleExportJson();
-                  }}
-                  className="flex w-full items-center gap-2 border-t border-slate-100 px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50"
-                >
-                  <IconDownload size={14} className="text-slate-500" />
-                  Descargar JSON
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  disabled={!canEdit}
-                  onClick={() => {
-                    if (!canEdit) return;
-                    setImportExportOpen(false);
-                    setImportOpen(true);
-                  }}
-                  className="flex w-full items-center gap-2 border-t border-slate-100 px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
-                >
-                  <IconUpload size={14} className="text-slate-500" />
-                  Importar (archivo / otra gira)…
-                </button>
-              </div>
-            )}
-          </div>
-          {canEdit && (
-            <button
-              type="button"
-              onClick={() => setTemplatesOpen(true)}
-              className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-xs font-medium ${
-                templatesOpen
-                  ? "border-indigo-300 bg-indigo-50 text-indigo-700"
-                  : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-              }`}
-              title="Plantillas de escenario (crear, aplicar, editar)"
-            >
-              <IconLayers size={14} /> Plantillas
-            </button>
-          )}
           <button
             ref={lienzoBtnRef}
             type="button"
@@ -8222,13 +8362,16 @@ export default function ProgramStagePlot({
               lienzoFlushRef.current?.();
             }}
             onClick={() => setLienzoOpen((o) => !o)}
-            className={`rounded border px-2 py-1 text-xs font-medium ${
+            className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-xs font-medium ${
               lienzoOpen
                 ? "border-indigo-300 bg-indigo-50 text-indigo-700"
                 : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
             }`}
-            title="Tamaño del lienzo, guías y director"
+            title="Configuración del lienzo, asociar, importar/exportar y plantillas"
+            aria-expanded={lienzoOpen}
+            aria-haspopup="dialog"
           >
+            <IconSettings size={14} />
             Lienzo
           </button>
           <StageLienzoPopover
@@ -8245,6 +8388,14 @@ export default function ProgramStagePlot({
             flushRef={lienzoFlushRef}
             locaciones={locacionesPresets}
             onApplyLocacionPreset={applyLocacionPreset}
+            assocOpen={assocOpen}
+            assocCount={bloqueIds.length + eventoIds.length}
+            onToggleAsociar={() => setAssocOpen((o) => !o)}
+            onExportPdf={handleExportPdf}
+            onExportJpg={handleExportJpg}
+            onExportJson={handleExportJson}
+            onImport={() => setImportOpen(true)}
+            onOpenTemplates={() => setTemplatesOpen(true)}
           />
           {canEdit && (
             <div
@@ -9285,6 +9436,7 @@ export default function ProgramStagePlot({
               onAddAtril={addAtrilForSelection}
               onAddSharedAtril={addSharedAtrilForSelection}
               onAddPairAndAtril={addPairAndAtrilNearContextItem}
+              onToggleSoloist={toggleSoloistFromContext}
               overlayZ={portalMenuZ}
             />
           )}

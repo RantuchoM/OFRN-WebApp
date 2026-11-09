@@ -54,6 +54,14 @@ export const STAGE_PLOT_CHAIR_SQUARE_MAGNETIZED_FILL = "#e0e7ff";
 export const STAGE_PLOT_CHAIR_SQUARE_MAGNETIZED_STROKE = "#818cf8";
 
 /**
+ * Reborde dorado de instrumento marcado solista (`isSoloist` en payload del ítem).
+ * Contrasta en lienzo claro y nocturno. No confundir con catálogo
+ * `male_soloist` / `female_soloist`.
+ */
+export const STAGE_PLOT_SOLOIST_STROKE = "#d4a017";
+
+
+/**
  * Huella de instrumentista (cm reales → px vía STAGE_PLOT_CM_TO_PX).
  * Cuadrado 50×50: ancho = X local; profundo = Y local.
  * +Y local = cuello/mástil del SVG; −Y = base/cuerpo (hacia director tras rotación de ítem).

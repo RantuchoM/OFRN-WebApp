@@ -13,6 +13,7 @@ import AppNavLink from "../../components/ui/AppNavLink";
 import LocacionNombreSpan from "../../components/locations/LocacionNombreSpan";
 import RepertoireManager from "../../components/repertoire/RepertoireManager";
 import { getProgramStyle } from "../../utils/giraUtils";
+import { resolveMiCoberturaForUser } from "../../utils/coberturaGira";
 import { enqueueOrganicoRefresh } from "../../services/organicoConvocadoService";
 import GiraActionMenu from "./GiraActionMenu";
 import StagePlotViewerModal from "./StagePlotViewerModal";
@@ -169,7 +170,7 @@ function GiraTableRow({
   showRepertoire = false,
   expandAllConcerts = false,
 }) {
-  const { isDifusion, isTechnician, isManagement, isAdmin } = useAuth();
+  const { user, isDifusion, isTechnician, isManagement, isAdmin } = useAuth();
   const [organicoText, setOrganicoText] = useState(
     gira.organico_convocado || "",
   );
@@ -264,20 +265,54 @@ function GiraTableRow({
   const dateInfo = formatDateRangeBig(gira.fecha_desde, gira.fecha_hasta);
   const dateColorClass =
     gira.estado === "Pausada" ? "text-amber-900" : typeColorClass;
-  const agendaView = isDifusion ? "DIFUSION" : "AGENDA";
+  const miCobertura = resolveMiCoberturaForUser(gira, user?.id, {
+    includeAsistis: !isPersonal,
+  });
+  const isCubiertoPorCobertura = miCobertura?.kind === "cubierto";
+  const hideAgendaForCobertura =
+    Boolean(isPersonal) && Boolean(miCobertura?.hideAgenda);
+  const agendaView = isDifusion
+    ? "DIFUSION"
+    : hideAgendaForCobertura
+      ? "REPERTOIRE"
+      : "AGENDA";
 
   const handleViewChange = (mode, tab) => {
     setActiveMenuId(null);
     updateView(mode, gira.id, tab);
   };
 
+  const coberturaTagTone =
+    miCobertura?.kind === "cubre"
+      ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+      : miCobertura?.kind === "asistis"
+        ? "bg-indigo-50 text-indigo-800 border-indigo-200"
+        : "bg-red-50 text-red-700 border-red-200";
+  const coberturaTag =
+    miCobertura?.text ? (
+      <span
+        className={`relative z-[2] mt-0.5 inline-flex max-w-full truncate rounded border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-tight shadow-sm ${coberturaTagTone}`}
+        title={miCobertura.text}
+      >
+        {miCobertura.text}
+      </span>
+    ) : null;
+
   return (
     <div
       id={`gira-card-${gira.id}`}
-      className={`border-b border-black/10 border-l-4 ${borderColorClass} ${rowTone} ${
-        isMenuOpen ? "relative z-50" : "relative z-0"
-      } ${isHighlighted ? "ring-2 ring-inset ring-indigo-400" : ""}`}
+      className={`relative border-b border-black/10 border-l-4 ${borderColorClass} ${rowTone} ${
+        isMenuOpen ? "z-50" : "z-0"
+      } ${isHighlighted ? "ring-2 ring-inset ring-indigo-400" : ""} ${
+        isCubiertoPorCobertura ? "text-slate-500" : ""
+      }`}
     >
+      {isCubiertoPorCobertura ? (
+        <div
+          className="pointer-events-none absolute inset-0 z-[1] bg-slate-200/55"
+          aria-hidden
+        />
+      ) : null}
       <div className={`flex items-start px-2 py-1.5 md:grid ${GRID_COLS}`}>
         <div className="min-w-0 flex-1 md:contents">
         <div className="grid grid-cols-4 items-start gap-x-1.5 md:contents">
@@ -325,6 +360,7 @@ function GiraTableRow({
           ) : (
             <span className="mt-0.5 text-[11px] text-slate-300">—</span>
           )}
+          {coberturaTag}
         </div>
 
         <div className="min-w-0 leading-tight">

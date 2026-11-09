@@ -1,0 +1,800 @@
+<!DOCTYPE html>
+<html lang="es"><head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OFRN — Mails completos (Giras / Roster / Cobertura)</title>
+  <style>
+    :root {
+      --ink: #1e293b;
+      --muted: #64748b;
+      --line: #e2e8f0;
+      --page: #e2e8f0;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      color: var(--ink);
+      background: var(--page);
+      line-height: 1.45;
+      padding: 1.25rem;
+    }
+    .wrap { max-width: 44rem; margin: 0 auto; }
+    header.page {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 0.75rem;
+      padding: 1.15rem 1.25rem;
+      margin-bottom: 1rem;
+    }
+    header.page h1 { margin: 0 0 0.35rem; font-size: 1.25rem; }
+    header.page p { margin: 0; color: var(--muted); font-size: 0.9rem; }
+    .print-hint { margin-top: 0.65rem; font-size: 0.8rem; color: var(--muted); }
+    .toc {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 0.75rem;
+      padding: 1rem 1.15rem;
+      margin-bottom: 1.25rem;
+      font-size: 0.9rem;
+    }
+    .toc h2 {
+      margin: 0 0 0.5rem;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+    }
+    .toc ol { margin: 0; padding-left: 1.2rem; }
+    .toc a { color: var(--ink); }
+    .group-title {
+      margin: 1.75rem 0 0.65rem;
+      font-size: 1.05rem;
+      padding-bottom: 0.3rem;
+      border-bottom: 2px solid var(--ink);
+    }
+    .mail-card {
+      background: #f1f5f9;
+      border: 1px solid #cbd5e1;
+      border-radius: 0.85rem;
+      margin-bottom: 1.25rem;
+      overflow: hidden;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .mail-meta {
+      padding: 0.75rem 1rem;
+      background: #0f172a;
+      color: #e2e8f0;
+      font-size: 0.78rem;
+    }
+    .mail-meta .id { color: #94a3b8; margin-top: 0.25rem; }
+    .mail-meta strong { color: #fff; }
+    .badge {
+      display: inline-block;
+      font-size: 0.65rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      padding: 0.15rem 0.45rem;
+      border-radius: 999px;
+      margin-left: 0.4rem;
+      vertical-align: middle;
+    }
+    .badge.ALTA { background: #065f46; color: #a7f3d0; }
+    .badge.BAJA { background: #7f1d1d; color: #fecaca; }
+    .badge.AUSENTE { background: #78350f; color: #fde68a; }
+    .badge.INIT { background: #312e81; color: #c7d2fe; }
+    .subject-row {
+      padding: 0.65rem 1rem;
+      background: #fff;
+      border-bottom: 1px solid var(--line);
+      font-size: 0.85rem;
+    }
+    .subject-row .lbl {
+      font-size: 0.65rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+      display: block;
+      margin-bottom: 0.15rem;
+    }
+    .subject-row .val { font-weight: 600; color: #0f172a; }
+    .mail-viewport {
+      padding: 1rem;
+      background: #cbd5e1;
+    }
+    /* Réplica del HTML de mails_produccion / convocatoria_gira */
+    .mail-body {
+      font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+      color: #333;
+      line-height: 1.6;
+      font-size: 14px;
+      background: #fff;
+      border-radius: 6px;
+      padding: 1rem 1.15rem;
+      max-width: 36rem;
+      margin: 0 auto;
+      box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
+    }
+    .mail-body .box {
+      border-left: 4px solid #4f46e5;
+      background-color: #f5f3ff;
+      padding: 15px;
+      margin: 8px 0 16px;
+      border-radius: 4px;
+    }
+    .mail-body .box h2 {
+      margin-top: 0;
+      color: #111;
+      font-size: 1.25rem;
+    }
+    .mail-body .box p { margin: 0.65em 0; }
+    .mail-body .reason {
+      margin: 10px 0;
+      padding: 10px;
+      background: #fef3c7;
+      border-left: 4px solid #f59e0b;
+      border-radius: 4px;
+      font-size: 13px;
+    }
+    .mail-body .footnote {
+      margin: 10px 0;
+      padding: 10px;
+      background: #f8fafc;
+      border-left: 4px solid #94a3b8;
+      border-radius: 4px;
+      font-size: 13px;
+      color: #334155;
+    }
+    .mail-body .fechas {
+      margin: 12px 0;
+      padding: 10px;
+      background: #f8fafc;
+      border-radius: 4px;
+      font-size: 13px;
+    }
+    .mail-body .footer {
+      color: #666;
+      font-size: 12px;
+      margin: 0;
+    }
+    .mail-body a { color: #4f46e5; font-weight: bold; }
+    .note {
+      max-width: 44rem;
+      margin: 1.5rem auto 0;
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+    .toolbar {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      align-items: center;
+      background: #0f172a;
+      color: #e2e8f0;
+      padding: 0.65rem 0.85rem;
+      border-radius: 0.75rem;
+      margin-bottom: 1rem;
+      box-shadow: 0 4px 16px rgba(15, 23, 42, 0.25);
+    }
+    .toolbar strong { color: #fff; font-size: 0.85rem; margin-right: 0.35rem; }
+    .toolbar button {
+      font: inherit;
+      font-size: 0.8rem;
+      font-weight: 700;
+      border: 0;
+      border-radius: 0.45rem;
+      padding: 0.4rem 0.75rem;
+      cursor: pointer;
+      background: #4f46e5;
+      color: #fff;
+    }
+    .toolbar button.secondary { background: #334155; }
+    .toolbar button:hover { filter: brightness(1.08); }
+    .toolbar .hint { font-size: 0.72rem; color: #94a3b8; flex: 1 1 12rem; }
+    .howto {
+      background: #fffbeb;
+      border: 1px solid #fcd34d;
+      border-radius: 0.75rem;
+      padding: 0.85rem 1rem;
+      margin-bottom: 1rem;
+      font-size: 0.88rem;
+    }
+    .howto ol { margin: 0.4rem 0 0; padding-left: 1.2rem; }
+    .howto code { font-size: 0.82em; background: #fff; padding: 0.05rem 0.3rem; border-radius: 0.25rem; }
+    body.edit-mode [contenteditable="true"] {
+      outline: 1px dashed #818cf8;
+      outline-offset: 2px;
+      border-radius: 2px;
+      min-height: 1em;
+      cursor: text;
+    }
+    body.edit-mode [contenteditable="true"]:focus {
+      outline: 2px solid #4f46e5;
+      background: #eef2ff;
+    }
+    .mail-card.is-dirty {
+      box-shadow: 0 0 0 3px #f59e0b;
+    }
+    .mail-card.is-dirty .mail-meta::after {
+      content: " · MODIFICADO";
+      color: #fbbf24;
+      font-weight: 700;
+    }
+    @media print {
+      body { background: #fff; padding: 0; }
+      .print-hint, .toolbar, .howto { display: none !important; }
+      .mail-viewport { background: #fff; padding: 0.5rem 0; }
+      .mail-card { border-color: #94a3b8; box-shadow: none; }
+      a { text-decoration: none; }
+      [contenteditable="true"] { outline: none !important; background: transparent !important; }
+    }
+  </style>
+</head>
+<body class="edit-mode">
+  <div class="wrap">
+    <div class="toolbar" role="toolbar" aria-label="Edición de plantillas">
+      <strong>Plantillas</strong>
+      <button type="button" id="btn-edit" class="">Bloquear edición</button>
+      <button type="button" id="btn-download">Descargar HTML editado</button>
+      <button type="button" id="btn-print" class="secondary">Imprimir / PDF</button>
+      <span class="hint" id="toolbar-status">Editá los textos resaltados. Luego descargá el HTML y subilo al chat.</span>
+    </div>
+
+    <header class="page">
+      <h1>Mails completos — Giras / Roster / Cobertura</h1>
+      <p>
+        Réplica del HTML real de <code>mails_produccion</code> (template
+        <code>convocatoria_gira</code>): asunto, título interno y cuerpo.
+        Ejemplo de gira: <strong>Cantos del Presente</strong> (CF · Nov 2026).
+      </p>
+      <p class="print-hint">Para PDF: botón «Imprimir / PDF» o Ctrl+P.</p>
+    </header>
+
+    <div class="howto">
+      <strong>Cómo pedirme ajustes sin explicar uno a uno</strong>
+      <ol>
+        <li>Pulsá <strong>Activar edición</strong> y corregí asunto, título o textos (sobre todo el bloque amarillo «Motivo»).</li>
+        <li>Las cards tocadas quedan marcadas en naranja como <em>MODIFICADO</em>.</li>
+        <li>Pulsá <strong>Descargar HTML editado</strong> y subí ese archivo al chat de Cursor.</li>
+        <li>Con eso aplico los cambios en el código (<code>rosterBajaMotivos.js</code> / mails) sin que tengas que dictarlos.</li>
+      </ol>
+    </div>
+
+    <nav class="toc">
+      <h2>Índice</h2>
+      <ol>
+        <li><a href="#g-convocatoria">Convocatoria e altas</a></li>
+        <li><a href="#g-ausencia">Ausencia y bajas</a></li>
+        <li><a href="#g-grupal">Cambios grupales</a></li>
+        <li><a href="#g-cobertura">Cobertura (asignar / cambiar)</a></li>
+        <li><a href="#g-resolucion">Resolución de cobertura (botón A)</a></li>
+      </ol>
+    </nav>
+
+    <!-- ========== CONVOCATORIA ========== -->
+    <h2 class="group-title" id="g-convocatoria">1. Convocatoria e altas</h2>
+
+    <article class="mail-card" id="initial" data-mail-id="initial">
+      <div class="mail-meta">
+        <div><strong>Convocatoria inicial (broadcast)</strong><span class="badge INIT">INITIAL</span></div>
+        <div class="id">variant: INITIAL_BROADCAST · sin reason</div>
+      </div>
+      <div class="subject-row">
+        <span class="lbl">Asunto</span>
+        <span class="val" data-field="subject" contenteditable="true" data-bound="1">Convocatoria a gira | Cantos del Presente</span>
+      </div>
+      <div class="mail-viewport">
+        <div class="mail-body">
+          <div class="box">
+            <h2 data-field="title" contenteditable="true" data-bound="1">Convocatoria a gira</h2>
+            <p contenteditable="true" data-bound="1">Hola Martín,</p>
+            <p contenteditable="true" data-bound="1">Te convocamos a la gira <strong>Cantos del Presente</strong> (CF · Nov).</p>
+            <p class="fechas"><strong>Fechas:</strong> 18/11/2026 – 21/11/2026 &nbsp;|&nbsp; <strong>Zona:</strong> Valle Medio</p>
+            <p contenteditable="true" data-bound="1">Podés consultar el repertorio y material en el siguiente enlace:</p>
+            <p contenteditable="true" data-bound="1"><a href="#">Ver repertorio y material de la gira</a></p>
+            <p contenteditable="true" data-bound="1">Cualquier consulta, respondé a este correo.</p>
+          </div>
+          <p class="footer" contenteditable="true" data-bound="1">Orquesta Filarmónica de Río Negro – Sistema de Gestión</p>
+        </div>
+      </div>
+    </article>
+
+    <article class="mail-card" id="alta_individual" data-mail-id="alta_individual">
+      <div class="mail-meta">
+        <div><strong>Alta individual / convocatoria</strong><span class="badge ALTA">ALTA</span></div>
+        <div class="id">variant: ALTA · reason fijo</div>
+      </div>
+      <div class="subject-row">
+        <span class="lbl">Asunto</span>
+        <span class="val" data-field="subject" contenteditable="true" data-bound="1">Alta en gira | Cantos del Presente</span>
+      </div>
+      <div class="mail-viewport">
+        <div class="mail-body">
+          <div class="box">
+            <h2 data-field="title" contenteditable="true" data-bound="1">Alta en gira</h2>
+            <p contenteditable="true" data-bound="1">Hola Ana,</p>
+            <p contenteditable="true" data-bound="1">Fuiste dado/a de <strong>alta</strong> en la gira <strong>Cantos del Presente</strong> (CF · Nov).</p>
+            <p class="reason" data-field="reason" contenteditable="true" data-bound="1"><strong>Motivo:</strong> Se te convoca individualmente</p>
+            <p class="fechas"><strong>Fechas:</strong> 18/11/2026 – 21/11/2026 &nbsp;|&nbsp; <strong>Zona:</strong> Valle Medio</p>
+            <p contenteditable="true" data-bound="1"><a href="#">Ver repertorio y material</a></p>
+            <p contenteditable="true" data-bound="1">Saludos.</p>
+          </div>
+          <p class="footer" contenteditable="true" data-bound="1">Orquesta Filarmónica de Río Negro – Sistema de Gestión</p>
+        </div>
+      </div>
+    </article>
+
+    <article class="mail-card" id="alta_titular" data-mail-id="alta_titular">
+      <div class="mail-meta">
+        <div><strong>Asignación como titular (vacante)</strong><span class="badge ALTA">ALTA</span></div>
+        <div class="id">variant: ALTA</div>
+      </div>
+      <div class="subject-row">
+        <span class="lbl">Asunto</span>
+        <span class="val" data-field="subject" contenteditable="true" data-bound="1">Alta en gira | Cantos del Presente</span>
+      </div>
+      <div class="mail-viewport">
+        <div class="mail-body">
+          <div class="box">
+            <h2 data-field="title" contenteditable="true" data-bound="1">Alta en gira</h2>
+            <p contenteditable="true" data-bound="1">Hola Luis,</p>
+            <p contenteditable="true" data-bound="1">Fuiste dado/a de <strong>alta</strong> en la gira <strong>Cantos del Presente</strong> (CF · Nov).</p>
+            <p class="reason" data-field="reason" contenteditable="true" data-bound="1"><strong>Motivo:</strong> Se te asignó en forma individual.</p>
+            <p class="fechas"><strong>Fechas:</strong> 18/11/2026 – 21/11/2026 &nbsp;|&nbsp; <strong>Zona:</strong> Valle Medio</p>
+            <p contenteditable="true" data-bound="1"><a href="#">Ver repertorio y material</a></p>
+            <p contenteditable="true" data-bound="1">Saludos.</p>
+          </div>
+          <p class="footer" contenteditable="true" data-bound="1">Orquesta Filarmónica de Río Negro – Sistema de Gestión</p>
+        </div>
+      </div>
+    </article>
+
+    <article class="mail-card" id="presente" data-mail-id="presente">
+      <div class="mail-meta">
+        <div><strong>Ausente → presente (sin cobertura)</strong><span class="badge ALTA">ALTA</span></div>
+        <div class="id">variant: ALTA · buildPresenteMailNotification</div>
+      </div>
+      <div class="subject-row">
+        <span class="lbl">Asunto</span>
+        <span class="val" data-field="subject" contenteditable="true" data-bound="1">Alta en gira | Cantos del Presente</span>
+      </div>
+      <div class="mail-viewport">
+        <div class="mail-body">
+          <div class="box">
+            <h2 data-field="title" contenteditable="true" data-bound="1">Alta en gira</h2>
+            <p contenteditable="true" data-bound="1">Hola Sofía,</p>
+            <p contenteditable="true" data-bound="1">Volviste a ser dado/a de <strong>alta</strong> en la gira <strong>Cantos del Presente</strong> (CF · Nov).</p>
+            <p class="reason" data-field="reason" contenteditable="true" data-bound="1"><strong>Motivo:</strong> Habías solicitado ser cubierto/a pero ya no es necesario.</p>
+            <p class="fechas"><strong>Fechas:</strong> 18/11/2026 – 21/11/2026 &nbsp;|&nbsp; <strong>Zona:</strong> Valle Medio</p>
+            <p contenteditable="true" data-bound="1"><a href="#">Ver repertorio y material</a></p>
+            <p contenteditable="true" data-bound="1">Saludos.</p>
+          </div>
+          <p class="footer" contenteditable="true" data-bound="1">Orquesta Filarmónica de Río Negro – Sistema de Gestión</p>
+        </div>
+      </div>
+    </article>
+
+    <!-- ========== AUSENCIA / BAJA ========== -->
+    <h2 class="group-title" id="g-ausencia">2. Ausencia y bajas</h2>
+
+    <article class="mail-card" id="ausente" data-mail-id="ausente">
+      <div class="mail-meta">
+        <div><strong>Marcar ausente</strong><span class="badge AUSENTE">AUSENTE</span></div>
+        <div class="id">variant: AUSENTE · buildAusenteMailNotification</div>
+      </div>
+      <div class="subject-row">
+        <span class="lbl">Asunto</span>
+        <span class="val" data-field="subject" contenteditable="true" data-bound="1">Ausencia en gira | Razones personales | Cantos del Presente</span>
+      </div>
+      <div class="mail-viewport">
+        <div class="mail-body">
+          <div class="box">
+            <h2 data-field="title" contenteditable="true" data-bound="1">Ausencia en gira</h2>
+            <p contenteditable="true" data-bound="1">Hola Martín,</p>
+            <p contenteditable="true" data-bound="1">Se registró tu situación de <strong>ausente</strong> en la gira <strong>Cantos del Presente</strong> (CF · Nov).</p>
+            <p class="reason" data-field="reason" contenteditable="true" data-bound="1"><strong>Motivo:</strong> Se te marcó como ausente. Motivo: Razones personales</p>
+            <p class="fechas"><strong>Fechas:</strong> 18/11/2026 – 21/11/2026 &nbsp;|&nbsp; <strong>Zona:</strong> Valle Medio</p>
+            <p contenteditable="true" data-bound="1">Para cualquier cambio, contactá a la administración.</p>
+          </div>
+          <p class="footer" contenteditable="true" data-bound="1">Orquesta Filarmónica de Río Negro – Sistema de Gestión</p>
+        </div>
+      </div>
+    </article>
+
+    <article class="mail-card" id="baja" data-mail-id="baja">
+      <div class="mail-meta">
+        <div><strong>Baja / desconvocatoria</strong><span class="badge BAJA">BAJA</span></div>
+        <div class="id">variant: BAJA · buildBajaGiraMailNotification</div>
+      </div>
+      <div class="subject-row">
+        <span class="lbl">Asunto</span>
+        <span class="val" data-field="subject" contenteditable="true" data-bound="1">Ausencia en gira | Motivo: Enfermedad | Cantos del Presente</span>
+      </div>
+      <div class="mail-viewport">
+        <div class="mail-body">
+          <div class="box">
+            <h2 data-field="title" contenteditable="true" data-bound="1">Baja de gira</h2>
+            <p contenteditable="true" data-bound="1">Hola Carla,</p>
+            <p contenteditable="true" data-bound="1">Se registró tu <strong>baja</strong> de la gira <strong>Cantos del Presente</strong> (CF · Nov).</p>
+            <p class="reason" data-field="reason" contenteditable="true" data-bound="1"><strong>Motivo:</strong> Baja de la gira. Motivo: Enfermedad</p>
+            <p class="fechas"><strong>Fechas:</strong> 18/11/2026 – 21/11/2026 &nbsp;|&nbsp; <strong>Zona:</strong> Valle Medio</p>
+            <p contenteditable="true" data-bound="1">Si tenés dudas, respondé a este correo.</p>
+          </div>
+          <p class="footer" contenteditable="true" data-bound="1">Orquesta Filarmónica de Río Negro – Sistema de Gestión</p>
+        </div>
+      </div>
+    </article>
+
+    <article class="mail-card" id="baja_balance" data-mail-id="baja_balance">
+      <div class="mail-meta">
+        <div><strong>Baja — motivo Balance orquestal (+ nota al pie)</strong><span class="badge BAJA">BAJA</span></div>
+        <div class="id">variant: BAJA · reasonFootnote automático</div>
+      </div>
+      <div class="subject-row">
+        <span class="lbl">Asunto</span>
+        <span class="val" data-field="subject" contenteditable="true" data-bound="1">Baja de gira por balance orquestal | Cantos del Presente</span>
+      </div>
+      <div class="mail-viewport">
+        <div class="mail-body">
+          <div class="box">
+            <h2 data-field="title" contenteditable="true" data-bound="1">Baja de gira</h2>
+            <p contenteditable="true" data-bound="1">Hola Diego,</p>
+            <p contenteditable="true" data-bound="1">Se registró tu <strong>baja</strong> de la gira <strong>Cantos del Presente</strong> (CF · Nov).</p>
+            <p class="reason" data-field="reason" contenteditable="true" data-bound="1"><strong>Motivo:</strong> Baja de la gira. Motivo: Balance Orquestal</p>
+            <p class="footnote" contenteditable="true" data-bound="1">Desde la dirección artística se hicieron ajustes en el seating, por lo tanto se te informa que quedás desafectado de tu fila en esta gira. No obstante, si llegáramos a requerir de sus servicios (por enfermedad de algún/a colega u otra razón) te la haremos saber a la mayor brevedad posible.</p>
+            <p class="fechas"><strong>Fechas:</strong> 18/11/2026 – 21/11/2026 &nbsp;|&nbsp; <strong>Zona:</strong> Valle Medio</p>
+            <p contenteditable="true" data-bound="1">Si tenés dudas, respondé a este correo.</p>
+          </div>
+          <p class="footer" contenteditable="true" data-bound="1">Orquesta Filarmónica de Río Negro – Sistema de Gestión</p>
+        </div>
+      </div>
+    </article>
+
+    <!-- ========== GRUPAL ========== -->
+    <h2 class="group-title" id="g-grupal">3. Cambios grupales</h2>
+
+    <article class="mail-card" id="exclusion_ensamble" data-mail-id="exclusion_ensamble">
+      <div class="mail-meta">
+        <div><strong>Exclusión de ensamble</strong><span class="badge BAJA">BAJA</span></div>
+        <div class="id">variant: BAJA</div>
+      </div>
+      <div class="subject-row">
+        <span class="lbl">Asunto</span>
+        <span class="val" data-field="subject" contenteditable="true" data-bound="1">Baja en la gira | Se excluyó al ensamble | Cantos del Presente</span>
+      </div>
+      <div class="mail-viewport">
+        <div class="mail-body">
+          <div class="box">
+            <h2 data-field="title" contenteditable="true" data-bound="1">Baja de gira</h2>
+            <p contenteditable="true" data-bound="1">Hola Paula,</p>
+            <p contenteditable="true" data-bound="1">Se registró tu <strong>baja</strong> de la gira <strong>Cantos del Presente</strong> (CF · Nov).</p>
+            <p class="reason" data-field="reason" contenteditable="true" data-bound="1"><strong>Motivo:</strong> Se excluyó al ensamble Camerata Filarmónica. Motivo: Balance Orquestal</p>
+            <p class="footnote" contenteditable="true" data-bound="1">Desde la dirección artística se hicieron ajustes en el seating, por lo tanto se te informa que quedás desafectado de tu fila en esta gira. No obstante, si llegáramos a requerir de sus servicios (por enfermedad de algún/a colega u otra razón) te la haremos saber a la mayor brevedad posible.</p>
+            <p class="fechas"><strong>Fechas:</strong> 18/11/2026 – 21/11/2026 &nbsp;|&nbsp; <strong>Zona:</strong> Valle Medio</p>
+            <p contenteditable="true" data-bound="1">Si tenés dudas, respondé a este correo.</p>
+          </div>
+          <p class="footer" contenteditable="true" data-bound="1">Orquesta Filarmónica de Río Negro – Sistema de Gestión</p>
+        </div>
+      </div>
+    </article>
+
+    <article class="mail-card" id="inclusion_ensamble" data-mail-id="inclusion_ensamble">
+      <div class="mail-meta">
+        <div><strong>Inclusión de ensamble</strong><span class="badge ALTA">ALTA</span></div>
+        <div class="id">variant: ALTA</div>
+      </div>
+      <div class="subject-row">
+        <span class="lbl">Asunto</span>
+        <span class="val" data-field="subject" contenteditable="true" data-bound="1">Alta en gira | Cantos del Presente</span>
+      </div>
+      <div class="mail-viewport">
+        <div class="mail-body">
+          <div class="box">
+            <h2 data-field="title" contenteditable="true" data-bound="1">Alta en gira</h2>
+            <p contenteditable="true" data-bound="1">Hola Tomás,</p>
+            <p contenteditable="true" data-bound="1">Fuiste dado/a de <strong>alta</strong> en la gira <strong>Cantos del Presente</strong> (CF · Nov).</p>
+            <p class="reason" data-field="reason" contenteditable="true" data-bound="1"><strong>Motivo:</strong> Se te convoca con el ensamble Camerata Filarmónica</p>
+            <p class="fechas"><strong>Fechas:</strong> 18/11/2026 – 21/11/2026 &nbsp;|&nbsp; <strong>Zona:</strong> Valle Medio</p>
+            <p contenteditable="true" data-bound="1"><a href="#">Ver repertorio y material</a></p>
+            <p contenteditable="true" data-bound="1">Saludos.</p>
+          </div>
+          <p class="footer" contenteditable="true" data-bound="1">Orquesta Filarmónica de Río Negro – Sistema de Gestión</p>
+        </div>
+      </div>
+    </article>
+
+    <article class="mail-card" id="inclusion_familia" data-mail-id="inclusion_familia">
+      <div class="mail-meta">
+        <div><strong>Inclusión de familia</strong><span class="badge ALTA">ALTA</span></div>
+        <div class="id">variant: ALTA</div>
+      </div>
+      <div class="subject-row">
+        <span class="lbl">Asunto</span>
+        <span class="val" data-field="subject" contenteditable="true" data-bound="1">Alta en gira | Cantos del Presente</span>
+      </div>
+      <div class="mail-viewport">
+        <div class="mail-body">
+          <div class="box">
+            <h2 data-field="title" contenteditable="true" data-bound="1">Alta en gira</h2>
+            <p contenteditable="true" data-bound="1">Hola Elena,</p>
+            <p contenteditable="true" data-bound="1">Fuiste dado/a de <strong>alta</strong> en la gira <strong>Cantos del Presente</strong> (CF · Nov).</p>
+            <p class="reason" data-field="reason" contenteditable="true" data-bound="1"><strong>Motivo:</strong> Se te convoca con la familia de Cuerdas</p>
+            <p class="fechas"><strong>Fechas:</strong> 18/11/2026 – 21/11/2026 &nbsp;|&nbsp; <strong>Zona:</strong> Valle Medio</p>
+            <p contenteditable="true" data-bound="1"><a href="#">Ver repertorio y material</a></p>
+            <p contenteditable="true" data-bound="1">Saludos.</p>
+          </div>
+          <p class="footer" contenteditable="true" data-bound="1">Orquesta Filarmónica de Río Negro – Sistema de Gestión</p>
+        </div>
+      </div>
+    </article>
+
+    <article class="mail-card" id="inclusion_mixta" data-mail-id="inclusion_mixta">
+      <div class="mail-meta">
+        <div><strong>Inclusión ensamble + familia</strong><span class="badge ALTA">ALTA</span></div>
+        <div class="id">variant: ALTA</div>
+      </div>
+      <div class="subject-row">
+        <span class="lbl">Asunto</span>
+        <span class="val" data-field="subject" contenteditable="true" data-bound="1">Alta en gira | Cantos del Presente</span>
+      </div>
+      <div class="mail-viewport">
+        <div class="mail-body">
+          <div class="box">
+            <h2 data-field="title" contenteditable="true" data-bound="1">Alta en gira</h2>
+            <p contenteditable="true" data-bound="1">Hola Nicolás,</p>
+            <p contenteditable="true" data-bound="1">Fuiste dado/a de <strong>alta</strong> en la gira <strong>Cantos del Presente</strong> (CF · Nov).</p>
+            <p class="reason" data-field="reason" contenteditable="true" data-bound="1"><strong>Motivo:</strong> Se te convoca con el ensamble Camerata Filarmónica y la familia de Vientos</p>
+            <p class="fechas"><strong>Fechas:</strong> 18/11/2026 – 21/11/2026 &nbsp;|&nbsp; <strong>Zona:</strong> Valle Medio</p>
+            <p contenteditable="true" data-bound="1"><a href="#">Ver repertorio y material</a></p>
+            <p contenteditable="true" data-bound="1">Saludos.</p>
+          </div>
+          <p class="footer" contenteditable="true" data-bound="1">Orquesta Filarmónica de Río Negro – Sistema de Gestión</p>
+        </div>
+      </div>
+    </article>
+
+    <!-- ========== COBERTURA ASIGNAR ========== -->
+    <h2 class="group-title" id="g-cobertura">4. Cobertura (asignar / cambiar)</h2>
+
+    <article class="mail-card" id="cobertura_alta" data-mail-id="cobertura_alta">
+      <div class="mail-meta">
+        <div><strong>Alta por cobertura — quien cubre</strong><span class="badge ALTA">ALTA</span></div>
+        <div class="id">variant: ALTA · al cubridor</div>
+      </div>
+      <div class="subject-row">
+        <span class="lbl">Asunto</span>
+        <span class="val" data-field="subject" contenteditable="true" data-bound="1">Alta en gira | Cantos del Presente</span>
+      </div>
+      <div class="mail-viewport">
+        <div class="mail-body">
+          <div class="box">
+            <h2 data-field="title" contenteditable="true" data-bound="1">Alta en gira</h2>
+            <p contenteditable="true" data-bound="1">Hola Lautaro,</p>
+            <p contenteditable="true" data-bound="1">Fuiste dado/a de <strong>alta</strong> en la gira <strong>Cantos del Presente</strong> (CF · Nov).</p>
+            <p class="reason" data-field="reason" contenteditable="true" data-bound="1"><strong>Motivo:</strong> Se te convoca para cubrir a Apellido, Nombre en esta gira</p>
+            <p class="fechas"><strong>Fechas:</strong> 18/11/2026 – 21/11/2026 &nbsp;|&nbsp; <strong>Zona:</strong> Valle Medio</p>
+            <p contenteditable="true" data-bound="1"><a href="#">Ver repertorio y material</a></p>
+            <p contenteditable="true" data-bound="1">Saludos.</p>
+          </div>
+          <p class="footer" contenteditable="true" data-bound="1">Orquesta Filarmónica de Río Negro – Sistema de Gestión</p>
+        </div>
+      </div>
+    </article>
+
+    <article class="mail-card" id="cobertura_fin" data-mail-id="cobertura_fin">
+      <div class="mail-meta">
+        <div><strong>Fin de cobertura (cambio o retiro del cubridor)</strong><span class="badge BAJA">BAJA</span></div>
+        <div class="id">variant: BAJA · al cubridor anterior</div>
+      </div>
+      <div class="subject-row">
+        <span class="lbl">Asunto</span>
+        <span class="val" data-field="subject" contenteditable="true" data-bound="1">Baja de gira | Cantos del Presente</span>
+      </div>
+      <div class="mail-viewport">
+        <div class="mail-body">
+          <div class="box">
+            <h2 data-field="title" contenteditable="true" data-bound="1">Baja de gira</h2>
+            <p contenteditable="true" data-bound="1">Hola Lautaro,</p>
+            <p contenteditable="true" data-bound="1">Se registró tu <strong>baja</strong> de la gira <strong>Cantos del Presente</strong> (CF · Nov).</p>
+            <p class="reason" data-field="reason" contenteditable="true" data-bound="1"><strong>Motivo:</strong> Fin de cobertura de Apellido, Nombre.</p>
+            <p class="fechas"><strong>Fechas:</strong> 18/11/2026 – 21/11/2026 &nbsp;|&nbsp; <strong>Zona:</strong> Valle Medio</p>
+            <p contenteditable="true" data-bound="1">Si tenés dudas, respondé a este correo.</p>
+          </div>
+          <p class="footer" contenteditable="true" data-bound="1">Orquesta Filarmónica de Río Negro – Sistema de Gestión</p>
+        </div>
+      </div>
+    </article>
+
+    <!-- ========== RESOLUCIÓN BOTÓN A ========== -->
+    <h2 class="group-title" id="g-resolucion">5. Resolución de cobertura (botón «A»)</h2>
+
+    <article class="mail-card" id="restituir_titular" data-mail-id="restituir_titular">
+      <div class="mail-meta">
+        <div><strong>Restituir — mail al titular</strong><span class="badge ALTA">ALTA</span></div>
+        <div class="id">opción Restituir · buildCoberturaRestituirTitularMail</div>
+      </div>
+      <div class="subject-row">
+        <span class="lbl">Asunto</span>
+        <span class="val" data-field="subject" contenteditable="true" data-bound="1">Alta en gira | Anulación de cobertura | Cantos del Presente</span>
+      </div>
+      <div class="mail-viewport">
+        <div class="mail-body">
+          <div class="box">
+            <h2 data-field="title" contenteditable="true" data-bound="1">Alta en gira</h2>
+            <p contenteditable="true" data-bound="1">Hola Martín,</p>
+            <p contenteditable="true" data-bound="1">Fuiste dado/a de <strong>alta</strong> en la gira <strong>Cantos del Presente</strong> (CF · Nov).</p>
+            <p class="reason" data-field="reason" contenteditable="true" data-bound="1"><strong>Motivo:</strong> Se te restituye en la gira. Quedás nuevamente convocado/a como presente; Abrego, Lautaro deja de cubrirte y sale de la nómina.</p>
+            <p class="fechas"><strong>Fechas:</strong> 18/11/2026 – 21/11/2026 &nbsp;|&nbsp; <strong>Zona:</strong> Valle Medio</p>
+            <p contenteditable="true" data-bound="1"><a href="#">Ver repertorio y material</a></p>
+            <p contenteditable="true" data-bound="1">Saludos.</p>
+          </div>
+          <p class="footer" contenteditable="true" data-bound="1">Orquesta Filarmónica de Río Negro – Sistema de Gestión</p>
+        </div>
+      </div>
+    </article>
+
+    <article class="mail-card" id="restituir_cubre" data-mail-id="restituir_cubre">
+      <div class="mail-meta">
+        <div><strong>Restituir — mail a quien cubría</strong><span class="badge BAJA">BAJA</span></div>
+        <div class="id">opción Restituir · buildCoberturaRestituirCubreMail</div>
+      </div>
+      <div class="subject-row">
+        <span class="lbl">Asunto</span>
+        <span class="val" data-field="subject" contenteditable="true" data-bound="1">Baja de gira | Anulación de cobertura | Cantos del Presente</span>
+      </div>
+      <div class="mail-viewport">
+        <div class="mail-body">
+          <div class="box">
+            <h2 data-field="title" contenteditable="true" data-bound="1">Baja de gira</h2>
+            <p contenteditable="true" data-bound="1">Hola Lautaro,</p>
+            <p contenteditable="true" data-bound="1">Se registró tu <strong>baja</strong> de la gira <strong>Cantos del Presente</strong> (CF · Nov).</p>
+            <p class="reason" data-field="reason" contenteditable="true" data-bound="1"><strong>Motivo:</strong> Finalizó tu cobertura en esta gira. Rantucho, Martín vuelve a la nómina; ya no se requiere tu participación.</p>
+            <p class="fechas"><strong>Fechas:</strong> 18/11/2026 – 21/11/2026 &nbsp;|&nbsp; <strong>Zona:</strong> Valle Medio</p>
+            <p contenteditable="true" data-bound="1">Si tenés dudas, respondé a este correo.</p>
+          </div>
+          <p class="footer" contenteditable="true" data-bound="1">Orquesta Filarmónica de Río Negro – Sistema de Gestión</p>
+        </div>
+      </div>
+    </article>
+
+    <article class="mail-card" id="baja_ambos_titular" data-mail-id="baja_ambos_titular">
+      <div class="mail-meta">
+        <div><strong>Baja a ambos — mail al titular</strong><span class="badge BAJA">BAJA</span></div>
+        <div class="id">opción Baja a ambos · buildCoberturaBajaAmbosTitularMail</div>
+      </div>
+      <div class="subject-row">
+        <span class="lbl">Asunto</span>
+        <span class="val" data-field="subject" contenteditable="true" data-bound="1">Baja de gira | Cantos del Presente</span>
+      </div>
+      <div class="mail-viewport">
+        <div class="mail-body">
+          <div class="box">
+            <h2 data-field="title" contenteditable="true" data-bound="1">Baja de gira</h2>
+            <p contenteditable="true" data-bound="1">Hola Martín,</p>
+            <p contenteditable="true" data-bound="1">Se registró tu <strong>baja</strong> de la gira <strong>Cantos del Presente</strong> (CF · Nov).</p>
+            <p class="reason" data-field="reason" contenteditable="true" data-bound="1"><strong>Motivo:</strong> Baja de la gira: no se requiere tu participación en este servicio. Abrego, Lautaro, quien te cubría, también queda desafectado/a.</p>
+            <p class="fechas"><strong>Fechas:</strong> 18/11/2026 – 21/11/2026 &nbsp;|&nbsp; <strong>Zona:</strong> Valle Medio</p>
+            <p contenteditable="true" data-bound="1">Si tenés dudas, respondé a este correo.</p>
+          </div>
+          <p class="footer" contenteditable="true" data-bound="1">Orquesta Filarmónica de Río Negro – Sistema de Gestión</p>
+        </div>
+      </div>
+    </article>
+
+    <article class="mail-card" id="baja_ambos_cubre" data-mail-id="baja_ambos_cubre">
+      <div class="mail-meta">
+        <div><strong>Baja a ambos — mail a quien cubría</strong><span class="badge BAJA">BAJA</span></div>
+        <div class="id">opción Baja a ambos · buildCoberturaBajaAmbosCubreMail</div>
+      </div>
+      <div class="subject-row">
+        <span class="lbl">Asunto</span>
+        <span class="val" data-field="subject" contenteditable="true" data-bound="1">Baja de gira | Cantos del Presente</span>
+      </div>
+      <div class="mail-viewport">
+        <div class="mail-body">
+          <div class="box">
+            <h2 data-field="title" contenteditable="true" data-bound="1">Baja de gira</h2>
+            <p contenteditable="true" data-bound="1">Hola Lautaro,</p>
+            <p contenteditable="true" data-bound="1">Se registró tu <strong>baja</strong> de la gira <strong>Cantos del Presente</strong> (CF · Nov).</p>
+            <p class="reason" data-field="reason" contenteditable="true" data-bound="1"><strong>Motivo:</strong> Baja de la gira: la cobertura deja de ser necesaria porque tampoco se convoca a Rantucho, Martín.</p>
+            <p class="fechas"><strong>Fechas:</strong> 18/11/2026 – 21/11/2026 &nbsp;|&nbsp; <strong>Zona:</strong> Valle Medio</p>
+            <p contenteditable="true" data-bound="1">Si tenés dudas, respondé a este correo.</p>
+          </div>
+          <p class="footer" contenteditable="true" data-bound="1">Orquesta Filarmónica de Río Negro – Sistema de Gestión</p>
+        </div>
+      </div>
+    </article>
+
+    <p class="note">
+      Estructura tomada de <code>supabase/functions/mails_produccion/index.ts</code>
+      (<code>convocatoria_gira</code>). Los textos de «Motivo» salen de
+      <code>src/utils/rosterBajaMotivos.js</code>. Subí el HTML descargado al chat para sincronizar redacciones.
+    </p>
+  </div>
+
+  <script>
+    (function () {
+      const EDITABLE_SEL = [
+        ".subject-row .val",
+        ".mail-body h2",
+        ".mail-body .reason",
+        ".mail-body .footnote",
+        ".mail-body .box > p:not(.fechas)",
+        ".mail-body .footer",
+      ].join(", ");
+
+      const statusEl = document.getElementById("toolbar-status");
+      const btnEdit = document.getElementById("btn-edit");
+      const btnDownload = document.getElementById("btn-download");
+      const btnPrint = document.getElementById("btn-print");
+      let editing = false;
+
+      function markDirty(el) {
+        const card = el.closest(".mail-card");
+        if (!card) return;
+        card.classList.add("is-dirty");
+        card.setAttribute("data-dirty", "1");
+      }
+
+      function setEditing(on) {
+        editing = on;
+        document.body.classList.toggle("edit-mode", on);
+        document.querySelectorAll(EDITABLE_SEL).forEach((el) => {
+          el.setAttribute("contenteditable", on ? "true" : "false");
+          if (on && !el.dataset.bound) {
+            el.dataset.bound = "1";
+            el.addEventListener("input", () => markDirty(el));
+          }
+        });
+        btnEdit.textContent = on ? "Bloquear edición" : "Activar edición";
+        btnEdit.classList.toggle("secondary", !on);
+        statusEl.textContent = on
+          ? "Editá los textos resaltados. Luego descargá el HTML y subilo al chat."
+          : "Modo lectura. Activá edición para cambiar textos.";
+      }
+
+      btnEdit.addEventListener("click", () => setEditing(!editing));
+      btnPrint.addEventListener("click", () => window.print());
+
+      btnDownload.addEventListener("click", () => {
+        // Quitar contenteditable="false" residual para un archivo limpio editable offline
+        const clone = document.documentElement.cloneNode(true);
+        clone.querySelectorAll("[contenteditable]").forEach((el) => {
+          el.setAttribute("contenteditable", "true");
+        });
+        clone.querySelector("body")?.classList.add("edit-mode");
+        const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+        const html =
+          "<!DOCTYPE html>\n" + clone.outerHTML;
+        const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = "mails-giras-plantillas-EDITADO-" + stamp + ".html";
+        a.click();
+        URL.revokeObjectURL(a.href);
+        statusEl.textContent =
+          "Descargado. Subí ese archivo al chat de Cursor para aplicar los ajustes.";
+      });
+
+      // Atributos estables para que Cursor pueda mapear cada mail
+      document.querySelectorAll(".mail-card").forEach((card) => {
+        if (!card.id) return;
+        card.setAttribute("data-mail-id", card.id);
+        const subject = card.querySelector(".subject-row .val");
+        const title = card.querySelector(".mail-body h2");
+        const reason = card.querySelector(".mail-body .reason");
+        if (subject) subject.setAttribute("data-field", "subject");
+        if (title) title.setAttribute("data-field", "title");
+        if (reason) reason.setAttribute("data-field", "reason");
+      });
+    })();
+  </script>
+
+
+</body></html>

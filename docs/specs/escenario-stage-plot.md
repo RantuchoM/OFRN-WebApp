@@ -1,4 +1,4 @@
-﻿# Stage Plot (Plano de escenario)
+# Stage Plot (Plano de escenario)
 
 ## Escala y dimensiones del lienzo
 
@@ -189,8 +189,9 @@ Asociar en el editor (panel **Asociar**) o en FIMBA Backline **suma** la planta:
 
 ### UI
 
-- Editor: switcher multi-lienzo = label **Elegir lienzo** + `SearchableSelect` (lista de plots) + **lápiz** renombrar (`IconPencil`, input inline Enter/blur / Escape) **junto al dropdown** + botón **+ Lienzo**; eliminar (mín. 1), panel **Asociar**, dropdown desktop **Importar / Exportar** (PDF, JPG, Descargar JSON, Importar archivo/otra gira → `StagePlotImportModal`), botón **Plantillas** → `StagePlotTemplatesModal`. (No pills horizontales.)
-- Orgánico: `isConfirmedConvocadoForSeatingReports` + filtro por `bloque_ids`.
+- Editor: switcher multi-lienzo en la **toolbar** (izquierda del contador de orgánico): `SearchableSelect` (placeholder «Elegir lienzo…», sin label a la izquierda; `clearable={false}` + `searchable={false}` — sin cruz ni campo «Escribí para filtrar…») + **lápiz** renombrar (`IconPencil`, Enter/blur / Escape) + botón **+ Lienzo** (crear); eliminar (mín. 1) sigue en la toolbar derecha. A la derecha del selector: **contador de orgánico** del plano (`formatStagePlotDrawnOrganicoString`, p. ej. `2.2.2.2 - 4.2.3.1 - Str - Timp+2 · Sol 1`). El botón **Lienzo** (derecha, con `IconSettings`) abre el popover portal a `document.body` (`z-[100]`/`overlayZ`): configuración (tamaño cm, opacidades, preset locación, director, borrar todo) + **Asociar** + submenú **Importar / Exportar** (PDF, JPG, Descargar JSON, Importar archivo/otra gira → `StagePlotImportModal`) + **Plantillas** → `StagePlotTemplatesModal`. Posición: ancla bajo el botón; si no cabe, flip arriba; `maxHeight` = espacio disponible en viewport + `overflow-y-auto` (no se corta el borde inferior). El popover **no** incluye el switcher de plots. (No pills horizontales en desktop; hub móvil intacto.)
+- Orgánico: `isConfirmedConvocadoForSeatingReports` + filtro por `bloque_ids`. Contador toolbar = ítems dibujados (no roster); solistas (`isSoloist`) no suman en la familia y van al sufijo `· Sol N`. Label UI de `horn` en panel Orgánico / PDF mobiliario: **Corno** (`STAGE_PLOT_ORGANICO_ROWS`; catálogo ya `name: "Corno"`; `stage_plot_type` sigue `horn`).
+- **Solista (ítem)**: clic derecho sobre instrumento con huella → toggle **Solista** / **Quitar solista**. Flag `isSoloist: true` en el jsonb del ítem (default omitido/false al normalizar; no confundir con elementos `male_soloist` / `female_soloist`). Contorno dorado `STAGE_PLOT_SOLOIST_STROKE` (`#d4a017`) **siguiendo la silueta opaca** (no AABB/Rect): raster vía `stagePlotSoloistOutline.js` (dilatación alpha + cache por URL/tamaño); Path vectorial → `stroke` del path. Mismo contorno en Konva y export PDF/JPG (canvas 2D). Respeta rotación / scale / flipX.
 - Agenda: botón «Ver escenario» en concierto/ensayo (técnico / editor / management) → `StagePlotViewerModal` (pills por nombre de las plantas vinculadas; si no hay vínculo, lienzos de la gira + preview en vivo + opacidades locales + PDF/JPG de la planta marcada).
 - **GiraCard** (menú ⋮, ítem top-level cerca del final, antes de Edición/Eliminar): «Ver escenario» (técnico / editor / management / admin; oculto para solo-difusión) → mismo `StagePlotViewerModal` con `gira` (sin evento). Multi-lienzo: pills en el modal; sin evento elige el primer plot (`sort_order`). Sin plots → mensaje vacío en el modal (igual que Agenda). «Escenario» bajo Repertorio sigue yendo al editor (Seating → Escenario).
 - **FIMBA Venues** (`/fimba/edicion/:id/venues`): listado por locación de conciertos (`id_tipo_evento = 1`) de la gira enlazada a la edición. Metadata operativa en `fimba_venue_info` (referente, rider, sillas, agua, observaciones); nombre/dirección/aforo numérico desde `locaciones`. Espectáculos: artistas taggeados, grupos OFRN, bloque repertorio, **observaciones aforo** (`eventos.observaciones_aforo`). Acciones: **Ver escenario** (`StagePlotViewerModal`); enlace al editor OFRN (Seating → Escenario) solo staff `isManagement`; edición de evento vía `FimbaEventoFormModal` (staff no RO). Link **Agenda** filtrada por locación. **Sin** estado de venue OFRN. Consulta / token `/c`: lectura + Ver escenario.
@@ -249,7 +250,7 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
 
 ## Completado
 
-- [x] Colaboración nivel 1: candado por lienzo (tomar / ceder, latido 15 s, vence a los 30 s, realtime + presencia). Sin edición simultánea.
+- [x] Colaboración nivel 1: candado por lienzo (auto-toma en silencio si libre; Tomar/Ceder solo con concurrencia; latido 15 s, vence a los 30 s; realtime + presencia). Sin edición simultánea.
 - [x] Modelo en centímetros con escala **4 px/cm** (antes 10; max lienzo ~1600×1200 cm)
 - [x] Migración legacy 10→4 px/cm (dims cm + coords/scale ítems + params formaciones)
 - [x] Feedback Lienzo al tocar min/max (hint + toast sonner)
@@ -278,6 +279,8 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
 - [x] Preview técnico: `StagePlotLivePreview` vía `renderStagePlotToCanvas` (mismas guías/opacidades que export; desktop + móvil)
 - [x] Opacidad Lienzo (cuadrícula / radial / formaciones / recuadros) con deslizantes 0–100% y persistencia `*Opacity` + migración desde boolean legacy
 - [x] Orgánico filtrado por bloques asociados (roster confirmado)
+- [x] Toolbar: switcher de plots (`SearchableSelect` + lápiz + crear, sin label «Elegir lienzo») a la izquierda del string de orgánico; botón **Lienzo** (`IconSettings`) = popover con config + Asociar + Importar/Exportar + Plantillas (sin switcher de plots)
+- [x] Flag `isSoloist` en ítem (menú contextual + contorno silueta opaca dorado `#d4a017` vía `stagePlotSoloistOutline` + exclusión del conteo por familia / sufijo `· Sol N`)
 - [x] Montaje en Seating (sub-tabs Disposición | Escenario)
 - [x] Modo nocturno: Stage `.no-dark-invert` + piso `STAGE_PLOT_BG_FILL_NIGHT` + grilla/radial `*_STROKE_NIGHT` (contenido sin invertir)
 - [x] Migración `stage_plots` v1 + deploy linked
@@ -309,8 +312,8 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
 - [x] Export PDF: hoja 1 **landscape** solo escenario + dims Ancho/Profundo; hoja 2 **portrait** mobiliario **necesario** (sillas / banquetas / atriles / podio) + desglose atriles en **1–3 columnas** + tarimas cabecera/hijos — **sin** Orgánico/Plano/Δ ni channel list
 - [x] Export JPG: escenario sin hoja de mobiliario + dims Ancho/Profundo (`widthCm`/`heightCm`)
 - [x] Editor: modal de opciones PDF/JPG (`StagePlotExportOptionsModal`) con mismas 4 opacidades que técnico (override solo descarga)
-- [x] Toolbar desktop: dropdown **Importar / Exportar** (PDF, JPG, JSON, Importar archivo/otra gira); sin botones PDF/JPG sueltos
-- [x] **Plantillas globales** (`stage_plot_templates`): crear / aplicar (reemplaza disposición) / renombrar / guardar encima / eliminar; UI muestra cantidad de músicos
+- [x] Toolbar desktop: **Importar / Exportar** vive dentro del popover **Lienzo** (PDF, JPG, JSON, Importar archivo/otra gira); sin botones PDF/JPG sueltos en la barra
+- [x] **Plantillas globales** (`stage_plot_templates`): crear / aplicar (reemplaza disposición) / renombrar / guardar encima / eliminar; UI muestra cantidad de músicos; acceso desde popover **Lienzo**
 - [x] Centrar formación en eje X del director (botón deshabilitado si ya centrada; snap magnético + histeresis al arrastrar)
 - [x] Rotación de formación: botones −15° / +15° (barra desktop + pill móvil) + input Rot °; `patchFormationsAndReanchor`
 - [x] Formación **semi-arco** (ala–arco–ala, `wingLength`/`wingAngle` simétricos, asas tip_l/tip_r)
@@ -544,7 +547,7 @@ Seed: silla / banqueta / atril qty 0; tarima rect 200×100 qty 0. Unique parcial
 - [x] Editor: familia-first + Crear instrumento; `stage_plot_type` = clave de ícono (sin UNIQUE DB)
 - [x] Percusión `13a`–`13h` (Timbales…Campanas) + SVG OFRN + catálogo/orgánico (`20260829020843`, linked)
 - [x] Timbales: medidas 32/29/26/23 en `timpaniSize` (sin medida = 32); huella cm por medida (32 en columnas, 29/26/23 en `stage_plot_timpani_sizes`); número centrado en el parche claro (lienzo, PDF, JPG); paleta 2×2 con número arriba a la izquierda; detalle de carga solo medidas presentes
-- [x] Renombrar lienzo: botón lápiz (`IconPencil`) **inmediatamente a la derecha del dropdown** Elegir lienzo → input inline; Enter/blur guarda, Escape cancela (ya no input siempre visible; no entre + Lienzo y Asociar)
+- [x] Renombrar lienzo: botón lápiz (`IconPencil`) **junto al `SearchableSelect` de plots en la toolbar** → input inline; Enter/blur guarda, Escape cancela
 - [x] Atriles needed: percusión = 1 × percusionista convocado (no por ícono); modal **Ver detalle de atriles** (desglose + lista perc.)
 - [x] Director: 1 atril + 1 podio (sin silla); PDF hoja 2 **portrait** = necesarios + desglose atriles multi-col (como modal) + tarimas cabecera/hijos; sin Orgánico/Plano/Δ
 - [x] PDF hoja 2 portrait + atriles en 1–3 columnas; mobiliario necesario (sin channel list); director atril+podio; tarimas drawn como cabecera + breakdown; misma compute que UI Orgánico
@@ -694,29 +697,37 @@ Parámetros en **px de escenario** (`cm × STAGE_PLOT_CM_TO_PX`). Defaults (íte
 
 Un solo editor a la vez **por lienzo** (`stage_plots.id`). No hay edición simultánea, CRDT ni cursores (eso queda para nivel 2/3). El JSON del `payload` no se parte.
 
+### Solo vs concurrencia
+
+- **Solo** (nadie más en presencia del canal y nadie con `locked_by` ajeno + latido fresco): el staff edita directo. `canEdit` = permiso de staff (`lockAllowsEdit`); no se pide **Tomar control** ni se deja el plano en solo lectura.
+- **Auto-toma en silencio**: al abrir el editor, o cuando el plano queda libre y no hay que respetar un ceder a propósito, o en el primer `persist` vía `ensureLock`, se llama `stage_plot_take_lock` sin UI si el candado está libre / vencido / propio. Así, si se conecta otro después, el titular ya tiene el candado y el recién llegado ve **Tomar control**.
+- **Concurrencia** (`showLockUi`): otro integrante en presencia **o** `locked_by` de otro con latido fresco. Ahí aparecen **Tomar control** / **Ceder control**, el nombre del titular y quién mira.
+- Si llegás y otro ya edita: solo lectura + **Tomar control** (robo con flush del otro, como antes).
+- Si vos editás solo y se conecta otro: vos seguís editando; el otro ve **Tomar control**.
+- **Ceder** a propósito: `stoodDown` — no auto-tomás mientras siga habiendo otros; el otro puede tomar. Si el otro se va y quedás solo, auto-toma de nuevo y la UI de candado desaparece (no hace falta el botón).
+
 ### Candado
 
 - Columnas en la fila: `locked_by` (id numérico de `integrantes`, bigint, nunca uuid; FK `ON DELETE SET NULL`) y `lock_heartbeat_at`.
-- Sobrevive un refresh: no vive solo en presencia en memoria. Si el candado sigue siendo del integrante actual, al reabrir el editor se retoma solo (latido de nuevo) sin pedir que el otro lo suelte.
-- **Tomar control** si está libre, si el latido del otro venció (**más de 30 s**; latido cada **15 s**) o si ya es tuyo. El que toma **recarga el payload guardado**.
-- **Tomar control** si el otro sigue editando: se puede **sin que acepte**. El RPC manda `p_force` con el `locked_by` que se veía. El que tenía el control recibe un toast, hace un **último flush** del autoguardado, descarta el undo local, recarga el payload remoto y queda en solo lectura.
+- Sobrevive un refresh: no vive solo en presencia en memoria. Si el candado sigue siendo del integrante actual (o el plano está libre), al reabrir se retoma / auto-toma en silencio (latido de nuevo) sin pedir UI.
+- **Tomar control** (UI, solo con concurrencia): si está libre, si el latido del otro venció (**más de 30 s**; latido cada **15 s**), si ya es tuyo, o **robo** si el otro sigue editando (**sin que acepte**). El RPC manda `p_force` con el `locked_by` que se veía. El que tenía el control recibe un toast, hace un **último flush** del autoguardado, descarta el undo local, recarga el payload remoto y queda en solo lectura. Quien toma **recarga el payload guardado** si cambió.
 - Dos clics a la vez sobre un candado libre / vencido / propio: un `UPDATE` condicional. Postgres reevalúa el `WHERE` después del row lock; **uno solo gana**. El robo a un titular vivo también es condicional al titular esperado, así dos robos simultáneos no ganan los dos.
-- **Ceder control**: flush del autoguardado pendiente y suelta solo si `locked_by` es el integrante actual. Se queda en el plano, en solo lectura. Tomar control queda libre.
+- **Ceder control**: flush del autoguardado pendiente y suelta solo si `locked_by` es el integrante actual. Se queda en el plano, en solo lectura hasta que otro tome o, si quedás solo, hasta la auto-toma.
 - Al cerrar o desmontar el editor (y en `pagehide`), si el candado es nuestro: flush + ceder, para no dejarlo colgado los 30 s.
-- Funciones `SECURITY INVOKER` (no definer): `stage_plot_take_lock`, `stage_plot_release_lock`, `stage_plot_heartbeat_lock`. No cambian `payload` ni `updated_at`. RLS de `stage_plots` no se abre de nuevo.
+- Funciones `SECURITY INVOKER` (no definer): `stage_plot_take_lock`, `stage_plot_release_lock`, `stage_plot_heartbeat_lock`. No cambian `payload` ni `updated_at`. RLS de `stage_plots` no se abre de nuevo. Schema sin cambio adicional (migración `20261106142854` vigente).
 
 ### Quién no tiene el control
 
 - El lienzo se ve (y se actualiza por realtime cuando cambia `updated_at`).
-- Konva no arrastra: `canEdit` del editor es permiso de staff **y** candado propio **y** no estar en la espera de sincronización.
-- `persist` no escribe el payload salvo el último flush al perderlo o al ceder. El guardado normal exige `locked_by` = integrante actual. El último flush, si el candado ya pasó a otro, solo escribe si `updated_at` sigue siendo el que este cliente guardó.
+- Konva no arrastra: `canEdit` = staff **y** `lockAllowsEdit` (no hay otro titular vivo; no estás en `stoodDown` sin candado; no estás en la espera de sincronización tras un robo).
+- `persist` llama `ensureLock` si aún no tenés el candado; el guardado normal exige `locked_by` = integrante actual. El último flush al perderlo/ceder, si el candado ya pasó a otro, solo escribe si `updated_at` sigue siendo el que este cliente guardó.
 - No usa herramientas de edición, asociar, plantillas ni importar encima del lienzo.
-- El hub móvil sigue pudiendo abrirse con permiso de staff; dentro del editor hay que tomar el control. El candado es el de la misma instancia (`ProgramStagePlotEditor` / `StagePlotMobileEditor`).
+- El hub móvil se abre con permiso de staff; dentro del editor, si estás solo no hace falta tomar el control a mano. El candado es de la misma instancia (`ProgramStagePlotEditor`).
 
 ### Presencia
 
 - Canal realtime `stage-plot-lock:<plotId>`: `postgres_changes` de esa fila (como la agenda usa `.channel("agenda-updates")`) + presence con `integrante_id` numérico y nombre.
-- UI: **Tomar control** / **Ceder control**, nombre de quien tiene el control, y quién más está viendo.
+- UI (`StagePlotLockControls`): solo si `showLockUi` — **Tomar control** / **Ceder control**, nombre de quien tiene el control, y quién más está viendo. Sin concurrencia el control no se renderiza.
 
 ## Pendiente / deuda
 
@@ -727,7 +738,7 @@ Un solo editor a la vez **por lienzo** (`stage_plots.id`). No hay edición simul
 - Plots con `instrumentFootprintMigrated`: escalas custom viejas del Transformer en ítems-instrumento se **ignoran** al render y se limpian al normalizar (catálogo DB gana).
 - `cat.w`/`cat.h` del catálogo estático siguen siendo aspect/fallback de paleta; el tamaño en escena de instrumentos con huella viene de `stage_plot_*_cm`.
 - **Editor independiente del shell Giras** — **hecho (slice A):** rutas `/fimba/edicion/:edicionId/escenario/:plotId?` + `/stage-plots/:plotId`; FIMBA editores editan sin cuenta OFRN. Deuda: VenuesManager OFRN sin plotId; Option C modal embebido.
-- Candado nivel 1: no hay CRDT, cursores ni edición simultánea. Dos pestañas del **mismo** integrante pueden latir las dos (el `UPDATE` de latido no distingue sesión). El RPC confía en el id numérico que manda el cliente (mismo modelo que el RLS anon/authenticated de `stage_plots`). Si el payload realtime supera el tope del canal, el seguimiento del que mira depende del refetch posterior al evento.
+- Candado nivel 1: no hay CRDT, cursores ni edición simultánea. Auto-toma + UI solo con concurrencia (presencia o `locked_by` ajeno vivo). Dos pestañas del **mismo** integrante pueden latir las dos (el `UPDATE` de latido no distingue sesión). El RPC confía en el id numérico que manda el cliente (mismo modelo que el RLS anon/authenticated de `stage_plots`). Si el payload realtime supera el tope del canal, el seguimiento del que mira depende del refetch posterior al evento. Presencia puede demorar un instante tras el join: en ese hueco dos clientes pueden auto-tomar a la vez (gana uno solo por el `UPDATE` condicional).
 - **Planos viejos de clarinete bajo y corno inglés:** `stage_plots.payload` guarda `type`, no el id del instrumento. Las piezas colocadas cuando `07b` y `06b` usaban `clarinet` y `oboe` no se pueden distinguir del clarinete y del oboe. Siguen dibujándose con esas claves. Para ver el PNG nuevo hay que volver a colocar el clarinete bajo (`bass_clarinet`) y el corno inglés (`cor_anglais`). No se reescribieron payloads.
 
 ## Iconos SVG en `instrumentos` (2026-08)
@@ -751,7 +762,7 @@ Un solo editor a la vez **por lienzo** (`stage_plots.id`). No hay edición simul
 ## Export PDF / JPG (plano de escenario)
 
 - **Archivo**: `src/utils/stagePlotPdf.js` — `exportStagePlotPdf`, `exportStagePlotJpg`, `renderStagePlotToCanvas` (raster compartido preview + JPG). Íconos/siluetas: `drawImageRotated` / `drawImageRotatedOnCanvas` / `drawSilhouetteOnPdf` / `drawSilhouetteOnCanvas` (restauradas: sin ellas el PDF/JPG rompía en lienzos con instrumentos, p. ej. BOB MARLEY gira 12).
-- **Editor** (`ProgramStagePlotEditor.jsx`): toolbar desktop — dropdown **Importar / Exportar** (no botones PDF/JPG sueltos). Ítems: **Exportar PDF** / **Exportar JPG** (abren `StagePlotExportOptionsModal` con las **mismas 4 opacidades** que el técnico), **Descargar JSON**, **Importar (archivo / otra gira)…** → `StagePlotImportModal`. Los deslizantes del modal de opciones se siembran desde el Lienzo actual pero son **override solo de esa descarga** (`applyStagePlotStagePatch` sobre una copia; **no** persisten ni marcan dirty el payload del editor).
+- **Editor** (`ProgramStagePlotEditor.jsx`): toolbar desktop — submenú **Importar / Exportar** dentro del popover **Lienzo** (no botones PDF/JPG sueltos ni dropdown suelto en la barra). Ítems: **Exportar PDF** / **Exportar JPG** (abren `StagePlotExportOptionsModal` con las **mismas 4 opacidades** que el técnico), **Descargar JSON**, **Importar (archivo / otra gira)…** → `StagePlotImportModal`. Los deslizantes del modal de opciones se siembran desde el Lienzo actual pero son **override solo de esa descarga** (`applyStagePlotStagePatch` sobre una copia; **no** persisten ni marcan dirty el payload del editor).
 - **Técnico** (`StagePlotViewerModal`): preview en vivo (`StagePlotLivePreview` → `renderStagePlotToCanvas`, sin chrome de título) + mismos deslizantes (componente compartido) sobre una copia local del payload; al mover opacidades se re-rasteriza (~50 ms debounce); PDF/JPG usan ese payload parchado. Desktop: modal `max-w-5xl` + preview ~52 vh; móvil: preview más bajo pero misma ruta.
 - **Helpers**: `readStagePlotOpacities` / `opacitiesToStagePatch` en `StagePlotOpacityControls.jsx`; `readStagePlotLayerOpacities` / `resolveStagePlotLayerOpacitiesFromPatch` en `stagePlotPayload.js`.
 - **Dimensiones** (ambos formatos): usan `payload.stage.widthCm` / `heightCm` (mismos valores que Lienzo Ancho / Alto). En el export se etiquetan **Ancho** (widthCm) y **Profundo** (heightCm = profundidad del escenario). Texto resumen `Ancho: X cm · Profundo: Y cm` + etiquetas en bordes inferior (ancho) e izquierdo (profundo).

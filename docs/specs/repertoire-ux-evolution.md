@@ -399,6 +399,7 @@ Optimizar `src/views/Repertoire/RepertoireView.jsx` en pantallas móviles para m
 - [x] Tucumana cuerdas separada de la 1432 (2026-11-06): carpeta `[cuerdas]` y obra propia; la 1432 queda con vibráfono, marimba y bajo
 - [x] El archivo no muestra «Tradicional, null»: `composerPersonLabel` omite el nombre cuando está vacío (`RepertoireView`, `WorkForm`).
 - [x] Abuelita Lorenza: compositor corregido a Edmundo Nicolás "Pimpe" González (2026-11-06). Pastorcita sigue como Tradicional.
+- [x] Gira **137** *Recorriendo Nuestras Raíces (sexta edición)*, bloque **Repertorio** (`programas_repertorios` **111**): 3880–3883 al final, después de Nostalgias (orden 10). Órdenes 11–14. Seed `supabase/seed_gira_137_cuerdas_folklore.sql`.
 
 ### Silva — Marcha de San Lorenzo [cuerdas] (2026-06-22)
 - Carpeta [Para acomodar](https://drive.google.com/drive/folders/1jBCHMNcerv3K9aoq17q9V_ekoCxhFAry): 1 PDF combinado → **5 particellas** (SCORE + 4 cuerdas).
@@ -589,6 +590,12 @@ Permitir que el músico descargue de una vez todas sus partes disponibles desde 
 - [x] PDFs recortados y renombrados en sync local (17 + PORTADA.png); Drive File Stream ya lista los nombres nuevos
 - [x] Seed SQL generado (`supabase/seed_mozart_dies_irae_sync.sql`, 18 particellas, `0.0.2.2 - 0.2.3.0 - Timp - Key - Str + Coro`)
 - [ ] Seed **pendiente ejecutar en Supabase** (no corrido en esta sesión)
+
+### En curso (2026-11-08) — Requiem K.626 (score #758680 + Philipp Maier)
+- Drive: [1qjOq3vvKh247-8wJt8keS1pPfB2zo1y1](https://drive.google.com/drive/folders/1qjOq3vvKh247-8wJt8keS1pPfB2zo1y1) — local `ORQUESTA\Mozart, Wolfgang Amadeus\Mozart, W.A. - Requiem, K 626\Requiem, K. 626 (Philipp Maier)`.
+- 13 PDFs renombrados: `Instrumento - Requiem, K. 626 [ed. Philipp Maier] - Mozart, W.A.pdf` (SCORE #758680 + Maier #47700–#47711).
+- Script: `scripts/fetch-mozart-requiem-maier-imslp.py`.
+- Pendiente: seed / obra BD si aplica (Maier no trae fagot/timbal/órgano/coro; el set padre Breitkopf sí).
 
 ---
 

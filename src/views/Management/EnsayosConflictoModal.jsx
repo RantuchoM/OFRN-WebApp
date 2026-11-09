@@ -110,6 +110,7 @@ function ConflictoPeopleModal({ ensayo, ensambleName, onClose }) {
                     {g.label}
                     {g.mark === "reemplazo" ? " (R)" : ""}
                     {g.mark === "licencia" ? " (L)" : ""}
+                    {g.mark === "cobertura_ausente" ? " (C)" : ""}
                   </li>
                 ))}
               </ul>

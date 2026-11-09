@@ -361,7 +361,12 @@ export const buildMatrixIntegranteInstrumentDisplay = (
   for (const programa of filteredProgramas || []) {
     const roster = rosterByGiraId[programa.id];
     const inRoster =
-      roster?.counted?.has(iid) || roster?.preAlta?.has(iid);
+      roster?.counted?.has(iid) ||
+      roster?.preAlta?.has(iid) ||
+      roster?.coberturaAusente?.has(iid) ||
+      roster?.coberturaCubre?.has(iid) ||
+      roster?.reemplazo?.has(iid) ||
+      roster?.licencia?.has(iid);
     if (!inRoster) continue;
     const eff = getEffectiveInstrumentIdForGiraMember(
       iid,
