@@ -165,11 +165,278 @@ function Editable({
   );
 }
 
+function StructWho({ label, value, tone = "indigo" }) {
+  const tones = {
+    indigo: { border: "#4f46e5", bg: "#f3f4f6" },
+    amber: { border: "#f59e0b", bg: "#fef3c7" },
+    green: { border: "#16a34a", bg: "#dcfce7" },
+    blue: { border: "#2563eb", bg: "#dbeafe" },
+  };
+  const t = tones[tone] || tones.indigo;
+  return (
+    <div
+      className="mb-3 rounded-md p-3.5 text-[14px]"
+      style={{ borderLeft: `5px solid ${t.border}`, backgroundColor: t.bg }}
+    >
+      <strong>{label}:</strong>{" "}
+      <span className="font-mono text-[13px] text-slate-700">{value}</span>
+    </div>
+  );
+}
+
+function StructRows({ rows }) {
+  return (
+    <table className="my-2 w-full border-collapse text-[14px]">
+      <tbody>
+        {rows.map((r) => (
+          <tr key={r.label}>
+            <td className="w-36 border-b border-slate-100 py-2 align-top font-bold text-slate-600">
+              {r.label}:
+            </td>
+            <td className="border-b border-slate-100 py-2 align-top font-medium text-slate-900">
+              <span className="font-mono text-[13px] text-indigo-800">
+                {r.value}
+              </span>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function StructNote({ title, children, accent = "#4f46e5" }) {
+  return (
+    <div
+      className="mt-3 rounded p-2.5"
+      style={{
+        borderLeft: `3px solid ${accent}`,
+        backgroundColor: "#f9fafb",
+      }}
+    >
+      <div className="mb-1 text-xs font-bold uppercase text-slate-600">
+        {title}
+      </div>
+      <div className="font-mono text-[13px] text-slate-700">{children}</div>
+    </div>
+  );
+}
+
+/** Bloques fijos del mail real (obra, cargador, fechas…) — no editables. */
+function StructuralMailBlock({ templateId, placement }) {
+  if (templateId === "nueva_obra" && placement === "after_title") {
+    return (
+      <>
+        <StructWho label="Cargada por" value="{nombre}" />
+        <StructRows
+          rows={[
+            { label: "Título", value: "{titulo}" },
+            { label: "Compositores", value: "{compositores}" },
+            { label: "Arregladores", value: "{arregladores}" },
+            { label: "Duración", value: "{duracion} min" },
+            { label: "Instrumentación", value: "{instrumentacion}" },
+            { label: "Estado", value: "{estado}" },
+            { label: "Año", value: "{anio}" },
+            { label: "Link Drive", value: "{link_drive}" },
+            { label: "Link Audio/Video", value: "{link_youtube}" },
+          ]}
+        />
+        <StructNote title="Observaciones (públicas)">
+          {"{observaciones}"}
+        </StructNote>
+        <StructNote title="Comentarios (internos)">
+          {"{comentarios}"}
+        </StructNote>
+      </>
+    );
+  }
+
+  if (templateId === "encargo_arreglo" && placement === "after_title") {
+    return <StructWho label="Asignado por" value="{nombre}" tone="amber" />;
+  }
+  if (templateId === "encargo_arreglo" && placement === "after_intro") {
+    return (
+      <>
+        <StructRows
+          rows={[
+            { label: "Título", value: "{titulo}" },
+            { label: "Solicitado por", value: "{solicitado_por}" },
+            { label: "Arreglador asignado", value: "{arreglador}" },
+            { label: "ID obra", value: "{id_obra}" },
+            { label: "Fecha estimada", value: "{fecha_esperada}" },
+            { label: "Dificultad", value: "{dificultad}" },
+            { label: "Orgánico", value: "{instrumentacion}" },
+            { label: "Link Drive", value: "{link_drive}" },
+          ]}
+        />
+        <StructNote title="Observaciones" accent="#f59e0b">
+          {"{observaciones}"}
+        </StructNote>
+      </>
+    );
+  }
+
+  if (templateId === "encargo_ajuste" && placement === "after_title") {
+    return <StructWho label="Asignado por" value="{nombre}" tone="amber" />;
+  }
+  if (templateId === "encargo_ajuste" && placement === "after_intro") {
+    return (
+      <>
+        <StructRows
+          rows={[
+            { label: "Título", value: "{titulo}" },
+            { label: "Tipo", value: "{tipo}" },
+            { label: "Solicitado por", value: "{solicitado_por}" },
+            { label: "Arreglador", value: "{arreglador}" },
+            { label: "ID obra", value: "{id_obra}" },
+            { label: "ID ajuste", value: "{id_ajuste}" },
+            { label: "Fecha estimada", value: "{fecha_esperada}" },
+            { label: "Carpeta obra", value: "{link_drive}" },
+          ]}
+        />
+        <StructNote title="Brief" accent="#f59e0b">
+          {"{brief}"}
+        </StructNote>
+        <StructNote title="Partes afectadas" accent="#f59e0b">
+          {"{partes_afectadas}"}
+        </StructNote>
+      </>
+    );
+  }
+
+  if (templateId === "versionado_arreglo" && placement === "after_title") {
+    return (
+      <>
+        <StructWho label="Tipo" value="{tipo_label}" />
+        <p className="my-2">
+          <strong>Título:</strong>{" "}
+          <span className="font-mono text-[13px] text-indigo-800">
+            {"{titulo}"}
+          </span>
+        </p>
+        <p className="my-2 font-mono text-[13px] font-bold text-indigo-600">
+          {"{link_drive}"}
+        </p>
+        <StructNote title="Observación del arreglador" accent="#94a3b8">
+          {"{observacion}"}
+        </StructNote>
+      </>
+    );
+  }
+
+  if (templateId === "ajuste_entregado" && placement === "after_intro") {
+    return (
+      <>
+        <p className="my-2">
+          <strong>Título:</strong>{" "}
+          <span className="font-mono text-[13px] text-indigo-800">
+            {"{titulo}"}
+          </span>
+        </p>
+        <p className="my-1 text-[14px]">
+          <strong>ID obra:</strong>{" "}
+          <span className="font-mono text-[13px] text-indigo-800">
+            {"{id_obra}"}
+          </span>
+        </p>
+        <p className="my-1 text-[14px]">
+          <strong>ID ajuste:</strong>{" "}
+          <span className="font-mono text-[13px] text-indigo-800">
+            {"{id_ajuste}"}
+          </span>
+        </p>
+        <p className="my-2 font-mono text-[13px] font-bold text-green-700">
+          {"{link_drive}"}
+        </p>
+        <StructNote title="Archivos creados" accent="#94a3b8">
+          {"{archivos[]}"}
+        </StructNote>
+        <StructNote title="Nota" accent="#94a3b8">
+          {"{observacion}"}
+        </StructNote>
+      </>
+    );
+  }
+
+  if (templateId === "obra_entregada" && placement === "after_intro") {
+    return (
+      <>
+        <p className="my-2">
+          <strong>Título:</strong>{" "}
+          <span className="font-mono text-[13px] text-indigo-800">
+            {"{titulo}"}
+          </span>
+        </p>
+        <p className="my-1 text-[14px]">
+          <strong>ID obra:</strong>{" "}
+          <span className="font-mono text-[13px] text-indigo-800">
+            {"{id_obra}"}
+          </span>
+        </p>
+        <p className="my-2 font-mono text-[13px] font-bold text-blue-700">
+          {"{link_drive}"}
+        </p>
+      </>
+    );
+  }
+
+  if (templateId === "cambio_fechas_gira" && placement === "after_lead") {
+    return (
+      <>
+        <div
+          className="my-3 rounded p-3.5 text-[14px]"
+          style={{
+            borderLeft: "4px solid #f97316",
+            backgroundColor: "#fff7ed",
+          }}
+        >
+          <p className="m-0 mb-2">
+            <strong>Zona:</strong>{" "}
+            <span className="font-mono text-[13px] text-indigo-800">
+              {"{zona}"}
+            </span>
+          </p>
+          <p className="m-0 mb-2">
+            <strong>Fechas anteriores:</strong>{" "}
+            <span className="font-mono text-[13px] text-indigo-800">
+              {"{fechas_viejas}"}
+            </span>
+          </p>
+          <p className="m-0">
+            <strong>Nuevas fechas:</strong>{" "}
+            <span className="font-mono text-[13px] text-indigo-800">
+              {"{fechas_nuevas}"}
+            </span>
+          </p>
+        </div>
+        <p className="my-2 text-[14px] text-slate-600">
+          Lista de conciertos (si hay) y enlace a la gira:
+        </p>
+        <p className="my-1 font-mono text-[13px] font-bold text-blue-600">
+          {"{link_gira}"}
+        </p>
+      </>
+    );
+  }
+
+  if (templateId === "convocatoria_gira" && placement === "after_lead") {
+    return (
+      <p className="my-3 rounded bg-slate-50 p-2.5 text-[13px] text-slate-600">
+        <strong>Fechas:</strong> {"{fecha_desde}"} – {"{fecha_hasta}"}
+        &nbsp;|&nbsp; <strong>Zona:</strong> {"{zona}"}
+      </p>
+    );
+  }
+
+  return null;
+}
+
 /**
  * Cuerpo de mail editable in-place (mismo look que el catálogo HTML).
  * Los valores con placeholders se editan crudos ({gira}, etc.).
+ * Los datos de obra / cargador / fechas son estructurales (no editables).
  */
-function MailBodyEditor({ draft, slotKeys, onFocusField, bodyRef }) {
+function MailBodyEditor({ draft, slotKeys, onFocusField, bodyRef, templateId }) {
   const has = (k) => slotKeys.has(k);
   const s = draft?.slots || {};
 
@@ -207,6 +474,8 @@ function MailBodyEditor({ draft, slotKeys, onFocusField, bodyRef }) {
           </Editable>
         )}
 
+        <StructuralMailBlock templateId={templateId} placement="after_title" />
+
         {has("saludo") && (
           <Editable
             as="p"
@@ -227,6 +496,9 @@ function MailBodyEditor({ draft, slotKeys, onFocusField, bodyRef }) {
             {s.intro}
           </Editable>
         )}
+
+        <StructuralMailBlock templateId={templateId} placement="after_intro" />
+
         {has("lead") && (
           <Editable
             as="p"
@@ -237,6 +509,8 @@ function MailBodyEditor({ draft, slotKeys, onFocusField, bodyRef }) {
             {s.lead}
           </Editable>
         )}
+
+        <StructuralMailBlock templateId={templateId} placement="after_lead" />
 
         {has("reason") && (
           <div className="my-2.5 rounded border-l-4 border-amber-400 bg-amber-50 p-2.5 text-[13px]">
@@ -304,14 +578,6 @@ function MailBodyEditor({ draft, slotKeys, onFocusField, bodyRef }) {
           >
             {s.cuerpo}
           </Editable>
-        )}
-
-        {/* Bloque estructural de fechas (no editable) — como en el mail real */}
-        {(has("lead") || has("reason")) && (
-          <p className="my-3 rounded bg-slate-50 p-2.5 text-[13px] text-slate-600">
-            <strong>Fechas:</strong> {"{fecha_desde}"} – {"{fecha_hasta}"}
-            &nbsp;|&nbsp; <strong>Zona:</strong> {"{zona}"}
-          </p>
         )}
 
         {has("link_texto") && (
@@ -797,6 +1063,7 @@ export default function MailPlantillasHub({ supabase, actorId = null }) {
                 slotKeys={slotKeys}
                 onFocusField={setFocusField}
                 bodyRef={bodyRef}
+                templateId={selected.template_id}
               />
             </div>
           </article>

@@ -22,7 +22,10 @@ Convocatoria/roster: [`convocatoriaNotificationSend.js`](../../src/utils/convoca
 ## UI
 
 - Sección `plantillas_mails` en [`ManagementView.jsx`](../../src/views/Management/ManagementView.jsx).
-- Hub: [`MailPlantillasHub.jsx`](../../src/views/Management/MailPlantillasHub.jsx) — listado por familia, edición, chips de placeholders, preview, Guardar / Defaults.
+- Hub: [`MailPlantillasHub.jsx`](../../src/views/Management/MailPlantillasHub.jsx) — categorías primero, búsqueda global de palabra, edición in-body con toolbar (negrita/cursiva/subrayado/color), chips de placeholders, Guardar / Defaults.
+- Familias en `MAIL_PLANTILLA_FAMILIAS`: convocatoria, **giras**, viáticos, repertorio, acceso, constancias, otros.
+- `cambio_fechas_gira` vive en familia **giras** (no repertorio).
+- Preview estructural (no editable): en plantillas de repertorio se muestran quién carga/asigna y los campos de obra (`{titulo}`, `{compositores}`, Drive, etc.) como en el mail real; en convocatoria/cambio de fechas, bloque de fechas/zona.
 - Servicio: [`mailPlantillasService.js`](../../src/services/mailPlantillasService.js).
 
 ## Fuera de alcance
@@ -39,3 +42,5 @@ Convocatoria/roster: [`convocatoriaNotificationSend.js`](../../src/utils/convoca
 - [x] Hub en Gestión
 - [x] Callers convocatoria/roster con vars
 - [x] Spec
+- [x] `cambio_fechas_gira` en familia giras
+- [x] Preview estructural obra/cargador en repertorio
