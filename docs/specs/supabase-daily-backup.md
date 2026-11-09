@@ -52,7 +52,7 @@ PITR de Supabase (~USD 100/mes) **no** está incluido: los dumps horarios permit
 - [x] Carpeta Drive `OFRN-DB-Backups` + secrets en GitHub Actions.
 - [x] Rol `ofrn_backup` con `BYPASSRLS` + dump `public` vía Docker `pg_dump`.
 - [x] `manage-drive` con `create_resumable_upload` desplegado.
-- [ ] Primera corrida verde end-to-end (dump → artefacto → Drive → purge).
+- [x] Primera corrida verde end-to-end (run `42693923565`, ~3 MB → artefacto + Drive + purge).
 - Schedule horario (`0 * * * *` UTC) activo en `main`.
 
 ### Restaurar desde dump
