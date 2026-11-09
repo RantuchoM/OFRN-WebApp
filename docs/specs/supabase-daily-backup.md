@@ -1,7 +1,7 @@
 # Spec: Backup OFRN (Supabase)
 
 ## Objetivo
-Copia **completa y portable** de la BD (schemas `public`, `auth`, `storage`) fuera de Supabase, para restaurar/comparar sin depender solo de los snapshots diarios del plan Pro.
+Copia **portable** del schema `public` fuera de Supabase, para restaurar/comparar sin depender solo de los snapshots diarios del plan Pro. (`auth` / `storage` quedan fuera del dump automatizado: el rol `ofrn_backup` no tiene `USAGE` ahí; para un dump completo hace falta la password `postgres` del dashboard.)
 
 Complementa:
 - Snapshots diarios nativos de Supabase Pro (7 días; **no** es PITR).
@@ -16,12 +16,14 @@ Complementa:
 | `scripts/backup-supabase-db.ps1` | Alternativa manual / Programador de tareas Windows |
 
 ### Flujo
-1. GitHub Action (horario o manual) hace `supabase db dump` schema + data (`public,auth,storage`).
+1. GitHub Action (horario o manual) corre `pg_dump` (Docker `postgres:17`) como rol `ofrn_backup` vía pooler session (5432), schema `public` only.
 2. Empaqueta `ofrn-db-<stamp>.sql.gz` y lo guarda como artefacto.
 3. Sube a Drive con **upload resumable**:
    - Action → `manage-drive` `create_resumable_upload` (solo metadata JSON; sin body grande).
    - Action hace `PUT` de los bytes **directo a Google** (chunks de 8 MiB si hace falta).
 4. Lista la carpeta Drive y borra dumps OFRN con stamp &gt; 30 días.
+
+Rol DB: `ofrn_backup` = `SELECT` en `public` + `BYPASSRLS` (necesario para que `pg_dump` no choque con políticas RLS).
 
 `upload_file` (base64) queda para archivos chicos de la app; **no** se usa para backups.
 
@@ -29,8 +31,8 @@ Complementa:
 | Concepto | Valor |
 |----------|-------|
 | BD en disco | ~80 MB |
-| Dump completo comprimido (foto de datos) | ~4.3 MB |
-| Drive: 24 × 30 × ~4.3 MB | **~3 GB** (cuota de Google Drive, no de Supabase) |
+| Dump `public` comprimido (Action / local) | ~3.0–4.3 MB |
+| Drive: 24 × 30 × ~4 MB | **~3 GB** (cuota de Google Drive, no de Supabase) |
 | Impacto Supabase | Lectura breve + 1 invoke EF/`manage-drive` por hora → **despreciable** en Pro |
 | GitHub Actions | Repo **público** → minutos ilimitados |
 
@@ -39,17 +41,19 @@ PITR de Supabase (~USD 100/mes) **no** está incluido: los dumps horarios permit
 ### Secrets (GitHub Actions)
 | Secret | Uso |
 |--------|-----|
-| `SUPABASE_DB_PASSWORD` | Dump vía pooler |
+| `SUPABASE_DB_PASSWORD` | Password del rol `ofrn_backup` (pooler) |
+| `SUPABASE_DB_USER` | Default implícito `ofrn_backup` si falta |
 | `SUPABASE_URL` | Invoke `manage-drive` |
 | `SUPABASE_SERVICE_ROLE_KEY` | Auth de la función |
-| `OFRN_BACKUP_DRIVE_FOLDER_ID` | Carpeta destino (compartir con cuenta de servicio Archivo) |
+| `OFRN_BACKUP_DRIVE_FOLDER_ID` | Carpeta `OFRN-DB-Backups` (`1v3jDnO1E_81qSyQP3p9BVkWl31DuPtLQ`) |
 | `SUPABASE_PROJECT_REF` / `SUPABASE_DB_REGION` | Opcionales (defaults del proyecto OFRN) |
 
 ### Activación
-1. Crear carpeta en Drive (p. ej. `OFRN-DB-Backups`) y compartirla con la cuenta Archivo (writer).
-2. Cargar los 4 secrets en el repo.
-3. Actions → **Supabase DB backup to Drive** → Run workflow (prueba).
-4. El `schedule` horario queda activo al mergear el workflow.
+- [x] Carpeta Drive `OFRN-DB-Backups` + secrets en GitHub Actions.
+- [x] Rol `ofrn_backup` con `BYPASSRLS` + dump `public` vía Docker `pg_dump`.
+- [x] `manage-drive` con `create_resumable_upload` desplegado.
+- [ ] Primera corrida verde end-to-end (dump → artefacto → Drive → purge).
+- Schedule horario (`0 * * * *` UTC) activo en `main`.
 
 ### Restaurar desde dump
 ```bash

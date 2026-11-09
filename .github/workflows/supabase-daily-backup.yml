@@ -46,7 +46,7 @@ jobs:
           DB_REGION="${DB_REGION:-aws-1-us-east-2}"
           # Rol dedicado ofrn_backup (SELECT). pg_dump directo: supabase db dump exige SET ROLE postgres.
           DB_USER="${SUPABASE_DB_USER:-ofrn_backup}"
-          STAMP=$(date -u +%Y-%m-%d_%H%M%SZ)
+          export STAMP=$(date -u +%Y-%m-%d_%H%M%SZ)
           echo "STAMP=$STAMP" >> "$GITHUB_ENV"
           export PGPASSWORD="$SUPABASE_DB_PASSWORD"
           # Session mode (5432) — pg_dump no funciona bien en transaction pooler (6543)
