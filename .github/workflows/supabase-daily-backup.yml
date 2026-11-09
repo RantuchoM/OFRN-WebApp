@@ -68,8 +68,6 @@ jobs:
               --no-owner \
               --no-privileges \
               --schema=public \
-              --schema=auth \
-              --schema=storage \
               --file="/out/ofrn-db-${STAMP}.sql"
 
           gzip -9 "ofrn-db-${STAMP}.sql"
