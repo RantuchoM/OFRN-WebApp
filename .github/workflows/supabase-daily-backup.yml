@@ -1,16 +1,21 @@
-# Backup diario de la base OFRN (pg_dump) — artefacto en GitHub + subida opcional a Drive.
+# Backup completo OFRN → artefacto GitHub + Google Drive (upload resumable).
+# Frecuencia: cada hora (UTC) + botón manual. Retención Drive: 30 días.
 #
-# Secrets (Settings → Secrets → Actions):
-#   SUPABASE_DB_PASSWORD (requerido)
+# Secrets (Settings → Secrets and variables → Actions):
+#   SUPABASE_DB_PASSWORD          (requerido) — Database → Database password
+#   SUPABASE_URL                  (requerido para Drive)
+#   SUPABASE_SERVICE_ROLE_KEY     (requerido para Drive)
+#   OFRN_BACKUP_DRIVE_FOLDER_ID   (requerido para Drive) — carpeta compartida con ofrn.archivo@gmail.com
 # Opcionales:
-#   SUPABASE_PROJECT_REF, SUPABASE_DB_REGION, SUPABASE_URL,
-#   SUPABASE_SERVICE_ROLE_KEY, OFRN_BACKUP_DRIVE_FOLDER_ID
+#   SUPABASE_PROJECT_REF          (default muxrbuivopnawnxlcjxq)
+#   SUPABASE_DB_REGION            (default aws-1-us-east-2)
 
-name: Supabase daily backup
+name: Supabase DB backup to Drive
 
-# schedule deshabilitado: faltaba SUPABASE_DB_PASSWORD y generaba failure mails diarios.
-# El backup operativo es Edge Function db-backup-cron → Storage (ver docs/specs/supabase-daily-backup.md).
 on:
+  schedule:
+    # Cada hora en punto (UTC). ~4 MB × 24 × 30 ≈ 3 GB en Drive.
+    - cron: "0 * * * *"
   workflow_dispatch:
 
 jobs:
@@ -25,24 +30,52 @@ jobs:
         with:
           version: latest
 
-      - name: Dump database
+      - name: Dump database (schema + data)
         env:
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          SUPABASE_DB_USER: ${{ secrets.SUPABASE_DB_USER }}
           PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
           DB_REGION: ${{ secrets.SUPABASE_DB_REGION }}
         run: |
-          if [ -z "$SUPABASE_DB_PASSWORD" ]; then
+          set -euo pipefail
+          if [ -z "${SUPABASE_DB_PASSWORD:-}" ]; then
             echo "::error::Falta secret SUPABASE_DB_PASSWORD"
             exit 1
           fi
           PROJECT_REF="${PROJECT_REF:-muxrbuivopnawnxlcjxq}"
           DB_REGION="${DB_REGION:-aws-1-us-east-2}"
-          ENCODED_PASS=$(python -c "import urllib.parse, os; print(urllib.parse.quote(os.environ['SUPABASE_DB_PASSWORD'], safe=''))")
-          DB_URL="postgresql://postgres.${PROJECT_REF}:${ENCODED_PASS}@${DB_REGION}.pooler.supabase.com:6543/postgres"
-          STAMP=$(date -u +%Y-%m-%d)
-          supabase db dump --db-url "$DB_URL" -f "ofrn-db-${STAMP}.sql"
+          # Default: rol dedicado ofrn_backup (no la password de postgres del dashboard)
+          DB_USER="${SUPABASE_DB_USER:-ofrn_backup}"
+          ENCODED_PASS=$(python3 -c "import urllib.parse, os; print(urllib.parse.quote(os.environ['SUPABASE_DB_PASSWORD'], safe=''))")
+          DB_URL="postgresql://${DB_USER}.${PROJECT_REF}:${ENCODED_PASS}@${DB_REGION}.pooler.supabase.com:6543/postgres"
+          STAMP=$(date -u +%Y-%m-%d_%H%M%SZ)
+          echo "STAMP=$STAMP" >> "$GITHUB_ENV"
+
+          supabase db dump --db-url "$DB_URL" \
+            --schema public,auth,storage \
+            -f "ofrn-schema-${STAMP}.sql"
+          supabase db dump --db-url "$DB_URL" \
+            --data-only \
+            --use-copy \
+            --schema public,auth,storage \
+            -f "ofrn-data-${STAMP}.sql"
+
+          {
+            echo "-- OFRN full backup ${STAMP}"
+            echo "-- schemas: public, auth, storage"
+            cat "ofrn-schema-${STAMP}.sql"
+            echo
+            cat "ofrn-data-${STAMP}.sql"
+          } > "ofrn-db-${STAMP}.sql"
+
           gzip -9 "ofrn-db-${STAMP}.sql"
-          ls -lh ofrn-db-*.sql.gz
+          ls -lh "ofrn-db-${STAMP}.sql.gz"
+          python3 - <<'PY'
+          import os, pathlib
+          stamp = os.environ["STAMP"]
+          p = pathlib.Path(f"ofrn-db-{stamp}.sql.gz")
+          print(f"gz_bytes={p.stat().st_size} gz_mb={p.stat().st_size/1024/1024:.2f}")
+          PY
 
       - uses: actions/upload-artifact@v4
         with:
@@ -51,46 +84,143 @@ jobs:
           retention-days: 14
           if-no-files-found: error
 
-      - name: Upload to Google Drive (opcional, dumps &lt; 4 MB)
+      - name: Upload to Google Drive (resumable) + purge > 30 days
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           DRIVE_FOLDER_ID: ${{ secrets.OFRN_BACKUP_DRIVE_FOLDER_ID }}
+          RETENTION_DAYS: "30"
         run: |
-          if [ -z "$DRIVE_FOLDER_ID" ] || [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
-            echo "Drive opcional omitido (faltan secrets)."
+          set -euo pipefail
+          if [ -z "${DRIVE_FOLDER_ID:-}" ] || [ -z "${SUPABASE_URL:-}" ] || [ -z "${SUPABASE_SERVICE_ROLE_KEY:-}" ]; then
+            echo "::warning::Drive omitido (faltan SUPABASE_URL / SERVICE_ROLE / OFRN_BACKUP_DRIVE_FOLDER_ID)."
             exit 0
           fi
-          FILE=$(ls ofrn-db-*.sql.gz | head -1)
-          SIZE_MB=$(du -m "$FILE" | cut -f1)
-          if [ "$SIZE_MB" -gt 4 ]; then
-            echo "::warning::Dump ${SIZE_MB}MB > 4MB: solo artefacto GitHub."
-            exit 0
-          fi
-          export BACKUP_FILE="$FILE"
+          export BACKUP_FILE="ofrn-db-${STAMP}.sql.gz"
           python3 << 'PY'
-          import base64, json, os, urllib.request
-          path = os.environ["BACKUP_FILE"]
-          with open(path, "rb") as f:
-              b64 = base64.b64encode(f.read()).decode()
-          body = {
-              "action": "upload_file",
-              "fileName": os.path.basename(path),
-              "fileBase64": b64,
-              "mimeType": "application/gzip",
-              "parentId": os.environ["DRIVE_FOLDER_ID"],
+          import json, os, re, urllib.error, urllib.request
+          from datetime import datetime, timedelta, timezone
+          from pathlib import Path
+
+          folder = os.environ["DRIVE_FOLDER_ID"]
+          fn_url = os.environ["SUPABASE_URL"].rstrip("/") + "/functions/v1/manage-drive"
+          key = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+          path = Path(os.environ["BACKUP_FILE"])
+          retention_days = int(os.environ.get("RETENTION_DAYS", "30"))
+          headers = {
+              "Authorization": f"Bearer {key}",
+              "apikey": key,
+              "Content-Type": "application/json",
           }
-          url = os.environ["SUPABASE_URL"].rstrip("/") + "/functions/v1/manage-drive"
-          req = urllib.request.Request(
-              url,
-              data=json.dumps(body).encode(),
-              headers={
-                  "Authorization": "Bearer " + os.environ["SUPABASE_SERVICE_ROLE_KEY"],
-                  "apikey": os.environ["SUPABASE_SERVICE_ROLE_KEY"],
-                  "Content-Type": "application/json",
+
+          def call_manage(body, timeout=180):
+              req = urllib.request.Request(
+                  fn_url,
+                  data=json.dumps(body).encode(),
+                  headers=headers,
+                  method="POST",
+              )
+              with urllib.request.urlopen(req, timeout=timeout) as resp:
+                  return json.loads(resp.read().decode())
+
+          size = path.stat().st_size
+          print(f"upload_candidate bytes={size} mb={size/1024/1024:.2f}")
+
+          # 1) Sesión resumable (solo metadata JSON → EF; bytes van a Google)
+          session = call_manage(
+              {
+                  "action": "create_resumable_upload",
+                  "fileName": path.name,
+                  "mimeType": "application/gzip",
+                  "parentId": folder,
+                  "contentLength": size,
               },
-              method="POST",
+              timeout=60,
           )
-          with urllib.request.urlopen(req, timeout=180) as resp:
-              print(resp.read().decode())
+          upload_url = session.get("uploadUrl")
+          if not upload_url:
+              raise RuntimeError(f"Sin uploadUrl: {session}")
+
+          # 2) PUT directo a Drive (chunked si > 8 MiB)
+          chunk = 8 * 1024 * 1024
+          content_type = session.get("contentType") or "application/gzip"
+          with path.open("rb") as f:
+              if size <= chunk:
+                  data = f.read()
+                  req = urllib.request.Request(
+                      upload_url,
+                      data=data,
+                      headers={
+                          "Content-Length": str(size),
+                          "Content-Type": content_type,
+                      },
+                      method="PUT",
+                  )
+                  with urllib.request.urlopen(req, timeout=600) as resp:
+                      body = resp.read().decode()
+                      print("uploaded:", body[:500])
+              else:
+                  offset = 0
+                  while offset < size:
+                      piece = f.read(chunk)
+                      end = offset + len(piece) - 1
+                      req = urllib.request.Request(
+                          upload_url,
+                          data=piece,
+                          headers={
+                              "Content-Length": str(len(piece)),
+                              "Content-Type": content_type,
+                              "Content-Range": f"bytes {offset}-{end}/{size}",
+                          },
+                          method="PUT",
+                      )
+                      try:
+                          with urllib.request.urlopen(req, timeout=600) as resp:
+                              status = resp.status
+                              body = resp.read().decode()
+                      except urllib.error.HTTPError as e:
+                          # 308 Resume Incomplete es progreso normal en chunks intermedios
+                          if e.code != 308:
+                              raise
+                          status = 308
+                          body = e.read().decode(errors="replace")
+                      print(f"chunk {offset}-{end}/{size} status={status}")
+                      offset = end + 1
+                      if status in (200, 201):
+                          print("uploaded:", body[:500])
+
+          # 3) Retención 30 días por stamp en el nombre
+          listed = call_manage(
+              {"action": "list_folder_files", "folderUrl": folder},
+              timeout=120,
+          )
+          files = listed.get("files") or []
+          cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
+          pat = re.compile(
+              r"^ofrn-db-(\d{4}-\d{2}-\d{2})_(\d{2})(\d{2})(\d{2})Z\.sql\.gz$"
+          )
+          deleted = 0
+          for item in files:
+              name = item.get("name") or ""
+              m = pat.match(name)
+              if not m:
+                  continue
+              stamp = datetime(
+                  int(m.group(1)[0:4]),
+                  int(m.group(1)[5:7]),
+                  int(m.group(1)[8:10]),
+                  int(m.group(2)),
+                  int(m.group(3)),
+                  int(m.group(4)),
+                  tzinfo=timezone.utc,
+              )
+              if stamp >= cutoff:
+                  continue
+              fid = item.get("id")
+              if not fid:
+                  continue
+              call_manage({"action": "delete_file", "fileId": fid}, timeout=60)
+              deleted += 1
+              print(f"purged {name} ({fid})")
+          print(f"retention_done deleted={deleted} kept_scan={len(files)}")
           PY

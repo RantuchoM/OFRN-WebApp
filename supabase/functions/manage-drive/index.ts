@@ -3105,7 +3105,7 @@ serve(async (req) => {
       return new Response(JSON.stringify({ success: true, fileId: upData.id, webViewLink: upData.webViewLink }), { headers: corsHeaders });
     }
 
-    // --- ACCIÓN: DRIVE - UPLOAD FILE (General) ---
+    // --- ACCIÓN: DRIVE - UPLOAD FILE (General, base64; solo archivos chicos) ---
     if (action === "upload_file") {
       const finalParentId = parentId || extractFileId(folderUrl);
       const binaryString = atob(fileBase64);
@@ -3119,6 +3119,83 @@ serve(async (req) => {
       });
       const upData = await upRes.json();
       return new Response(JSON.stringify({ success: true, webViewLink: upData.webViewLink, fileId: upData.id }), { headers: corsHeaders });
+    }
+
+    // --- ACCIÓN: asegurar carpeta por nombre bajo un padre (backups, etc.) ---
+    if (action === "ensure_folder") {
+      const parent =
+        parentId ||
+        extractFileId(folderUrl) ||
+        ARCHIVO_MISC_FOLDER_ID;
+      const name = String(
+        (body as { folderName?: string; name?: string }).folderName ||
+          (body as { name?: string }).name ||
+          "",
+      ).trim();
+      if (!parent) throw new Error("Falta parentId para ensure_folder");
+      if (!name) throw new Error("Falta folderName para ensure_folder");
+      const id = await findOrCreateChildFolder(drive, parent, name);
+      const meta = await drive.files.get({
+        fileId: id,
+        fields: "id, name, webViewLink",
+        ...DRIVE_SHARED_OPTS,
+      });
+      return new Response(
+        JSON.stringify({
+          success: true,
+          folderId: meta.data.id,
+          name: meta.data.name,
+          webViewLink: meta.data.webViewLink,
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    // --- ACCIÓN: iniciar sesión resumable (el cliente sube bytes directo a Google) ---
+    // Evita el tope de body de Edge Functions (~6 MB). Usado por el backup CI.
+    if (action === "create_resumable_upload") {
+      const finalParentId = parentId || extractFileId(folderUrl);
+      if (!finalParentId) throw new Error("Falta parentId / folderUrl para create_resumable_upload");
+      if (!fileName) throw new Error("Falta fileName para create_resumable_upload");
+      const contentType = (mimeType as string) || "application/octet-stream";
+      const contentLength = Number((body as { contentLength?: number | string }).contentLength);
+      if (!Number.isFinite(contentLength) || contentLength <= 0) {
+        throw new Error("Falta contentLength válido para create_resumable_upload");
+      }
+      if (!token) throw new Error("Sin access token de Google Drive");
+
+      const initRes = await fetch(
+        "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&supportsAllDrives=true&fields=id,name,webViewLink",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json; charset=UTF-8",
+            "X-Upload-Content-Type": contentType,
+            "X-Upload-Content-Length": String(Math.trunc(contentLength)),
+          },
+          body: JSON.stringify({
+            name: fileName,
+            parents: [finalParentId],
+          }),
+        },
+      );
+      if (!initRes.ok) {
+        const detail = await initRes.text();
+        throw new Error(`Drive resumable init ${initRes.status}: ${detail}`);
+      }
+      const uploadUrl = initRes.headers.get("Location");
+      if (!uploadUrl) throw new Error("Drive no devolvió Location de upload resumable");
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          uploadUrl,
+          contentType,
+          contentLength: Math.trunc(contentLength),
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
     }
 
     // --- ACCIÓN: SUBIR SET DE PARTICELLAS A CARPETA FIJA ---

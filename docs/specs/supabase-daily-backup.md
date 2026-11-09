@@ -1,30 +1,73 @@
-# Spec: Backup diario OFRN (Supabase)
+# Spec: Backup OFRN (Supabase)
 
 ## Objetivo
-Copia diaria de tablas críticas para restauraciones futuras (incluye `horas_catedra`), complementando los snapshots nativos de Supabase Pro.
+Copia **completa y portable** de la BD (schemas `public`, `auth`, `storage`) fuera de Supabase, para restaurar/comparar sin depender solo de los snapshots diarios del plan Pro.
 
-## Implementación principal (producción)
+Complementa:
+- Snapshots diarios nativos de Supabase Pro (7 días; **no** es PITR).
+- Cron JSON parcial `db-backup-cron` → Storage (5 tablas; legado).
+
+## Implementación principal (off-site)
 
 | Artefacto | Rol |
 |-----------|-----|
-| `supabase/functions/db-backup-cron` | Edge Function: exporta tablas → JSON.gz en Storage |
-| Bucket `ofrn-db-backups` | Destino privado (migración `20260701140000`) |
-| `supabase/migrations/20260701130000_db_backup_cron_schedule.sql` | pg_cron 09:00 UTC → POST a la función |
-| `scripts/setup-db-backup-vault.sql` | Secrets en Vault para el cron (`db_backup_cron_secret`, `db_backup_service_role`) |
-
-### Tablas (modo `daily`)
-`horas_catedra`, `integrantes`, `integrantes_ensambles`, `instrumentos`, `ensambles`.
+| `.github/workflows/supabase-daily-backup.yml` | Dump completo cada **1 h** (UTC) + `workflow_dispatch` → artefacto GitHub (14 d) + Drive |
+| Carpeta Drive (`OFRN_BACKUP_DRIVE_FOLDER_ID`) | Destino off-site; retención **30 días** (purge por nombre `ofrn-db-YYYY-MM-DD_HHMMSSZ.sql.gz`) |
+| `scripts/backup-supabase-db.ps1` | Alternativa manual / Programador de tareas Windows |
 
 ### Flujo
-1. pg_cron dispara `db-backup-cron` a las **09:00 UTC** con header `x-db-backup-cron-secret`.
-2. La función lee filas vía Supabase JS (service role), serializa JSON y sube vía Storage REST a `ofrn-db-backups/daily/YYYY-MM-DD/`.
-3. Incluye `manifest.json` con metadatos por tabla.
+1. GitHub Action (horario o manual) hace `supabase db dump` schema + data (`public,auth,storage`).
+2. Empaqueta `ofrn-db-<stamp>.sql.gz` y lo guarda como artefacto.
+3. Sube a Drive con **upload resumable**:
+   - Action → `manage-drive` `create_resumable_upload` (solo metadata JSON; sin body grande).
+   - Action hace `PUT` de los bytes **directo a Google** (chunks de 8 MiB si hace falta).
+4. Lista la carpeta Drive y borra dumps OFRN con stamp &gt; 30 días.
 
-### Secrets
-- **Edge Function:** `DB_BACKUP_CRON_SECRET` (Supabase secrets).
-- **Vault (cron):** `db_backup_cron_secret`, `db_backup_service_role` — ver `scripts/setup-db-backup-vault.sql`.
+`upload_file` (base64) queda para archivos chicos de la app; **no** se usa para backups.
 
-### Invocación manual
+### Tamaño / cuota (medición 2026-11-09)
+| Concepto | Valor |
+|----------|-------|
+| BD en disco | ~80 MB |
+| Dump completo comprimido (foto de datos) | ~4.3 MB |
+| Drive: 24 × 30 × ~4.3 MB | **~3 GB** (cuota de Google Drive, no de Supabase) |
+| Impacto Supabase | Lectura breve + 1 invoke EF/`manage-drive` por hora → **despreciable** en Pro |
+| GitHub Actions | Repo **público** → minutos ilimitados |
+
+PITR de Supabase (~USD 100/mes) **no** está incluido: los dumps horarios permiten comparar/restaurar desde una foto, no “undo” al minuto en el proyecto live.
+
+### Secrets (GitHub Actions)
+| Secret | Uso |
+|--------|-----|
+| `SUPABASE_DB_PASSWORD` | Dump vía pooler |
+| `SUPABASE_URL` | Invoke `manage-drive` |
+| `SUPABASE_SERVICE_ROLE_KEY` | Auth de la función |
+| `OFRN_BACKUP_DRIVE_FOLDER_ID` | Carpeta destino (compartir con cuenta de servicio Archivo) |
+| `SUPABASE_PROJECT_REF` / `SUPABASE_DB_REGION` | Opcionales (defaults del proyecto OFRN) |
+
+### Activación
+1. Crear carpeta en Drive (p. ej. `OFRN-DB-Backups`) y compartirla con la cuenta Archivo (writer).
+2. Cargar los 4 secrets en el repo.
+3. Actions → **Supabase DB backup to Drive** → Run workflow (prueba).
+4. El `schedule` horario queda activo al mergear el workflow.
+
+### Restaurar desde dump
+```bash
+gunzip ofrn-db-YYYY-MM-DD_HHMMSSZ.sql.gz
+psql "$DATABASE_URL" -f ofrn-db-YYYY-MM-DD_HHMMSSZ.sql
+```
+Preferible restaurar en un proyecto/clon, no a ciegas sobre producción.
+
+## Legado: JSON diario en Storage
+
+| Artefacto | Rol |
+|-----------|-----|
+| `supabase/functions/db-backup-cron` | Exporta 5 tablas → JSON en `ofrn-db-backups` |
+| Cron `ofrn-db-backup-daily` | 09:00 UTC |
+
+Tablas: `horas_catedra`, `integrantes`, `integrantes_ensambles`, `instrumentos`, `ensambles`. Útil como red de seguridad mínima; **no** reemplaza el dump completo a Drive.
+
+### Invocación manual (JSON)
 ```powershell
 $secret = (Get-Content "supabase\.temp\db-backup-cron-secret.txt" -Raw).Trim()
 $sr = $env:SUPABASE_SERVICE_ROLE_KEY
@@ -37,52 +80,14 @@ Invoke-RestMethod -Uri "https://muxrbuivopnawnxlcjxq.supabase.co/functions/v1/db
   -Method Post -Headers $headers -Body '{"mode":"daily"}' -ContentType "application/json"
 ```
 
-### Verificar en Storage
-```sql
-SELECT name, created_at, metadata->>'size' AS bytes
-FROM storage.objects
-WHERE bucket_id = 'ofrn-db-backups'
-ORDER BY created_at DESC
-LIMIT 20;
-```
-
-## Implementación alternativa (pg_dump completo)
-
-| Artefacto | Rol |
-|-----------|-----|
-| `scripts/backup-supabase-db.ps1` | Manual o Programador de tareas (Windows) |
-| `.github/workflows/supabase-daily-backup.yml` | Cron 08:15 UTC + `workflow_dispatch` |
-
-Requiere `SUPABASE_DB_PASSWORD` en GitHub Secrets (aún no configurado).
-
-## Restaurar desde JSON (Storage)
-1. Descargar `daily/YYYY-MM-DD/horas_catedra.json` desde Dashboard → Storage.
-2. Parsear JSON (`rows`).
-3. `INSERT ... ON CONFLICT` o import selectivo en proyecto clonado.
-
-## Restaurar desde pg_dump
-```bash
-gunzip ofrn-db-YYYY-MM-DD.sql.gz
-psql "$DATABASE_URL" -f ofrn-db-YYYY-MM-DD.sql
-```
-
-## Nómina — mes de baja visible
-- [x] Integrantes con baja (0 hs vs mes anterior > 0) permanecen en la nómina **solo el mes del cambio** (`hasNews`).
-- [x] Celdas muestran `0` en rojo suave; etiqueta **Baja** en fila.
-- [x] `collectNovedadesMesDocJobs` genera nota aunque el registro vigente sea 0 hs.
-
 ## Checklist operativo
-- [x] Bucket `ofrn-db-backups` creado
-- [x] Edge Function `db-backup-cron` desplegada
-- [x] Secret `DB_BACKUP_CRON_SECRET` en Supabase
-- [x] Vault + cron `ofrn-db-backup-daily` aplicados en remoto (09:00 UTC)
-- [ ] GitHub Action (opcional) con `SUPABASE_DB_PASSWORD`
+- [x] Bucket `ofrn-db-backups` + cron JSON parcial
+- [x] Workflow horario + retención Drive 30 d (código)
+- [ ] Secrets GitHub cargados (`SUPABASE_DB_PASSWORD`, URL, service role, folder id)
+- [ ] Carpeta Drive creada y compartida con Archivo
+- [ ] Primera corrida manual OK (archivo visible en Drive)
 
 ## Deuda
-- Modo `critical` (más tablas) puede acercarse al timeout de Edge Functions; usar pg_dump o GitHub Action para dump completo.
-- Copia a Google Drive descartada por timeouts en payloads grandes.
-- GitHub Action `supabase-daily-backup.yml` falla a diario sin `SUPABASE_DB_PASSWORD` (mails de failure). El backup útil es el Edge → Storage; el Action queda opcional hasta cargar el secret o deshabilitar el `schedule`.
-
-## Higiene de crons (2026-08-20)
-- Migración `20260820180000_cron_throttle_and_log_purge.sql` (+ `20260820180100`): apaga `sincronizar-nomencladores-diario` (URL placeholder); ensayo inicio/salida y sheet pending a **5 min**; entradas-mails a **30 min**; retención diaria de `cron.job_run_details` (**7 d**) y `net._http_response` (**1 d**). Workflow GitHub de pg_dump: solo `workflow_dispatch` (sin schedule).
-- Migración `20260820190000_cron_daytime_window_art.sql`: ensayo inicio/salida + sheet pending solo en **08:00–22:59 ART** (`*/5 11-23,0-1 * * *` UTC).
+- Dump oficial CLI puede diferir en tamaño/formato respecto al snapshot Python one-shot de 2026-11-09.
+- PITR sigue siendo el camino correcto para “volver 1–2 h” en el proyecto live.
+- Secrets GitHub + carpeta Drive aún pendientes de activación operativa.
