@@ -17,6 +17,7 @@ import {
   IconSearch,
   IconChevronLeft,
   IconChevronRight,
+  IconDownload,
 } from "../../components/ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 import { supabase } from "../../services/supabase";
@@ -40,6 +41,10 @@ import {
   formatSolicitanteNombre,
 } from "../../utils/encargoArregloService";
 import { readManageDriveResponseBody } from "../../utils/paraAcomodarDrive";
+import {
+  downloadArreglosInformePdf,
+  getArregloFechaFiltro,
+} from "../../utils/arreglosInformePdf";
 
 const RichTextPreview = ({ content, className = "" }) => {
   if (!content) return null;
@@ -534,6 +539,8 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
   const [integrantesArregladorOptions, setIntegrantesArregladorOptions] = useState([]);
   const [compositoresOptions, setCompositoresOptions] = useState([]);
   const [filterArregladorId, setFilterArregladorId] = useState("");
+  const [filterFechaDesde, setFilterFechaDesde] = useState("");
+  const [filterFechaHasta, setFilterFechaHasta] = useState("");
   const [showArregladorFilter, setShowArregladorFilter] = useState(false);
   const arregladorFilterRef = useRef(null);
   const [searchObraText, setSearchObraText] = useState("");
@@ -775,16 +782,29 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
 
         const { data: entregaLogs, error: entregaLogsError } = await sb
           .from("obras_produccion_log")
-          .select("id_obra, fecha")
+          .select("id_obra, fecha, estado_nuevo")
           .in("id_obra", obraIds)
-          .eq("estado_nuevo", "Entregado")
+          .in("estado_nuevo", ["Entregado", "Oficial"])
           .order("fecha", { ascending: false });
         if (entregaLogsError) {
           console.warn("ArreglosDashboard fecha entrega:", entregaLogsError.message);
         } else {
+          const oficialFallback = {};
           for (const log of entregaLogs || []) {
-            if (!entregaFechaByObra[log.id_obra]) {
-              entregaFechaByObra[log.id_obra] = log.fecha;
+            if (!log?.id_obra || !log?.fecha) continue;
+            if (log.estado_nuevo === "Entregado") {
+              if (!entregaFechaByObra[log.id_obra]) {
+                entregaFechaByObra[log.id_obra] = log.fecha;
+              }
+            } else if (log.estado_nuevo === "Oficial") {
+              if (!oficialFallback[log.id_obra]) {
+                oficialFallback[log.id_obra] = log.fecha;
+              }
+            }
+          }
+          for (const [obraId, fechaOficial] of Object.entries(oficialFallback)) {
+            if (!entregaFechaByObra[obraId]) {
+              entregaFechaByObra[obraId] = fechaOficial;
             }
           }
         }
@@ -876,6 +896,13 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
     setShowArregladorFilter(false);
   };
 
+  const hasFechaFilter = Boolean(filterFechaDesde || filterFechaHasta);
+
+  const clearFechaFilter = () => {
+    setFilterFechaDesde("");
+    setFilterFechaHasta("");
+  };
+
   const filteredWorks = useMemo(() => {
     let list = works;
     if (filterArregladorId) {
@@ -893,8 +920,39 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
         ),
       );
     }
+    if (filterFechaDesde || filterFechaHasta) {
+      list = list.filter((w) => {
+        const fecha = getArregloFechaFiltro(w);
+        if (!fecha) return false;
+        if (filterFechaDesde && fecha < filterFechaDesde) return false;
+        if (filterFechaHasta && fecha > filterFechaHasta) return false;
+        return true;
+      });
+    }
     return [...list].sort(compareArreglosPorUrgencia);
-  }, [works, filterArregladorId, searchObraText]);
+  }, [works, filterArregladorId, searchObraText, filterFechaDesde, filterFechaHasta]);
+
+  const handleDownloadInformePdf = () => {
+    if (filteredWorks.length === 0) {
+      toast.error("No hay arreglos para exportar con el filtro actual.");
+      return;
+    }
+    const arregladorLabel = filterArregladorId
+      ? arregladoresOptions.find((o) => String(o.id) === String(filterArregladorId))?.label
+      : null;
+    try {
+      downloadArreglosInformePdf(filteredWorks, {
+        titulo: "Informe de arreglos",
+        arregladorLabel: arregladorLabel || null,
+        fechaDesde: filterFechaDesde || null,
+        fechaHasta: filterFechaHasta || null,
+      });
+      toast.success(`PDF generado (${filteredWorks.length} arreglo${filteredWorks.length === 1 ? "" : "s"}).`);
+    } catch (err) {
+      console.error("Informe PDF arreglos:", err);
+      toast.error(err?.message || "No se pudo generar el PDF.");
+    }
+  };
 
   const pendientesArreglosCount = useMemo(() => {
     let list = works.filter((w) => (w.estado || "") === "Para arreglar");
@@ -952,7 +1010,7 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [filterArregladorId, searchObraText]);
+  }, [filterArregladorId, searchObraText, filterFechaDesde, filterFechaHasta]);
 
   useEffect(() => {
     if (currentPage > totalPages) setCurrentPage(totalPages);
@@ -1542,7 +1600,55 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
               </button>
             </div>
           </div>
-          <div className="flex items-center gap-2 shrink-0 flex-nowrap">
+          <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+            {vistaActiva === "arreglos" && (
+              <div
+                className={`flex items-center gap-1.5 rounded-lg border px-2 py-1 ${
+                  hasFechaFilter
+                    ? "border-indigo-300 bg-indigo-50/70"
+                    : "border-slate-200 bg-slate-50"
+                }`}
+                title="Filtra por fecha de entrega (Entregado/Oficial) o fecha prevista (Para arreglar)"
+              >
+                <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500 hidden sm:inline">
+                  Fechas
+                </span>
+                <DateInput
+                  value={filterFechaDesde}
+                  onChange={setFilterFechaDesde}
+                  className="w-[7.75rem] border border-slate-300 bg-white focus-within:ring-1 focus-within:ring-indigo-400 rounded"
+                />
+                <span className="text-slate-400 text-xs">–</span>
+                <DateInput
+                  value={filterFechaHasta}
+                  onChange={setFilterFechaHasta}
+                  className="w-[7.75rem] border border-slate-300 bg-white focus-within:ring-1 focus-within:ring-indigo-400 rounded"
+                />
+                {hasFechaFilter && (
+                  <button
+                    type="button"
+                    onClick={clearFechaFilter}
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-500 hover:bg-white hover:text-slate-700"
+                    aria-label="Limpiar filtro de fechas"
+                    title="Limpiar fechas"
+                  >
+                    <IconX size={14} />
+                  </button>
+                )}
+              </div>
+            )}
+            {vistaActiva === "arreglos" && (
+              <button
+                type="button"
+                onClick={handleDownloadInformePdf}
+                disabled={filteredWorks.length === 0}
+                className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+                title="Descargar PDF del listado filtrado"
+              >
+                <IconDownload size={16} />
+                <span className="hidden sm:inline">PDF</span>
+              </button>
+            )}
             {vistaActiva === "arreglos" && canQuickAdd && (
               <button
                 type="button"
@@ -2105,9 +2211,9 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
                 {filteredWorks.length === 0 && !showQuickRow ? (
                   <tr>
                     <td colSpan={7} className="py-12 text-center text-slate-500 italic text-sm">
-                      {searchObraText.trim()
-                        ? "Ninguna obra coincide con la búsqueda."
-                        : "Ninguna obra para el arreglador seleccionado."}
+                      {searchObraText.trim() || hasFechaFilter || filterArregladorId
+                        ? "Ninguna obra coincide con los filtros actuales."
+                        : "Ninguna obra para mostrar."}
                     </td>
                   </tr>
                 ) : null}
@@ -2359,9 +2465,9 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
             <div className="flex-1 overflow-y-auto p-2 space-y-2">
               {filteredWorks.length === 0 ? (
                 <div className="p-8 text-center text-slate-500 italic text-sm">
-                  {searchObraText.trim()
-                    ? "Ninguna obra coincide con la búsqueda."
-                    : "Ninguna obra para el arreglador seleccionado."}
+                  {searchObraText.trim() || hasFechaFilter || filterArregladorId
+                    ? "Ninguna obra coincide con los filtros actuales."
+                    : "Ninguna obra para mostrar."}
                 </div>
               ) : null}
               {paginatedWorks.map((work) => {
