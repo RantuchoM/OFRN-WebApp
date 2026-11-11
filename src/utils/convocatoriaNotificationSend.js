@@ -33,6 +33,7 @@ export async function sendConvocatoriaNotificationTasks(
           templateId: "convocatoria_gira",
           bcc: task.emails?.length ? task.emails : undefined,
           email: task.emails?.length === 1 ? task.emails[0] : undefined,
+          cc: Array.isArray(task.cc) && task.cc.length ? task.cc : undefined,
           nombre: task.nombres?.[0] || "Participante",
           gira: taskNombreGira,
           detalle: {
@@ -61,6 +62,22 @@ export async function sendConvocatoriaNotificationTasks(
             novedades: task.novedades?.length ? task.novedades : undefined,
             primer_integrante_nombre: task.nombrePrimero || undefined,
             primer_integrante_apellido: task.apellidoPrimero || undefined,
+            actor_jefe: task.actorJefe || undefined,
+            es_modelo: task.esModelo === true ? true : undefined,
+            novedades_resumen: task.novedadesResumen?.length
+              ? task.novedadesResumen
+              : undefined,
+            bloque: task.atrilDetalle?.bloque || task.vars?.bloque || undefined,
+            contenedor:
+              task.atrilDetalle?.contenedor || task.vars?.contenedor || undefined,
+            asiento: task.atrilDetalle?.asiento || task.vars?.asiento || undefined,
+            asiento_previo:
+              task.atrilDetalle?.asiento_previo ||
+              task.vars?.asiento_previo ||
+              undefined,
+            atril: task.atrilDetalle?.atril ?? task.vars?.atril,
+            silla: task.atrilDetalle?.silla ?? task.vars?.silla,
+            cantidad: task.vars?.cantidad || undefined,
           },
         },
       });

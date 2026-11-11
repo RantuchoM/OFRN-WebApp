@@ -166,3 +166,12 @@ import_map = "./functions/organico-convocado-refresh/deno.json"
 entrypoint = "./functions/organico-convocado-refresh/index.ts"
 # pg_cron 10:00 UTC (07:00 ART) — migración organico_convocado_cron_diario.
 # Header: x-db-backup-cron-secret. Secret: DB_BACKUP_CRON_SECRET.
+
+[functions.seating-jefe-marko-cron]
+enabled = true
+verify_jwt = false
+import_map = "./functions/seating-jefe-marko-cron/deno.json"
+entrypoint = "./functions/seating-jefe-marko-cron/index.ts"
+# pg_cron */15 — migración seating_jefe_marko_pendiente_cron.
+# Header: x-db-backup-cron-secret (o x-seating-jefe-marko-cron-secret).
+# Envía SEATING_CAMBIO_JEFE_RESUMEN si el lote lleva ~1h sin notificar.

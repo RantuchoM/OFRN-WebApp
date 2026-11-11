@@ -4,7 +4,10 @@
     import {
       applyPlantillaToDetalle,
       buildMailVars,
+      cleanupMailSubject,
       fetchMailPlantilla,
+      formatFechaMailIso,
+      formatFechasGiraRango,
       resolvePlantillaVariantKey,
       slotOf,
     } from "./mailPlantillas.ts";
@@ -116,6 +119,11 @@
           <body>
             <p>Hola ${nombre}, ¿cómo estás?</p>
             <p>Te comparto cómo serán los viáticos para esta gira (<strong>${gira}</strong>):</p>
+            ${(() => {
+              const fechasV = formatFechasGiraRango(d?.fecha_desde, d?.fecha_hasta);
+              if (!fechasV && !d?.zona) return "";
+              return `<p style="margin: 12px 0; padding: 12px; background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 6px; font-size: 13px;"><strong>Fechas de la gira:</strong> ${fechasV || "—"}${d?.zona ? ` · <strong>Zona:</strong> ${d.zona}` : ""}</p>`;
+            })()}
             <div style="font-size: 16px; margin: 20px 0;"><strong>Total: <span style="font-size: 18px; color: #4f46e5;">${fmt(totalPercibir)}</span></strong></div>
             <ul style="list-style-type: none; padding-left: 0;">
               <li>• Comidas: <span class="money">${fmt(montoAnticipo)}</span></li>
@@ -143,6 +151,8 @@
 
       // 2. Template Confirmación Comidas (Genérico para BCC)
       confirmacion_comidas: (nombre: string, gira: string, d: any) => {
+        const fechasComidas = formatFechasGiraRango(d?.fecha_desde, d?.fecha_hasta);
+        const giraComidas = [d?.nomenclador, gira].filter(Boolean).join(" — ") || gira;
         return `
           <!DOCTYPE html>
           <html>
@@ -154,7 +164,8 @@
           <body>
             <p>Hola,</p>
             
-            <p>Está abierta la confirmación de comidas para la gira <strong>${d.nomenclador || ''} - ${gira}</strong>.</p>
+            <p>Está abierta la confirmación de comidas para la gira <strong>${giraComidas}</strong>.</p>
+            ${fechasComidas ? `<p style="margin: 12px 0; padding: 12px; background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 6px; font-size: 13px;"><strong>Fechas de la gira:</strong> ${fechasComidas}${d?.zona ? ` · <strong>Zona:</strong> ${d.zona}` : ""}</p>` : ""}
             
             <p style="background-color: #fff7ed; padding: 10px; border-left: 4px solid #f97316; border-radius: 4px;">
               ⚠️ La misma se encontrará abierta hasta el <strong>${d.fechaLimiteTexto || 'fecha límite'}</strong>.
@@ -576,16 +587,23 @@
         const rawDesde = d?.fecha_desde || "";
         const rawHasta = d?.fecha_hasta || "";
         const zona = d?.zona || "";
-        const fmtDate = (s: string) => {
-          if (!s) return "";
-          const match = String(s).match(/^(\d{4})-(\d{2})-(\d{2})/);
-          return match ? `${match[3]}/${match[2]}/${match[1]}` : s;
-        };
-        const fechaDesde = fmtDate(rawDesde);
-        const fechaHasta = fmtDate(rawHasta);
+        const fechaDesde = formatFechaMailIso(rawDesde);
+        const fechaHasta = formatFechaMailIso(rawHasta);
+        const fechasRango =
+          formatFechasGiraRango(rawDesde, rawHasta) ||
+          fechaDesde ||
+          fechaHasta ||
+          "";
+        const giraLabel = [gira, nomenclador && nomenclador !== gira ? `(${nomenclador})` : ""]
+          .filter(Boolean)
+          .join(" ");
+        // Bloque fijo para no confundir giras al trabajar varias por anticipado.
         const fechasZonaBlock =
-          fechaDesde || fechaHasta || zona
-            ? `<p style="margin: 12px 0; padding: 10px; background: #f8fafc; border-radius: 4px; font-size: 13px;"><strong>Fechas:</strong> ${fechaDesde && fechaHasta ? `${fechaDesde} – ${fechaHasta}` : fechaDesde || fechaHasta || "—"}${zona ? ` &nbsp;|&nbsp; <strong>Zona:</strong> ${zona}` : ""}</p>`
+          gira || fechasRango || zona
+            ? `<div style="margin: 12px 0; padding: 12px; background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 6px; font-size: 13px; color: #1e1b4b;">
+                ${giraLabel ? `<p style="margin: 0 0 6px 0;"><strong>Gira:</strong> ${giraLabel}</p>` : ""}
+                <p style="margin: 0;"><strong>Fechas de la gira:</strong> ${fechasRango || "—"}${zona ? ` &nbsp;·&nbsp; <strong>Zona:</strong> ${zona}` : ""}</p>
+              </div>`
             : "";
         const reasonBlock = reason
           ? `<p style="margin: 10px 0; padding: 10px; background: #fef3c7; border-left: 4px solid #f59e0b; border-radius: 4px; font-size: 13px;"><strong>Motivo:</strong> ${reason}</p>`
@@ -770,6 +788,9 @@
           `;
         } else if (variant === "SEATING_CAMBIO") {
           titulo = slotOf(d, "titulo_interno", "Novedades de seating");
+          const bannerModelo = d?.es_modelo
+            ? `<p style="margin:0 0 14px 0; padding:10px 12px; background:#fef3c7; border:1px solid #f59e0b; border-radius:6px; font-size:12px; color:#92400e;"><strong>MODELO PARA REVISIÓN</strong> — borrador del mail de novedades de seating. No es una notificación real.</p>`
+            : "";
           const novedades = Array.isArray(d?.novedades) ? d.novedades : [];
           const novedadesItems = novedades
             .map((n: any) => {
@@ -785,13 +806,132 @@
           const novedadesBlock = novedadesItems
             ? `<p style="margin: 10px 0 6px 0;"><strong>Tus asignaciones:</strong></p><ul style="margin: 0 0 12px 0; padding-left: 18px;">${novedadesItems}</ul>`
             : reasonBlock;
+          const actorJefe = String(d?.actor_jefe || d?.actor_jefe_nombre || "").trim();
+          const actorNotaRaw = actorJefe
+            ? slotOf(
+              d,
+              "actor_nota",
+              `Este cambio lo efectuó el/la jefe de fila ${actorJefe}.`,
+            )
+            : "";
+          const actorNotaBlock = actorNotaRaw
+            ? `<p style="margin: 10px 0; padding: 10px; background: #eef2ff; border-left: 4px solid #6366f1; border-radius: 4px; font-size: 13px;">${actorNotaRaw}</p>`
+            : "";
+          const cierreSeat = slotOf(d, "cierre", "Cualquier consulta, respondé a este correo.");
           parrafo = `
+            ${bannerModelo}
             <p>${saludo}</p>
             <p>Se actualizaron tus asignaciones de particella en la gira <strong>${gira}</strong> (${nomenclador}).</p>
             ${fechasZonaBlock}
+            ${actorNotaBlock}
             ${novedadesBlock}
             ${linkRepertorio ? `<p><a href="${linkRepertorio}" style="color:#4f46e5; font-weight:bold;">Ver repertorio y material</a></p>` : ""}
-            <p>Cualquier consulta, respondé a este correo.</p>
+            <p>${cierreSeat}</p>
+          `;
+        } else if (variant === "SEATING_CAMBIO_JEFE_RESUMEN") {
+          titulo = slotOf(d, "titulo_interno", "Resumen de cambios de seating");
+          const bannerModelo = d?.es_modelo
+            ? `<p style="margin:0 0 14px 0; padding:10px 12px; background:#fef3c7; border:1px solid #f59e0b; border-radius:6px; font-size:12px; color:#92400e;"><strong>MODELO PARA REVISIÓN</strong> — borrador del resumen a Marko. No es un aviso operativo real.</p>`
+            : "";
+          const actorJefe = String(d?.actor_jefe || "").trim() || "jefe/a de fila";
+          const lead = slotOf(
+            d,
+            "lead",
+            `El/la jefe de fila <strong>${escapeHtmlMail(actorJefe)}</strong> notificó cambios de seating en la gira <strong>${gira}</strong> (${nomenclador}).`,
+          );
+          const resumen = Array.isArray(d?.novedades_resumen)
+            ? d.novedades_resumen
+            : Array.isArray(d?.novedadesResumen)
+              ? d.novedadesResumen
+              : [];
+          const partItems = resumen.filter((n: any) => n?.tipo !== "atril");
+          const atrilItems = resumen.filter((n: any) => n?.tipo === "atril");
+          const renderResumenLi = (n: any) => {
+            const musico = escapeHtmlMail(n?.musico || "Músico");
+            const obra = escapeHtmlMail(n?.obra || "Obra");
+            const cambio = escapeHtmlMail(n?.cambio || `${n?.from || ""} → ${n?.to || ""}`);
+            return `<li style="margin: 4px 0;"><strong>${musico}</strong> — ${obra}: ${cambio}</li>`;
+          };
+          const partBlock = partItems.length
+            ? `<p style="margin: 10px 0 6px 0;"><strong>Particellas:</strong></p><ul style="margin: 0 0 12px 0; padding-left: 18px;">${partItems.map(renderResumenLi).join("")}</ul>`
+            : "";
+          const atrilBlock = atrilItems.length
+            ? `<p style="margin: 10px 0 6px 0;"><strong>Atril / silla:</strong></p><ul style="margin: 0 0 12px 0; padding-left: 18px;">${atrilItems.map(renderResumenLi).join("")}</ul>`
+            : "";
+          const resumenBlock = partBlock || atrilBlock
+            ? `${partBlock}${atrilBlock}`
+            : reasonBlock;
+          const cierre = slotOf(d, "cierre", "Resumen automático del Sistema de Gestión.");
+          parrafo = `
+            ${bannerModelo}
+            <p>${saludo}</p>
+            <p>${lead}</p>
+            ${fechasZonaBlock}
+            ${resumenBlock}
+            <p>${cierre}</p>
+          `;
+        } else if (variant === "SEATING_ATRIL_CAMBIO") {
+          titulo = slotOf(d, "titulo_interno", "Cambio de atril");
+          const bannerModelo = d?.es_modelo
+            ? `<p style="margin:0 0 14px 0; padding:10px 12px; background:#fef3c7; border:1px solid #f59e0b; border-radius:6px; font-size:12px; color:#92400e;"><strong>MODELO PARA REVISIÓN</strong> — borrador del mail de cambio de atril. No es una notificación real.</p>`
+            : "";
+          const lead = slotOf(
+            d,
+            "lead",
+            `En la gira <strong>${gira}</strong> (${nomenclador}), bloque <strong>{bloque}</strong>, tu lugar quedó así:`,
+          );
+          const cuerpo = slotOf(
+            d,
+            "cuerpo",
+            "Estás sentado/a en la <strong>{asiento}</strong> del contenedor <strong>{contenedor}</strong>.",
+          );
+          const actorJefe = String(d?.actor_jefe || "").trim();
+          const actorNotaRaw = actorJefe
+            ? slotOf(
+              d,
+              "actor_nota",
+              `Este cambio lo efectuó el/la jefe de fila ${actorJefe}.`,
+            )
+            : "";
+          const actorNotaBlock = actorNotaRaw
+            ? `<p style="margin: 10px 0; padding: 10px; background: #eef2ff; border-left: 4px solid #6366f1; border-radius: 4px; font-size: 13px;">${actorNotaRaw}</p>`
+            : "";
+          const cierre = slotOf(d, "cierre", "Cualquier consulta, respondé a este correo.");
+          parrafo = `
+            ${bannerModelo}
+            <p>${saludo}</p>
+            <p>${lead}</p>
+            ${fechasZonaBlock}
+            <p>${cuerpo}</p>
+            ${actorNotaBlock}
+            ${linkRepertorio ? `<p><a href="${linkRepertorio}" style="color:#4f46e5; font-weight:bold;">Ver repertorio y material</a></p>` : ""}
+            <p>${cierre}</p>
+          `;
+        } else if (variant === "REPERTORIO_PARTES_LISTOS") {
+          titulo = slotOf(d, "titulo_interno", "Repertorio y partes disponibles");
+          const bannerModelo = d?.es_modelo
+            ? `<p style="margin:0 0 14px 0; padding:10px 12px; background:#fef3c7; border:1px solid #f59e0b; border-radius:6px; font-size:12px; color:#92400e;"><strong>MODELO PARA REVISIÓN</strong> — borrador del mail de repertorio/partes listos. No es un anuncio real.</p>`
+            : "";
+          const lead = slotOf(
+            d,
+            "lead",
+            `Ya está subido el repertorio de la gira <strong>${gira}</strong> (${nomenclador}) y hecha la asignación inicial de partes.`,
+          );
+          const cuerpo = slotOf(
+            d,
+            "cuerpo",
+            "En cuerdas, la disposición queda a disposición de los jefes de fila para ajustes de atriles y asignaciones individuales. Ante cualquier cambio te van a notificar.",
+          );
+          const linkTexto = slotOf(d, "link_texto", "Ver repertorio y material de la gira");
+          const cierre = slotOf(d, "cierre", "Cualquier consulta, respondé a este correo.");
+          parrafo = `
+            ${bannerModelo}
+            <p>${saludo}</p>
+            <p>${lead}</p>
+            ${fechasZonaBlock}
+            <p>${cuerpo}</p>
+            <p><a href="${linkRepertorio || "#"}" style="color:#4f46e5; font-weight:bold;">${linkTexto}</a></p>
+            <p>${cierre}</p>
           `;
         } else {
           parrafo = `<p>${saludo}</p><p>Actualización sobre la gira <strong>${gira}</strong> (${nomenclador}).</p>${reasonBlock}${fechasZonaBlock}`;
@@ -1117,6 +1257,7 @@
         const templateId = payload.templateId ?? payload.template_id;
         const email = payload.email;
         const bcc = payload.bcc;
+        const cc = payload.cc;
         const nombre = payload.nombre;
         const gira = payload.gira;
         const detalle = payload.detalle;
@@ -1190,7 +1331,26 @@
             else if (v === 'BAJA') subject = `Baja de gira | ${nombreGira}`;
             else if (v === 'AUSENTE') subject = `Ausencia en gira | ${nombreGira}`;
             else if (v === 'GIRA_ELIMINADA') subject = `Gira cancelada | ${nombreGira}`;
-            else if (v === 'SEATING_CAMBIO') subject = `Novedades de seating | ${nombreGira}`;
+            else if (v === 'SEATING_CAMBIO') {
+              subject = detalle?.es_modelo
+                ? `[MODELO] Novedades de seating | ${nombreGira}`
+                : `Novedades de seating | ${nombreGira}`;
+            }
+            else if (v === 'SEATING_CAMBIO_JEFE_RESUMEN') {
+              subject = detalle?.es_modelo
+                ? `[MODELO] Resumen seating (jefe de fila) | ${nombreGira}`
+                : `Resumen seating (jefe de fila) | ${nombreGira}`;
+            }
+            else if (v === 'SEATING_ATRIL_CAMBIO') {
+              subject = detalle?.es_modelo
+                ? `[MODELO] Cambio de atril | ${nombreGira}`
+                : `Cambio de atril | ${nombreGira}`;
+            }
+            else if (v === 'REPERTORIO_PARTES_LISTOS') {
+              subject = detalle?.es_modelo
+                ? `[MODELO] Repertorio y partes disponibles | ${nombreGira}`
+                : `Repertorio y partes disponibles | ${nombreGira}`;
+            }
             else subject = `Convocatoria OFRN | ${nombreGira}`;
           } else if (tid === "scrn_transporte_evento") {
             subject = detalle?.titulo ? `[SCRN] ${detalle.titulo}` : "Aviso Transporte SCRN";
@@ -1253,6 +1413,30 @@
             }
           }
 
+          // Asunto: anexar fechas de gira cuando existan (evitar confusión entre giras).
+          const fechasAsunto =
+            mailVars.fechas ||
+            formatFechasGiraRango(det?.fecha_desde, det?.fecha_hasta);
+          const templatesConFechaGira = new Set([
+            "convocatoria_gira",
+            "viaticos_simple",
+            "confirmacion_comidas",
+            "cambio_fechas_gira",
+            "cambio_alimentacion",
+            "constancia_solicitud",
+            "constancia_aprobada",
+            "constancia_modificada",
+            "constancia_denegada",
+          ]);
+          if (templatesConFechaGira.has(tid) && fechasAsunto) {
+            const cleaned = cleanupMailSubject(subject);
+            subject = cleaned.includes(fechasAsunto)
+              ? cleaned
+              : cleanupMailSubject(`${cleaned} | ${fechasAsunto}`);
+          } else {
+            subject = cleanupMailSubject(subject);
+          }
+
           const transporter = nodemailer.createTransport({
             service: 'gmail',
             auth: { user: GMAIL_USER, pass: GMAIL_PASS },
@@ -1263,6 +1447,8 @@
             replyTo: "filarmonica.scrn@gmail.com",
             subject: subject,
             html: htmlContent,
+            // Evita mojibake de tildes/→ en clientes que asumen Latin-1.
+            textEncoding: "base64",
           };
 
           if (email) {
@@ -1273,6 +1459,9 @@
             if (!email) {
               mailOptions.to = GMAIL_USER;
             }
+          }
+          if (cc && Array.isArray(cc) && cc.length > 0) {
+            mailOptions.cc = cc.filter((x: any) => String(x || "").trim());
           }
 
           const convocatoriaVariant = String(detalle?.variant || "").toUpperCase();

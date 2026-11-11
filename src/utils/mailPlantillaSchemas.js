@@ -39,8 +39,16 @@ const PH_CONVOCATORIA = [
   "familia",
   "fecha_desde",
   "fecha_hasta",
+  "fechas",
   "zona",
 ];
+
+/** Asunto con rango de fechas de gira (evita confundir giras). */
+function withFechasAsunto(asunto) {
+  const s = String(asunto || "").trim();
+  if (!s || /\{fechas\}/i.test(s)) return s;
+  return `${s} | {fechas}`;
+}
 
 function conv(variantKey, titulo, asunto, slots, extraPlaceholders = []) {
   const slotDefs = Object.keys(slots).map((key) => ({
@@ -53,7 +61,7 @@ function conv(variantKey, titulo, asunto, slots, extraPlaceholders = []) {
     variantKey,
     familia: "convocatoria",
     titulo,
-    asunto,
+    asunto: withFechasAsunto(asunto),
     slotDefs,
     slots,
     placeholders: [...new Set([...PH_CONVOCATORIA, ...extraPlaceholders])],
@@ -66,6 +74,9 @@ function conv(variantKey, titulo, asunto, slots, extraPlaceholders = []) {
       quien_cubre: "{quien_cubre}",
       ensamble: "{ensamble}",
       familia: "{familia}",
+      fechas: "{fechas}",
+      fecha_desde: "{fecha_desde}",
+      fecha_hasta: "{fecha_hasta}",
     },
   };
 }
@@ -86,6 +97,7 @@ const SLOT_LABELS = {
   aviso_fecha: "Aviso de fecha límite",
   link_texto: "Texto del enlace",
   titulo_caja: "Título de la caja",
+  actor_nota: "Nota si el cambio lo hizo un jefe de fila",
 };
 
 /** @type {MailPlantillaSchema[]} */
@@ -341,7 +353,53 @@ export const MAIL_PLANTILLA_SCHEMAS = [
       titulo_interno: "Novedades de seating",
       lead: "Hay novedades de seating en la gira <strong>{gira}</strong> ({nomenclador}).",
       reason: "{motivo}",
+      actor_nota:
+        "Este cambio lo efectuó el/la jefe de fila {actor_jefe}.",
       cierre: "Saludos.",
+      footer: "Orquesta Filarmónica de Río Negro – Sistema de Gestión",
+    },
+    ["actor_jefe"],
+  ),
+  conv(
+    "SEATING_CAMBIO_JEFE_RESUMEN",
+    "Resumen de cambios del jefe de fila (a Marko)",
+    "Resumen seating (jefe de fila) | {gira}",
+    {
+      titulo_interno: "Resumen de cambios de seating",
+      lead: "El/la jefe de fila <strong>{actor_jefe}</strong> notificó cambios de seating (particellas y/o atril/silla) en la gira <strong>{gira}</strong> ({nomenclador}).",
+      reason: "{motivo}",
+      cierre: "Resumen automático del Sistema de Gestión.",
+      footer: "Orquesta Filarmónica de Río Negro – Sistema de Gestión",
+    },
+    ["actor_jefe", "cantidad", "cantidad_particella", "cantidad_atril"],
+  ),
+  conv(
+    "SEATING_ATRIL_CAMBIO",
+    "Cambio de atril / silla",
+    "Cambio de atril | {gira}",
+    {
+      titulo_interno: "Cambio de atril",
+      lead: "En la gira <strong>{gira}</strong> ({nomenclador}), bloque <strong>{bloque}</strong>, tu lugar quedó así:",
+      cuerpo:
+        "Estás sentado/a en la <strong>{asiento}</strong> del contenedor <strong>{contenedor}</strong>.",
+      actor_nota:
+        "Este cambio lo efectuó el/la jefe de fila {actor_jefe}.",
+      cierre: "Cualquier consulta, respondé a este correo.",
+      footer: "Orquesta Filarmónica de Río Negro – Sistema de Gestión",
+    },
+    ["bloque", "contenedor", "asiento", "actor_jefe"],
+  ),
+  conv(
+    "REPERTORIO_PARTES_LISTOS",
+    "Repertorio y partes listos",
+    "Repertorio y partes disponibles | {gira}",
+    {
+      titulo_interno: "Repertorio y partes disponibles",
+      lead: "Ya está subido el repertorio de la gira <strong>{gira}</strong> ({nomenclador}) y hecha la asignación inicial de partes.",
+      cuerpo:
+        "En cuerdas, la disposición queda a disposición de los jefes de fila para ajustes de atriles y asignaciones individuales. Ante cualquier cambio te van a notificar.",
+      cierre: "Cualquier consulta, respondé a este correo.",
+      link_texto: "Ver repertorio y material de la gira",
       footer: "Orquesta Filarmónica de Río Negro – Sistema de Gestión",
     },
   ),
@@ -350,7 +408,7 @@ export const MAIL_PLANTILLA_SCHEMAS = [
     variantKey: "ALTA_ACCESO_PERSONAL",
     familia: "convocatoria",
     titulo: "Convocado/a + acceso personal (refuerzo)",
-    asunto: "Convocado/a a la gira | {gira}",
+    asunto: withFechasAsunto("Convocado/a a la gira | {gira}"),
     slotDefs: [
       { key: "titulo_interno", label: SLOT_LABELS.titulo_interno },
       { key: "lead", label: SLOT_LABELS.lead, multiline: true },
@@ -365,8 +423,20 @@ export const MAIL_PLANTILLA_SCHEMAS = [
       cierre: "Cualquier consulta, respondé a este correo.",
       footer: "Orquesta Filarmónica de Río Negro",
     },
-    placeholders: ["nombre", "gira", "nomenclador", "fecha_desde", "fecha_hasta"],
-    previewVars: { nombre: "{nombre}", gira: "{gira}", nomenclador: "{nomenclador}" },
+    placeholders: [
+      "nombre",
+      "gira",
+      "nomenclador",
+      "fecha_desde",
+      "fecha_hasta",
+      "fechas",
+    ],
+    previewVars: {
+      nombre: "{nombre}",
+      gira: "{gira}",
+      nomenclador: "{nomenclador}",
+      fechas: "{fechas}",
+    },
   },
 
   // —— Viáticos / comidas ——
@@ -375,7 +445,7 @@ export const MAIL_PLANTILLA_SCHEMAS = [
     variantKey: "",
     familia: "viaticos",
     titulo: "Viáticos individuales",
-    asunto: "Viáticos OFRN | {gira}",
+    asunto: withFechasAsunto("Viáticos OFRN | {gira}"),
     slotDefs: [
       { key: "saludo", label: SLOT_LABELS.saludo },
       { key: "intro", label: SLOT_LABELS.intro, multiline: true },
@@ -398,15 +468,15 @@ export const MAIL_PLANTILLA_SCHEMAS = [
       firma_cargo: "Administración",
       firma_org: "Orquesta Filarmónica de Río Negro",
     },
-    placeholders: ["nombre", "gira"],
-    previewVars: { nombre: "{nombre}", gira: "{gira}" },
+    placeholders: ["nombre", "gira", "fechas", "fecha_desde", "fecha_hasta", "zona"],
+    previewVars: { nombre: "{nombre}", gira: "{gira}", fechas: "{fechas}" },
   },
   {
     templateId: "confirmacion_comidas",
     variantKey: "",
     familia: "viaticos",
     titulo: "Confirmación de comidas",
-    asunto: "Confirmación de Comidas | {gira}",
+    asunto: withFechasAsunto("Confirmación de Comidas | {gira}"),
     slotDefs: [
       { key: "saludo", label: SLOT_LABELS.saludo },
       { key: "intro", label: SLOT_LABELS.intro, multiline: true },
@@ -428,11 +498,20 @@ export const MAIL_PLANTILLA_SCHEMAS = [
       firma_cargo: "Administración",
       firma_org: "Orquesta Filarmónica de Río Negro",
     },
-    placeholders: ["gira", "nomenclador", "fecha_limite"],
+    placeholders: [
+      "gira",
+      "nomenclador",
+      "fecha_limite",
+      "fechas",
+      "fecha_desde",
+      "fecha_hasta",
+      "zona",
+    ],
     previewVars: {
       gira: "{gira}",
       nomenclador: "{nomenclador}",
       fecha_limite: "{fecha_limite}",
+      fechas: "{fechas}",
     },
   },
   {
@@ -440,7 +519,7 @@ export const MAIL_PLANTILLA_SCHEMAS = [
     variantKey: "",
     familia: "viaticos",
     titulo: "Cambio de alimentación (aviso a producción)",
-    asunto: "Cambio de alimentación | {nombre}",
+    asunto: withFechasAsunto("Cambio de alimentación | {nombre}"),
     slotDefs: [
       { key: "saludo", label: SLOT_LABELS.saludo },
       { key: "intro", label: SLOT_LABELS.intro, multiline: true },
@@ -491,7 +570,7 @@ export const MAIL_PLANTILLA_SCHEMAS = [
     variantKey: "",
     familia: "giras",
     titulo: "Cambio de fechas de gira",
-    asunto: "⚠️ CAMBIO DE FECHAS: {gira}",
+    asunto: withFechasAsunto("⚠️ CAMBIO DE FECHAS: {gira}"),
     slotDefs: [
       { key: "saludo", label: SLOT_LABELS.saludo },
       { key: "lead", label: SLOT_LABELS.lead, multiline: true },
@@ -691,7 +770,7 @@ export const MAIL_PLANTILLA_SCHEMAS = [
     variantKey: "",
     familia: "constancias",
     titulo: "Solicitud de constancia (a producción)",
-    asunto: "Solicitud de constancia | {gira}",
+    asunto: withFechasAsunto("Solicitud de constancia | {gira}"),
     slotDefs: [
       { key: "saludo", label: SLOT_LABELS.saludo },
       { key: "intro", label: SLOT_LABELS.intro, multiline: true },
@@ -704,15 +783,15 @@ export const MAIL_PLANTILLA_SCHEMAS = [
       titulo_caja: "Solicitud de constancia",
       footer: "Orquesta Filarmónica de Río Negro – Sistema de Gestión",
     },
-    placeholders: ["gira", "solicitante_nombre"],
-    previewVars: { gira: "{gira}" },
+    placeholders: ["gira", "solicitante_nombre", "fechas", "fecha_desde", "fecha_hasta"],
+    previewVars: { gira: "{gira}", fechas: "{fechas}" },
   },
   {
     templateId: "constancia_aprobada",
     variantKey: "",
     familia: "constancias",
     titulo: "Constancia aprobada",
-    asunto: "Constancia aprobada | {gira}",
+    asunto: withFechasAsunto("Constancia aprobada | {gira}"),
     slotDefs: [
       { key: "titulo_interno", label: SLOT_LABELS.titulo_interno },
       { key: "lead", label: SLOT_LABELS.lead, multiline: true },
@@ -729,15 +808,20 @@ export const MAIL_PLANTILLA_SCHEMAS = [
       cierre: "Cualquier consulta, respondé a este correo.<br>¡Saludos!<br>Orquesta Filarmónica de Río Negro",
       footer: "Orquesta Filarmónica de Río Negro – Sistema de Gestión",
     },
-    placeholders: ["nombre", "gira", "tipo_constancia"],
-    previewVars: { nombre: "{nombre}", gira: "{gira}", tipo_constancia: "{tipo_constancia}" },
+    placeholders: ["nombre", "gira", "tipo_constancia", "fechas", "fecha_desde", "fecha_hasta"],
+    previewVars: {
+      nombre: "{nombre}",
+      gira: "{gira}",
+      tipo_constancia: "{tipo_constancia}",
+      fechas: "{fechas}",
+    },
   },
   {
     templateId: "constancia_modificada",
     variantKey: "",
     familia: "constancias",
     titulo: "Constancia modificada / reemitida",
-    asunto: "Constancia modificada | {gira}",
+    asunto: withFechasAsunto("Constancia modificada | {gira}"),
     slotDefs: [
       { key: "titulo_interno", label: SLOT_LABELS.titulo_interno },
       { key: "lead", label: SLOT_LABELS.lead, multiline: true },
@@ -754,15 +838,20 @@ export const MAIL_PLANTILLA_SCHEMAS = [
       cierre: "Cualquier consulta, respondé a este correo.<br>¡Saludos!<br>Orquesta Filarmónica de Río Negro",
       footer: "Orquesta Filarmónica de Río Negro – Sistema de Gestión",
     },
-    placeholders: ["nombre", "gira", "tipo_constancia"],
-    previewVars: { nombre: "{nombre}", gira: "{gira}", tipo_constancia: "{tipo_constancia}" },
+    placeholders: ["nombre", "gira", "tipo_constancia", "fechas", "fecha_desde", "fecha_hasta"],
+    previewVars: {
+      nombre: "{nombre}",
+      gira: "{gira}",
+      tipo_constancia: "{tipo_constancia}",
+      fechas: "{fechas}",
+    },
   },
   {
     templateId: "constancia_denegada",
     variantKey: "",
     familia: "constancias",
     titulo: "Constancia denegada",
-    asunto: "Constancia denegada | {gira}",
+    asunto: withFechasAsunto("Constancia denegada | {gira}"),
     slotDefs: [
       { key: "titulo_interno", label: SLOT_LABELS.titulo_interno },
       { key: "lead", label: SLOT_LABELS.lead, multiline: true },
@@ -776,8 +865,21 @@ export const MAIL_PLANTILLA_SCHEMAS = [
       cierre: "Cualquier consulta, respondé a este correo.",
       footer: "Orquesta Filarmónica de Río Negro – Sistema de Gestión",
     },
-    placeholders: ["nombre", "gira", "tipo_constancia", "motivo"],
-    previewVars: { nombre: "{nombre}", gira: "{gira}", motivo: "{motivo}" },
+    placeholders: [
+      "nombre",
+      "gira",
+      "tipo_constancia",
+      "motivo",
+      "fechas",
+      "fecha_desde",
+      "fecha_hasta",
+    ],
+    previewVars: {
+      nombre: "{nombre}",
+      gira: "{gira}",
+      motivo: "{motivo}",
+      fechas: "{fechas}",
+    },
   },
 
   // —— Otros ——
@@ -849,6 +951,9 @@ export function resolveConvocatoriaPlantillaVariant({
   if (v === "INITIAL_BROADCAST") return "INITIAL_BROADCAST";
   if (v === "GIRA_ELIMINADA") return "GIRA_ELIMINADA";
   if (v === "SEATING_CAMBIO") return "SEATING_CAMBIO";
+  if (v === "SEATING_CAMBIO_JEFE_RESUMEN") return "SEATING_CAMBIO_JEFE_RESUMEN";
+  if (v === "SEATING_ATRIL_CAMBIO") return "SEATING_ATRIL_CAMBIO";
+  if (v === "REPERTORIO_PARTES_LISTOS") return "REPERTORIO_PARTES_LISTOS";
   if (v === "AUSENTE") return "AUSENTE";
   if (v === "ALTA") {
     if (inclusionKind === "mixto") return "ALTA:inclusion_mixta";

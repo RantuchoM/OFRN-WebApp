@@ -5,6 +5,8 @@ import { integranteKey } from "../utils/integranteIds";
 import {
   buildContainerMusicianMap,
   buildEffectiveAssignments,
+  buildLateAssignmentUndoPlan,
+  cloneAssignmentMaps,
   collectMusicianEmails,
   diffEffectiveAssignments,
   effectiveAssignmentsSignature,
@@ -30,11 +32,14 @@ export function useSeatingLateAssignmentChanges({
   containers = [],
   obras = [],
   particellas = [],
+  /** Jefe de fila: ofrecer mail siempre (sin ventana de ~2 semanas). */
+  alwaysOfferMail = false,
 }) {
   const withinWindow = useMemo(
     () => isWithinSeatingLateChangeWindow(program?.fecha_desde),
     [program?.fecha_desde],
   );
+  const trackChanges = withinWindow || alwaysOfferMail;
 
   const rosterKeys = useMemo(
     () => confirmedSeatingRosterKeySet(confirmedRoster),
@@ -45,7 +50,7 @@ export function useSeatingLateAssignmentChanges({
   const [itemsProgramId, setItemsProgramId] = useState(null);
 
   useEffect(() => {
-    if (!withinWindow || !supabase || program?.id == null) {
+    if (!trackChanges || !supabase || program?.id == null) {
       setPersistedItems([]);
       setItemsProgramId(null);
       return undefined;
@@ -67,7 +72,7 @@ export function useSeatingLateAssignmentChanges({
     return () => {
       cancelled = true;
     };
-  }, [withinWindow, supabase, program?.id]);
+  }, [trackChanges, supabase, program?.id]);
 
   const containerMusicianMap = useMemo(
     () => buildContainerMusicianMap(persistedItems, containers),
@@ -86,9 +91,14 @@ export function useSeatingLateAssignmentChanges({
   );
 
   const baselineRef = useRef(null);
+  const baselineMapsRef = useRef(null);
   const baselineProgramIdRef = useRef(null);
   const currentAssignmentsRef = useRef(currentAssignments);
   currentAssignmentsRef.current = currentAssignments;
+  const musicianAssignmentsRef = useRef(musicianAssignments);
+  musicianAssignmentsRef.current = musicianAssignments;
+  const assignmentsRef = useRef(assignments);
+  assignmentsRef.current = assignments;
   const currentSignature = useMemo(
     () => effectiveAssignmentsSignature(currentAssignments),
     [currentAssignments],
@@ -101,11 +111,13 @@ export function useSeatingLateAssignmentChanges({
   useEffect(() => {
     if (baselineProgramIdRef.current !== program?.id) {
       baselineRef.current = null;
+      baselineMapsRef.current = null;
       baselineProgramIdRef.current = program?.id ?? null;
       setRawChanges([]);
     }
-    if (!withinWindow) {
+    if (!trackChanges) {
       baselineRef.current = null;
+      baselineMapsRef.current = null;
       setRawChanges([]);
       return;
     }
@@ -113,6 +125,10 @@ export function useSeatingLateAssignmentChanges({
     const live = currentAssignmentsRef.current;
     if (!baselineRef.current) {
       baselineRef.current = live;
+      baselineMapsRef.current = cloneAssignmentMaps({
+        musicianAssignments: musicianAssignmentsRef.current,
+        assignments: assignmentsRef.current,
+      });
       setRawChanges([]);
       return;
     }
@@ -122,7 +138,7 @@ export function useSeatingLateAssignmentChanges({
     );
   }, [
     program?.id,
-    withinWindow,
+    trackChanges,
     seatingReady,
     itemsReady,
     currentSignature,
@@ -208,15 +224,37 @@ export function useSeatingLateAssignmentChanges({
 
   const dismissSession = () => {
     baselineRef.current = currentAssignmentsRef.current;
+    baselineMapsRef.current = cloneAssignmentMaps({
+      musicianAssignments: musicianAssignmentsRef.current,
+      assignments: assignmentsRef.current,
+    });
     setRawChanges([]);
   };
 
+  const getUndoPlan = (musicianId = null) => {
+    const baselineMaps = baselineMapsRef.current || {
+      musicianAssignments: {},
+      assignments: {},
+    };
+    return buildLateAssignmentUndoPlan({
+      musicians,
+      musicianId,
+      baselineMusicianAssignments: baselineMaps.musicianAssignments,
+      baselineAssignments: baselineMaps.assignments,
+      currentMusicianAssignments: musicianAssignmentsRef.current,
+      currentAssignments: assignmentsRef.current,
+    });
+  };
+
   return {
-    visible: withinWindow && musicians.length > 0,
+    visible: trackChanges && musicians.length > 0,
+    withinWindow,
+    alwaysOfferMail: Boolean(alwaysOfferMail),
     musicians,
     count: musicians.length,
     detalleText,
     emails,
     dismissSession,
+    getUndoPlan,
   };
 }

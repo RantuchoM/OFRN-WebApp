@@ -947,6 +947,7 @@ Set de **16** arreglos sinfónicos de **Bob Marley** en [Para acomodar / Bahiano
 ### Completado (2026-08-26) — Orden seating vientos con parte duplicada
 - [x] `sortWindMusiciansForSeating` (`seatingWindOrder.js`): dentro del mismo `id_instr`, el número de parte se toma de la **primera obra sin duplicados** (p. ej. dos músicos con «Flauta 1» en la obra 1 → se usa la obra 2 donde uno es 1 y el otro 2). Aplica a cualquier instrumento. Fallback: primera parte disponible + apellido.
 - [x] En `ProgramSeating`, el orden visible usa `displayObras` (bloque activo).
+- [x] **Parte sin número = 1 implícito (2026-11-11):** si en el mismo `id_instr` hay quien tiene «Fagot» (sin número) y quien tiene «Fagot 2», la sin número se ordena como principal (1) y queda antes. Solo aplica cuando hay pares con número explícito; no inventa rank si todos carecen de número.
 
 ### Completado (2026-08-27) — Configs de cuerdas multi-bloque
 - [x] Tabla `seating_cuerdas_configs` + `seating_contenedores.id_config` (migración `20260827221517`, applied linked). Backfill: una config «Cuerdas» por gira con atriles.

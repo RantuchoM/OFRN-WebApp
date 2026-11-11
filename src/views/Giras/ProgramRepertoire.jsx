@@ -19,11 +19,13 @@ import {
   IconFolder,
   IconExternalLink,
   IconDrive,
+  IconMail,
 } from "../../components/ui/Icons";
 import ConfirmModal from "../../components/ui/ConfirmModal";
 import { useSearchParams } from "react-router-dom";
 import { requestSeatingLeave } from "../../utils/seatingLateMailLeaveGuard";
 import { useAuth } from "../../context/AuthContext";
+import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 import RepertoireManager from "../../components/repertoire/RepertoireManager";
 import ProgramSeating from "../Giras/ProgramSeating";
 import MyPartsViewer from "./MyPartsViewer";
@@ -536,6 +538,8 @@ const AdvancedImportModal = ({
 export default function ProgramRepertoire({ supabase, program, onBack, onRefreshGira = null }) {
   const { user, isEditor, isManagement, isCoordGeneral } = useAuth();
   const { roster, loading: rosterLoading } = useGiraRoster(supabase, program);
+  const { confirm, dialog: confirmDialog } = useConfirmDialog();
+  const [sendingPartesListos, setSendingPartesListos] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const subTab = searchParams.get("subTab") || "repertoire";
   const activeTab = subTab === "stage_plot" ? "seating" : subTab;
@@ -1278,6 +1282,73 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
   const showArcosTools = isEditor || isManagement || canEdit;
   const showImportAndSync = isEditor || canEdit;
 
+  const sendRepertorioPartesListos = async () => {
+    const recipients = (roster || []).filter((m) => {
+      const rol = String(m.rol_gira || m.rol || "").toLowerCase();
+      if (rol !== "musico" && rol !== "mus_prod") return false;
+      if (String(m.estado_gira || m.estado || "").toLowerCase() === "ausente") {
+        return false;
+      }
+      if (m.es_simulacion) return false;
+      return Boolean(String(m.mail || "").trim());
+    });
+    if (recipients.length === 0) {
+      toast.warning(
+        "No hay destinatarios (rol músico/mus_prod con mail, no ausentes ni vacantes).",
+      );
+      return;
+    }
+    const ok = await confirm({
+      title: "Anunciar repertorio y partes listos",
+      message: `Se enviará un mail a ${recipients.length} integrante(s) con rol músico o mus_prod avisando que el repertorio y la asignación inicial de partes están disponibles (en cuerdas, a disposición de los jefes de fila). ¿Enviar?`,
+      confirmText: "Enviar anuncio",
+      overlayClassName: "z-[100]",
+    });
+    if (!ok) return;
+
+    setSendingPartesListos(true);
+    const toastId = toast.loading("Enviando anuncio de repertorio…");
+    try {
+      const linkRepertorio = `${window.location.origin}${window.location.pathname}?tab=giras&view=REPERTOIRE&giraId=${program.id}`;
+      const bcc = recipients.map((m) => m.mail);
+      const primero = recipients[0];
+      const { error } = await supabase.functions.invoke("mails_produccion", {
+        body: {
+          action: "enviar_mail",
+          templateId: "convocatoria_gira",
+          bcc,
+          nombre: primero?.nombre_completo || "Participante",
+          gira: program.nombre_gira,
+          detalle: {
+            variant: "REPERTORIO_PARTES_LISTOS",
+            link_repertorio: linkRepertorio,
+            nomenclador: program.nomenclador || program.nombre_gira,
+            fecha_desde: program.fecha_desde || "",
+            fecha_hasta: program.fecha_hasta || "",
+            zona: program.zona || "",
+            primer_integrante_nombre: primero?.nombre ?? "",
+            primer_integrante_apellido: primero?.apellido ?? "",
+          },
+        },
+      });
+      if (error) throw error;
+      await supabase.from("giras_notificaciones_logs").insert({
+        id_gira: program.id,
+        tipo_notificacion: "REPERTORIO_PARTES_LISTOS",
+      });
+      toast.success(`Anuncio enviado a ${bcc.length} integrante(s).`, {
+        id: toastId,
+      });
+    } catch (err) {
+      console.error(err);
+      toast.error(err?.message || "No se pudo enviar el anuncio.", {
+        id: toastId,
+      });
+    } finally {
+      setSendingPartesListos(false);
+    }
+  };
+
   if (!program)
     return (
       <div className="p-10 text-center">
@@ -1466,6 +1537,23 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
                       {showImportAndSync && (
                         <>
                           <button
+                            type="button"
+                            onClick={sendRepertorioPartesListos}
+                            disabled={sendingPartesListos || rosterLoading}
+                            className="text-xs font-bold text-emerald-700 hover:bg-emerald-50 px-3 py-1.5 rounded border border-emerald-200 flex items-center gap-1 bg-white shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+                            title="Avisar a músicos y mus_prod que el repertorio y las partes ya están disponibles"
+                          >
+                            {sendingPartesListos ? (
+                              <IconLoader
+                                size={14}
+                                className="animate-spin text-emerald-600"
+                              />
+                            ) : (
+                              <IconMail size={14} />
+                            )}
+                            Anunciar partes listos
+                          </button>
+                          <button
                             onClick={() => setShowImport(true)}
                             className="text-xs font-bold text-indigo-600 hover:bg-indigo-50 px-3 py-1.5 rounded border border-indigo-200 flex items-center gap-1 bg-white shadow-sm transition-all shrink-0"
                           >
@@ -1581,6 +1669,7 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
         confirmLoading={generatingBowScores}
         loadingText="Copiando scores…"
       />
+      {confirmDialog}
     </div>
   );
 }

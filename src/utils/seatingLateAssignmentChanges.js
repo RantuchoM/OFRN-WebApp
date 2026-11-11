@@ -239,6 +239,121 @@ export function collectMusicianEmails(musicians) {
 /** Variante de `convocatoria_gira` para novedades de seating / particella. */
 export const SEATING_CAMBIO_MAIL_VARIANT = "SEATING_CAMBIO";
 
+export function cloneAssignmentMaps({
+  musicianAssignments = {},
+  assignments = {},
+} = {}) {
+  const nextM = {};
+  Object.entries(musicianAssignments || {}).forEach(([key, ids]) => {
+    nextM[key] = Array.isArray(ids) ? [...ids] : ids;
+  });
+  return {
+    musicianAssignments: nextM,
+    assignments: { ...(assignments || {}) },
+  };
+}
+
+/**
+ * Plan de restauración para deshacer cambios del banner de seating tardío.
+ * - Un músico: restaura solo sus M- (usa fromIds efectivos para no afectar a otros).
+ * - Todos: vuelve a los snapshots de M- y C- del inicio de la visita.
+ */
+export function buildLateAssignmentUndoPlan({
+  musicians = [],
+  musicianId = null,
+  baselineMusicianAssignments = {},
+  baselineAssignments = {},
+  currentMusicianAssignments = {},
+  currentAssignments = {},
+} = {}) {
+  const onlyId =
+    musicianId != null && musicianId !== ""
+      ? String(musicianId)
+      : null;
+
+  if (onlyId) {
+    const target = (musicians || []).find(
+      (m) => String(m.id) === onlyId,
+    );
+    if (!target) {
+      return {
+        nextMusicianAssignments: { ...(currentMusicianAssignments || {}) },
+        nextAssignments: { ...(currentAssignments || {}) },
+        musicianPatches: [],
+        containerPatches: [],
+      };
+    }
+    const nextM = { ...(currentMusicianAssignments || {}) };
+    const musicianPatches = [];
+    (target.changes || []).forEach((c) => {
+      const key = `M-${target.id}-${c.obraId}`;
+      const partIds = normalizePartIds(c.fromIds);
+      if (partIds.length === 0) delete nextM[key];
+      else nextM[key] = partIds;
+      musicianPatches.push({
+        musicianId: target.id,
+        obraId: c.obraId,
+        partIds,
+      });
+    });
+    return {
+      nextMusicianAssignments: nextM,
+      nextAssignments: { ...(currentAssignments || {}) },
+      musicianPatches,
+      containerPatches: [],
+    };
+  }
+
+  const baseline = cloneAssignmentMaps({
+    musicianAssignments: baselineMusicianAssignments,
+    assignments: baselineAssignments,
+  });
+  const musicianPatches = [];
+  const containerPatches = [];
+
+  const mKeys = new Set([
+    ...Object.keys(currentMusicianAssignments || {}),
+    ...Object.keys(baseline.musicianAssignments || {}),
+  ]);
+  mKeys.forEach((key) => {
+    const match = String(key).match(MUSICIAN_ASSIGN_KEY);
+    if (!match) return;
+    const curr = partIdsSignature(currentMusicianAssignments?.[key]);
+    const base = partIdsSignature(baseline.musicianAssignments?.[key]);
+    if (curr === base) return;
+    const partIds = normalizePartIds(baseline.musicianAssignments?.[key]);
+    musicianPatches.push({
+      musicianId: match[1],
+      obraId: match[2],
+      partIds,
+    });
+  });
+
+  const cKeys = new Set([
+    ...Object.keys(currentAssignments || {}),
+    ...Object.keys(baseline.assignments || {}),
+  ]);
+  cKeys.forEach((key) => {
+    const match = String(key).match(CONTAINER_ASSIGN_KEY);
+    if (!match) return;
+    const curr = currentAssignments?.[key];
+    const base = baseline.assignments?.[key];
+    if (String(curr ?? "") === String(base ?? "")) return;
+    containerPatches.push({
+      containerId: match[1],
+      obraId: match[2],
+      partId: base ?? null,
+    });
+  });
+
+  return {
+    nextMusicianAssignments: baseline.musicianAssignments,
+    nextAssignments: baseline.assignments,
+    musicianPatches,
+    containerPatches,
+  };
+}
+
 export function formatSeatingCambioReason(changes) {
   return (changes || [])
     .map((c) => {
@@ -267,7 +382,10 @@ export function pendingLateAssignmentMusicians(musicians, sentIds) {
  * Una tarea por músico (mismo shape que altas/bajas de roster).
  * Omite quienes no tienen mail.
  */
-export function buildSeatingCambioMailTask(musician, { now = Date.now() } = {}) {
+export function buildSeatingCambioMailTask(
+  musician,
+  { now = Date.now(), actor = null } = {},
+) {
   const mail = String(musician?.mail || "").trim();
   if (!mail || musician?.id == null) return null;
   const nombre = String(musician.nombre || "").trim();
@@ -277,6 +395,14 @@ export function buildSeatingCambioMailTask(musician, { now = Date.now() } = {}) 
     (nombre && apellido ? `${nombre} ${apellido}` : "") ||
     musician.displayName ||
     "Participante";
+  const actorJefeNombre =
+    actor?.esJefeDeFila && actor?.nombre
+      ? String(actor.nombre).trim()
+      : "";
+  const reasonBase = formatSeatingCambioReason(musician.changes);
+  const reason = actorJefeNombre
+    ? `Cambio efectuado por el/la jefe de fila ${actorJefeNombre}.\n${reasonBase}`
+    : reasonBase;
   return {
     id: `seating-cambio-${musician.id}-${now}`,
     variant: SEATING_CAMBIO_MAIL_VARIANT,
@@ -284,7 +410,8 @@ export function buildSeatingCambioMailTask(musician, { now = Date.now() } = {}) 
     nombres: [nombreCompleto],
     nombrePrimero: nombre,
     apellidoPrimero: apellido,
-    reason: formatSeatingCambioReason(musician.changes),
+    reason,
+    actorJefe: actorJefeNombre || undefined,
     novedades: (musician.changes || []).map((c) => {
       const from = c.fromLabel || SEATING_SIN_ASIGNACION_LABEL;
       const to = c.toLabel || SEATING_SIN_ASIGNACION_LABEL;

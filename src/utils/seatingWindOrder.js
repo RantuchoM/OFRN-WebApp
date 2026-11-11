@@ -41,8 +41,12 @@ const partNumberFromPartId = (partId, particellas = []) => {
   return getPartSlotNumberFromLabel(label);
 };
 
-/** Número de parte del músico en una obra concreta (primera particella con número). */
-export const getMusicianSeatingPartNumberForObra = (
+/**
+ * Info de parte del músico en una obra.
+ * `number: null` + `hasAssignment: true` = particella asignada sin número
+ * (p. ej. «Fagot» frente a «Fagot 2» → se asume principal = 1).
+ */
+const getMusicianSeatingPartInfoForObra = (
   musicianId,
   obraId,
   { getPartIdsForObra, particellas = [] } = {},
@@ -52,38 +56,73 @@ export const getMusicianSeatingPartNumberForObra = (
     obraId == null ||
     typeof getPartIdsForObra !== "function"
   ) {
-    return null;
+    return { number: null, hasAssignment: false };
   }
   const partIds = getPartIdsForObra(musicianId, obraId) || [];
+  if (!partIds.length) return { number: null, hasAssignment: false };
+
   for (const partId of partIds) {
     const num = partNumberFromPartId(partId, particellas);
-    if (num != null) return num;
+    if (num != null) return { number: num, hasAssignment: true };
   }
-  return null;
+  return { number: null, hasAssignment: true };
 };
 
-export const getMusicianSeatingPartNumber = (
+/** Número de parte del músico en una obra concreta (primera particella con número). */
+export const getMusicianSeatingPartNumberForObra = (
+  musicianId,
+  obraId,
+  options = {},
+) => getMusicianSeatingPartInfoForObra(musicianId, obraId, options).number;
+
+const getMusicianSeatingPartInfo = (
   musicianId,
   { obras = [], getPartIdsForObra, particellas = [] } = {},
 ) => {
-  if (!musicianId || typeof getPartIdsForObra !== "function") return null;
+  if (!musicianId || typeof getPartIdsForObra !== "function") {
+    return { number: null, hasAssignment: false };
+  }
 
+  let sawUnnumbered = false;
   for (const obra of obras) {
     const obraId = obra?.obra_id ?? obra?.id;
     if (obraId == null) continue;
-    const num = getMusicianSeatingPartNumberForObra(musicianId, obraId, {
+    const info = getMusicianSeatingPartInfoForObra(musicianId, obraId, {
       getPartIdsForObra,
       particellas,
     });
-    if (num != null) return num;
+    if (!info.hasAssignment) continue;
+    if (info.number != null) return info;
+    sawUnnumbered = true;
   }
 
-  return null;
+  if (sawUnnumbered) return { number: null, hasAssignment: true };
+  return { number: null, hasAssignment: false };
+};
+
+export const getMusicianSeatingPartNumber = (musicianId, sortOptions = {}) =>
+  getMusicianSeatingPartInfo(musicianId, sortOptions).number;
+
+/**
+ * Si hay partes numeradas y otras del mismo instrumento sin número
+ * («Fagot» + «Fagot 2»), la sin número cuenta como 1 (principal).
+ * @param {Map<string, number|null>} byMusician
+ */
+const applyImpliedPrincipalPartNumber = (byMusician) => {
+  if (!byMusician?.size) return;
+  const values = [...byMusician.values()];
+  const hasExplicit = values.some((n) => n != null);
+  const hasUnnumbered = values.some((n) => n == null);
+  if (!hasExplicit || !hasUnnumbered) return;
+  for (const [id, num] of byMusician) {
+    if (num == null) byMusician.set(id, 1);
+  }
 };
 
 /**
  * Elige la primera obra cuyo número de parte no esté duplicado entre ≥2 músicos
  * del mismo instrumento (p. ej. dos «Flauta 1» en la obra 1 → usar la obra 2).
+ * Parte sin número cuenta como 1 si hay pares con número explícito.
  * @returns {Map<string, number>} musicianId → rank (menor = antes)
  */
 export const resolveSeatingPartRanksForInstrumentGroup = (
@@ -101,14 +140,16 @@ export const resolveSeatingPartRanksForInstrumentGroup = (
 
     const byMusician = new Map();
     for (const m of list) {
-      const num = getMusicianSeatingPartNumberForObra(m.id, obraId, {
+      const info = getMusicianSeatingPartInfoForObra(m.id, obraId, {
         getPartIdsForObra,
         particellas,
       });
-      if (num != null) byMusician.set(String(m.id), num);
+      if (info.hasAssignment) byMusician.set(String(m.id), info.number);
     }
 
     if (byMusician.size < 2) continue;
+
+    applyImpliedPrincipalPartNumber(byMusician);
 
     const seen = new Set();
     let hasDuplicate = false;
@@ -121,14 +162,21 @@ export const resolveSeatingPartRanksForInstrumentGroup = (
     }
     if (hasDuplicate) continue;
 
-    for (const [id, num] of byMusician) ranks.set(id, num);
+    for (const [id, num] of byMusician) {
+      if (num != null) ranks.set(id, num);
+    }
     return ranks;
   }
 
-  // Fallback: primera parte disponible por músico (comportamiento histórico)
+  // Fallback: primera parte disponible por músico (+ 1 implícito si aplica)
+  const fallback = new Map();
   for (const m of list) {
-    const num = getMusicianSeatingPartNumber(m.id, sortOptions);
-    if (num != null) ranks.set(String(m.id), num);
+    const info = getMusicianSeatingPartInfo(m.id, sortOptions);
+    if (info.hasAssignment) fallback.set(String(m.id), info.number);
+  }
+  applyImpliedPrincipalPartNumber(fallback);
+  for (const [id, num] of fallback) {
+    if (num != null) ranks.set(id, num);
   }
   return ranks;
 };
@@ -197,8 +245,9 @@ export const buildSeatingPartSortOptions = ({
 
 /**
  * Ordena vientos/percusión: primero por id_instr, luego por número de parte asignada
- * (Fagot 1 antes que 2, Corno 1…4). Si en la 1.ª obra la misma parte está duplicada
- * en dos músicos del mismo instrumento, se usa la siguiente obra sin duplicados.
+ * (Fagot 1 antes que 2, Corno 1…4). «Fagot» sin número + «Fagot 2» → la sin número
+ * cuenta como 1. Si en la 1.ª obra la misma parte está duplicada en dos músicos del
+ * mismo instrumento, se usa la siguiente obra sin duplicados.
  * En percusión (id 13), Perc Timp antes que el resto de perc auxiliar.
  * Desempate por apellido si no hay número.
  */

@@ -18,6 +18,35 @@ export function interpolateMailText(
   });
 }
 
+/** ISO `yyyy-mm-dd` → `dd/mm/yyyy` (es-AR). */
+export function formatFechaMailIso(value: string | null | undefined): string {
+  const s = String(value || "").trim();
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : s;
+}
+
+/** Rango legible de fechas de gira para asunto y cuerpo. */
+export function formatFechasGiraRango(
+  desde: string | null | undefined,
+  hasta: string | null | undefined,
+): string {
+  const a = formatFechaMailIso(desde);
+  const b = formatFechaMailIso(hasta);
+  if (a && b && a !== b) return `${a} – ${b}`;
+  return a || b || "";
+}
+
+/** Limpia placeholders vacíos y separadores huérfanos en asuntos. */
+export function cleanupMailSubject(subject: string): string {
+  return String(subject || "")
+    .replace(/\{[a-z0-9_]+\}/gi, "")
+    .replace(/\s*\|\s*\|/g, " | ")
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s*\|\s*$/g, "")
+    .replace(/^\s*\|\s*/g, "")
+    .trim();
+}
+
 export function resolveConvocatoriaPlantillaVariant(d: any): string {
   const explicit = String(d?.plantilla_variant || d?.plantillaVariant || "").trim();
   if (explicit) return explicit;
@@ -26,6 +55,9 @@ export function resolveConvocatoriaPlantillaVariant(d: any): string {
   if (v === "INITIAL_BROADCAST") return "INITIAL_BROADCAST";
   if (v === "GIRA_ELIMINADA") return "GIRA_ELIMINADA";
   if (v === "SEATING_CAMBIO") return "SEATING_CAMBIO";
+  if (v === "SEATING_CAMBIO_JEFE_RESUMEN") return "SEATING_CAMBIO_JEFE_RESUMEN";
+  if (v === "SEATING_ATRIL_CAMBIO") return "SEATING_ATRIL_CAMBIO";
+  if (v === "REPERTORIO_PARTES_LISTOS") return "REPERTORIO_PARTES_LISTOS";
   if (v === "AUSENTE") return "AUSENTE";
   const inclusionKind = String(d?.inclusion_kind || d?.inclusionKind || "").toLowerCase();
   const exclusionKind = String(d?.exclusion_kind || d?.exclusionKind || "").toLowerCase();
@@ -62,6 +94,9 @@ export function buildMailVars(
   gira: string,
   d: any,
 ): Record<string, string> {
+  const rawDesde = String(d?.fecha_desde || "").trim();
+  const rawHasta = String(d?.fecha_hasta || "").trim();
+  const fechas = formatFechasGiraRango(rawDesde, rawHasta);
   const vars: Record<string, string> = {
     nombre: String(nombre || "").trim(),
     gira: String(gira || d?.gira || "").trim(),
@@ -73,8 +108,9 @@ export function buildMailVars(
     ).trim(),
     ensamble: String(d?.ensamble || d?.ensamble_label || d?.vars?.ensamble || "").trim(),
     familia: String(d?.familia || d?.familia_label || d?.vars?.familia || "").trim(),
-    fecha_desde: String(d?.fecha_desde || "").trim(),
-    fecha_hasta: String(d?.fecha_hasta || "").trim(),
+    fecha_desde: formatFechaMailIso(rawDesde) || rawDesde,
+    fecha_hasta: formatFechaMailIso(rawHasta) || rawHasta,
+    fechas,
     zona: String(d?.zona || "").trim(),
     titulo: String(d?.titulo || "").trim(),
     fecha_limite: String(d?.fechaLimiteTexto || d?.fecha_limite || "").trim(),
@@ -93,6 +129,25 @@ export function buildMailVars(
     solicitante_nombre: String(d?.solicitante_nombre || "").trim(),
     fechas_viejas: String(d?.fechas_viejas || "").trim(),
     fechas_nuevas: String(d?.fechas_nuevas || "").trim(),
+    actor_jefe: String(
+      d?.actor_jefe || d?.actor_jefe_nombre || d?.vars?.actor_jefe || "",
+    ).trim(),
+    bloque: String(d?.bloque || d?.atrilDetalle?.bloque || d?.vars?.bloque || "").trim(),
+    contenedor: String(
+      d?.contenedor || d?.atrilDetalle?.contenedor || d?.vars?.contenedor || "",
+    ).trim(),
+    asiento: String(
+      d?.asiento || d?.atrilDetalle?.asiento || d?.vars?.asiento || "",
+    ).trim(),
+    asiento_previo: String(
+      d?.asiento_previo ||
+        d?.atrilDetalle?.asiento_previo ||
+        d?.vars?.asiento_previo ||
+        "",
+    ).trim(),
+    atril: String(d?.atril || d?.atrilDetalle?.atril || d?.vars?.atril || "").trim(),
+    silla: String(d?.silla || d?.atrilDetalle?.silla || d?.vars?.silla || "").trim(),
+    cantidad: String(d?.cantidad || d?.vars?.cantidad || "").trim(),
   };
   const extra = d?.vars && typeof d.vars === "object" ? d.vars : {};
   for (const [k, v] of Object.entries(extra)) {
@@ -162,7 +217,9 @@ export function applyPlantillaToDetalle(
   for (const [k, v] of Object.entries(slotsRaw)) {
     slots[k] = interpolateMailText(String(v ?? ""), vars);
   }
-  const asunto = interpolateMailText(plantilla.asunto || "", vars);
+  const asunto = cleanupMailSubject(
+    interpolateMailText(plantilla.asunto || "", vars),
+  );
   const next = { ...det, _plantilla_slots: slots, _plantilla_asunto: asunto };
 
   const hasFineVariant = Boolean(String(det?.plantilla_variant || "").trim());

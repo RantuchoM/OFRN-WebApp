@@ -24,6 +24,7 @@ import {
   IconBulb,
   IconCopy,
   IconUndo,
+  IconUserCheck,
 } from "../ui/Icons";
 import DateInput from "../ui/DateInput";
 import {
@@ -31,6 +32,7 @@ import {
   seatingItemMatrixPosition,
   sortSeatingItems,
   shiftSeatingLine,
+  reorderContenedorItemsJefe,
 } from "../../services/giraService";
 import { getDuplicateSeatingStringItemIds } from "../../utils/seatingStringItemsDedupe";
 import {
@@ -39,6 +41,15 @@ import {
   applySeatingNamesOnItem,
   seatingApellidoNombre,
 } from "../../utils/integranteDisplayName";
+import {
+  containersLedBy,
+  formatJefeDisplayName,
+  getJefeItem,
+  getJefeMusicianId,
+  isJefeSeat,
+  predictJefeMusicianIdAfterEditorMove,
+  simulateIntraContainerMove,
+} from "../../utils/seatingJefeDeFila";
 import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 import { useUndoStack } from "../../hooks/useUndoStack";
 import {
@@ -505,10 +516,63 @@ export default function GlobalStringsManager({
   toolbarHostEl = null,
   onConfigsChange = null,
   onSelectConfig = null,
+  /** Modo jefe de fila: solo reordenar contenedores propios vía RPC */
+  jefeMode = false,
+  jefeActorId = null,
 }) {
   const { confirm, dialog } = useConfirmDialog();
   const getItemMatrixPosition = (item, fallbackIndex = 0) =>
     seatingItemMatrixPosition(item, fallbackIndex);
+
+  const jefeEditableIds = useMemo(() => {
+    if (!jefeMode || jefeActorId == null) return new Set();
+    return new Set(
+      containersLedBy(jefeActorId, containers).map((id) => String(id)),
+    );
+  }, [jefeMode, jefeActorId, containers]);
+
+  const canEditContainer = useCallback(
+    (containerId) => {
+      if (readOnly) return false;
+      if (!jefeMode) return true;
+      return jefeEditableIds.has(String(containerId));
+    },
+    [readOnly, jefeMode, jefeEditableIds],
+  );
+
+  const confirmJefeChangeIfNeeded = async (beforeItems, afterJefeId, rosterList) => {
+    const beforeId = getJefeMusicianId(beforeItems);
+    if (String(beforeId ?? "") === String(afterJefeId ?? "")) return true;
+    const beforeItem = getJefeItem(beforeItems);
+    const afterItem =
+      afterJefeId != null
+        ? (beforeItems || []).find(
+            (it) => String(it.id_musico) === String(afterJefeId),
+          ) || null
+        : null;
+    const beforeName = formatJefeDisplayName(beforeItem, null);
+    const afterName =
+      afterJefeId == null
+        ? "sin asignar"
+        : formatJefeDisplayName(
+            afterItem || { id_musico: afterJefeId },
+            null,
+          );
+    const afterFromRoster =
+      afterJefeId != null
+        ? (rosterList || []).find((m) => String(m.id) === String(afterJefeId))
+        : null;
+    const afterLabel =
+      afterFromRoster
+        ? seatingApellidoNombre(afterFromRoster) || afterName
+        : afterName;
+    return confirm({
+      title: "Vas a cambiar al jefe de fila",
+      message: `El jefe de fila pasaría de «${beforeName}» a «${afterLabel}». Eso también cambia quién puede reordenar atriles y asignar partes individuales de este contenedor. ¿Continuar?`,
+      confirmText: "Cambiar jefe",
+      overlayClassName: "z-[100]",
+    });
+  };
   const getMusicianTooltip = (musician) => {
     if (!musician) return "";
     const ensembles = Array.isArray(musician.ensambles)
@@ -1305,6 +1369,15 @@ export default function GlobalStringsManager({
     const targetContainer = displayContainers.find(
       (c) => c.id == targetContainerId,
     );
+    if (!canEditContainer(targetContainerId)) return;
+    if (
+      jefeMode &&
+      String(sourceContainerId) !== String(targetContainerId)
+    ) {
+      toast.error("Como jefe de fila solo podés reordenar dentro de tu contenedor.");
+      return;
+    }
+
     const { atril_num, lado } = getTargetPositionForInsert(
       targetContainer,
       targetIndex,
@@ -1319,6 +1392,81 @@ export default function GlobalStringsManager({
       Number(sourcePos.lado) === Number(lado)
     ) {
       return;
+    }
+
+    // Modo jefe: swap/move vía RPC; el actor no puede salir de 1a.
+    if (jefeMode) {
+      if (
+        sourceItem &&
+        String(sourceItem.id_musico) === String(jefeActorId) &&
+        sourcePos &&
+        isJefeSeat(sourcePos.atril_num, sourcePos.lado)
+      ) {
+        toast.error("No podés cambiarte a vos mismo de ubicación (atril 1a).");
+        return;
+      }
+      if (isJefeSeat(atril_num, lado)) {
+        toast.error("El asiento 1a está reservado al jefe de fila.");
+        return;
+      }
+      const afterItems = simulateIntraContainerMove(
+        targetContainer?.validItems || [],
+        itemId,
+        atril_num,
+        lado,
+      );
+      const placements = afterItems.map((it) => ({
+        id: Number(it.id),
+        atril_num: Number(it.atril_num),
+        lado: Number(it.lado),
+      }));
+      const { error } = await reorderContenedorItemsJefe(supabase, {
+        actorId: jefeActorId,
+        containerId: targetContainerId,
+        placements,
+      });
+      if (error) {
+        toast.error(error.message || "No se pudo reordenar el contenedor.");
+        return;
+      }
+      await refreshAfterContainerChange();
+      return;
+    }
+
+    // Editor: advertir si cambia el jefe del contenedor destino (o origen si sale de 1a).
+    if (String(sourceContainerId) === String(targetContainerId)) {
+      const predicted = predictJefeMusicianIdAfterEditorMove(
+        targetContainer?.validItems || [],
+        itemId,
+        atril_num,
+        lado,
+      );
+      const ok = await confirmJefeChangeIfNeeded(
+        targetContainer?.validItems || [],
+        predicted,
+        roster,
+      );
+      if (!ok) return;
+    } else {
+      const leavingJefe =
+        sourcePos && isJefeSeat(sourcePos.atril_num, sourcePos.lado);
+      const enteringJefe = isJefeSeat(atril_num, lado);
+      if (leavingJefe) {
+        const okLeave = await confirmJefeChangeIfNeeded(
+          sourceContainer?.validItems || [],
+          null,
+          roster,
+        );
+        if (!okLeave) return;
+      }
+      if (enteringJefe) {
+        const okEnter = await confirmJefeChangeIfNeeded(
+          targetContainer?.validItems || [],
+          sourceItem?.id_musico != null ? Number(sourceItem.id_musico) : null,
+          roster,
+        );
+        if (!okEnter) return;
+      }
     }
 
     pushHistoryBeforeEdit();
@@ -1633,6 +1781,7 @@ export default function GlobalStringsManager({
     lado,
   ) => {
     if (readOnly) return;
+    if (!canEditContainer(targetContainerId)) return;
     e.preventDefault();
     e.stopPropagation();
     setDragOverContainerId(null);
@@ -1647,8 +1796,13 @@ export default function GlobalStringsManager({
     );
     if (!targetContainer) return;
 
+    if (jefeMode && type === "NEW") {
+      toast.error("Como jefe de fila no podés agregar músicos al contenedor.");
+      return;
+    }
+
     // Si hay superposiciones pendientes, las aplicamos automáticamente al primer movimiento.
-    if (hasSeatingSuggestions) {
+    if (!jefeMode && hasSeatingSuggestions) {
       const targetIds = [targetContainerId];
       if (sourceId && String(sourceId) !== String(targetContainerId)) {
         targetIds.push(sourceId);
@@ -1740,6 +1894,27 @@ export default function GlobalStringsManager({
   };
 
   const applyReorderFromPreview = async () => {
+    // Advertir por cada contenedor cuyo 1a cambie con el preview.
+    for (const c of displayContainers) {
+      const beforeItems = c.validItems || [];
+      const afterItems = beforeItems.map((item, idx) => {
+        const next = previewMap[item.id];
+        if (!next) {
+          const pos = getItemMatrixPosition(item, idx);
+          return { ...item, atril_num: pos.atril_num, lado: pos.lado };
+        }
+        return {
+          ...item,
+          atril_num: next.atril_num,
+          lado: next.lado,
+          orden: next.orden,
+        };
+      });
+      const afterJefe = getJefeMusicianId(afterItems);
+      const ok = await confirmJefeChangeIfNeeded(beforeItems, afterJefe, roster);
+      if (!ok) return;
+    }
+
     pushHistoryBeforeEdit();
     const updates = [];
     Object.entries(previewMap).forEach(([id, pos]) => {
@@ -2340,7 +2515,7 @@ export default function GlobalStringsManager({
               className="bg-white border border-indigo-100 rounded-lg shadow-sm flex flex-col h-fit transition-all duration-200"
             >
               <div className="p-1.5 border-b border-slate-100 flex justify-between items-center bg-indigo-50/30 rounded-t-lg min-h-[32px]">
-                {editingId === c.id ? (<div className="flex items-center gap-1 w-full"><input className="w-full text-[10px] border border-indigo-300 rounded px-1 py-0.5 focus:outline-none" value={editName} onChange={(e) => setEditName(e.target.value)} autoFocus /><input type="number" className="w-10 text-[10px] border border-indigo-300 rounded px-1 py-0.5 text-center" value={editCap} onChange={(e) => setEditCap(e.target.value)} /><button onClick={() => saveEditing(c.id)} className="text-green-600"><IconCheck size={12} /></button><button onClick={() => setEditingId(null)} className="text-red-500"><IconX size={12} /></button></div>) : (<><div className="flex items-center gap-1 overflow-hidden"><span className="font-bold text-[10px] text-indigo-900 truncate uppercase tracking-wider" title={c.nombre}>{c.nombre}</span>{c.capacidad && (<span className="text-[9px] text-slate-400 bg-slate-100 px-1 rounded-full border border-slate-200">{c.validItems.length}/{c.capacidad}</span>)}<button onClick={() => startEditing(c)} className="text-slate-400 hover:text-indigo-600 ml-1 p-1"><IconEdit size={12} /></button></div>{!readOnly && (<div className="flex items-center gap-1">{Object.keys(seatingSuggestionsByContainer[c.id] || {}).length > 0 && (<button onClick={() => applySeatingSuggestions([c.id])} className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-100 border border-amber-200 text-amber-800 hover:bg-amber-200">Aplicar</button>)}<button onClick={() => deleteContainer(c.id)} className="text-slate-300 hover:text-red-500"><IconTrash size={10} /></button></div>)}</>)}
+                {editingId === c.id ? (<div className="flex items-center gap-1 w-full"><input className="w-full text-[10px] border border-indigo-300 rounded px-1 py-0.5 focus:outline-none" value={editName} onChange={(e) => setEditName(e.target.value)} autoFocus /><input type="number" className="w-10 text-[10px] border border-indigo-300 rounded px-1 py-0.5 text-center" value={editCap} onChange={(e) => setEditCap(e.target.value)} /><button onClick={() => saveEditing(c.id)} className="text-green-600"><IconCheck size={12} /></button><button onClick={() => setEditingId(null)} className="text-red-500"><IconX size={12} /></button></div>) : (<><div className="flex items-center gap-1 overflow-hidden"><span className="font-bold text-[10px] text-indigo-900 truncate uppercase tracking-wider" title={c.nombre}>{c.nombre}</span>{(() => { const jefe = getJefeItem(c.validItems || []); if (!jefe) return null; const label = formatJefeDisplayName(jefe); return (<span className="inline-flex items-center gap-0.5 text-[9px] font-bold text-indigo-700 bg-indigo-100 px-1 py-0.5 rounded border border-indigo-200 shrink-0" title={`Jefe de fila: ${label}`}><IconUserCheck size={10} /> Jefe</span>); })()}{c.capacidad && (<span className="text-[9px] text-slate-400 bg-slate-100 px-1 rounded-full border border-slate-200">{c.validItems.length}/{c.capacidad}</span>)}{!jefeMode && (<button onClick={() => startEditing(c)} className="text-slate-400 hover:text-indigo-600 ml-1 p-1"><IconEdit size={12} /></button>)}</div>{!readOnly && !jefeMode && (<div className="flex items-center gap-1">{Object.keys(seatingSuggestionsByContainer[c.id] || {}).length > 0 && (<button onClick={() => applySeatingSuggestions([c.id])} className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-100 border border-amber-200 text-amber-800 hover:bg-amber-200">Aplicar</button>)}<button onClick={() => deleteContainer(c.id)} className="text-slate-300 hover:text-red-500"><IconTrash size={10} /></button></div>)}{jefeMode && canEditContainer(c.id) && (<span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">Tu contenedor</span>)}</>)}
               </div>
               <div className="p-1 space-y-0.5 min-h-[40px]">
                 {(() => {
@@ -2392,7 +2567,7 @@ export default function GlobalStringsManager({
                             key={`empty-1-${ladoVal}`}
                             className="flex-1 min-w-0 px-0.5"
                             onDragOver={(e) => {
-                              if (!readOnly) {
+                              if (canEditContainer(c.id)) {
                                 e.preventDefault();
                                 setDragOverContainerId(c.id);
                                 setDragOverItemId(`empty-1-${ladoVal}`);
@@ -2418,12 +2593,21 @@ export default function GlobalStringsManager({
                       const key = item ? item.id : `empty-${a}-${ladoVal}`;
                       const isVacancy =
                         !!item && isSeatingSlotVacancy(item, roster);
+                      const containerEditable = canEditContainer(c.id);
+                      const isJefeCell = isJefeSeat(a, ladoVal);
+                      const lockedAsJefe =
+                        jefeMode &&
+                        item &&
+                        String(item.id_musico) === String(jefeActorId) &&
+                        isJefeCell;
+                      const cellDraggable =
+                        containerEditable && !!item && !lockedAsJefe;
                       return (
                         <div
                           key={key}
                           className={`flex-1 min-w-0 px-0.5`}
                           onDragOver={(e) => {
-                            if (!readOnly) {
+                            if (containerEditable) {
                               e.preventDefault();
                               setDragOverContainerId(c.id);
                               setDragOverItemId(key);
@@ -2434,9 +2618,10 @@ export default function GlobalStringsManager({
                           }
                         >
                           <div
-                            draggable={!readOnly && !!item}
+                            draggable={cellDraggable}
                             onDragStart={(e) =>
                               item &&
+                              cellDraggable &&
                               handleDragStart(e, "MOVE", item.id, c.id)
                             }
                             title={(() => {

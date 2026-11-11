@@ -1738,6 +1738,48 @@ export const shiftSeatingLine = async (
 };
 
 /**
+ * Reorder acotado para jefe de fila (RPC reorder_contenedor_items_jefe).
+ * @param {object} supabase
+ * @param {{ actorId: number|string, containerId: number|string, placements: Array<{id, atril_num, lado}> }}
+ */
+export const reorderContenedorItemsJefe = async (
+  supabase,
+  { actorId, containerId, placements },
+) => {
+  if (!supabase) return { error: "Supabase client is required" };
+  const { data, error } = await supabase.rpc("reorder_contenedor_items_jefe", {
+    p_actor_id: Number(actorId),
+    p_contenedor_id: Number(containerId),
+    p_placements: placements || [],
+  });
+  return { data, error };
+};
+
+/**
+ * Asignación individual M- vía RPC assign_particella_individual_jefe.
+ */
+export const assignParticellaIndividualJefe = async (
+  supabase,
+  { actorId, programId, obraId, musicoId, particellaIds },
+) => {
+  if (!supabase) return { error: "Supabase client is required" };
+  const ids = (particellaIds || [])
+    .map((id) => Number(id))
+    .filter((id) => Number.isFinite(id) && id > 0);
+  const { data, error } = await supabase.rpc(
+    "assign_particella_individual_jefe",
+    {
+      p_actor_id: Number(actorId),
+      p_programa_id: Number(programId),
+      p_obra_id: Number(obraId),
+      p_musico_id: Number(musicoId),
+      p_particella_ids: ids,
+    },
+  );
+  return { data, error };
+};
+
+/**
  * Programas (giras) activos en un rango de fechas que no tienen ningún concierto
  * (evento id_tipo_evento = 1). Excluye Comisión por defecto.
  */

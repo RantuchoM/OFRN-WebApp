@@ -28,6 +28,7 @@ import {
   IconInfo,
   IconLayout,
   IconMail,
+  IconChevronUp,
 } from "../../components/ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 import { useGiraRoster } from "../../hooks/useGiraRosterQuery";
@@ -68,7 +69,17 @@ import { exportSeatingToExcel } from "../../utils/seatingExcelExporter";
 import {
   seatingItemMatrixPosition,
   sortSeatingItems,
+  assignParticellaIndividualJefe,
+  reorderContenedorItemsJefe,
 } from "../../services/giraService";
+import {
+  buildPlacementsAfterAdjacentSwap,
+  canJefeEditMusician,
+  canJefeMoveItem,
+  containersLedBy,
+  isJefeDeFila,
+  isJefeSeat,
+} from "../../utils/seatingJefeDeFila";
 import {
   confirmedSeatingRosterKeySet,
   isConfirmedConvocadoForSeatingReports,
@@ -101,6 +112,22 @@ import {
 } from "../../utils/seatingUniqueInstrumentSuggestion";
 import { useSeatingLateAssignmentChanges } from "../../hooks/useSeatingLateAssignmentChanges";
 import SeatingLateAssignmentBanner from "../../components/seating/SeatingLateAssignmentBanner";
+import { applyLateAssignmentUndoPlan } from "../../utils/seatingLateAssignmentPersist";
+import {
+  buildSeatingAtrilCambioMailTask,
+  buildSeatingCambioJefeResumenMailTask,
+  diffContainerSeatMoves,
+  mergeAtrilMoves,
+} from "../../utils/seatingAtrilMail";
+import {
+  buildAtrilNovedadesForMarko,
+  buildParticellaNovedadForMarko,
+  clearSeatingJefeMarkoPendiente,
+  upsertSeatingJefeMarkoPendiente,
+} from "../../utils/seatingJefeMarkoPendiente";
+import { formatPartsLabel } from "../../utils/seatingLateAssignmentChanges";
+import { sendConvocatoriaNotificationTasks } from "../../utils/convocatoriaNotificationSend";
+import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 import {
   SEATING_INTEGRANTES_EMBED,
   mapRosterForSeating,
@@ -1086,6 +1113,9 @@ export default function ProgramSeating({
   readOnly = false,
 }) {
   const { isAdmin, isEditor, user } = useAuth();
+  const { confirm, dialog: confirmDialog } = useConfirmDialog();
+  const [pendingAtrilMoves, setPendingAtrilMoves] = useState([]);
+  const [sendingAtrilMails, setSendingAtrilMails] = useState(false);
   const { roster: legalRoster, loading: rosterLoading } = useGiraRoster(
     supabase,
     program,
@@ -1109,7 +1139,6 @@ export default function ProgramSeating({
   const canManageSeating = hasSystemRole(["admin", "editor", "coord_general"]);
   const canDownloadSeatingReports = hasSystemRole(["admin", "editor"]);
   const canSeeInstrumentationBadges = isAdmin || isEditor;
-  const canViewStringsConfig = canManageSeating || canAccessStringsConfig;
   const canEditStringsConfig = isEditor || canAccessStringsConfig;
   const isEscenarioView = seatingView === "escenario";
 
@@ -1432,6 +1461,52 @@ export default function ProgramSeating({
       ),
     }));
   }, [containers, activeBlockGrupoMemberIds]);
+
+  const jefeLedContainerIds = useMemo(
+    () =>
+      !canEditStringsConfig && user?.id != null
+        ? containersLedBy(user.id, seatingContainers)
+        : [],
+    [canEditStringsConfig, user?.id, seatingContainers],
+  );
+  const canEditAsJefeDeFila = jefeLedContainerIds.length > 0;
+  // El jefe reordena desde la grilla de Seating (flechas), no desde el panel Cuerdas.
+  const canViewStringsConfig = canManageSeating || canAccessStringsConfig;
+
+  const seatingMailActor = useMemo(() => {
+    if (!canEditAsJefeDeFila || !user) return null;
+    const nombre =
+      seatingApellidoNombre(user) ||
+      [user.apellido, user.nombre].filter(Boolean).join(", ") ||
+      user.nombre_completo ||
+      "Jefe de fila";
+    return { id: user.id, nombre, esJefeDeFila: true };
+  }, [canEditAsJefeDeFila, user]);
+
+  const canEditStringPersonAsJefe = useCallback(
+    (musicianId) =>
+      canEditAsJefeDeFila &&
+      canJefeEditMusician(user?.id, musicianId, seatingContainers),
+    [canEditAsJefeDeFila, user?.id, seatingContainers],
+  );
+
+  const jefeLedIdSet = useMemo(
+    () => new Set(jefeLedContainerIds.map((id) => String(id))),
+    [jefeLedContainerIds],
+  );
+
+  // Auto-expandir contenedores del jefe para que vea nombres + flechas.
+  useEffect(() => {
+    if (!jefeLedContainerIds.length) return;
+    setExpandedStringContainerIds((prev) => {
+      const existing = new Set((prev || []).map(String));
+      const additions = jefeLedContainerIds.filter(
+        (id) => !existing.has(String(id)),
+      );
+      if (!additions.length) return prev;
+      return [...(prev || []), ...additions];
+    });
+  }, [jefeLedContainerIds]);
 
   const displayObras = useMemo(() => {
     if (!resolvedBlockId) return obras;
@@ -2983,7 +3058,10 @@ export default function ProgramSeating({
     obraId,
     particellaId,
   ) => {
-    if (!isEditor) return;
+    const asJefe =
+      !isEditor && canEditStringPersonAsJefe(musicianId);
+    if (!isEditor && !asJefe) return;
+
     const existing = getMusicianPartIds(
       musicianAssignments,
       `M-${musicianId}-${obraId}`,
@@ -2992,6 +3070,76 @@ export default function ProgramSeating({
       assignments[`C-${containerId}-${obraId}`] || null;
     const pickingInherit =
       particellaId == null || sameSeatingPartId(particellaId, containerPartId);
+
+    let nextPartIds;
+    if (existing.length > 1) {
+      // Solista / varias partes: actualizar slot 0.
+      nextPartIds = [...existing];
+      if (particellaId == null) nextPartIds.splice(0, 1);
+      else {
+        nextPartIds[0] = particellaId;
+        nextPartIds = nextPartIds.filter(Boolean);
+      }
+    } else if (pickingInherit) {
+      nextPartIds = [];
+    } else {
+      nextPartIds = [particellaId];
+    }
+
+    if (asJefe) {
+      const key = `M-${musicianId}-${obraId}`;
+      setMusicianAssignments((prevState) => {
+        const copy = { ...prevState };
+        if (!nextPartIds.length) delete copy[key];
+        else copy[key] = nextPartIds;
+        return copy;
+      });
+      const { error } = await assignParticellaIndividualJefe(supabase, {
+        actorId: user.id,
+        programId: program.id,
+        obraId,
+        musicoId: musicianId,
+        particellaIds: nextPartIds,
+      });
+      if (error) {
+        toast.error(error.message || "No se pudo guardar la asignación.");
+        // Revert optimistic UI by refetch would be heavier; restore previous.
+        setMusicianAssignments((prevState) => {
+          const copy = { ...prevState };
+          if (!existing.length) delete copy[key];
+          else copy[key] = existing;
+          return copy;
+        });
+        return;
+      }
+      const partsById = new Map(
+        (particellas || []).map((p) => [String(p.id), p]),
+      );
+      const obra = (obras || []).find(
+        (o) => String(o.obra_id ?? o.id) === String(obraId),
+      );
+      const person =
+        (filteredRoster || []).find(
+          (m) => String(m.id) === String(musicianId),
+        ) || { id: musicianId };
+      const novedad = buildParticellaNovedadForMarko({
+        musician: person,
+        obraTitle:
+          obra?.title ||
+          (typeof obra?.fullTitle === "string" ? obra.fullTitle : "") ||
+          "Obra",
+        fromLabel: formatPartsLabel(existing, partsById),
+        toLabel: formatPartsLabel(nextPartIds, partsById),
+      });
+      void upsertSeatingJefeMarkoPendiente(supabase, {
+        actorId: user.id,
+        programId: program.id,
+        actorNombre: seatingMailActor?.nombre || seatingApellidoNombre(user),
+        bloqueNombre: activeBlockScopeLabel || "",
+        novedades: [novedad],
+      });
+      return;
+    }
 
     // Solista / varias partes: no borrar el resto al igualar el slot 0 al contenedor.
     if (existing.length > 1) {
@@ -3014,6 +3162,216 @@ export default function ProgramSeating({
         ? prev.filter((id) => id !== containerId)
         : [...prev, containerId],
     );
+  };
+
+  const handleJefeReorderAdjacent = async (container, index, direction) => {
+    if (!canEditAsJefeDeFila || !user?.id || !container?.id) return;
+    if (!isJefeDeFila(user.id, container.items || [])) return;
+    // El RPC exige TODOS los ítems del contenedor; la grilla puede estar
+    // filtrada por bloque/grupo (menos filas que en DB).
+    const fullContainer =
+      (containers || []).find((c) => String(c.id) === String(container.id)) ||
+      container;
+    const allItems = fullContainer.items || [];
+    const visibleItems = container.items || [];
+    const placements = buildPlacementsAfterAdjacentSwap(
+      visibleItems,
+      index,
+      direction,
+      allItems,
+    );
+    if (!placements) return;
+
+    const seatMoves = diffContainerSeatMoves(allItems, placements).map(
+      (m) => ({
+        ...m,
+        containerId: container.id,
+        containerName: container.nombre || "",
+      }),
+    );
+
+    // Optimistic local update
+    const byId = new Map(placements.map((p) => [String(p.id), p]));
+    setContainers((prev) =>
+      (prev || []).map((c) => {
+        if (String(c.id) !== String(container.id)) return c;
+        return {
+          ...c,
+          items: (c.items || []).map((it) => {
+            const next = byId.get(String(it.id));
+            if (!next) return it;
+            return {
+              ...it,
+              atril_num: next.atril_num,
+              lado: next.lado,
+              orden: (next.atril_num - 1) * 2 + next.lado + 1,
+            };
+          }),
+        };
+      }),
+    );
+
+    const { error } = await reorderContenedorItemsJefe(supabase, {
+      actorId: user.id,
+      containerId: container.id,
+      placements,
+    });
+    if (error) {
+      toast.error(error.message || "No se pudo reordenar el atril.");
+      await fetchContainers(managerConfigId ?? activeCuerdasConfigId);
+      return;
+    }
+    if (seatMoves.length) {
+      setPendingAtrilMoves((prev) => mergeAtrilMoves(prev, seatMoves));
+      void upsertSeatingJefeMarkoPendiente(supabase, {
+        actorId: user.id,
+        programId: program.id,
+        actorNombre: seatingMailActor?.nombre || seatingApellidoNombre(user),
+        bloqueNombre: activeBlockScopeLabel || "",
+        novedades: buildAtrilNovedadesForMarko(
+          seatMoves.map((m) => ({
+            ...m,
+            containerId: container.id,
+            containerName: container.nombre || "",
+          })),
+          filteredRoster,
+          activeBlockScopeLabel || "",
+        ),
+      });
+    }
+  };
+
+  const handleDiscardPendingAtrilMoves = async () => {
+    if (!pendingAtrilMoves.length) return;
+    if (seatingMailActor?.esJefeDeFila && program?.id) {
+      const resumenMarko = buildSeatingCambioJefeResumenMailTask({
+        atrilMoves: pendingAtrilMoves,
+        roster: filteredRoster,
+        bloqueNombre: activeBlockScopeLabel || "Programa",
+        actor: seatingMailActor,
+      });
+      if (resumenMarko) {
+        setSendingAtrilMails(true);
+        try {
+          const linkRepertorio = `${window.location.origin}${window.location.pathname}?tab=giras&view=REPERTOIRE&giraId=${program.id}`;
+          const { sent, failed } = await sendConvocatoriaNotificationTasks(
+            supabase,
+            [resumenMarko],
+            {
+              gira: {
+                nombre_gira: program.nombre_gira || "",
+                nomenclador: program.nomenclador || program.nombre_gira || "",
+                fecha_desde: program.fecha_desde || "",
+                fecha_hasta: program.fecha_hasta || "",
+                zona: program.zona || "",
+              },
+              linkRepertorio,
+            },
+          );
+          if (failed === 0 && sent > 0) {
+            toast.success("Resumen enviado a Marko (sin notificar músicos)");
+            void clearSeatingJefeMarkoPendiente(supabase, {
+              actorId: seatingMailActor.id,
+              programId: program.id,
+              via: "atril_discard",
+            });
+          } else if (failed > 0) {
+            toast.warning("No se pudo avisar a Marko");
+          }
+        } catch (err) {
+          console.error(err);
+          toast.warning("No se pudo avisar a Marko");
+        } finally {
+          setSendingAtrilMails(false);
+        }
+      }
+    }
+    setPendingAtrilMoves([]);
+  };
+
+  const handleNotifyPendingAtrilMoves = async () => {
+    if (!pendingAtrilMoves.length || !program?.id) return;
+    const withMail = pendingAtrilMoves
+      .map((move) => {
+        const person = filteredRoster.find(
+          (m) => String(m.id) === String(move.musicianId),
+        );
+        if (!person || !String(person.mail || "").trim()) return null;
+        return { move, person };
+      })
+      .filter(Boolean);
+    if (!withMail.length) {
+      toast.warning("No hay músicos con mail entre los cambios de atril.");
+      return;
+    }
+    const ok = await confirm({
+      title: "Notificar cambios de atril",
+      message: `¿Enviar un mail a ${withMail.length} músico${withMail.length === 1 ? "" : "s"} avisando su nuevo atril/silla?`,
+      confirmText: "Enviar mails",
+      overlayClassName: "z-[100]",
+    });
+    if (!ok) return;
+
+    setSendingAtrilMails(true);
+    try {
+      const bloqueNombre = activeBlockScopeLabel || "Programa";
+      const now = Date.now();
+      const tasks = withMail
+        .map(({ move, person }, idx) =>
+          buildSeatingAtrilCambioMailTask(person, move, {
+            now: now + idx,
+            bloqueNombre,
+            contenedorNombre: move.containerName,
+            actor: seatingMailActor,
+          }),
+        )
+        .filter(Boolean);
+      const resumenMarko = buildSeatingCambioJefeResumenMailTask({
+        atrilMoves: pendingAtrilMoves,
+        roster: filteredRoster,
+        bloqueNombre,
+        actor: seatingMailActor,
+        now: now + tasks.length + 1,
+      });
+      if (resumenMarko) tasks.push(resumenMarko);
+      const linkRepertorio = `${window.location.origin}${window.location.pathname}?tab=giras&view=REPERTOIRE&giraId=${program.id}`;
+      const { sent, failed } = await sendConvocatoriaNotificationTasks(
+        supabase,
+        tasks,
+        {
+          gira: {
+            nombre_gira: program.nombre_gira || "",
+            nomenclador: program.nomenclador || program.nombre_gira || "",
+            fecha_desde: program.fecha_desde || "",
+            fecha_hasta: program.fecha_hasta || "",
+            zona: program.zona || "",
+          },
+          linkRepertorio,
+        },
+      );
+      if (failed === 0 && sent > 0) {
+        toast.success(
+          sent === 1 ? "Mail de atril enviado" : `${sent} mails de atril enviados`,
+        );
+        setPendingAtrilMoves([]);
+        if (seatingMailActor?.id && program?.id) {
+          void clearSeatingJefeMarkoPendiente(supabase, {
+            actorId: seatingMailActor.id,
+            programId: program.id,
+            via: "manual",
+          });
+        }
+      } else if (sent === 0) {
+        toast.error("No se pudieron enviar los mails de atril");
+      } else {
+        toast.warning(`${sent} enviados, ${failed} con error`);
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error(err?.message || "Error enviando mails de atril");
+    } finally {
+      setSendingAtrilMails(false);
+    }
   };
 
   const handleContainerAssign = async (targetId, obraId, particellaId) => {
@@ -3139,7 +3497,27 @@ export default function ProgramSeating({
     containers,
     obras,
     particellas,
+    alwaysOfferMail: canEditAsJefeDeFila,
   });
+
+  const handleUndoLateAssignmentChanges = async (musician = null) => {
+    const plan = lateAssignment.getUndoPlan?.(musician?.id ?? null);
+    if (!plan) return { error: new Error("No hay plan de restauración") };
+
+    const asJefe =
+      canEditAsJefeDeFila && !isEditor ? user?.id ?? null : null;
+    const { error } = await applyLateAssignmentUndoPlan(
+      supabase,
+      program.id,
+      plan,
+      { asJefeActorId: asJefe },
+    );
+    if (error) return { error };
+
+    setMusicianAssignments(plan.nextMusicianAssignments || {});
+    setAssignments(plan.nextAssignments || {});
+    return { error: null };
+  };
 
   return (
     <div className="flex flex-col h-full bg-slate-50 relative">
@@ -3579,16 +3957,67 @@ export default function ProgramSeating({
         </div>
       </div>
 
-      {lateAssignment.visible && (
+      {(lateAssignment.visible ||
+        (seatingMailActor?.esJefeDeFila && pendingAtrilMoves.length > 0)) && (
         <SeatingLateAssignmentBanner
           musicians={lateAssignment.musicians}
           detalleText={lateAssignment.detalleText}
           emails={lateAssignment.emails}
           supabase={supabase}
           program={program}
+          mailActor={seatingMailActor}
           onDismissSession={lateAssignment.dismissSession}
+          onUndoChanges={handleUndoLateAssignmentChanges}
+          atrilMoves={pendingAtrilMoves}
+          roster={filteredRoster}
+          bloqueNombre={activeBlockScopeLabel || ""}
+          withinWindow={lateAssignment.withinWindow}
+          onClearAtrilMoves={() => setPendingAtrilMoves([])}
         />
       )}
+
+      {pendingAtrilMoves.length > 0 && (
+        <div className="shrink-0 border-b border-indigo-200 bg-indigo-50 px-2 sm:px-4 py-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-xs text-indigo-950 leading-snug">
+            Hay{" "}
+            <strong>
+              {pendingAtrilMoves.length} cambio
+              {pendingAtrilMoves.length === 1 ? "" : "s"} de atril/silla
+            </strong>{" "}
+            sin notificar
+            {activeBlockScopeLabel
+              ? ` (bloque ${activeBlockScopeLabel})`
+              : ""}
+            {seatingMailActor?.esJefeDeFila
+              ? ". Si descartás, Marko igual recibe el resumen."
+              : "."}
+          </p>
+          <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+            <button
+              type="button"
+              onClick={handleDiscardPendingAtrilMoves}
+              disabled={sendingAtrilMails}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-white px-2.5 py-1.5 text-[11px] font-bold text-indigo-900 hover:bg-indigo-100 disabled:opacity-40"
+            >
+              Descartar
+            </button>
+            <button
+              type="button"
+              onClick={handleNotifyPendingAtrilMoves}
+              disabled={sendingAtrilMails}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-300 bg-indigo-600 px-2.5 py-1.5 text-[11px] font-bold text-white hover:bg-indigo-700 disabled:opacity-40"
+            >
+              {sendingAtrilMails ? (
+                <IconLoader size={14} className="animate-spin" />
+              ) : (
+                <IconMail size={14} />
+              )}
+              Notificar atriles
+            </button>
+          </div>
+        </div>
+      )}
+      {confirmDialog}
 
       {isEscenarioView ? (
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -3954,8 +4383,11 @@ export default function ProgramSeating({
                         if (!hasUnassigned) return false;
                         return !!getContainerSuggestedPart(c, obra.obra_id);
                       });
-                    const isExpanded = expandedStringContainerIds.includes(c.id);
+                    const isExpanded =
+                      expandedStringContainerIds.includes(c.id) ||
+                      expandedStringContainerIds.map(String).includes(String(c.id));
                     const sortedItems = sortSeatingItems(c.items || []);
+                    const isJefeOfThisContainer = jefeLedIdSet.has(String(c.id));
                     return (
                       <React.Fragment key={c.id}>
                       <tr
@@ -3982,7 +4414,11 @@ export default function ProgramSeating({
                             <div className="flex flex-col gap-1 min-w-0 flex-1">
                               <ContainerInfoCell
                                 container={c}
-                                myStandInfo={myStandText}
+                                myStandInfo={
+                                  isJefeOfThisContainer
+                                    ? "Jefe de fila"
+                                    : myStandText
+                                }
                                 expanded={isExpanded}
                                 onToggleExpanded={() =>
                                   toggleStringContainerExpanded(c.id)
@@ -4106,6 +4542,15 @@ export default function ProgramSeating({
                           );
                           const hasNoPersonParts =
                             musiciansWithoutParts.has(String(musicianId));
+                          const showJefeReorder =
+                            isJefeOfThisContainer &&
+                            !isJefeSeat(pos.atril_num, pos.lado);
+                          const canMoveUp =
+                            showJefeReorder &&
+                            canJefeMoveItem(sortedItems, idx, "up");
+                          const canMoveDown =
+                            showJefeReorder &&
+                            canJefeMoveItem(sortedItems, idx, "down");
                           return (
                             <tr
                               key={`${c.id}-person-${item.id || musicianId}`}
@@ -4130,7 +4575,7 @@ export default function ProgramSeating({
                                   }`}
                                 >
                                   <span
-                                    className={`text-[10px] truncate ${
+                                    className={`text-[10px] truncate min-w-0 ${
                                       isVacancy
                                         ? "text-amber-900 font-bold"
                                         : isMe
@@ -4153,6 +4598,42 @@ export default function ProgramSeating({
                                   <span className="text-slate-400 text-[8px] shrink-0">
                                     Atril {standNum}
                                   </span>
+                                  {showJefeReorder && (
+                                    <div className="flex flex-col shrink-0 ml-auto">
+                                      <button
+                                        type="button"
+                                        disabled={!canMoveUp}
+                                        onClick={() =>
+                                          handleJefeReorderAdjacent(
+                                            c,
+                                            idx,
+                                            "up",
+                                          )
+                                        }
+                                        className="p-0.5 rounded text-indigo-600 hover:bg-indigo-50 disabled:opacity-25 disabled:pointer-events-none"
+                                        title="Subir atril"
+                                        aria-label="Subir atril"
+                                      >
+                                        <IconChevronUp size={12} />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={!canMoveDown}
+                                        onClick={() =>
+                                          handleJefeReorderAdjacent(
+                                            c,
+                                            idx,
+                                            "down",
+                                          )
+                                        }
+                                        className="p-0.5 rounded text-indigo-600 hover:bg-indigo-50 disabled:opacity-25 disabled:pointer-events-none"
+                                        title="Bajar atril"
+                                        aria-label="Bajar atril"
+                                      >
+                                        <IconChevronDown size={12} />
+                                      </button>
+                                    </div>
+                                  )}
                                 </div>
                               </td>
                               {displayObras.map((obra) => {
@@ -4185,7 +4666,8 @@ export default function ProgramSeating({
                                         : "Hereda la parte del contenedor"
                                     }
                                   >
-                                    {isEditor ? (
+                                    {isEditor ||
+                                    canEditStringPersonAsJefe(musicianId) ? (
                                       <ParticellaSelect
                                         options={availableParts}
                                         value={effectivePartId}
@@ -4197,13 +4679,16 @@ export default function ProgramSeating({
                                             val,
                                           )
                                         }
-                                        onRequestCreate={() =>
-                                          openCreateModal(
-                                            obra.obra_id,
-                                            c.id_instrumento,
-                                            "M",
-                                            musicianId,
-                                          )
+                                        onRequestCreate={
+                                          isEditor
+                                            ? () =>
+                                                openCreateModal(
+                                                  obra.obra_id,
+                                                  c.id_instrumento,
+                                                  "M",
+                                                  musicianId,
+                                                )
+                                            : undefined
                                         }
                                         disabled={false}
                                         placeholder="Asignar"
