@@ -11,7 +11,8 @@ export function safeFileName(name) {
     .replace(/\.$/, "");
 }
 
-const AUDIO_EXT_CAPTURE_RE = /^(.*?)(\.(mp3|wav|m4a|flac|aiff|aif))$/i;
+const AUDIO_EXT_CAPTURE_RE =
+  /^(.*?)(\.(mp3|mpeg|mpg|mpga|wav|m4a|flac|aiff|aif))$/i;
 
 /**
  * Audio en Para acomodar: `AUDIO - {resto del nombre}.mp3|wav|…`.
@@ -31,7 +32,11 @@ export function canonicalAudioFilename(existingName) {
 /** Igual que `canonicalAudioFilename` pero siempre `.mp3` (WAV de archivo → MP3 de playback). */
 export function canonicalMp3Filename(existingName) {
   const audio = canonicalAudioFilename(existingName);
-  if (audio) return audio.replace(/\.(mp3|wav|m4a|flac|aiff|aif)$/i, ".mp3");
+  if (audio)
+    return audio.replace(
+      /\.(mp3|mpeg|mpg|mpga|wav|m4a|flac|aiff|aif)$/i,
+      ".mp3",
+    );
   const raw = String(existingName || "").trim();
   let base = raw.replace(/\.[^.]+$/, "").trim();
   base = base.replace(/^AUDIO\s*[-–—:]?\s*/i, "").trim();

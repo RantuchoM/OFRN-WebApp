@@ -3029,7 +3029,7 @@ export default function WorkForm({
               </div>
               {normalizeObraAudios(formData.audios).length === 0 ? (
                 <p className="text-[10px] text-slate-400 leading-snug">
-                  Marcá mp3/wav en el asistente de Drive (movimientos en orden).
+                  Marcá mp3/mpeg/wav en el asistente de Drive (movimientos en orden).
                 </p>
               ) : (
                 <ul className="space-y-1">

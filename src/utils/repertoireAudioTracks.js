@@ -3,7 +3,7 @@
  * El player no lista Drive: solo usa IDs ya persistidos o YouTube.
  */
 
-export const AUDIO_FILE_EXT_RE = /\.(mp3|wav|m4a)$/i;
+export const AUDIO_FILE_EXT_RE = /\.(mp3|mpeg|mpg|mpga|wav|m4a)$/i;
 
 export function extractDriveFileId(urlOrId) {
   if (!urlOrId) return null;

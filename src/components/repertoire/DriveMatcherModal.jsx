@@ -378,7 +378,7 @@ export default function DriveMatcherModal({
       : audioFilesInFolder.filter((f) => !assignedAudioIds.has(f.id));
     const incoming = files.map(driveFileToAudioEntry).filter(Boolean);
     if (!incoming.length) {
-      toast.error("Seleccioná uno o más archivos mp3/wav.");
+      toast.error("Seleccioná uno o más archivos mp3/mpeg/wav.");
       return;
     }
     const current = normalizeObraAudios(audios);
