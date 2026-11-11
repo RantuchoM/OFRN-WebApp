@@ -16,10 +16,16 @@ export default function StagePlotLivePreview({
   className = "",
   /** Altura mínima del contenedor (desktop más alto). */
   minHeightClass = "min-h-[220px]",
+  /**
+   * Cambio de lienzo / planta: fuerza spinner (p. ej. `activeId`).
+   * Ajustes de opacidad no deben cambiar esta key.
+   */
+  contentKey = null,
 }) {
   const imgRef = useRef(null);
   const genRef = useRef(0);
   const hasImageRef = useRef(false);
+  const contentKeyRef = useRef(contentKey);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState(null);
   const [ready, setReady] = useState(false);
@@ -28,10 +34,17 @@ export default function StagePlotLivePreview({
     if (!payload) return undefined;
     let cancelled = false;
     const gen = ++genRef.current;
+    const switchedLienzo = contentKeyRef.current !== contentKey;
+    if (switchedLienzo) {
+      contentKeyRef.current = contentKey;
+      hasImageRef.current = false;
+      setReady(false);
+      setBusy(true);
+    }
 
     const timer = window.setTimeout(() => {
       (async () => {
-        // Solo spinner a pantalla completa en el primer render.
+        // Spinner completo en primer render o al cambiar de lienzo.
         if (!hasImageRef.current) setBusy(true);
         setError(null);
         try {
@@ -61,7 +74,7 @@ export default function StagePlotLivePreview({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [payload, maxStagePx]);
+  }, [payload, maxStagePx, contentKey]);
 
   return (
     <div
@@ -77,8 +90,16 @@ export default function StagePlotLivePreview({
         draggable={false}
       />
       {busy && (
-        <div className="absolute inset-0 flex items-center justify-center bg-slate-100/70">
+        <div
+          className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-slate-100/80"
+          role="status"
+          aria-live="polite"
+          aria-label="Cargando escenario"
+        >
           <IconLoader className="animate-spin text-indigo-500" size={28} />
+          <span className="text-[11px] font-medium text-slate-500">
+            Cargando escenario…
+          </span>
         </div>
       )}
       {error && !busy && (

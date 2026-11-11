@@ -67,6 +67,7 @@ import {
   stagePlotSoloistOutlinePx,
   getSoloistOutlineCanvas,
 } from "./stagePlotSoloistOutline";
+import { canShareFiles } from "./downloadBlob";
 
 const VB = STAGE_PLOT_SILHOUETTE_VIEWBOX;
 const GRID_MINOR = stagePlotGridMinorPx();
@@ -568,8 +569,9 @@ export async function renderStagePlotToCanvas(payloadRaw, options = {}) {
 
 /**
  * JPG: raster del escenario únicamente (sin hoja de mobiliario) + dims Ancho/Profundo.
+ * @returns {Promise<{ blob: Blob, fileName: string }>}
  */
-export async function exportStagePlotJpg(gira, payloadRaw, plotNombre) {
+export async function buildStagePlotJpgBlob(gira, payloadRaw, plotNombre) {
   const canvas = await renderStagePlotToCanvas(payloadRaw, {
     maxStagePx: 1600,
     maxScale: 2,
@@ -579,14 +581,95 @@ export async function exportStagePlotJpg(gira, payloadRaw, plotNombre) {
   });
 
   const safeName = stagePlotExportSafeName(gira);
-  const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
+  const fileName = `plano-escenario_${safeName}.jpg`;
+  const blob = await new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (b) =>
+        b
+          ? resolve(b)
+          : reject(new Error("No se pudo generar la imagen JPG")),
+      "image/jpeg",
+      0.92,
+    );
+  });
+  return { blob, fileName };
+}
+
+/**
+ * Descarga el JPG (misma ruta que antes).
+ */
+export async function exportStagePlotJpg(gira, payloadRaw, plotNombre) {
+  const { blob, fileName } = await buildStagePlotJpgBlob(
+    gira,
+    payloadRaw,
+    plotNombre,
+  );
+  const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  a.href = dataUrl;
-  a.download = `plano-escenario_${safeName}.jpg`;
+  a.href = url;
+  a.download = fileName;
   a.rel = "noopener";
   document.body.appendChild(a);
   a.click();
   a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+/**
+ * Comparte / descarga la imagen de la planta para mandarla por WhatsApp.
+ * En móvil (Web Share con archivos) abre la hoja nativa → elegir WhatsApp.
+ * Si no hay Share API: descarga el JPG y abre WhatsApp con un mensaje
+ * para adjuntar la imagen.
+ *
+ * @returns {Promise<"shared"|"cancelled"|"downloaded-fallback">}
+ */
+export async function shareStagePlotJpgViaWhatsApp(
+  gira,
+  payloadRaw,
+  plotNombre,
+) {
+  const { blob, fileName } = await buildStagePlotJpgBlob(
+    gira,
+    payloadRaw,
+    plotNombre,
+  );
+  const label =
+    String(plotNombre || "").trim() ||
+    String(gira?.nombre_gira || gira?.nomenclador || "").trim() ||
+    "Planta de escenario";
+  const text = `Te paso la planta de escenario: ${label}`;
+  const file = new File([blob], fileName, {
+    type: blob.type || "image/jpeg",
+  });
+
+  if (canShareFiles(file)) {
+    try {
+      await navigator.share({
+        files: [file],
+        title: label,
+        text,
+      });
+      return "shared";
+    } catch (err) {
+      if (err?.name === "AbortError") return "cancelled";
+      /* fallback a descarga + wa.me */
+    }
+  }
+
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = fileName;
+  a.rel = "noopener";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+
+  const waText = `${text}\n\n(Adjunto la imagen que se acaba de descargar.)`;
+  const waUrl = `https://wa.me/?text=${encodeURIComponent(waText)}`;
+  window.open(waUrl, "_blank", "noopener,noreferrer");
+  return "downloaded-fallback";
 }
 
 /** Ángulos equiespaciados del abanico radial (−180°…0° inclusive). */

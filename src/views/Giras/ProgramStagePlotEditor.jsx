@@ -8161,7 +8161,7 @@ export default function ProgramStagePlot({
         <StagePlotExportOptionsModal
           open={!!exportModal}
           kind={exportModal?.kind || "pdf"}
-          stage={payload.stage}
+          payload={payload}
           plotNombre={nombre}
           zIndex={100}
           onClose={() => setExportModal(null)}
@@ -8591,7 +8591,7 @@ export default function ProgramStagePlot({
       <StagePlotExportOptionsModal
         open={!!exportModal}
         kind={exportModal?.kind || "pdf"}
-        stage={payload.stage}
+        payload={payload}
         plotNombre={nombre}
         zIndex={immersive ? STAGE_PLOT_OVERLAY_Z : 100}
         onClose={() => setExportModal(null)}

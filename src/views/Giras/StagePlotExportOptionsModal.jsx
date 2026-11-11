@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   IconFileText,
@@ -6,20 +6,25 @@ import {
   IconPhoto,
   IconX,
 } from "../../components/ui/Icons";
+import { applyStagePlotStagePatch } from "../../utils/stagePlotPayload";
+import StagePlotLivePreview from "./StagePlotLivePreview";
 import StagePlotOpacityControls, {
   opacitiesToStagePatch,
   readStagePlotOpacities,
 } from "./StagePlotOpacityControls";
+import { useStagePlotNarrowViewport } from "./StagePlotMobileEditor";
 
 /**
- * Modal previo a descargar PDF/JPG: mismas 4 opacidades que el técnico
- * en StagePlotViewerModal. Los deslizantes son override solo de exportación
- * (no escriben el payload del Lienzo).
+ * Modal previo a descargar PDF/JPG: preview arriba + mismas 4 opacidades
+ * que el técnico en StagePlotViewerModal. Los deslizantes son override solo
+ * de exportación (no escriben el payload del Lienzo).
  */
 export default function StagePlotExportOptionsModal({
   open,
   kind = "pdf",
-  /** `payload.stage` actual del editor (semilla de opacidades). */
+  /** Payload completo del lienzo (preview + semilla de opacidades). */
+  payload,
+  /** @deprecated Preferí `payload`; se usa si no hay payload. */
   stage,
   plotNombre,
   onClose,
@@ -28,16 +33,23 @@ export default function StagePlotExportOptionsModal({
   /** Por encima del editor inmersivo (`STAGE_PLOT_OVERLAY_Z`). */
   zIndex = 100,
 }) {
-  const [op, setOp] = useState(() => readStagePlotOpacities(stage));
+  const seedStage = payload?.stage || stage;
+  const [op, setOp] = useState(() => readStagePlotOpacities(seedStage));
   const [busy, setBusy] = useState(false);
+  const isNarrow = useStagePlotNarrowViewport();
 
   useEffect(() => {
     if (!open) return;
-    setOp(readStagePlotOpacities(stage));
+    setOp(readStagePlotOpacities(payload?.stage || stage));
     setBusy(false);
-    // Semilla solo al abrir; no resetear si `stage` cambia por autosave.
+    // Semilla solo al abrir; no resetear si `stage`/`payload` cambian por autosave.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional
   }, [open]);
+
+  const previewPayload = useMemo(() => {
+    if (!payload) return null;
+    return applyStagePlotStagePatch(payload, opacitiesToStagePatch(op));
+  }, [payload, op]);
 
   if (!open) return null;
 
@@ -59,7 +71,7 @@ export default function StagePlotExportOptionsModal({
 
   return createPortal(
     <div
-      className="fixed inset-0 flex items-center justify-center bg-slate-900/50 p-4"
+      className="fixed inset-0 flex items-center justify-center bg-slate-900/50 p-3 sm:p-4"
       style={{ zIndex }}
       role="dialog"
       aria-modal="true"
@@ -68,7 +80,11 @@ export default function StagePlotExportOptionsModal({
         if (e.target === e.currentTarget && !busy) onClose?.();
       }}
     >
-      <div className="flex w-full max-w-md flex-col overflow-hidden rounded-xl bg-white shadow-xl">
+      <div
+        className={`flex max-h-[94vh] w-full flex-col overflow-hidden rounded-xl bg-white shadow-xl ${
+          isNarrow ? "max-w-lg" : "max-w-3xl"
+        }`}
+      >
         <div className="flex shrink-0 items-start justify-between gap-3 border-b border-slate-200 px-4 py-3">
           <div className="min-w-0">
             <h2 className="flex items-center gap-2 text-base font-bold text-slate-800">
@@ -94,7 +110,19 @@ export default function StagePlotExportOptionsModal({
           </button>
         </div>
 
-        <div className="space-y-3 px-4 py-3">
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3">
+          {previewPayload ? (
+            <StagePlotLivePreview
+              payload={previewPayload}
+              maxStagePx={isNarrow ? 720 : 1100}
+              minHeightClass={
+                isNarrow
+                  ? "min-h-[180px] h-[32vh]"
+                  : "min-h-[240px] h-[min(40vh,420px)]"
+              }
+            />
+          ) : null}
+
           <p className="text-xs text-slate-600">
             Elegí la opacidad de cada guía en la descarga (igual que en «Ver
             escenario»). 0% = oculto. No modifica el Lienzo guardado.
