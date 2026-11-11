@@ -32,13 +32,25 @@ Permitir que los músicos visualicen cambios recientes (24h) y habilitar una "Pa
 2. El sistema muestra el evento tachado a todos los usuarios por 24 horas.
 3. Un editor puede "Restaurar" seteando `is_deleted = false`.
 
-## Realtime (no auto-refresh)
+## Realtime y frescura de datos
 
-La suscripción a `eventos` en `useAgendaData` **sigue activa**. Un cambio remoto (de otro usuario) **no** fusiona ni recarga la lista: solo pone un flag sucio.
+La suscripción a `eventos` en `useAgendaData` **sigue activa**.
 
-Barra fija arriba de la UI de agenda (columna flex, debajo del nav principal, escritorio y móvil), copia exacta: **Hubo cambios. Actualizar.** El clic llama `fetchAgenda` de la ventana actual y limpia el aviso. Si hay un modal/formulario abierto, el aviso se ve igual; no hay recarga automática debajo.
+### Cambios en vivo (pestaña abierta)
+
+Un cambio remoto (de otro usuario) **no** fusiona ni recarga la lista: solo pone un flag sucio.
+
+Barra fija arriba de la UI de agenda (columna flex, debajo del nav principal, escritorio y móvil), copia exacta: **Hubo cambios. Actualizar.** El clic llama `fetchAgenda` de la ventana actual y limpia el aviso. Si hay un modal/formulario abierto, el aviso se ve igual; no hay recarga automática por el evento realtime.
 
 El eco de un guardado propio (`markLocalEventMutation`) no enciende la barra (~15 s). Los edits locales siguen usando `refreshEventById` (merge de un evento).
+
+### Catch-up (móvil / suspend / reconnect)
+
+Realtime solo notifica mientras el WebSocket está vivo. Tras segundo plano en iOS/Android, reconexión o `visibilitychange`/`pageshow`/`focus`, `useAgendaData` hace un **`fetchAgenda(true)` de catch-up** (throttle 30 s; soft poll cada ~4 min si la pestaña sigue visible y los datos están viejos). No reintroduce merge evento-a-evento.
+
+### Badge de conexión
+
+El punto **verde** = Realtime `SUBSCRIBED` **y** datos frescos (< 5 min) **y** sin flag sucio. Si hay cambios pendientes o la copia es vieja, el badge pasa a **ámbar** y en móvil muestra la antigüedad (`Act. hace…`), no solo el punto.
 
 ## Integración en GiraCard y edición de programa
 

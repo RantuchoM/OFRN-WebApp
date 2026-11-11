@@ -3130,6 +3130,7 @@ export default function UnifiedAgenda({
               onRefresh={() => fetchAgenda(false)}
               isRefreshing={isRefreshing}
               isUpdating={isRefreshing || (loading && items.length > 0)}
+              hasPendingUpdates={hasRemoteAgendaChanges}
             />
 
             {hasUnacknowledgedRecentChanges && (

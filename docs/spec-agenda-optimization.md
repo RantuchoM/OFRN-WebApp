@@ -11,7 +11,8 @@ La agenda se redibuja completamente ante cualquier cambio en un evento, afectand
 ## Reglas de Implementación
 - Los eventos deben compararse por su `id` y `updated_at`.
 - El componente `UnifiedAgenda` debe usar un `useEffect` con un pequeño delay (**500 ms**) para ráfagas de cambios (realtime) **antes de marcar sucio**, no para recargar.
-- Realtime: **no** auto-refresh de la lista. Flag sucio + barra **Hubo cambios. Actualizar.** (clic = `fetchAgenda`).
+- Realtime **en vivo**: **no** auto-refresh de la lista. Flag sucio + barra **Hubo cambios. Actualizar.** (clic = `fetchAgenda`).
+- Catch-up (visibilidad / reconnect / soft poll): sí `fetchAgenda(true)` en background para no dejar la agenda verde pero vieja tras suspender el móvil. Sin merge evento-a-evento.
 - La vista móvil debe preservar la posición del scroll mediante el uso de **keys estables** (ID numérico del evento) y evitar el retorno de `null` o loaders de pantalla completa durante la actualización.
 - Indicador de carga sutil (barra superior o overlay) cuando hay datos en pantalla; spinner completo solo en carga inicial sin datos.
 
@@ -41,6 +42,7 @@ La agenda se redibuja completamente ante cualquier cambio en un evento, afectand
 - [x] PASO 1: Documento de especificación (este archivo).
 - [x] PASO 2: Debounce 500 ms en triggers de fetch (realtime).
 - [x] 2026-09-30: realtime ya no auto-merge/auto-refresh; barra **Hubo cambios. Actualizar.**
+- [x] 2026-11-11: catch-up al volver a la app / reconectar Realtime + soft poll; badge ámbar/edad en móvil si datos viejos o cambios pendientes.
 - [x] PASO 2: React.memo en bloques (TourDivider memoizado).
 - [x] PASO 2: Keys estables (ID numérico del evento: `key={evt.id}`).
 - [x] PASO 2: Loader sutil en móvil (barra superior "Actualizando..." cuando hay datos; sin desmontar contenido).
@@ -60,8 +62,8 @@ La agenda se redibuja completamente ante cualquier cambio en un evento, afectand
 2. **Keys estables**  
    Usar siempre el **ID numérico del evento** (`evt.id`) como `key` en las listas de eventos evita que React recree nodos innecesariamente y ayuda a preservar el scroll y el foco. Evitar índices (`key={index}`) o keys compuestas que cambien entre renders.
 
-3. **Debouncing del flag sucio (no del refetch)**  
-   Las suscripciones en tiempo real (p. ej. Supabase) pueden emitir varios eventos seguidos. Un único flag tras **500 ms de calma** evita parpadeos de la barra. El refetch completo solo corre cuando el usuario pulsa **Actualizar**.
+3. **Debouncing del flag sucio (no del refetch en vivo)**  
+   Las suscripciones en tiempo real (p. ej. Supabase) pueden emitir varios eventos seguidos. Un único flag tras **500 ms de calma** evita parpadeos de la barra. El refetch completo por cambio en vivo solo corre cuando el usuario pulsa **Actualizar**. El catch-up por visibilidad/reconnect es independiente y no vuelve al merge por evento.
 
 4. **useMemo para datos derivados**  
    `groupedByMonth` se calcula a partir de `filteredItems`. Envolverlo en `useMemo` con dependencia `[filteredItems]` evita recalcular en cada render cuando los filtros o los items no han cambiado, reduciendo trabajo y posibles parpadeos al hacer scroll.

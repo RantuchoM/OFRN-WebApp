@@ -127,6 +127,10 @@ const AGENDA_MAX_PAGES = 30;
 const GIRA_IDS_IN_CHUNK = 200;
 /** Ignore realtime echo of our own save for this window. */
 const LOCAL_REALTIME_ECHO_MS = 15_000;
+/** Skip catch-up if a successful fetch finished within this window. */
+const AGENDA_CATCHUP_MIN_INTERVAL_MS = 30_000;
+/** Soft background refresh while the tab is visible (safety net for missed realtime). */
+const AGENDA_SOFT_POLL_MS = 4 * 60_000;
 
 function isAbortLikeError(error, signal) {
   if (signal?.aborted) return true;
@@ -407,6 +411,7 @@ export function saveToCache(key, data, { effectiveUserId, queryFrom, queryTo } =
     const serialized = JSON.stringify({
       from: existingWin.from,
       to: existingWin.to,
+      cachedAt: new Date().toISOString(),
       items: snapshot,
     });
     try {
@@ -1090,7 +1095,8 @@ export function useAgendaData({
     () => new Set(),
   );
   const [isOfflineMode, setIsOfflineMode] = useState(!navigator.onLine);
-  const [lastUpdate, setLastUpdate] = useState(() => new Date());
+  /** Null until cache paint (`cachedAt`) or first successful network fetch — never “now” on mount. */
+  const [lastUpdate, setLastUpdate] = useState(null);
   const [realtimeStatus, setRealtimeStatus] = useState("CONNECTING");
   const [hasRemoteAgendaChanges, setHasRemoteAgendaChanges] = useState(false);
 
@@ -1099,6 +1105,8 @@ export function useAgendaData({
   const refreshTimeoutRef = useRef(null);
   const locallyMutatedAtRef = useRef(new Map());
   const remoteDirtyGenRef = useRef(0);
+  const lastSuccessfulFetchAtRef = useRef(0);
+  const hadRealtimeSubscribedRef = useRef(false);
   const itemsRef = useRef(items);
   const userProfileRef = useRef(userProfile);
   const checkIsConvokedRef = useRef(checkIsConvoked);
@@ -1194,6 +1202,12 @@ export function useAgendaData({
                 runProcessCategories(
                   cachedItems.filter((i) => !i.isProgramMarker),
                 );
+                if (parsedData?.cachedAt) {
+                  const cachedAt = new Date(parsedData.cachedAt);
+                  if (!isNaN(cachedAt.getTime())) {
+                    setLastUpdate(cachedAt);
+                  }
+                }
               }
             }
           } catch (cacheReadError) {
@@ -1707,7 +1721,9 @@ export function useAgendaData({
         setFeriados(feriadosData.data || []);
         setRecentlyUpdatedEventIds(new Set());
         setIsOfflineMode(false);
-        setLastUpdate(new Date());
+        const fetchedAt = new Date();
+        setLastUpdate(fetchedAt);
+        lastSuccessfulFetchAtRef.current = fetchedAt.getTime();
         if (remoteDirtyGenRef.current === dirtyGenAtStart) {
           setHasRemoteAgendaChanges(false);
         }
@@ -1966,8 +1982,42 @@ export function useAgendaData({
     [mergeSingleEventFromRealtime],
   );
 
+  /**
+   * Catch-up after mobile suspend / missed realtime: background fetch only.
+   * Does NOT auto-apply in-session postgres_changes (those still use the dirty banner).
+   */
+  const requestAgendaCatchUp = useCallback(
+    (reason) => {
+      if (!user) return;
+      if (typeof navigator !== "undefined" && navigator.onLine === false) return;
+      if (
+        typeof document !== "undefined" &&
+        document.visibilityState === "hidden"
+      ) {
+        return;
+      }
+      const now = Date.now();
+      if (
+        now - lastSuccessfulFetchAtRef.current <
+        AGENDA_CATCHUP_MIN_INTERVAL_MS
+      ) {
+        return;
+      }
+      // Soft poll: only when the painted data is actually old.
+      if (
+        reason === "poll" &&
+        now - lastSuccessfulFetchAtRef.current < AGENDA_SOFT_POLL_MS
+      ) {
+        return;
+      }
+      fetchAgenda(true);
+    },
+    [user, fetchAgenda],
+  );
+
   useEffect(() => {
     if (!user) return;
+    hadRealtimeSubscribedRef.current = false;
     const channel = supabase
       .channel("agenda-updates")
       .on(
@@ -1994,14 +2044,59 @@ export function useAgendaData({
           }, 500);
         },
       )
-      .subscribe((status) => setRealtimeStatus(status));
+      .subscribe((status) => {
+        setRealtimeStatus(status);
+        if (status === "SUBSCRIBED") {
+          if (hadRealtimeSubscribedRef.current) {
+            // Reconnect after drop (common on mobile): catch up missed edits.
+            requestAgendaCatchUp("reconnect");
+          }
+          hadRealtimeSubscribedRef.current = true;
+        }
+      });
 
     return () => {
       supabase.removeChannel(channel);
       if (refreshTimeoutRef.current) clearTimeout(refreshTimeoutRef.current);
       if (abortControllerRef.current) abortControllerRef.current.abort();
     };
-  }, [user, giraId, supabase]);
+  }, [user, giraId, supabase, requestAgendaCatchUp]);
+
+  useEffect(() => {
+    if (!user) return;
+    // Let UnifiedAgenda's mount fetch own the first load; avoid racing catch-up.
+    if (lastSuccessfulFetchAtRef.current === 0) {
+      lastSuccessfulFetchAtRef.current = Date.now();
+    }
+
+    const onVisible = () => {
+      if (document.visibilityState === "visible") {
+        requestAgendaCatchUp("visibility");
+      }
+    };
+    const onPageShow = (event) => {
+      // iOS bfcache restore
+      if (event?.persisted || document.visibilityState === "visible") {
+        requestAgendaCatchUp("pageshow");
+      }
+    };
+    const onFocus = () => requestAgendaCatchUp("focus");
+
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("pageshow", onPageShow);
+    window.addEventListener("focus", onFocus);
+
+    const pollId = setInterval(() => {
+      requestAgendaCatchUp("poll");
+    }, Math.min(60_000, AGENDA_SOFT_POLL_MS));
+
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("pageshow", onPageShow);
+      window.removeEventListener("focus", onFocus);
+      clearInterval(pollId);
+    };
+  }, [user, requestAgendaCatchUp]);
 
   return {
     items,
