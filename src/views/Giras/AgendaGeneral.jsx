@@ -1,14 +1,33 @@
 // src/views/Giras/AgendaGeneral.jsx
-import React from "react";
+import React, { useCallback } from "react";
 import UnifiedAgenda from "../../components/agenda/UnifiedAgenda";
 
-// CORRECCIÓN: Agregar onOpenRepertoire aquí abajo ↓↓↓
-export default function AgendaGeneral({ supabase, onOpenRepertoire }) {
+export default function AgendaGeneral({
+  supabase,
+  onOpenRepertoire = null,
+  onViewChange = null,
+}) {
+  const openRepertoire = useCallback(
+    (giraId) => {
+      if (typeof onOpenRepertoire === "function") {
+        onOpenRepertoire(giraId);
+        return;
+      }
+      if (typeof onViewChange === "function") {
+        onViewChange("GIRAS", giraId, "REPERTOIRE");
+      }
+    },
+    [onOpenRepertoire, onViewChange],
+  );
+
   return (
-    <UnifiedAgenda 
-        supabase={supabase} 
-        title="Agenda General" 
-        onOpenRepertoire={onOpenRepertoire} // Ahora sí existe la variable
+    <UnifiedAgenda
+      supabase={supabase}
+      title="Agenda General"
+      onOpenRepertoire={
+        onOpenRepertoire || onViewChange ? openRepertoire : null
+      }
+      onViewChange={onViewChange}
     />
   );
 }

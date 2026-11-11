@@ -46,6 +46,7 @@ import {
   IconLayout,
   IconLayers,
   IconFileText,
+  IconExternalLink,
 } from "../ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 import CommentsManager from "../comments/CommentsManager";
@@ -116,6 +117,7 @@ import LocacionNombreSpan, {
   resolveLocacionNombre,
   shouldShowLocacionEnEvento,
 } from "../locations/LocacionNombreSpan";
+import AppNavLink from "../ui/AppNavLink";
 import FeriadoBadge from "./FeriadoBadge";
 import ConnectionBadge from "./ConnectionBadge";
 import DriveSmartButton from "./DriveSmartButton";
@@ -452,6 +454,29 @@ function AgendaEventTagChip({ nombre, color, fallbackColor = "#6366f1" }) {
     >
       {nombre}
     </span>
+  );
+}
+
+/** Chip de programa asociado a ensayo de ensamble → abre Repertorio de esa gira. */
+function AgendaAssociatedProgramChip({ prog }) {
+  if (!prog?.id) return null;
+  const badgeClasses = getProgramBadgeClasses(prog);
+  const label = prog.nombre_gira || prog.nomenclador || `Programa #${prog.id}`;
+  return (
+    <AppNavLink
+      mode="GIRAS"
+      giraId={prog.id}
+      view="REPERTOIRE"
+      onClick={(e) => e.stopPropagation()}
+      className={`text-[10px] font-bold px-1.5 py-0.5 rounded border flex items-center gap-1 max-w-full hover:brightness-95 hover:shadow-sm transition-all cursor-pointer ${badgeClasses}`}
+      title={`Abrir repertorio: ${label}`}
+      aria-label={`Abrir repertorio de ${label}`}
+    >
+      <span className="font-bold">[{prog.nomenclador || "Sin código"}]</span>
+      <span className="opacity-70">|</span>
+      <span className="truncate max-w-[150px] italic">{prog.nombre_gira}</span>
+      <IconExternalLink size={10} className="shrink-0 opacity-70" />
+    </AppNavLink>
   );
 }
 
@@ -4140,30 +4165,12 @@ export default function UnifiedAgenda({
                                             {evt.eventos_programas_asociados
                                               .map((ep) => ep.programas)
                                               .filter(Boolean)
-                                              .map((prog) => {
-                                                const badgeClasses =
-                                                  getProgramBadgeClasses(prog);
-                                                return (
-                                                  <div
-                                                    key={prog.id}
-                                                    className={`text-[10px] font-bold px-1.5 py-0.5 rounded border flex items-center gap-1 ${badgeClasses}`}
-                                                    title={prog.nombre_gira}
-                                                  >
-                                                    <span className="font-bold">
-                                                      [
-                                                      {prog.nomenclador ||
-                                                        "Sin código"}
-                                                      ]
-                                                    </span>
-                                                    <span className="opacity-70">
-                                                      |
-                                                    </span>
-                                                    <span className="truncate max-w-[150px] italic">
-                                                      {prog.nombre_gira}
-                                                    </span>
-                                                  </div>
-                                                );
-                                              })}
+                                              .map((prog) => (
+                                                <AgendaAssociatedProgramChip
+                                                  key={prog.id}
+                                                  prog={prog}
+                                                />
+                                              ))}
                                           </div>
                                         )}
                                     </>
@@ -4753,30 +4760,12 @@ export default function UnifiedAgenda({
                                         {evt.eventos_programas_asociados
                                           .map((ep) => ep.programas)
                                           .filter(Boolean)
-                                          .map((prog) => {
-                                            const badgeClasses =
-                                              getProgramBadgeClasses(prog);
-                                            return (
-                                              <div
-                                                key={prog.id}
-                                                className={`text-[10px] font-bold px-1.5 py-0.5 rounded border flex items-center gap-1 ${badgeClasses}`}
-                                                title={prog.nombre_gira}
-                                              >
-                                                <span className="font-bold">
-                                                  [
-                                                  {prog.nomenclador ||
-                                                    "Sin código"}
-                                                  ]
-                                                </span>
-                                                <span className="opacity-70">
-                                                  |
-                                                </span>
-                                                <span className="truncate max-w-[150px] italic">
-                                                  {prog.nombre_gira}
-                                                </span>
-                                              </div>
-                                            );
-                                          })}
+                                          .map((prog) => (
+                                            <AgendaAssociatedProgramChip
+                                              key={prog.id}
+                                              prog={prog}
+                                            />
+                                          ))}
                                       </div>
                                     )}
                                 </div>
@@ -4952,6 +4941,7 @@ export default function UnifiedAgenda({
                                             onOpenRepertoire &&
                                             !isNonConvokedMeal && (
                                               <button
+                                                type="button"
                                                 onClick={(e) => {
                                                   e.stopPropagation();
                                                   onOpenRepertoire(
@@ -4959,6 +4949,8 @@ export default function UnifiedAgenda({
                                                   );
                                                 }}
                                                 className="p-1.5 text-slate-400 hover:text-indigo-600 rounded hover:bg-indigo-50"
+                                                title="Abrir repertorio de la gira"
+                                                aria-label="Abrir repertorio de la gira"
                                               >
                                                 <IconList size={16} />
                                               </button>

@@ -1958,7 +1958,12 @@ export default function GirasView({ supabase, trigger = 0 }) {
             : "overflow-x-auto"
         }`}
       >
-        {mode === "FULL_AGENDA" && <AgendaGeneral supabase={supabase} />}
+        {mode === "FULL_AGENDA" && (
+          <AgendaGeneral
+            supabase={supabase}
+            onOpenRepertoire={(gid) => updateView("REPERTOIRE", gid)}
+          />
+        )}
         {mode === "CALENDAR" && <MusicianCalendar supabase={supabase} />}
         {mode === "WEEKLY" && (
           <WeeklyCalendar
@@ -1972,6 +1977,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
             supabase={supabase}
             gira={selectedGira}
             onBack={() => updateView("LIST")}
+            onOpenRepertoire={(gid) => updateView("REPERTOIRE", gid)}
             giraGrupos={giraGrupos}
             filterGrupoIds={filterGrupoIds}
             setFilterGrupoIds={setFilterGrupoIds}

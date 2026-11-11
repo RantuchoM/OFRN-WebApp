@@ -96,6 +96,7 @@ const url = `${window.location.origin}${window.location.pathname}?tab=giras&view
 - **GiraRoster.jsx**: Genera enlace al repertorio con `?tab=giras&view=REPERTOIRE&giraId=…`.
 - **RepertoireView.jsx**: Navega a repertorio de una gira con `setSearchParams({ tab: "giras", view: "REPERTOIRE", giraId })`.
 - **App.jsx**: Sincroniza `tab` y `giraId` con el estado global de pestaña activa.
+- **Agenda / ensayos de ensamble (2026-11-11):** en `UnifiedAgenda`, los chips de `eventos_programas_asociados` (`AgendaAssociatedProgramChip`) son `AppNavLink` a `/?tab=giras&view=REPERTOIRE&giraId=<id>` (clic o rueda/Ctrl). Incluyen `IconExternalLink`. `AgendaGeneral` / `GiraAgenda` también pasan `onOpenRepertoire` para el botón de lista del evento.
 
 ## Título de pestaña del navegador
 

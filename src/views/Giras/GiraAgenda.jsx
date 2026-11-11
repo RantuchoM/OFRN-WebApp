@@ -6,6 +6,7 @@ export default function GiraAgenda({
   supabase,
   gira,
   onBack,
+  onOpenRepertoire = null,
   giraGrupos,
   filterGrupoIds,
   setFilterGrupoIds,
@@ -19,6 +20,7 @@ export default function GiraAgenda({
             giraId={gira.id}
             onBack={onBack}
             title={gira.nombre_gira}
+            onOpenRepertoire={onOpenRepertoire}
             includeAssociatedEnsembleRehearsals={gira.tipo === "Ensamble"}
             giraGruposProp={giraGrupos}
             filterGrupoIds={filterGrupoIds}

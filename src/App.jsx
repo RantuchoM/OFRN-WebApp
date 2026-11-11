@@ -1048,7 +1048,13 @@ const ProtectedApp = ({ initialTab }) => {
       case "NEWS_MANAGER":
         return <NewsManager {...commonProps} />;
       case "FULL_AGENDA":
-        return <AgendaGeneral onViewChange={updateView} {...commonProps} />;
+        return (
+          <AgendaGeneral
+            onViewChange={updateView}
+            onOpenRepertoire={(gid) => updateView("GIRAS", gid, "REPERTOIRE")}
+            {...commonProps}
+          />
+        );
       case "ENSAMBLES":
         return <EnsemblesView {...commonProps} />;
       case "COORDINACION":
