@@ -313,8 +313,9 @@ export function useViaticosIndividuales(
     }
 
     // Optimistic UI Update
-    const currentRow = rows.find((r) => r.id === id);
-    if (!currentRow) return;
+    // Merge sobre `prev` (no sobre `rows` del closure): dos updateRow seguidos
+    // (p. ej. Movilidad + auto-tilde terrestre) no deben pisarse entre sí.
+    if (!rows.some((r) => r.id === id)) return;
 
     let valueToSave = value;
     if (field === "porcentaje") {
@@ -334,8 +335,9 @@ export function useViaticosIndividuales(
       valueToSave = value || null;
     }
 
-    const updatedRow = { ...currentRow, [field]: valueToSave };
-    setRows((prev) => prev.map((r) => (r.id === id ? updatedRow : r)));
+    setRows((prev) =>
+      prev.map((r) => (r.id === id ? { ...r, [field]: valueToSave } : r)),
+    );
 
     try {
       const payload = { [field]: valueToSave };

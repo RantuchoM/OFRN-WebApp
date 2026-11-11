@@ -323,6 +323,24 @@ Optimizar `src/views/Repertoire/RepertoireView.jsx` en pantallas móviles para m
 | `scripts/process-nabucco-local.mjs` | Split/crop/rename en sync local ARIAS |
 | `scripts/generate-nabucco-sync.mjs` | Seed `supabase/seed_nabucco_sync.sql` |
 
+### Ponce — Chapultepec (2026-11-11)
+- Carpeta [Para acomodar](https://drive.google.com/open?id=1nAXirz9B8gcIe49xJ0xAzSBJKfxpEPd7): 16 PDFs IMSLP-EU (Borzone / PMLP1044388) → **30 particellas** canónicas.
+- Obra BD **id 3885** (insert nueva): título de programa con movimientos de la partitura (`I. Primavera`, `II. Nocturno`, `III. Canto y Danza`); `workNumber` null; año 1934; duración 1020s; compositor Manuel María Ponce (268).
+- Instrumentación: `3.2.3.2 - 4.3.3.1 - Perc.x2 - Key - Str`.
+- Gira **201** *Apertura de temporada: Mahler y Wagner*, bloque Repertorio (`programas_repertorios` **170**): **orden 3** (tras Três Danças y Fiesta Criolla).
+- Descarga vía IMSLP-EU (`disclaimer_bypass=OK`); no usar CDN `.org` (WorkNonPD-US).
+
+| Script | Rol |
+|--------|-----|
+| `scripts/fetch-ponce-chapultepec-imslp.py` | Baja 16 PDFs desde IMSLP-EU |
+| `scripts/lib/ponceChapultepecCatalog.mjs` | Manifiestos split/crop + metadata |
+| `scripts/process-ponce-chapultepec-local.mjs` | Split/crop/rename en sync local |
+| `scripts/generate-ponce-chapultepec-sync.mjs` | Seed `supabase/seed_ponce_chapultepec_sync.sql` (+ gira 201) |
+
+- [x] PDFs procesados y sincronizados a Drive con nombres canónicos
+- [x] Seed ejecutado en Supabase (obra 3885, 30 particellas, gira 201 orden 3)
+- [x] Fix `pdfPartsRenaming`: `Trompeta C 3` antes del catch-all `Trompeta C`
+
 ### Falla — Danza Española Nro 1 ('La Vida Breve') (2026-06-19)
 - Carpeta [Para acomodar / Falla](https://drive.google.com/open?id=16TvE6QokADJSSk9gpZXpP1D8GcrngIQS): 16 PDFs IMSLP → **26 particellas** canónicas.
 - Obra BD **id 3532** (`Danza Española Nro 1. 'La Vida Breve'`, Falla): sin particellas previas.

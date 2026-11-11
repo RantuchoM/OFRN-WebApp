@@ -393,6 +393,12 @@ export function normalizeInstrumentLabel(rawName) {
   if (/\btrompeta\s+(?:en\s+)?(?:bb|sib)\b|\btrumpet\s+(?:en\s+)?bb\b/i.test(name))
     return "Trompeta Bb";
   if (
+    /\btrompeta\s+c\s*3\b|\btrumpet\s+(?:in\s+)?c\s*3\b|\btrompeta\s+en\s+do\s*3\b/i.test(
+      name,
+    )
+  )
+    return "Trompeta C 3";
+  if (
     /\btrompeta\s+c\s*2\b|\btrumpet\s+(?:in\s+)?c\s*2\b|\btrompeta\s+en\s+do\s*2\b/i.test(
       name,
     )

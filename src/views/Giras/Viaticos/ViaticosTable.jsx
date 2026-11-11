@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
+import { toast } from "sonner";
 import {
   IconTrash,
   IconAlertTriangle,
@@ -692,9 +693,22 @@ export default function ViaticosTable({
             <CurrencyInput
               readOnly={isReadOnly}
               value={estVal}
-              onCommit={(val) =>
-                !isReadOnly && onUpdateRow(row.id, fieldExp, val)
-              }
+              onCommit={(val) => {
+                if (isReadOnly) return;
+                onUpdateRow(row.id, fieldExp, val);
+                // Si hay monto de Movilidad y no hay medio tildado, default terrestre.
+                if (
+                  fieldExp === "gastos_movilidad" &&
+                  Number(val) > 0 &&
+                  !row.check_aereo &&
+                  !row.check_terrestre
+                ) {
+                  onUpdateRow(row.id, "check_terrestre", true);
+                  toast.info(
+                    "Se tildó transporte terrestre (podés cambiarlo)",
+                  );
+                }
+              }}
               className={`w-full text-right text-xs font-bold outline-none border-b rounded-sm px-1 py-0.5 ${getInputClass(row.id, fieldExp, moneyFillClass(rowTinted, "bg-orange-50"), "text-orange-900")}`}
               placeholder="0"
             />
@@ -982,9 +996,11 @@ export default function ViaticosTable({
                     >
                       <td
                         colSpan={40}
-                        className="sticky left-0 z-20 px-3 py-1.5 border-y border-slate-200 bg-slate-100/95"
+                        className="border-y border-slate-200 bg-slate-100/95 p-0"
                       >
-                        <div className="flex items-center gap-2">
+                        {/* Sticky en el wrapper (no en el td colspan): el label
+                            queda fijo al scrollear horizontal; el td full-width no. */}
+                        <div className="sticky left-0 z-[25] inline-flex w-max max-w-[min(100vw,28rem)] items-center gap-2 bg-slate-100 px-3 py-1.5 shadow-[4px_0_8px_-2px_rgba(0,0,0,0.08)]">
                           <span className="text-[10px] font-black uppercase tracking-wide text-slate-600">
                             {entry.label}
                           </span>
