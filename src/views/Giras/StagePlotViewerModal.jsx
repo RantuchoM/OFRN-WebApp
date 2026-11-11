@@ -256,12 +256,6 @@ export default function StagePlotViewerModal({
                 ))}
               </div>
 
-              <StagePlotOpacityControls
-                value={op}
-                onChange={patchOp}
-                disabled={exporting}
-              />
-
               <StagePlotLivePreview
                 payload={payload}
                 maxStagePx={isNarrow ? 720 : 1100}
@@ -270,6 +264,12 @@ export default function StagePlotViewerModal({
                     ? "min-h-[200px] h-[38vh]"
                     : "min-h-[320px] h-[min(52vh,560px)]"
                 }
+              />
+
+              <StagePlotOpacityControls
+                value={op}
+                onChange={patchOp}
+                disabled={exporting}
               />
 
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
@@ -282,7 +282,7 @@ export default function StagePlotViewerModal({
                 </p>
                 <p className="mt-2 text-[11px] text-slate-500">
                   Vista de solo lectura. La preview usa las opacidades de
-                  arriba; PDF/JPG/WhatsApp exportan con las mismas.
+                  abajo; PDF/JPG/WhatsApp exportan con las mismas.
                 </p>
               </div>
             </>
