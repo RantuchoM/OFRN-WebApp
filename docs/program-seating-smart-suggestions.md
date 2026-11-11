@@ -118,6 +118,7 @@ El listado histórico de la propagación (el matching de slot no cambió):
 - Valor mostrado: `musicianAssignments["M-{id}-{obra}"][0]` si existe; si no, `assignments["C-{contenedor}-{obra}"]`.
 - Persistencia: `handleStringPersonAssign` → `handleMusicianSlotAssign`. Igualar al contenedor con una sola parte borra el override (herencia). Varias partes (solista) se dejan como slots individuales.
 - Mis Partes no se edita desde ahí; ya prioriza `id_musicos_asignados` sobre `id_contenedor`.
+- UI: contenedor = select normal; persona = `ParticellaSelect` `size="sm"` (fuente más chica). Misma paleta que el resto del seating.
 
 La función `getContainerSuggestedPart`:
 

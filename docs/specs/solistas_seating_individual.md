@@ -42,4 +42,5 @@ El **editor** (producción) asigna partes en la grilla de Seating, no el músico
 - Escritorio: filas de persona debajo de la fila del contenedor (alineadas a las columnas de obra).
 - Móvil: en modo Editar de esa obra, el mismo desplegable en las filas hijas; en lectura, `〃` si hereda y el nombre de parte si hay override.
 - Vientos/percusión: `MultiParticellaSelect` con `+` sin cambios.
+- **Jerarquía visual contenedor vs persona** (2026-11-11): mismos colores/fondos que el seating original. La diferencia es solo tamaño: `ParticellaSelect` de persona usa `size="sm"` (`text-[8px]`, altura menor); en lectura, la parte individual va en `text-[8px]`. Contenedor conserva el select normal (`text-[10px]`).
 

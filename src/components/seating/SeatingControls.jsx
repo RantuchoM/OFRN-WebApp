@@ -76,11 +76,25 @@ const ParticellaTriggerLabel = ({
   </span>
 );
 
-export const ParticellaSelect = ({ options, value, onChange, onRequestCreate, placeholder = "-", disabled = false, preferredInstrumentId = null, counts = {} }) => {
+/**
+ * @param {"md"|"sm"} [size="md"] — `sm` = filas de persona bajo contenedor (fuente/altura más chicas).
+ */
+export const ParticellaSelect = ({
+  options,
+  value,
+  onChange,
+  onRequestCreate,
+  placeholder = "-",
+  disabled = false,
+  preferredInstrumentId = null,
+  counts = {},
+  size = "md",
+}) => {
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState("");
   const containerRef = useRef(null);
   const { showTooltip, hideTooltip, tooltipNode } = usePartNameTooltip();
+  const isCompact = size === "sm";
 
   useEffect(() => {
     const handleClick = (e) => { if (containerRef.current && !containerRef.current.contains(e.target)) setIsOpen(false); };
@@ -98,9 +112,13 @@ export const ParticellaSelect = ({ options, value, onChange, onRequestCreate, pl
     showTooltip(event.currentTarget, selectedName);
   };
 
+  const sizeTriggerClass = isCompact
+    ? "min-h-[16px] px-0.5 text-[8px] rounded-sm"
+    : "min-h-[24px] px-1 text-[10px] rounded";
+
   if (disabled) return (
     <div
-      className="w-full h-full min-h-[24px] px-1 text-[10px] border border-transparent flex items-center justify-center text-slate-600 bg-transparent cursor-default min-w-0"
+      className={`w-full h-full border border-transparent flex items-center justify-center text-slate-600 bg-transparent cursor-default min-w-0 ${sizeTriggerClass}`}
       onMouseEnter={handleTriggerEnter}
       onMouseLeave={hideTooltip}
       aria-label={selectedName || undefined}
@@ -173,7 +191,7 @@ export const ParticellaSelect = ({ options, value, onChange, onRequestCreate, pl
         onMouseEnter={handleTriggerEnter}
         onMouseLeave={hideTooltip}
         aria-label={selectedName || placeholder}
-        className={`w-full h-full min-h-[24px] min-w-0 text-left px-1 text-[10px] border rounded transition-colors flex items-center justify-between gap-0.5 ${value ? "bg-indigo-50 border-indigo-200 text-indigo-700 font-bold" : "bg-white border-slate-200 text-slate-400 hover:border-slate-300"}`}
+        className={`w-full h-full min-w-0 text-left border transition-colors flex items-center justify-between gap-0.5 ${sizeTriggerClass} ${value ? "bg-indigo-50 border-indigo-200 text-indigo-700 font-bold" : "bg-white border-slate-200 text-slate-400 hover:border-slate-300"}`}
       >
         {selectedOption ? (
           <ParticellaTriggerLabel
@@ -186,7 +204,7 @@ export const ParticellaSelect = ({ options, value, onChange, onRequestCreate, pl
         ) : (
           <span className="truncate block w-full">{placeholder}</span>
         )}
-        <IconChevronDown size={8} className={`shrink-0 transition-transform ${isOpen ? "rotate-180" : ""} opacity-50`} />
+        <IconChevronDown size={isCompact ? 6 : 8} className={`shrink-0 transition-transform ${isOpen ? "rotate-180" : ""} opacity-50`} />
       </button>
       {isOpen && (
         <div className="absolute top-full left-0 z-50 w-56 bg-white border border-slate-200 rounded shadow-xl mt-0.5 overflow-hidden flex flex-col max-h-60 animate-in fade-in zoom-in-95">

@@ -19,3 +19,4 @@ En ProgramSeating, los desplegables de particellas (`ParticellaSelect`) viven en
 - [x] `PartNameLabel` + tooltip en portal
 - [x] `ParticellaSelect` usa truncado head/tail y tooltip
 - [x] Chips de sugerencia y celdas de lectura en ProgramSeating
+- [x] Variante `size` (`md`/`sm`): persona bajo contenedor usa `sm` (fuente más chica)

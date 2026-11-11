@@ -813,6 +813,7 @@ const MobileSeatingTable = ({
                                           c.id_instrumento
                                         }
                                         counts={particellaCounts}
+                                        size="sm"
                                       />
                                     ) : isOverride ? (
                                       <span className="text-[8px] leading-none text-indigo-600 font-bold bg-indigo-50 px-0.5 rounded truncate whitespace-nowrap max-w-[82px] block mx-auto">
@@ -4175,7 +4176,7 @@ export default function ProgramSeating({
                                 return (
                                   <td
                                     key={`${item.id}-${obra.id}`}
-                                    className={`p-1 border-l border-slate-100 align-middle ${
+                                    className={`p-0.5 border-l border-slate-100 align-middle ${
                                       isMe ? "bg-amber-50" : ""
                                     } ${isEndOfDesk ? "border-b-2 border-slate-200" : ""}`}
                                     title={
@@ -4210,6 +4211,7 @@ export default function ProgramSeating({
                                           c.id_instrumento
                                         }
                                         counts={particellaCounts}
+                                        size="sm"
                                       />
                                     ) : (
                                       <div className="flex items-center justify-center h-full px-2 min-w-0">
@@ -4224,12 +4226,12 @@ export default function ProgramSeating({
                                             }
                                             textClassName={
                                               isOverride
-                                                ? "text-xs text-indigo-700 font-bold"
-                                                : "text-xs text-slate-500"
+                                                ? "text-[8px] text-indigo-700 font-bold"
+                                                : "text-[8px] text-slate-500"
                                             }
                                           />
                                         ) : (
-                                          <span className="text-xs text-slate-300">
+                                          <span className="text-[8px] text-slate-300">
                                             -
                                           </span>
                                         )}
