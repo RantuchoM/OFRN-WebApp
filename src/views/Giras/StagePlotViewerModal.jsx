@@ -244,7 +244,11 @@ export default function StagePlotViewerModal({
                     type="button"
                     role="tab"
                     aria-selected={p.id === activeId}
-                    onClick={() => setActiveId(p.id)}
+                    onClick={() => {
+                      if (p.id === activeId) return;
+                      setActiveId(p.id);
+                      setPayload(normalizeStagePlotPayload(p.payload));
+                    }}
                     className={`rounded-full border px-3 py-1 text-xs font-medium ${
                       p.id === activeId
                         ? "border-indigo-300 bg-indigo-50 text-indigo-800"
@@ -258,6 +262,7 @@ export default function StagePlotViewerModal({
 
               <StagePlotLivePreview
                 payload={payload}
+                contentKey={activeId}
                 maxStagePx={isNarrow ? 720 : 1100}
                 minHeightClass={
                   isNarrow
