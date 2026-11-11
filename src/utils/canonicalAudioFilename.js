@@ -12,7 +12,7 @@ export function safeFileName(name) {
 }
 
 const AUDIO_EXT_CAPTURE_RE =
-  /^(.*?)(\.(mp3|mpeg|mpg|mpga|wav|m4a|flac|aiff|aif))$/i;
+  /^(.*?)(\.(mp3|mpeg|mpg|mpga|wav|m4a|flac|aiff|aif|mid|midi))$/i;
 
 /**
  * Audio en Para acomodar: `AUDIO - {resto del nombre}.mp3|wav|…`.
@@ -34,7 +34,7 @@ export function canonicalMp3Filename(existingName) {
   const audio = canonicalAudioFilename(existingName);
   if (audio)
     return audio.replace(
-      /\.(mp3|mpeg|mpg|mpga|wav|m4a|flac|aiff|aif)$/i,
+      /\.(mp3|mpeg|mpg|mpga|wav|m4a|flac|aiff|aif|mid|midi)$/i,
       ".mp3",
     );
   const raw = String(existingName || "").trim();

@@ -9,7 +9,7 @@ import {
 
 export { canonicalAudioFilename, canonicalMp3Filename, safeFileName };
 
-const AUDIO_EXT_RE = /\.(mp3|mpeg|mpg|mpga|wav|m4a|flac)$/i;
+const AUDIO_EXT_RE = /\.(mp3|mpeg|mpg|mpga|wav|m4a|flac|mid|midi)$/i;
 
 export function renameAudioFilesInFolder(folderPath, { dryRun = false } = {}) {
   if (!folderPath || !existsSync(folderPath)) return [];

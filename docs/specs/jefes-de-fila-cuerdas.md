@@ -16,7 +16,7 @@ Habilitar un **jefe/a de fila** por contenedor de cuerdas, con permisos acotados
 - Cambio de atril/silla: plantilla `SEATING_ATRIL_CAMBIO`. Tras reordenar con flechas, banner “Notificar atriles” (bloque + contenedor + atril/silla). Al notificar atriles, Marko también recibe el resumen con esas ubicaciones.
 - **Fechas en mails:** asuntos y cuerpos de plantillas de gira muestran con claridad el rango de fechas de la gira (bloque “Fechas de la gira” + `{fechas}` en asunto) para no confundir cuando se trabaja varias giras por anticipado.
 - El modal “Músicos y cambios” permite **Deshacer** (uno o todos) con confirmación, restaurando la asignación al snapshot de apertura de Seating.
-- Mail **repertorio/partes listos** (`REPERTORIO_PARTES_LISTOS`): editor/admin → roster con `rol` ∈ `{musico, mus_prod}`, con mail, no ausentes, no vacantes.
+- **Asignación inicial lista (por bloque):** columna `programas_repertorios.seating_inicial_listo`. En Seating, junto a las pestañas de bloque, el editor/admin tilda «Asignación inicial lista» (persistente). Al activarla puede **marcar y anunciar** (`REPERTORIO_PARTES_LISTOS` a musico/mus_prod) o **solo marcar**. Los jefes de fila solo editan atriles/M- del bloque cuando está tildado. El botón «Anunciar partes listos» en Repertorio sigue disponible como atajo de mail (no escribe la marca del bloque).
 
 ## Seguridad
 - RPCs `SECURITY DEFINER` con `p_actor_id`:
@@ -32,6 +32,7 @@ Habilitar un **jefe/a de fila** por contenedor de cuerdas, con permisos acotados
 - [x] Warning editor al cambiar `1a`
 - [x] `SEATING_CAMBIO` con actor jefe (+ plantilla `actor_nota` en Gestión)
 - [x] Botón + envío `REPERTORIO_PARTES_LISTOS` (Repertorio → Anunciar partes listos)
+- [x] Tilde persistente por bloque en Seating (`seating_inicial_listo`) + gate jefes
 - [x] Modelos enviados a `ofrn.archivo@gmail.com` con gira 15 (Cantos del Presente / CF 01/26)
 - [x] Resumen Marko incluye atril/silla (`SEATING_CAMBIO_JEFE_RESUMEN` + notificar atriles)
 - [x] Jefe: mail siempre ofrecido (sin ventana 18 días); puede omitir

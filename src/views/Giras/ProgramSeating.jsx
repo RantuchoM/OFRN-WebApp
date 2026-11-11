@@ -1187,6 +1187,10 @@ export default function ProgramSeating({
   const [createModalInfo, setCreateModalInfo] = useState(null);
   const [fetchedBlocks, setFetchedBlocks] = useState([]);
   const [blockOrganicoOverrides, setBlockOrganicoOverrides] = useState({});
+  /** Overrides locales de seating_inicial_listo por id de bloque. */
+  const [blockSeatingInicialOverrides, setBlockSeatingInicialOverrides] =
+    useState({});
+  const [savingSeatingInicial, setSavingSeatingInicial] = useState(false);
   const [activeBlockId, setActiveBlockId] = useState(null);
   const [showMobileActionsMenu, setShowMobileActionsMenu] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
@@ -1299,7 +1303,7 @@ export default function ProgramSeating({
         const { data } = await supabase
           .from("programas_repertorios")
           .select(
-            `id, orden, nombre, google_drive_folder_id, organico_revisado, organico_comentario, programas_repertorios_grupos ( id_grupo, giras_grupos ( id, nombre, color ) ), repertorio_obras (id, orden, obras (id, titulo, link_drive, instrumentacion, obras_compositores (rol, compositores (apellido))))`,
+            `id, orden, nombre, google_drive_folder_id, organico_revisado, organico_comentario, seating_inicial_listo, programas_repertorios_grupos ( id_grupo, giras_grupos ( id, nombre, color ) ), repertorio_obras (id, orden, obras (id, titulo, link_drive, instrumentacion, obras_compositores (rol, compositores (apellido))))`,
           )
           .eq("id_programa", program.id)
           .order("orden");
@@ -1469,7 +1473,25 @@ export default function ProgramSeating({
         : [],
     [canEditStringsConfig, user?.id, seatingContainers],
   );
-  const canEditAsJefeDeFila = jefeLedContainerIds.length > 0;
+  const isActiveBlockSeatingInicialListo = useMemo(() => {
+    const block =
+      effectiveBlocks.find((b) => Number(b.id) === Number(resolvedBlockId)) ||
+      null;
+    if (!block?.id) return false;
+    if (
+      Object.prototype.hasOwnProperty.call(
+        blockSeatingInicialOverrides,
+        block.id,
+      )
+    ) {
+      return !!blockSeatingInicialOverrides[block.id];
+    }
+    return !!block.seating_inicial_listo;
+  }, [effectiveBlocks, resolvedBlockId, blockSeatingInicialOverrides]);
+
+  // Jefe solo edita cuando el editor marcó el bloque como asignación inicial lista.
+  const canEditAsJefeDeFila =
+    jefeLedContainerIds.length > 0 && isActiveBlockSeatingInicialListo;
   // El jefe reordena desde la grilla de Seating (flechas), no desde el panel Cuerdas.
   const canViewStringsConfig = canManageSeating || canAccessStringsConfig;
 
@@ -1603,7 +1625,7 @@ export default function ProgramSeating({
       supabase
         .from("programas_repertorios")
         .select(
-          `id, orden, nombre, google_drive_folder_id, organico_revisado, organico_comentario, programas_repertorios_grupos ( id_grupo, giras_grupos ( id, nombre, color ) ), repertorio_obras (id, orden, obras (id, titulo, link_drive, instrumentacion, obras_compositores (rol, compositores (apellido))))`,
+          `id, orden, nombre, google_drive_folder_id, organico_revisado, organico_comentario, seating_inicial_listo, programas_repertorios_grupos ( id_grupo, giras_grupos ( id, nombre, color ) ), repertorio_obras (id, orden, obras (id, titulo, link_drive, instrumentacion, obras_compositores (rol, compositores (apellido))))`,
         )
         .eq("id_programa", program.id)
         .order("orden")
@@ -1938,6 +1960,163 @@ export default function ProgramSeating({
     },
     [onOrganicoSave],
   );
+
+  const isBlockSeatingInicialListo = useCallback(
+    (block) => {
+      if (!block?.id) return false;
+      if (
+        Object.prototype.hasOwnProperty.call(
+          blockSeatingInicialOverrides,
+          block.id,
+        )
+      ) {
+        return !!blockSeatingInicialOverrides[block.id];
+      }
+      return !!block.seating_inicial_listo;
+    },
+    [blockSeatingInicialOverrides],
+  );
+
+  const sendPartesListosMailFromSeating = async () => {
+    const recipients = (confirmedRoster || []).filter((m) => {
+      const rol = String(m.rol_gira || m.rol || "").toLowerCase();
+      if (rol !== "musico" && rol !== "mus_prod") return false;
+      if (String(m.estado_gira || m.estado || "").toLowerCase() === "ausente") {
+        return false;
+      }
+      if (m.es_simulacion) return false;
+      return Boolean(String(m.mail || "").trim());
+    });
+    if (recipients.length === 0) {
+      toast.warning(
+        "Bloque marcado. No hay destinatarios para el anuncio (músico/mus_prod con mail).",
+      );
+      return;
+    }
+    const linkRepertorio = `${window.location.origin}${window.location.pathname}?tab=giras&view=REPERTOIRE&giraId=${program.id}`;
+    const bcc = recipients.map((m) => m.mail);
+    const primero = recipients[0];
+    const { error } = await supabase.functions.invoke("mails_produccion", {
+      body: {
+        action: "enviar_mail",
+        templateId: "convocatoria_gira",
+        bcc,
+        nombre: primero?.nombre_completo || "Participante",
+        gira: program.nombre_gira,
+        detalle: {
+          variant: "REPERTORIO_PARTES_LISTOS",
+          link_repertorio: linkRepertorio,
+          nomenclador: program.nomenclador || program.nombre_gira,
+          fecha_desde: program.fecha_desde || "",
+          fecha_hasta: program.fecha_hasta || "",
+          zona: program.zona || "",
+          primer_integrante_nombre: primero?.nombre ?? "",
+          primer_integrante_apellido: primero?.apellido ?? "",
+        },
+      },
+    });
+    if (error) throw error;
+    await supabase.from("giras_notificaciones_logs").insert({
+      id_gira: program.id,
+      tipo_notificacion: "REPERTORIO_PARTES_LISTOS",
+    });
+    toast.success(`Anuncio enviado a ${bcc.length} integrante(s).`);
+  };
+
+  const handleToggleSeatingInicialListo = async () => {
+    if (!canManageSeating || !resolvedBlockId || savingSeatingInicial) return;
+    const block =
+      effectiveBlocks.find((b) => Number(b.id) === Number(resolvedBlockId)) ||
+      null;
+    if (!block?.id) return;
+    const currently = isBlockSeatingInicialListo(block);
+    const next = !currently;
+
+    if (next) {
+      const choice = await confirm({
+        title: "Asignación inicial lista",
+        message: `¿Marcar el bloque «${block.nombre || "Programa"}» como asignación inicial de seating/partes lista? Los jefes de fila podrán ajustar atriles y partes individuales. Podés anunciar el mail a músicos/mus_prod ahora o solo marcar.`,
+        confirmText: "Marcar y anunciar",
+        secondaryAction: { label: "Solo marcar", value: "mark_only" },
+        cancelText: "Cancelar",
+        overlayClassName: "z-[100]",
+      });
+      if (choice === false) return;
+      setSavingSeatingInicial(true);
+      try {
+        const { error } = await supabase
+          .from("programas_repertorios")
+          .update({ seating_inicial_listo: true })
+          .eq("id", block.id);
+        if (error) throw error;
+        setBlockSeatingInicialOverrides((prev) => ({
+          ...prev,
+          [block.id]: true,
+        }));
+        setFetchedBlocks((prev) =>
+          (prev || []).map((b) =>
+            Number(b.id) === Number(block.id)
+              ? { ...b, seating_inicial_listo: true }
+              : b,
+          ),
+        );
+        toast.success("Asignación inicial marcada como lista");
+        onRefreshGira?.();
+        if (choice === true) {
+          try {
+            await sendPartesListosMailFromSeating();
+          } catch (err) {
+            console.error(err);
+            toast.warning(
+              err?.message ||
+                "Marcado, pero no se pudo enviar el anuncio por mail.",
+            );
+          }
+        }
+      } catch (err) {
+        console.error(err);
+        toast.error(err?.message || "No se pudo guardar la marca");
+      } finally {
+        setSavingSeatingInicial(false);
+      }
+      return;
+    }
+
+    const ok = await confirm({
+      title: "Quitar marca de asignación inicial",
+      message: `¿Quitar la marca del bloque «${block.nombre || "Programa"}»? Los jefes de fila dejarán de poder editar ese bloque hasta que la vuelvas a activar.`,
+      confirmText: "Quitar marca",
+      destructive: true,
+      overlayClassName: "z-[100]",
+    });
+    if (!ok) return;
+    setSavingSeatingInicial(true);
+    try {
+      const { error } = await supabase
+        .from("programas_repertorios")
+        .update({ seating_inicial_listo: false })
+        .eq("id", block.id);
+      if (error) throw error;
+      setBlockSeatingInicialOverrides((prev) => ({
+        ...prev,
+        [block.id]: false,
+      }));
+      setFetchedBlocks((prev) =>
+        (prev || []).map((b) =>
+          Number(b.id) === Number(block.id)
+            ? { ...b, seating_inicial_listo: false }
+            : b,
+        ),
+      );
+      toast.success("Marca quitada");
+      onRefreshGira?.();
+    } catch (err) {
+      console.error(err);
+      toast.error(err?.message || "No se pudo quitar la marca");
+    } finally {
+      setSavingSeatingInicial(false);
+    }
+  };
 
   const instrumentationRequired = useMemo(
     () =>
@@ -4052,6 +4231,7 @@ export default function ProgramSeating({
               {effectiveBlocks.map((block, index) => {
                 const isActive = resolvedBlockId === block.id;
                 const workCount = (block.repertorio_obras || []).length;
+                const blockListo = isBlockSeatingInicialListo(block);
                 const blockGrupos = repertorioGruposMetaFromBlock({
                   programas_repertorios_grupos: gruposEmbedForBlock(block),
                 });
@@ -4071,7 +4251,20 @@ export default function ProgramSeating({
                         ? "border border-slate-300 border-b-white bg-white font-bold text-indigo-800 -mb-px"
                         : "border border-transparent bg-white/60 font-semibold text-slate-600 hover:bg-white hover:text-slate-800 hover:border-slate-200"
                     }`}
+                    title={
+                      blockListo
+                        ? "Asignación inicial lista (jefes de fila habilitados)"
+                        : undefined
+                    }
                   >
+                    {blockListo && (
+                      <IconCheckCircle
+                        size={14}
+                        className={`mr-1.5 shrink-0 ${
+                          isActive ? "text-emerald-600" : "text-emerald-500"
+                        }`}
+                      />
+                    )}
                     {block.nombre}
                     {workCount > 0 && (
                       <span
@@ -4096,6 +4289,35 @@ export default function ProgramSeating({
                 );
               })}
             </div>
+            {canManageSeating && resolvedBlockId != null && (
+              <label
+                className={`shrink-0 self-center mb-1.5 inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-bold cursor-pointer select-none ${
+                  isActiveBlockSeatingInicialListo
+                    ? "border-emerald-300 bg-emerald-50 text-emerald-900"
+                    : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                } ${savingSeatingInicial ? "opacity-60 pointer-events-none" : ""}`}
+                title="Marca persistente del bloque: asignación inicial de seating/partes lista"
+              >
+                <input
+                  type="checkbox"
+                  className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                  checked={isActiveBlockSeatingInicialListo}
+                  disabled={savingSeatingInicial}
+                  onChange={handleToggleSeatingInicialListo}
+                />
+                {savingSeatingInicial ? (
+                  <IconLoader size={12} className="animate-spin" />
+                ) : null}
+                Asignación inicial lista
+              </label>
+            )}
+            {!canManageSeating &&
+              jefeLedContainerIds.length > 0 &&
+              !isActiveBlockSeatingInicialListo && (
+                <span className="shrink-0 self-center mb-1.5 text-[10px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">
+                  Esperando asignación inicial del editor
+                </span>
+              )}
             {showConfig && canViewStringsConfig && (
               <div
                 ref={setCuerdasToolbarHostEl}

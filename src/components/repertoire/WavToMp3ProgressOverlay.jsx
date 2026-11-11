@@ -2,18 +2,26 @@ import React from "react";
 import { IconAlertCircle, IconCheck, IconLoader, IconX } from "../ui/Icons";
 import { formatBytesForUi } from "../../utils/driveAudioConvert";
 
-const STAGES = [
+const STAGES_WAV = [
   { id: "download", label: "Descargando" },
   { id: "convert", label: "Convirtiendo" },
   { id: "upload", label: "Subiendo" },
 ];
 
+const STAGES_MIDI = [
+  { id: "download", label: "Descargando" },
+  { id: "synth", label: "Sintetizando" },
+  { id: "convert", label: "Codificando" },
+  { id: "upload", label: "Subiendo" },
+];
+
 /**
- * Overlay interno del matcher (z-[110]) durante WAV → MP3.
+ * Overlay interno del matcher (z-[110]) durante WAV/MIDI → MP3.
  * En error o resumen de lote permite cerrar el aviso; el matcher ya no queda bloqueado.
  */
 export default function WavToMp3ProgressOverlay({ job, onDismiss }) {
   if (!job) return null;
+  const stages = job.sourceKind === "midi" ? STAGES_MIDI : STAGES_WAV;
   const stage = job.stage || "download";
   const failed = stage === "error";
   const done = stage === "done";
@@ -36,6 +44,8 @@ export default function WavToMp3ProgressOverlay({ job, onDismiss }) {
   const okCount = Number(job.okCount) || 0;
   const failCount = Number(job.failCount) || (job.failures?.length ?? 0);
   const failures = Array.isArray(job.failures) ? job.failures : [];
+  const originalsLabel =
+    job.sourceKind === "midi" ? "MIDI" : "WAV";
 
   return (
     <div
@@ -113,8 +123,8 @@ export default function WavToMp3ProgressOverlay({ job, onDismiss }) {
               </ul>
             ) : null}
             <p className="mt-3 text-[11px] text-slate-500">
-              Los WAV originales se conservaron en Drive. Podés reintentar los
-              que fallaron.
+              Los {originalsLabel} originales se conservaron en Drive. Podés
+              reintentar los que fallaron.
             </p>
             <button
               type="button"
@@ -127,15 +137,15 @@ export default function WavToMp3ProgressOverlay({ job, onDismiss }) {
         ) : !failed ? (
           <>
             <ol className="mb-3 flex gap-1">
-              {STAGES.map((s) => {
+              {stages.map((s) => {
                 const active = s.id === stage;
                 const passed =
-                  STAGES.findIndex((x) => x.id === s.id) <
-                  STAGES.findIndex((x) => x.id === stage);
+                  stages.findIndex((x) => x.id === s.id) <
+                  stages.findIndex((x) => x.id === stage);
                 return (
                   <li
                     key={s.id}
-                    className={`flex-1 rounded-full px-1 py-1 text-center text-[10px] font-bold ${
+                    className={`flex-1 rounded-full px-1 py-1 text-center text-[9px] sm:text-[10px] font-bold ${
                       active
                         ? "bg-indigo-600 text-white"
                         : passed || done
@@ -150,7 +160,7 @@ export default function WavToMp3ProgressOverlay({ job, onDismiss }) {
             </ol>
             <div className="mb-1.5 flex justify-between gap-2 text-[11px]">
               <span className="font-medium text-slate-600">
-                {job.label || STAGES.find((s) => s.id === stage)?.label || ""}
+                {job.label || stages.find((s) => s.id === stage)?.label || ""}
               </span>
               <span className="shrink-0 tabular-nums text-slate-500">
                 {indeterminate

@@ -204,6 +204,7 @@ https://drive.google.com/drive/folders/ID,Gira Cuyo 2019,2019-05-12,2019-05-18,S
 - [x] Nuevo arreglo desde programa: inserción en bloque debajo del original
 - [x] **Botón «+ Encargo»** en cabecera del formulario (solo editor/admin, obra persistida): menú con **Encargar arreglo** (nueva obra `Para arreglar` + referencia a la origen + mail) y **Solicitar ajuste** (solo si la obra está `Entregado`/`Oficial`; inserta en `obras_ajustes` + mail `encargo_ajuste`). Impacta en el módulo Arreglos.
 - [x] **Stacking WorkForm (2026-09-12):** `WorkForm` en programa/seating vive en `ModalPortal` `z-[9999]`. `ArregloQuickEncargoModal` / `ArregloAjusteSolicitarModal` se portalean a `document.body` con `overlayClassName="z-[10050]"` (mismo patrón que Referencias). En el dashboard de Arreglos el default sigue `z-[100]`. `QuickComposerModal` portal `z-[10100]` (nuevo compositor desde el encargo). Calendario de `DateInput` a `z-[10100]` para no quedar detrás del overlay anidado.
+- [x] **Stacking confirmaciones WorkForm (2026-11-11):** `ConfirmDialog` de «Para acomodar» y de salida de borrador usan `overlayClassName="z-[10050]"` (antes `z-[110]`, quedaban debajo del portal WorkForm `z-[9999]`).
 - Lógica compartida en `src/utils/encargoArregloService.js` (`createEncargoArregloObra`, `createObraAjusteSolicitud`, `sendEncargoArregloMail`, `sendEncargoAjusteMail`) — usada por `WorkForm` y `ArreglosDashboard`.
 - Búsqueda de obras/ajustes en `ArreglosDashboard`: `matchesMultiTokenSearch` (tokens). El `useMemo` de `filteredAjustes` no debe dejar cierres del `filter` anterior (rompe Vite/Vercel).
 | `src/services/giraService.js` | `updateWorkPosition`, `normalizeRepertorioBlockOrden`. |
@@ -322,6 +323,27 @@ Optimizar `src/views/Repertoire/RepertoireView.jsx` en pantallas móviles para m
 | `scripts/lib/nabuccoCatalog.mjs` | Manifiestos split/crop + metadata obra 3548 |
 | `scripts/process-nabucco-local.mjs` | Split/crop/rename en sync local ARIAS |
 | `scripts/generate-nabucco-sync.mjs` | Seed `supabase/seed_nabucco_sync.sql` |
+
+### Gira 305 «Con el coro UNRN» — Garcia cuerdas (2026-11-11)
+- Cuatro arreglos de **Aníbal Garcia** ya en BD (3886–3889, bloque Repertorio `programas_repertorios` **174**). Sin split/crop: PDFs de cuerdas ya separados + SCORE; MIDI sin tocar.
+- Rename canónico `Instrumento - Título - Compositor-Garcia.pdf` en Para acomodar; `link_drive` = carpeta original (sin `copiar_carpeta_a_archivo`).
+- UPDATE in-place → estado **Oficial**, `id_arreglador` = Garcia (885), instrumentación **Str**, **6 particellas** c/u (SCORE + Vln1/Vln2/Vla/Vc/Cb).
+
+| id | Título | Carpeta Drive |
+|----|--------|---------------|
+| 3886 | Tu Nombre y el Mio (Aristimuño) | [1enRX6…](https://drive.google.com/open?id=1enRX6JyN6R884RNFShwWiddqSsNtVNRS) |
+| 3887 | Mariposa Technicolor (Páez) | [1ljR-a…](https://drive.google.com/open?id=1ljR-adf_oRttAjOfdeMGYLlgwP3KBGWX) |
+| 3888 | Libros Sapiensales (Dei / Vox Dei) | [1ntN3N…](https://drive.google.com/open?id=1ntN3NsjbJrbrzpFi6q6FMpCsPxy0ObTd) |
+| 3889 | Desarma y Sangra (Giran / Serú Girán) | [16VcTd…](https://drive.google.com/open?id=16VcTd9ZaXVu5zEecGvcTuV-x_OmMib2Z) |
+
+| Script | Rol |
+|--------|-----|
+| `scripts/lib/coroUnrnGarciaCatalog.mjs` | `renameMap` + metadata obras 3886–3889 |
+| `scripts/process-coro-unrn-garcia-local.mjs` | Rename local en Para acomodar |
+| `scripts/generate-coro-unrn-garcia-sync.mjs` | Seed `supabase/seed_coro_unrn_garcia_sync.sql` |
+
+- [x] 24 PDFs renombrados y sincronizados a Drive
+- [x] Seed ejecutado en Supabase (24 particellas, 4 obras Oficial)
 
 ### Ponce — Chapultepec (2026-11-11)
 - Carpeta [Para acomodar](https://drive.google.com/open?id=1nAXirz9B8gcIe49xJ0xAzSBJKfxpEPd7): 16 PDFs IMSLP-EU (Borzone / PMLP1044388) → **30 particellas** canónicas.
@@ -833,8 +855,9 @@ Reproducir el programa como playlist en **Repertorio** y **Mis Partes**, con vel
 
 ### Identificación
 - **WorkForm:** lista Audios Drive (reordenar, label, quitar) + «Elegir» abre el matcher.
-- **DriveMatcherModal:** archivos mp3/mpeg/mpg/mpga/wav/m4a destacados (`AUDIO_FILE_EXT_RE` + MIME `audio/*`); «Asignar como audio» (merge por `drive_file_id`). `list_folder_files` solo al abrir el matcher.
+- **DriveMatcherModal:** archivos mp3/mpeg/mpg/mpga/wav/m4a/mid/midi destacados (`AUDIO_FILE_EXT_RE` + MIME `audio/*` + MIDI); «Asignar como audio» (merge por `drive_file_id`). MIDI no se asigna crudo: se convierte a MP3 primero. `list_folder_files` solo al abrir el matcher.
 - **Convertir a MP3 (WAV/FLAC/AIFF):** botón **MP3** en archivos sin comprimir (no en PDFs ni mp3/m4a). El navegador pide `get_temp_token`, descarga `alt=media`, encodea con **ffmpeg.wasm** (~192 kbps) y sube el MP3 por **multipart** a la misma carpeta (mismo patrón híbrido que particellas/viáticos). **No** usa Edge `upload_file` / `get_file_content`. El WAV queda en Drive. Nombre canónico `AUDIO - {resto}.mp3` (`canonicalMp3Filename` / `canonicalAudioFilename` en `src/utils/canonicalAudioFilename.js`, reexportado por `scripts/lib/pdfPartsRenaming.mjs`). Si ya existe ese MP3: en conversión **individual** se pregunta reemplazo in-place (PATCH) o nombre único; en **lote** se reemplaza sin confirmar por archivo. Tras cada éxito: refresca la lista y **cambia `obras.audios`** al `drive_file_id` del MP3 (`switchObraAudiosToMp3` → `onAudiosChange` / `persistAudios`). Overlay de progreso (Descargando / Convirtiendo / Subiendo) `z-[110]` dentro del matcher (`z-[9999]`); en lote muestra `N de M`. `beforeunload` y bloqueo de X / overlay / Escape mientras corre el archivo o el lote entero. Un fallo en lote continúa con el siguiente; al terminar, resumen. Aviso > ~150 MB (uno por lote si hay pesados); rechazo > ~400 MB (en lote se omite y figura en el resumen).
+- **Convertir a MP3 (MIDI):** mismo botón/lote y «Asignar como audio». Pipeline en `driveMidiConvert.js`: descarga MIDI → síntesis offline con **spessasynth_core** + soundfont GM `public/soundfonts/TimGM6mb.sf2` (lazy) → WAV en memoria → **ffmpeg.wasm** → upload MP3. Overlay con etapas Descargando / Sintetizando / Codificando / Subiendo. El MIDI permanece en Drive; `obras.audios` apunta al MP3. El sticky player **no** reproduce MIDI: si un track legacy aún es `.mid`/`.midi`, muestra error pidiendo conversión en el matcher.
   - **ffmpeg.wasm (Chrome):** `@ffmpeg/core@0.12.10` **single-thread** (`dist/esm`) + worker estático en `/ffmpeg` (plugin Vite, `node_modules`). **No** jsDelivr. Vite no debe empaquetar el worker (`?worker_file` inyecta `env.mjs` → `window is not defined` y `ffmpeg.load()` queda colgado en «Cargando conversor…»). Se pasa `classWorkerURL=/ffmpeg/worker.js`. **No** COOP/COEP (el core ST no necesita SharedArrayBuffer; esos headers rompen Google login / Drive). Timeout 60 s con error visible. Carga: bytes reales o barra indeterminada (nunca un 50% ficticio).
 
 ### Player

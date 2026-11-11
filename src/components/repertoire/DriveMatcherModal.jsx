@@ -36,6 +36,8 @@ import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 import {
   driveFileToAudioEntry,
   isDriveAudioFile,
+  isMidiDriveAudioFile,
+  isPlayableDriveAudioFile,
   mergeObraAudios,
   normalizeObraAudios,
 } from "../../utils/repertoireAudioTracks";
@@ -51,7 +53,12 @@ import {
   isUncompressedDriveAudioFile,
   switchObraAudiosToMp3,
 } from "../../utils/driveAudioConvert";
+import { convertDriveMidiToMp3 } from "../../utils/driveMidiConvert";
 import WavToMp3ProgressOverlay from "./WavToMp3ProgressOverlay";
+
+function isConvertibleDriveAudioFile(file) {
+  return isUncompressedDriveAudioFile(file) || isMidiDriveAudioFile(file);
+}
 
 const capitalize = (s) => s && s[0].toUpperCase() + s.slice(1);
 
@@ -133,7 +140,7 @@ export default function DriveMatcherModal({
 
   /** Multiselección de particellas en el modal (tempId) */
   const [selectedPartTempIds, setSelectedPartTempIds] = useState(() => new Set());
-  /** WAV/FLAC/AIFF marcados para conversión a MP3 (ids de Drive). */
+  /** WAV/FLAC/AIFF/MIDI marcados para conversión a MP3 (ids de Drive). */
   const [selectedWavIds, setSelectedWavIds] = useState(() => new Set());
 
   const currentInstrumentation = calculateInstrumentation(parts);
@@ -185,9 +192,20 @@ export default function DriveMatcherModal({
     [sortedDriveFiles],
   );
 
+  const midiFilesInFolder = useMemo(
+    () => sortedDriveFiles.filter(isMidiDriveAudioFile),
+    [sortedDriveFiles],
+  );
+
+  /** WAV/FLAC/AIFF + MIDI convertibles a MP3. */
+  const convertibleAudioFiles = useMemo(
+    () => sortedDriveFiles.filter(isConvertibleDriveAudioFile),
+    [sortedDriveFiles],
+  );
+
   const selectedWavFiles = useMemo(
-    () => uncompressedWavFiles.filter((f) => selectedWavIds.has(f.id)),
-    [uncompressedWavFiles, selectedWavIds],
+    () => convertibleAudioFiles.filter((f) => selectedWavIds.has(f.id)),
+    [convertibleAudioFiles, selectedWavIds],
   );
 
   const selectedAudioFiles = useMemo(
@@ -282,20 +300,20 @@ export default function DriveMatcherModal({
   }, [selectedPartTempIds, parts]);
 
   useEffect(() => {
-    const valid = new Set(uncompressedWavFiles.map((f) => f.id));
+    const valid = new Set(convertibleAudioFiles.map((f) => f.id));
     setSelectedWavIds((prev) => {
       const next = new Set([...prev].filter((id) => valid.has(id)));
       return next.size === prev.size ? prev : next;
     });
-  }, [uncompressedWavFiles]);
+  }, [convertibleAudioFiles]);
 
   useEffect(() => {
     const el = wavSelectAllRef.current;
     if (!el) return;
     const n = selectedWavIds.size;
-    const total = uncompressedWavFiles.length;
+    const total = convertibleAudioFiles.length;
     el.indeterminate = total > 0 && n > 0 && n < total;
-  }, [selectedWavIds, uncompressedWavFiles]);
+  }, [selectedWavIds, convertibleAudioFiles]);
 
   useEffect(() => {
     if (!isOpen || !convertBusy) return undefined;
@@ -371,14 +389,133 @@ export default function DriveMatcherModal({
     setSelectedFiles(newSelection);
   };
 
-  const handleAssignSelectedAsAudio = () => {
-    if (!onAudiosChange) return;
+  const handleAssignSelectedAsAudio = async () => {
+    if (!onAudiosChange || convertBusy) return;
     const files = selectedAudioFiles.length
       ? selectedAudioFiles
       : audioFilesInFolder.filter((f) => !assignedAudioIds.has(f.id));
-    const incoming = files.map(driveFileToAudioEntry).filter(Boolean);
+    if (!files.length) {
+      toast.error("Seleccioná uno o más archivos mp3/mpeg/wav/midi.");
+      return;
+    }
+
+    const directFiles = files.filter(isPlayableDriveAudioFile);
+    const midiFiles = files.filter(isMidiDriveAudioFile);
+
+    if (midiFiles.length && !convertBusy) {
+      const ok = await confirm({
+        title: "Convertir MIDI a MP3",
+        message:
+          midiFiles.length === 1
+            ? `«${midiFiles[0].name}» es MIDI: el player no lo reproduce directo. Se convertirá a MP3 una vez (el MIDI queda en Drive) y se asignará ese MP3.`
+            : `${midiFiles.length} archivos MIDI se convertirán a MP3 una vez (los MIDI quedan en Drive) y se asignarán esos MP3.`,
+        confirmText: "Convertir y asignar",
+        overlayClassName: "z-[10050]",
+      });
+      if (!ok) return;
+
+      setConvertJob({
+        active: true,
+        stage: "download",
+        percent: 0,
+        label: "Preparando",
+        fileName: midiFiles[0].name,
+        error: null,
+        sourceKind: "midi",
+        batchIndex: midiFiles.length > 1 ? 1 : 0,
+        batchTotal: midiFiles.length > 1 ? midiFiles.length : 0,
+      });
+
+      let currentAudios = audios;
+      let currentDriveFiles = driveFiles;
+      const failures = [];
+      let okCount = 0;
+
+      for (let i = 0; i < midiFiles.length; i += 1) {
+        const file = midiFiles[i];
+        const mp3Name = canonicalMp3Filename(file.name);
+        const existing = mp3Name
+          ? findExistingMp3(currentDriveFiles, mp3Name)
+          : null;
+        setConvertJob({
+          active: true,
+          stage: "download",
+          percent: 0,
+          label: "Preparando",
+          fileName: file.name,
+          error: null,
+          sourceKind: "midi",
+          batchIndex: i + 1,
+          batchTotal: midiFiles.length,
+          okCount,
+          failCount: failures.length,
+        });
+        try {
+          const { result, nextFiles } = await runConvertOneFile({
+            file,
+            nameMode: "canonical",
+            existingMp3File: existing,
+            driveFilesNow: currentDriveFiles,
+            batchIndex: i + 1,
+            batchTotal: midiFiles.length,
+            sourceKind: "midi",
+          });
+          currentDriveFiles = nextFiles;
+          currentAudios = applyConvertedMp3ToAudios(
+            currentAudios,
+            file,
+            result,
+          );
+          okCount += 1;
+        } catch (err) {
+          console.error("[DriveMatcher] MIDI→MP3 al asignar", err);
+          failures.push({
+            id: file.id,
+            name: file.name,
+            message: err?.message || "Error al convertir el MIDI.",
+          });
+        }
+      }
+
+      if (directFiles.length) {
+        const incoming = directFiles.map(driveFileToAudioEntry).filter(Boolean);
+        currentAudios = mergeObraAudios(currentAudios, incoming);
+        onAudiosChange(currentAudios);
+      }
+
+      setSelectedFiles((prev) => prev.filter((f) => !isDriveAudioFile(f)));
+
+      if (failures.length === 0) {
+        setConvertJob(null);
+        toast.success(
+          okCount === 1
+            ? "MIDI convertido y asignado como MP3"
+            : `${okCount} MIDI convertidos y asignados como MP3`,
+        );
+        return;
+      }
+
+      setConvertJob({
+        active: false,
+        stage: "summary",
+        percent: 100,
+        fileName: "",
+        sourceKind: "midi",
+        okCount,
+        failCount: failures.length,
+        batchIndex: midiFiles.length,
+        batchTotal: midiFiles.length,
+        failures,
+      });
+      toast.message(
+        `${okCount} convertido${okCount === 1 ? "" : "s"} · ${failures.length} con error`,
+      );
+      return;
+    }
+
+    const incoming = directFiles.map(driveFileToAudioEntry).filter(Boolean);
     if (!incoming.length) {
-      toast.error("Seleccioná uno o más archivos mp3/mpeg/wav.");
+      toast.error("Seleccioná uno o más archivos mp3/mpeg/wav (o convertí el MIDI).");
       return;
     }
     const current = normalizeObraAudios(audios);
@@ -883,8 +1020,14 @@ export default function DriveMatcherModal({
     driveFilesNow,
     batchIndex,
     batchTotal,
+    sourceKind: sourceKindOverride,
   }) => {
-    const result = await convertDriveWavToMp3({
+    const sourceKind =
+      sourceKindOverride ||
+      (isMidiDriveAudioFile(file) ? "midi" : "wav");
+    const convertFn =
+      sourceKind === "midi" ? convertDriveMidiToMp3 : convertDriveWavToMp3;
+    const result = await convertFn({
       supabase,
       sourceFile: file,
       folderUrl,
@@ -900,6 +1043,7 @@ export default function DriveMatcherModal({
                 stage,
                 label,
                 fileName: file.name,
+                sourceKind,
                 batchIndex,
                 batchTotal,
                 indeterminate: Boolean(indeterminate) || !hasRatio,
@@ -933,7 +1077,7 @@ export default function DriveMatcherModal({
 
   const handleSelectAllWavs = (checked) => {
     if (checked) {
-      setSelectedWavIds(new Set(uncompressedWavFiles.map((f) => f.id)));
+      setSelectedWavIds(new Set(convertibleAudioFiles.map((f) => f.id)));
     } else {
       setSelectedWavIds(new Set());
     }
@@ -942,10 +1086,16 @@ export default function DriveMatcherModal({
   const handleConvertWavToMp3 = async (e, file) => {
     e.stopPropagation();
     if (convertBusy || !file?.id) return;
+    const isMidi = isMidiDriveAudioFile(file);
+    const originalLabel = isMidi ? "MIDI" : "WAV";
 
     const size = await resolveDriveFileSize(file, {});
 
-    if (Number.isFinite(size) && size > WAV_CONVERT_REFUSE_BYTES) {
+    if (
+      !isMidi &&
+      Number.isFinite(size) &&
+      size > WAV_CONVERT_REFUSE_BYTES
+    ) {
       await alert({
         title: "Archivo demasiado grande",
         message: `Pesa ${formatBytesForUi(size)} y supera el límite del navegador (${formatBytesForUi(WAV_CONVERT_REFUSE_BYTES)}). Convertí el WAV en el PC y subí el MP3 a la misma carpeta.`,
@@ -954,7 +1104,11 @@ export default function DriveMatcherModal({
       return;
     }
 
-    if (Number.isFinite(size) && size > WAV_CONVERT_WARN_BYTES) {
+    if (
+      !isMidi &&
+      Number.isFinite(size) &&
+      size > WAV_CONVERT_WARN_BYTES
+    ) {
       const ok = await confirm({
         title: "Archivo pesado",
         message: `Pesa ${formatBytesForUi(size)}. La conversión usa mucha RAM y puede fallar o colgar el navegador. ¿Intentar igual? El WAV original se conserva en Drive.`,
@@ -973,7 +1127,7 @@ export default function DriveMatcherModal({
     if (existing) {
       const choice = await confirm({
         title: "Ya existe un MP3",
-        message: `«${existing.name}» ya está en esta carpeta. Podés reemplazar su contenido (el WAV se conserva) o subir el nuevo con otro nombre.`,
+        message: `«${existing.name}» ya está en esta carpeta. Podés reemplazar su contenido (el ${originalLabel} se conserva) o subir el nuevo con otro nombre.`,
         confirmText: "Reemplazar",
         secondaryAction: {
           label: "Subir con otro nombre",
@@ -993,6 +1147,7 @@ export default function DriveMatcherModal({
       label: "Preparando",
       fileName: file.name,
       error: null,
+      sourceKind: isMidi ? "midi" : "wav",
     });
 
     try {
@@ -1001,6 +1156,7 @@ export default function DriveMatcherModal({
         nameMode,
         existingMp3File,
         driveFilesNow: driveFiles,
+        sourceKind: isMidi ? "midi" : "wav",
       });
       applyConvertedMp3ToAudios(audios, file, result);
       toast.success(
@@ -1012,13 +1168,15 @@ export default function DriveMatcherModal({
     } catch (err) {
       console.error("[DriveMatcher] Convertir a MP3", err);
       const message =
-        err?.message || "Error al convertir el audio. El WAV no se modificó.";
+        err?.message ||
+        `Error al convertir el audio. El ${originalLabel} no se modificó.`;
       setConvertJob({
         active: false,
         stage: "error",
         percent: 0,
         fileName: file.name,
         error: message,
+        sourceKind: isMidi ? "midi" : "wav",
       });
       toast.error(message);
     }
@@ -1026,12 +1184,13 @@ export default function DriveMatcherModal({
 
   const handleBatchConvertWavToMp3 = async () => {
     if (convertBusy) return;
-    const queue = uncompressedWavFiles.filter((f) => selectedWavIds.has(f.id));
+    const queue = convertibleAudioFiles.filter((f) => selectedWavIds.has(f.id));
     if (!queue.length) {
-      toast.message("Seleccioná uno o más WAV para convertir.");
+      toast.message("Seleccioná uno o más WAV/MIDI para convertir.");
       return;
     }
 
+    const batchHasMidi = queue.some(isMidiDriveAudioFile);
     setConvertJob({
       active: true,
       stage: "download",
@@ -1039,6 +1198,7 @@ export default function DriveMatcherModal({
       label: "Preparando lote",
       fileName: `${queue.length} archivo${queue.length === 1 ? "" : "s"}`,
       error: null,
+      sourceKind: batchHasMidi ? "midi" : "wav",
       batchIndex: 0,
       batchTotal: queue.length,
     });
@@ -1063,17 +1223,22 @@ export default function DriveMatcherModal({
 
     const tooBig = sized.filter(
       (item) =>
-        Number.isFinite(item.size) && item.size > WAV_CONVERT_REFUSE_BYTES,
+        !isMidiDriveAudioFile(item.file) &&
+        Number.isFinite(item.size) &&
+        item.size > WAV_CONVERT_REFUSE_BYTES,
     );
     const heavy = sized.filter(
       (item) =>
+        !isMidiDriveAudioFile(item.file) &&
         Number.isFinite(item.size) &&
         item.size > WAV_CONVERT_WARN_BYTES &&
         item.size <= WAV_CONVERT_REFUSE_BYTES,
     );
     const runnable = sized.filter(
       (item) =>
-        !Number.isFinite(item.size) || item.size <= WAV_CONVERT_REFUSE_BYTES,
+        isMidiDriveAudioFile(item.file) ||
+        !Number.isFinite(item.size) ||
+        item.size <= WAV_CONVERT_REFUSE_BYTES,
     );
 
     if (!runnable.length) {
@@ -1089,7 +1254,7 @@ export default function DriveMatcherModal({
     if (heavy.length) {
       const ok = await confirm({
         title: "Archivos pesados",
-        message: `${heavy.length} archivo${heavy.length === 1 ? "" : "s"} supera${heavy.length === 1 ? "" : "n"} ${formatBytesForUi(WAV_CONVERT_WARN_BYTES)}. La conversión usa mucha RAM y puede fallar o colgar el navegador. ¿Convertir el lote igual? Los WAV originales se conservan.`,
+        message: `${heavy.length} archivo${heavy.length === 1 ? "" : "s"} supera${heavy.length === 1 ? "" : "n"} ${formatBytesForUi(WAV_CONVERT_WARN_BYTES)}. La conversión usa mucha RAM y puede fallar o colgar el navegador. ¿Convertir el lote igual? Los originales se conservan.`,
         confirmText: "Convertir lote",
         overlayClassName: "z-[10050]",
       });
@@ -1111,7 +1276,12 @@ export default function DriveMatcherModal({
 
     for (let i = 0; i < sized.length; i += 1) {
       const { file, size } = sized[i];
-      if (Number.isFinite(size) && size > WAV_CONVERT_REFUSE_BYTES) {
+      const isMidi = isMidiDriveAudioFile(file);
+      if (
+        !isMidi &&
+        Number.isFinite(size) &&
+        size > WAV_CONVERT_REFUSE_BYTES
+      ) {
         continue;
       }
       const mp3Name = canonicalMp3Filename(file.name);
@@ -1125,6 +1295,7 @@ export default function DriveMatcherModal({
         label: "Preparando",
         fileName: file.name,
         error: null,
+        sourceKind: isMidi ? "midi" : "wav",
         batchIndex: i + 1,
         batchTotal,
         okCount,
@@ -1138,6 +1309,7 @@ export default function DriveMatcherModal({
           driveFilesNow: currentDriveFiles,
           batchIndex: i + 1,
           batchTotal,
+          sourceKind: isMidi ? "midi" : "wav",
         });
         currentDriveFiles = nextFiles;
         currentAudios = applyConvertedMp3ToAudios(
@@ -1152,7 +1324,8 @@ export default function DriveMatcherModal({
           id: file.id,
           name: file.name,
           message:
-            err?.message || "Error al convertir el audio. El WAV no se modificó.",
+            err?.message ||
+            `Error al convertir el audio. El ${isMidi ? "MIDI" : "WAV"} no se modificó.`,
         });
       }
     }
@@ -1805,14 +1978,15 @@ export default function DriveMatcherModal({
                 </button>
                 <button
                   type="button"
-                  onClick={handleAssignSelectedAsAudio}
-                  className="rounded bg-emerald-600 px-2 py-0.5 text-[10px] font-bold uppercase text-white hover:bg-emerald-700"
+                  onClick={() => void handleAssignSelectedAsAudio()}
+                  disabled={convertBusy}
+                  className="rounded bg-emerald-600 px-2 py-0.5 text-[10px] font-bold uppercase text-white hover:bg-emerald-700 disabled:opacity-40"
                 >
                   Asignar como audio
                 </button>
               </div>
             )}
-            {uncompressedWavFiles.length > 0 && (
+            {convertibleAudioFiles.length > 0 && (
               <div className="px-2 py-1.5 bg-indigo-50 border-b border-indigo-100 flex flex-wrap items-center gap-1.5">
                 <label
                   className={`inline-flex items-center gap-1.5 text-[10px] font-bold uppercase text-indigo-800 ${
@@ -1824,17 +1998,26 @@ export default function DriveMatcherModal({
                     type="checkbox"
                     disabled={convertBusy}
                     checked={
-                      uncompressedWavFiles.length > 0 &&
-                      selectedWavIds.size === uncompressedWavFiles.length
+                      convertibleAudioFiles.length > 0 &&
+                      selectedWavIds.size === convertibleAudioFiles.length
                     }
                     onChange={(e) => handleSelectAllWavs(e.target.checked)}
                     className="rounded border-indigo-300 text-indigo-600 focus:ring-indigo-500"
-                    aria-label="Seleccionar todos los WAV"
+                    aria-label="Seleccionar todos los WAV/MIDI convertibles"
                   />
-                  todos los WAV
+                  todos WAV/MIDI
                 </label>
                 <span className="text-[10px] font-medium text-indigo-900">
-                  {uncompressedWavFiles.length} WAV
+                  {[
+                    uncompressedWavFiles.length
+                      ? `${uncompressedWavFiles.length} WAV`
+                      : null,
+                    midiFilesInFolder.length
+                      ? `${midiFilesInFolder.length} MIDI`
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
                   {selectedWavIds.size > 0
                     ? ` · ${selectedWavIds.size} marcado${selectedWavIds.size === 1 ? "" : "s"}`
                     : ""}
@@ -1844,7 +2027,7 @@ export default function DriveMatcherModal({
                   disabled={convertBusy || selectedWavFiles.length === 0}
                   onClick={() => void handleBatchConvertWavToMp3()}
                   className="ml-auto inline-flex items-center gap-1 rounded bg-indigo-600 px-2 py-0.5 text-[10px] font-bold uppercase text-white hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed"
-                  title="Convierte los WAV marcados uno a uno. El WAV se conserva; si ya hay MP3 se reemplaza."
+                  title="Convierte WAV/MIDI marcados a MP3. El original se conserva; si ya hay MP3 se reemplaza."
                 >
                   <IconExchange size={12} />
                   Convertir {selectedWavFiles.length} a MP3
@@ -1871,7 +2054,8 @@ export default function DriveMatcherModal({
 
                 const isAudio = isDriveAudioFile(file);
                 const isAssignedAudio = assignedAudioIds.has(file.id);
-                const canConvertToMp3 = isUncompressedDriveAudioFile(file);
+                const canConvertToMp3 = isConvertibleDriveAudioFile(file);
+                const isMidi = isMidiDriveAudioFile(file);
                 const isWavMarked = canConvertToMp3 && selectedWavIds.has(file.id);
 
                 return (
@@ -1947,7 +2131,11 @@ export default function DriveMatcherModal({
                               ? "bg-white/20 text-white hover:bg-white/30"
                               : "bg-indigo-100 text-indigo-800 hover:bg-indigo-200"
                           }`}
-                          title="Convertir a MP3: descarga el WAV, lo convierte aquí y sube el MP3 a la misma carpeta (el WAV se conserva)"
+                          title={
+                            isMidi
+                              ? "Convertir MIDI a MP3: sintetiza con soundfont GM, codifica y sube el MP3 (el MIDI se conserva)"
+                              : "Convertir a MP3: descarga el WAV, lo convierte aquí y sube el MP3 a la misma carpeta (el WAV se conserva)"
+                          }
                         >
                           <IconExchange size={12} />
                           <span className="hidden sm:inline">Convertir a </span>

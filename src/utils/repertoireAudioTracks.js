@@ -4,6 +4,9 @@
  */
 
 export const AUDIO_FILE_EXT_RE = /\.(mp3|mpeg|mpg|mpga|wav|m4a)$/i;
+export const MIDI_FILE_EXT_RE = /\.(mid|midi)$/i;
+export const MIDI_MIME_RE =
+  /^(audio\/(midi|mid|x-midi)|application\/(x-)?midi)(;|$)/i;
 
 export function extractDriveFileId(urlOrId) {
   if (!urlOrId) return null;
@@ -13,11 +16,39 @@ export function extractDriveFileId(urlOrId) {
   return match ? match[0] : null;
 }
 
+/** MIDI (.mid/.midi): asignable en matcher, no reproducible en HTML audio sin convertir. */
+export function isMidiDriveAudioFile(file) {
+  if (!file) return false;
+  const name = String(file.name || "");
+  if (MIDI_FILE_EXT_RE.test(name)) return true;
+  const mime = String(file.mimeType || "").toLowerCase();
+  return MIDI_MIME_RE.test(mime);
+}
+
+/** Entry de `obras.audios` que aún apunta a un MIDI (legacy). */
+export function isMidiObraAudioEntry(entry) {
+  if (!entry) return false;
+  return isMidiDriveAudioFile({
+    name: entry.name || entry.label || "",
+    mimeType: entry.mimeType || "",
+  });
+}
+
+/**
+ * Audio de Drive para matcher (incluye MIDI; excluye video/mpeg sin extensión de audio).
+ */
 export function isDriveAudioFile(file) {
   if (!file) return false;
+  if (isMidiDriveAudioFile(file)) return true;
   const mime = String(file.mimeType || "").toLowerCase();
-  if (mime.startsWith("audio/")) return true;
+  if (mime.startsWith("audio/") && !MIDI_MIME_RE.test(mime)) return true;
   return AUDIO_FILE_EXT_RE.test(file.name || "");
+}
+
+/** Listo para el sticky player / HTML audio (no MIDI). */
+export function isPlayableDriveAudioFile(file) {
+  if (!file || isMidiDriveAudioFile(file)) return false;
+  return isDriveAudioFile(file);
 }
 
 export function audioLabelFromFilename(name) {
@@ -154,6 +185,8 @@ export function buildRepertoireAudioTracks(repertorios) {
             blockId: block.id,
             source: "drive",
             driveFileId: audio.drive_file_id,
+            fileName: audio.name || "",
+            isMidi: isMidiObraAudioEntry(audio),
             title,
             subtitle: audio.label,
             compositor,

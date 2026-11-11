@@ -505,6 +505,17 @@ export default function RepertoirePlaylistPlayer({
         if (!el) return;
         setLoadingAudio(true);
         setError(null);
+        if (track.isMidi) {
+          if (!cancelled) {
+            setError(
+              "Este audio es MIDI: el player no lo reproduce directo. Convertilo a MP3 en el asistente de Drive de la obra.",
+            );
+            setPlaying(false);
+            playingRef.current = false;
+            setLoadingAudio(false);
+          }
+          return;
+        }
         try {
           const url = await getDriveBlobUrlRef.current(track.driveFileId);
           if (cancelled) return;
@@ -527,6 +538,15 @@ export default function RepertoirePlaylistPlayer({
           const seek = pendingSeekRef.current;
           await waitForAudioCanPlay(el);
           if (cancelled) return;
+          if (
+            !Number.isFinite(el.duration) ||
+            el.duration <= 0 ||
+            el.error
+          ) {
+            throw new Error(
+              "No se pudo decodificar este archivo (¿MIDI u otro formato no soportado?). Convertí a MP3 en el asistente de Drive.",
+            );
+          }
           if (
             seek > 0 &&
             Number.isFinite(el.duration) &&

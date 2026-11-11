@@ -3029,7 +3029,7 @@ export default function WorkForm({
               </div>
               {normalizeObraAudios(formData.audios).length === 0 ? (
                 <p className="text-[10px] text-slate-400 leading-snug">
-                  Marcá mp3/mpeg/wav en el asistente de Drive (movimientos en orden).
+                  Marcá mp3/mpeg/wav/midi en el asistente de Drive (MIDI se convierte a MP3 una vez).
                 </p>
               ) : (
                 <ul className="space-y-1">
@@ -3376,7 +3376,7 @@ export default function WorkForm({
         cancelText="Seguir editando"
         confirmLoading={isSaving}
         loadingText="Creando solicitud…"
-        overlayClassName="z-[110]"
+        overlayClassName="z-[10050]"
         secondaryAction={{
           label: "Cancelar solicitud",
           onClick: handleDiscardDraft,
@@ -3405,7 +3405,7 @@ export default function WorkForm({
         loadingText="Copiando en Google Drive…"
         confirmText={paraAcomodarAccessError ? "Reintentar copia" : "Copiar"}
         confirmClassName="px-4 py-2.5 sm:py-2 text-sm font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-lg shadow-md hover:shadow-lg transition-all active:scale-[0.98] disabled:opacity-70"
-        overlayClassName="z-[110]"
+        overlayClassName="z-[10050]"
         secondaryAction={
           paraAcomodarAccessError && !paraAcomodarAccessError.permissionRequested
             ? {
