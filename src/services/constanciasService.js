@@ -15,6 +15,10 @@ import {
   formatRangoFechasConstancia,
   formatLocalidadesConstancia,
 } from "../utils/constanciaPdf";
+import {
+  emissionIsoAfterGira,
+  isoToLocalDate,
+} from "../utils/constanciaFechaEmision";
 import { formatProgramSelectLabel } from "../utils/giraUtils";
 import { suggestConstanciaFechasFromLogistics } from "./constanciaLogisticsFechas";
 
@@ -72,6 +76,50 @@ function todayIsoLocal() {
   const m = String(n.getMonth() + 1).padStart(2, "0");
   const d = String(n.getDate()).padStart(2, "0");
   return `${y}-${m}-${d}`;
+}
+
+/**
+ * Fecha superior del PDF «para firmar»:
+ * - Gira pasada → hoy
+ * - Gira no terminada → lunes siguiente al fin del cuerpo (`fechaHasta`),
+ *   o el primer hábil posterior si ese lunes es feriado/puente.
+ */
+export async function resolveFechaEmisionParticipacionParaFirmar(
+  supabase,
+  { programa, fechaHastaCuerpo },
+) {
+  if (isGiraPasadaConstancia(programa)) {
+    return new Date();
+  }
+  const hasta =
+    normalizeSnapFecha(fechaHastaCuerpo) ||
+    normalizeSnapFecha(programa?.fecha_hasta);
+  if (!hasta) return new Date();
+
+  const mondayProbe = emissionIsoAfterGira(hasta, new Set());
+  if (!mondayProbe) return new Date();
+  // Pedimos un margen por si el lunes cae en feriado y hay que avanzar varios días.
+  const rangeEndDate = isoToLocalDate(mondayProbe);
+  if (!rangeEndDate) return new Date();
+  rangeEndDate.setDate(rangeEndDate.getDate() + 21);
+  const y = rangeEndDate.getFullYear();
+  const m = String(rangeEndDate.getMonth() + 1).padStart(2, "0");
+  const d = String(rangeEndDate.getDate()).padStart(2, "0");
+  const rangeEnd = `${y}-${m}-${d}`;
+
+  const { data, error } = await supabase
+    .from("feriados")
+    .select("fecha")
+    .gte("fecha", mondayProbe)
+    .lte("fecha", rangeEnd);
+  if (error) throw error;
+  const feriadoSet = new Set(
+    (data || [])
+      .map((r) => String(r.fecha || "").slice(0, 10))
+      .filter((s) => /^\d{4}-\d{2}-\d{2}$/.test(s)),
+  );
+  const habil = emissionIsoAfterGira(hasta, feriadoSet) || mondayProbe;
+  return isoToLocalDate(habil) || new Date();
 }
 
 /** Gira ya terminada (fecha_hasta estrictamente anterior a hoy). */
@@ -1178,6 +1226,11 @@ export async function descargarConstanciaParticipacionParaFirmar(
       ? String(snapFuncion).trim()
       : String(snap.snap_funcion || "").trim();
 
+  const fechaEmision = await resolveFechaEmisionParticipacionParaFirmar(
+    supabase,
+    { programa, fechaHastaCuerpo: hasta },
+  );
+
   const { blob, filename } = await generateConstanciaPdf({
     nombre: snap.snap_nombre,
     apellido: snap.snap_apellido,
@@ -1188,7 +1241,7 @@ export async function descargarConstanciaParticipacionParaFirmar(
     fechaDesde: desde,
     fechaHasta: hasta,
     localidades: snap.snap_localidades,
-    fechaEmision: new Date(),
+    fechaEmision,
     tipo: CONSTANCIA_TIPOS.participacion,
     omitFirma: true,
     paraFirmar: true,
