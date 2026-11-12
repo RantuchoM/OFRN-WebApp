@@ -8,6 +8,7 @@ Habilitar un **jefe/a de fila** por contenedor de cuerdas, con permisos acotados
 - El jefe **no puede moverse a sí mismo** de `1a`.
 - Solo reordenar dentro de su contenedor + overrides individuales. No toca asignación grupal `C-`, CRUD de contenedores ni otros contenedores.
 - **Reorder en Seating**: el jefe no usa el panel Cuerdas; reordena con flechas ↑↓ a la derecha de cada nombre en la fila expandida del contenedor (el asiento `1a` no tiene flechas / no se mueve). El RPC exige el set completo de ítems del contenedor: si la grilla filtra por bloque/grupo, el payload une el swap visible con el resto sin tocar.
+- **Vista móvil**: `MobileSeatingTable` auto-expande los contenedores del jefe; muestra lista lineal (no pares de atril) con ↑↓ táctiles grandes y `ParticellaSelect` inline para overrides `M-` (mismas reglas que escritorio; sin lápiz de obra). Badge «Jefe de fila · ↑↓ y partes» cuando puede editar.
 - Si un **editor** mueve a alguien que cambia el `1a`, debe confirmar con advertencia de cambio de jefe/permisos.
 - **Notificación del jefe (sin ventana):** cualquier cambio de atril/silla o asignación de partes hecho por el jefe **siempre** ofrece el mail (no aplica el filtro de ~2 semanas / 18 días). El jefe puede omitir (Descartar / No enviar). Editores/producción siguen con la ventana tardía habitual.
 - Si el cambio lo hace el jefe, el mail `SEATING_CAMBIO` aclara que lo efectuó el/la jefe de fila; Marko recibe un **único resumen por lote** (`SEATING_CAMBIO_JEFE_RESUMEN` → `marko.scrn@gmail.com`) con particellas y/o atril/silla; no un CC por músico.
@@ -29,6 +30,7 @@ Habilitar un **jefe/a de fila** por contenedor de cuerdas, con permisos acotados
 - [x] Helpers `seatingJefeDeFila.js`
 - [x] Migración RPCs + plantilla mail (`20261111160000_jefes_de_fila_rpcs.sql`, applied linked)
 - [x] UI jefe (reorder + M- en Seating / GlobalStringsManager modo jefe)
+- [x] Vista móvil Seating: ↑↓ + partes para jefes (`MobileSeatingTable`)
 - [x] Warning editor al cambiar `1a`
 - [x] `SEATING_CAMBIO` con actor jefe (+ plantilla `actor_nota` en Gestión)
 - [x] Botón + envío `REPERTORIO_PARTES_LISTOS` (Repertorio → Anunciar partes listos)

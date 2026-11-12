@@ -476,15 +476,45 @@ const MobileSeatingTable = ({
   onOpenObraEmails = null,
   musiciansWithoutParts = new Set(),
   musicianTooltipById = {},
+  jefeLedIdSet = null,
+  canEditAsJefeDeFila = false,
+  canEditStringPersonAsJefe = null,
+  onJefeReorderAdjacent = null,
 }) => {
+  const jefeIds = jefeLedIdSet instanceof Set ? jefeLedIdSet : new Set();
+  const canEditPersonAsJefe =
+    typeof canEditStringPersonAsJefe === "function"
+      ? canEditStringPersonAsJefe
+      : () => false;
+
   // Estado para acordeón
   const [expandedIds, setExpandedIds] = useState(() => {
+    const ids = [];
     const myContainer = containers.find((c) =>
       c.items.some((i) => i.id_musico === user.id),
     );
-    return myContainer ? [myContainer.id] : [];
+    if (myContainer) ids.push(myContainer.id);
+    containers.forEach((c) => {
+      if (jefeIds.has(String(c.id)) && !ids.some((id) => String(id) === String(c.id))) {
+        ids.push(c.id);
+      }
+    });
+    return ids;
   });
   const [editingObraId, setEditingObraId] = useState(null);
+
+  // Auto-expandir contenedores del jefe (nombres + flechas a un toque).
+  useEffect(() => {
+    if (!jefeIds.size) return;
+    setExpandedIds((prev) => {
+      const existing = new Set((prev || []).map(String));
+      const additions = containers
+        .filter((c) => jefeIds.has(String(c.id)) && !existing.has(String(c.id)))
+        .map((c) => c.id);
+      if (!additions.length) return prev;
+      return [...(prev || []), ...additions];
+    });
+  }, [containers, jefeLedIdSet]);
 
   const toggleContainer = (id) => {
     setExpandedIds((prev) =>
@@ -615,25 +645,47 @@ const MobileSeatingTable = ({
           <tbody className="divide-y divide-slate-100">
             {/* --- CUERDAS (ACORDEÓN) --- */}
             {containers.map((c) => {
-              const isExpanded = expandedIds.includes(c.id);
+              const isExpanded =
+                expandedIds.includes(c.id) ||
+                expandedIds.map(String).includes(String(c.id));
               const isMyContainer = c.items.some(
                 (i) => i.id_musico === user.id,
               );
+              const isJefeOfThisContainer = jefeIds.has(String(c.id));
+              const sortedItems = sortSeatingItems(c.items || []);
 
               return (
                 <React.Fragment key={c.id}>
                   {/* FILA PADRE: NOMBRE GRUPO + ASIGNACIÓN GRUPAL */}
                   <tr
                     onClick={() => toggleContainer(c.id)}
-                    className="cursor-pointer bg-slate-100 hover:bg-slate-200 transition-colors border-b border-slate-300"
+                    className={`cursor-pointer hover:bg-slate-200 transition-colors border-b border-slate-300 ${
+                      isJefeOfThisContainer
+                        ? "bg-indigo-50"
+                        : "bg-slate-100"
+                    }`}
                   >
                     <td
-                      className={`p-1.5 pl-2 sticky left-0 z-20 border-r border-slate-300 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] ${isMyContainer ? "bg-amber-100 border-l-4 border-l-amber-500" : "bg-slate-100"}`}
+                      className={`p-1.5 pl-2 sticky left-0 z-20 border-r border-slate-300 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] ${
+                        isJefeOfThisContainer
+                          ? "bg-indigo-50 border-l-4 border-l-indigo-500"
+                          : isMyContainer
+                            ? "bg-amber-100 border-l-4 border-l-amber-500"
+                            : "bg-slate-100"
+                      }`}
                     >
                       <div className="flex items-center justify-between gap-1">
-                        <span className="font-bold text-[10px] text-slate-800 uppercase truncate">
-                          {c.nombre}
-                        </span>
+                        <div className="min-w-0 flex flex-col">
+                          <span className="font-bold text-[10px] text-slate-800 uppercase truncate">
+                            {c.nombre}
+                          </span>
+                          {isJefeOfThisContainer && (
+                            <span className="text-[8px] font-semibold text-indigo-700 truncate">
+                              Jefe de fila
+                              {canEditAsJefeDeFila ? " · ↑↓ y partes" : ""}
+                            </span>
+                          )}
+                        </div>
                         <div className="flex items-center gap-1">
                           <span className="text-[8px] text-slate-500">
                             ({c.items.length})
@@ -694,69 +746,74 @@ const MobileSeatingTable = ({
 
                   {/* FILAS HIJAS: MÚSICOS (Solo si expandido) */}
                   {isExpanded &&
-                    buildSeatingStands(sortSeatingItems(c.items || [])).flatMap(
-                      ({ atril, left, right }) => {
-                        const rows = [];
-
-                        const pushRow = (item, ladoLabel) => {
-                          const isPlaceholder = !item;
-                          const musicianId = item?.id_musico;
+                    (isJefeOfThisContainer
+                      ? // Lista lineal + ↑↓: más cómoda en móvil para el jefe
+                        sortedItems.map((item, idx) => {
+                          const musicianId = item.id_musico;
+                          const pos = seatingItemMatrixPosition(item, idx);
+                          const standNum = pos.atril_num ?? 1;
+                          const ladoLabel =
+                            Number(pos.lado) === 0 ? "Afuera" : "Adentro";
                           const isMe =
-                            !isPlaceholder &&
                             String(musicianId) === String(user.id);
-                          const isVacancy =
-                            !isPlaceholder &&
-                            isSeatingSlotVacancy(item, filteredRoster);
-                          const hasNoParts =
-                            !isPlaceholder &&
-                            musiciansWithoutParts.has(String(musicianId));
+                          const isVacancy = isSeatingSlotVacancy(
+                            item,
+                            filteredRoster,
+                          );
+                          const hasNoParts = musiciansWithoutParts.has(
+                            String(musicianId),
+                          );
+                          const showJefeReorder =
+                            canEditAsJefeDeFila &&
+                            !isJefeSeat(pos.atril_num, pos.lado);
+                          const canMoveUp =
+                            showJefeReorder &&
+                            canJefeMoveItem(sortedItems, idx, "up");
+                          const canMoveDown =
+                            showJefeReorder &&
+                            canJefeMoveItem(sortedItems, idx, "down");
+                          const canEditParts =
+                            canEditPersonAsJefe(musicianId);
 
-                          rows.push(
+                          return (
                             <tr
-                              key={`${c.id}-${atril}-${ladoLabel}`}
+                              key={`${c.id}-jefe-${item.id || musicianId}`}
                               className={`transition-colors ${
-                                isPlaceholder
-                                  ? "bg-slate-50"
-                                  : isEditor && hasNoParts
-                                    ? "bg-orange-50 hover:bg-orange-100/80"
-                                    : isMe
-                                      ? "bg-amber-50"
-                                      : "bg-white"
+                                isEditor && hasNoParts
+                                  ? "bg-orange-50"
+                                  : isMe
+                                    ? "bg-amber-50"
+                                    : "bg-white"
                               }`}
                             >
                               <td
-                                className={`p-1 pl-4 sticky left-0 z-20 border-r border-slate-200 border-b border-slate-50 align-middle ${
+                                className={`p-1 pl-3 sticky left-0 z-20 border-r border-slate-200 border-b border-slate-50 align-middle ${
                                   isMe ? "bg-amber-50" : "bg-white"
                                 }`}
                               >
                                 <div
-                                  className={`flex flex-col leading-none pl-2 ${
+                                  className={`flex items-center gap-1 pl-1 ${
                                     isVacancy
                                       ? `border ${VACANCY_SEATING_BORDER_CLASS} rounded px-1`
-                                      : "border-l-2 border-slate-200"
+                                      : "border-l-2 border-indigo-300"
                                   }`}
                                 >
-                                  <span
-                                    className={`text-[10px] font-medium truncate ${
-                                      isPlaceholder
-                                        ? "text-slate-300 italic"
-                                        : isVacancy
+                                  <div className="min-w-0 flex-1 flex flex-col leading-none">
+                                    <span
+                                      className={`text-[10px] font-medium truncate ${
+                                        isVacancy
                                           ? "text-amber-900 font-bold"
                                           : isMe
                                             ? "text-amber-900 font-bold"
-                                            : "text-slate-600"
-                                    }`}
-                                    title={
-                                      isPlaceholder
-                                        ? ""
-                                        : musicianTooltipById[musicianId] || ""
-                                    }
-                                  >
-                                    {isPlaceholder
-                                      ? "Hueco"
-                                      : `${item.integrantes?.apellido}, ${item.integrantes?.nombre?.charAt(0)}.`}
-                                  </span>
-                                  {!isPlaceholder && (
+                                            : "text-slate-700"
+                                      }`}
+                                      title={
+                                        musicianTooltipById[musicianId] || ""
+                                      }
+                                    >
+                                      {item.integrantes?.apellido},{" "}
+                                      {item.integrantes?.nombre?.charAt(0)}.
+                                    </span>
                                     <FuncionGiraInline
                                       person={filteredRoster?.find(
                                         (r) =>
@@ -764,27 +821,51 @@ const MobileSeatingTable = ({
                                       )}
                                       className="mt-0.5 w-fit"
                                     />
+                                    <span className="text-[8px] text-slate-400 mt-0.5">
+                                      Atril {standNum} · {ladoLabel}
+                                    </span>
+                                  </div>
+                                  {showJefeReorder && (
+                                    <div className="flex flex-col shrink-0 -my-0.5">
+                                      <button
+                                        type="button"
+                                        disabled={!canMoveUp}
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          onJefeReorderAdjacent?.(
+                                            c,
+                                            idx,
+                                            "up",
+                                          );
+                                        }}
+                                        className="p-1.5 rounded-md text-indigo-600 active:bg-indigo-100 disabled:opacity-25 disabled:pointer-events-none"
+                                        title="Subir atril"
+                                        aria-label="Subir atril"
+                                      >
+                                        <IconChevronUp size={16} />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={!canMoveDown}
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          onJefeReorderAdjacent?.(
+                                            c,
+                                            idx,
+                                            "down",
+                                          );
+                                        }}
+                                        className="p-1.5 rounded-md text-indigo-600 active:bg-indigo-100 disabled:opacity-25 disabled:pointer-events-none"
+                                        title="Bajar atril"
+                                        aria-label="Bajar atril"
+                                      >
+                                        <IconChevronDown size={16} />
+                                      </button>
+                                    </div>
                                   )}
-                                  <span className="text-[8px] text-slate-400 mt-0.5">
-                                    Atril {atril} · {ladoLabel}
-                                  </span>
                                 </div>
                               </td>
-
                               {obras.map((obra) => {
-                                if (isPlaceholder) {
-                                  return (
-                                    <td
-                                      key={`${c.id}-${atril}-${ladoLabel}-${obra.id}`}
-                                      className="p-1 border-l border-slate-100 border-b border-slate-50 text-center align-middle"
-                                    >
-                                      <span className="text-[10px] text-slate-200 select-none">
-                                        —
-                                      </span>
-                                    </td>
-                                  );
-                                }
-
                                 const effectivePartId =
                                   getStringPersonEffectivePartId(
                                     musicianAssignments,
@@ -804,17 +885,19 @@ const MobileSeatingTable = ({
                                   isEditor && editingObraId === obra.obra_id;
                                 const availableParts =
                                   availablePartsByWork[obra.obra_id] || [];
+                                const showPartSelect =
+                                  isEditingThisWork || canEditParts;
 
                                 return (
                                   <td
-                                    key={`${item.id}-${obra.id}-${ladoLabel}`}
+                                    key={`${item.id}-${obra.id}-jefe`}
                                     onClick={(event) => {
-                                      if (isEditingThisWork)
+                                      if (showPartSelect)
                                         event.stopPropagation();
                                     }}
                                     className="p-1 border-l border-slate-100 border-b border-slate-50 text-center align-middle"
                                   >
-                                    {isEditingThisWork ? (
+                                    {showPartSelect ? (
                                       <ParticellaSelect
                                         options={availableParts}
                                         value={effectivePartId}
@@ -826,13 +909,16 @@ const MobileSeatingTable = ({
                                             val,
                                           )
                                         }
-                                        onRequestCreate={() =>
-                                          onRequestCreate?.(
-                                            obra.obra_id,
-                                            c.id_instrumento,
-                                            "M",
-                                            musicianId,
-                                          )
+                                        onRequestCreate={
+                                          isEditor
+                                            ? () =>
+                                                onRequestCreate?.(
+                                                  obra.obra_id,
+                                                  c.id_instrumento,
+                                                  "M",
+                                                  musicianId,
+                                                )
+                                            : undefined
                                         }
                                         disabled={false}
                                         placeholder="Asignar"
@@ -854,16 +940,185 @@ const MobileSeatingTable = ({
                                   </td>
                                 );
                               })}
-                            </tr>,
+                            </tr>
                           );
-                        };
+                        })
+                      : buildSeatingStands(sortedItems).flatMap(
+                          ({ atril, left, right }) => {
+                            const rows = [];
 
-                        pushRow(left, "Afuera");
-                        pushRow(right, "Adentro");
+                            const pushRow = (item, ladoLabel) => {
+                              const isPlaceholder = !item;
+                              const musicianId = item?.id_musico;
+                              const isMe =
+                                !isPlaceholder &&
+                                String(musicianId) === String(user.id);
+                              const isVacancy =
+                                !isPlaceholder &&
+                                isSeatingSlotVacancy(item, filteredRoster);
+                              const hasNoParts =
+                                !isPlaceholder &&
+                                musiciansWithoutParts.has(String(musicianId));
 
-                        return rows;
-                      },
-                    )}
+                              rows.push(
+                                <tr
+                                  key={`${c.id}-${atril}-${ladoLabel}`}
+                                  className={`transition-colors ${
+                                    isPlaceholder
+                                      ? "bg-slate-50"
+                                      : isEditor && hasNoParts
+                                        ? "bg-orange-50 hover:bg-orange-100/80"
+                                        : isMe
+                                          ? "bg-amber-50"
+                                          : "bg-white"
+                                  }`}
+                                >
+                                  <td
+                                    className={`p-1 pl-4 sticky left-0 z-20 border-r border-slate-200 border-b border-slate-50 align-middle ${
+                                      isMe ? "bg-amber-50" : "bg-white"
+                                    }`}
+                                  >
+                                    <div
+                                      className={`flex flex-col leading-none pl-2 ${
+                                        isVacancy
+                                          ? `border ${VACANCY_SEATING_BORDER_CLASS} rounded px-1`
+                                          : "border-l-2 border-slate-200"
+                                      }`}
+                                    >
+                                      <span
+                                        className={`text-[10px] font-medium truncate ${
+                                          isPlaceholder
+                                            ? "text-slate-300 italic"
+                                            : isVacancy
+                                              ? "text-amber-900 font-bold"
+                                              : isMe
+                                                ? "text-amber-900 font-bold"
+                                                : "text-slate-600"
+                                        }`}
+                                        title={
+                                          isPlaceholder
+                                            ? ""
+                                            : musicianTooltipById[
+                                                musicianId
+                                              ] || ""
+                                        }
+                                      >
+                                        {isPlaceholder
+                                          ? "Hueco"
+                                          : `${item.integrantes?.apellido}, ${item.integrantes?.nombre?.charAt(0)}.`}
+                                      </span>
+                                      {!isPlaceholder && (
+                                        <FuncionGiraInline
+                                          person={filteredRoster?.find(
+                                            (r) =>
+                                              String(r.id) ===
+                                              String(musicianId),
+                                          )}
+                                          className="mt-0.5 w-fit"
+                                        />
+                                      )}
+                                      <span className="text-[8px] text-slate-400 mt-0.5">
+                                        Atril {atril} · {ladoLabel}
+                                      </span>
+                                    </div>
+                                  </td>
+
+                                  {obras.map((obra) => {
+                                    if (isPlaceholder) {
+                                      return (
+                                        <td
+                                          key={`${c.id}-${atril}-${ladoLabel}-${obra.id}`}
+                                          className="p-1 border-l border-slate-100 border-b border-slate-50 text-center align-middle"
+                                        >
+                                          <span className="text-[10px] text-slate-200 select-none">
+                                            —
+                                          </span>
+                                        </td>
+                                      );
+                                    }
+
+                                    const effectivePartId =
+                                      getStringPersonEffectivePartId(
+                                        musicianAssignments,
+                                        assignments,
+                                        musicianId,
+                                        c.id,
+                                        obra.obra_id,
+                                      );
+                                    const isOverride =
+                                      isStringPersonPartOverride(
+                                        musicianAssignments,
+                                        assignments,
+                                        musicianId,
+                                        c.id,
+                                        obra.obra_id,
+                                      );
+                                    const isEditingThisWork =
+                                      isEditor &&
+                                      editingObraId === obra.obra_id;
+                                    const availableParts =
+                                      availablePartsByWork[obra.obra_id] ||
+                                      [];
+
+                                    return (
+                                      <td
+                                        key={`${item.id}-${obra.id}-${ladoLabel}`}
+                                        onClick={(event) => {
+                                          if (isEditingThisWork)
+                                            event.stopPropagation();
+                                        }}
+                                        className="p-1 border-l border-slate-100 border-b border-slate-50 text-center align-middle"
+                                      >
+                                        {isEditingThisWork ? (
+                                          <ParticellaSelect
+                                            options={availableParts}
+                                            value={effectivePartId}
+                                            onChange={(val) =>
+                                              onStringPersonAssign?.(
+                                                musicianId,
+                                                c.id,
+                                                obra.obra_id,
+                                                val,
+                                              )
+                                            }
+                                            onRequestCreate={() =>
+                                              onRequestCreate?.(
+                                                obra.obra_id,
+                                                c.id_instrumento,
+                                                "M",
+                                                musicianId,
+                                              )
+                                            }
+                                            disabled={false}
+                                            placeholder="Asignar"
+                                            preferredInstrumentId={
+                                              c.id_instrumento
+                                            }
+                                            counts={particellaCounts}
+                                            size="sm"
+                                          />
+                                        ) : isOverride ? (
+                                          <span className="text-[8px] leading-none text-indigo-600 font-bold bg-indigo-50 px-0.5 rounded truncate whitespace-nowrap max-w-[82px] block mx-auto">
+                                            {getPartName(effectivePartId)}
+                                          </span>
+                                        ) : (
+                                          <span className="text-[10px] text-slate-300 select-none">
+                                            〃
+                                          </span>
+                                        )}
+                                      </td>
+                                    );
+                                  })}
+                                </tr>,
+                              );
+                            };
+
+                            pushRow(left, "Afuera");
+                            pushRow(right, "Adentro");
+
+                            return rows;
+                          },
+                        ))}
                 </React.Fragment>
               );
             })}
@@ -4433,6 +4688,10 @@ export default function ProgramSeating({
             onOpenObraEmails={openObraEmailsModal}
             musiciansWithoutParts={musiciansWithoutParts}
             musicianTooltipById={musicianTooltipById}
+            jefeLedIdSet={jefeLedIdSet}
+            canEditAsJefeDeFila={canEditAsJefeDeFila}
+            canEditStringPersonAsJefe={canEditStringPersonAsJefe}
+            onJefeReorderAdjacent={handleJefeReorderAdjacent}
           />
         </div>
 
