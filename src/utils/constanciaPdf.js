@@ -375,15 +375,25 @@ async function flattenPdfToImageBytes(raw) {
 
 /**
  * PDF aplanado con logo + texto + firma (modelo Word).
+ * @param {object} data
+ * @param {boolean} [data.omitFirma] Si true, no dibuja la firma (plantilla para firmar a mano).
+ * @param {boolean} [data.paraFirmar] Alias de omitFirma + nombre de archivo «para firmar».
  * @returns {Promise<{ blob: Blob, base64: string, filename: string, texto: object }>}
  */
 export async function generateConstanciaPdf(data) {
+  const omitFirma = Boolean(data?.omitFirma || data?.paraFirmar);
   const texto = buildConstanciaTexto(data);
-  const [logoDataUrl, firmaDataUrl, fontBase64] = await Promise.all([
+  const assetPromises = [
     fetchImageDataUrl(CONSTANCIA_LOGO_URL),
-    fetchImageDataUrl(CONSTANCIA_FIRMA_URL),
     fetchBinaryBase64(CONSTANCIA_FONT_URL),
-  ]);
+  ];
+  if (!omitFirma) {
+    assetPromises.splice(1, 0, fetchImageDataUrl(CONSTANCIA_FIRMA_URL));
+  }
+  const assets = await Promise.all(assetPromises);
+  const logoDataUrl = assets[0];
+  const firmaDataUrl = omitFirma ? null : assets[1];
+  const fontBase64 = omitFirma ? assets[1] : assets[2];
 
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   const {
@@ -448,13 +458,15 @@ export async function generateConstanciaPdf(data) {
   );
   y += paraGapMm + 4;
 
-  // Firma Spelzini — a la derecha
-  const firmaW = 38;
-  const firmaProps = doc.getImageProperties(firmaDataUrl);
-  const firmaH = (firmaProps.height / firmaProps.width) * firmaW;
-  const firmaX = marginL + 95.25;
-  const firmaY = Math.min(y, pageH - marginB - firmaH);
-  doc.addImage(firmaDataUrl, "PNG", firmaX, firmaY, firmaW, firmaH);
+  // Firma Spelzini — a la derecha (omitida en plantilla «para firmar»)
+  if (!omitFirma && firmaDataUrl) {
+    const firmaW = 38;
+    const firmaProps = doc.getImageProperties(firmaDataUrl);
+    const firmaH = (firmaProps.height / firmaProps.width) * firmaW;
+    const firmaX = marginL + 95.25;
+    const firmaY = Math.min(y, pageH - marginB - firmaH);
+    doc.addImage(firmaDataUrl, "PNG", firmaX, firmaY, firmaW, firmaH);
+  }
 
   const raw = doc.output("arraybuffer");
   const bytes = await flattenPdfToImageBytes(raw);
@@ -468,8 +480,9 @@ export async function generateConstanciaPdf(data) {
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^\w.-]+/g, "_")
     .slice(0, 60);
-  const tipoSlug =
-    String(data.tipo || "") === CONSTANCIA_TIPOS.participacion
+  const tipoSlug = omitFirma
+    ? "Participacion_para_firmar"
+    : String(data.tipo || "") === CONSTANCIA_TIPOS.participacion
       ? "Participacion_realizada"
       : "Convocatoria";
   const filename = `Constancia_${tipoSlug}_${safeName || "OFRN"}.pdf`;

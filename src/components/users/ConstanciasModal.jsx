@@ -13,6 +13,7 @@ import {
 import {
   CONSTANCIA_ESTADO_LABEL,
   CONSTANCIA_ESTADOS,
+  CONSTANCIA_MODO_PARA_FIRMAR,
   CONSTANCIA_TIPOS,
   CONSTANCIA_TIPO_LABEL_SHORT,
 } from "../../constants/constancias";
@@ -23,6 +24,7 @@ import {
   solicitarConstancia,
   reenviarConstanciaAprobada,
   descargarConstanciaPdf,
+  descargarConstanciaParticipacionParaFirmar,
   suggestConstanciaFechasFromLogistics,
 } from "../../services/constanciasService";
 import {
@@ -51,7 +53,14 @@ function tipoBadgeClass(tipo) {
   if (tipo === CONSTANCIA_TIPOS.participacion) {
     return "border-sky-200 bg-sky-50 text-sky-800";
   }
+  if (tipo === CONSTANCIA_MODO_PARA_FIRMAR) {
+    return "border-amber-200 bg-amber-50 text-amber-900";
+  }
   return "border-violet-200 bg-violet-50 text-violet-800";
+}
+
+function isModoParaFirmar(tipo) {
+  return tipo === CONSTANCIA_MODO_PARA_FIRMAR;
 }
 
 function formatShortDate(iso) {
@@ -104,7 +113,7 @@ export default function ConstanciasModal({
   const [saving, setSaving] = useState(false);
   const [giras, setGiras] = useState([]);
   const [solicitudes, setSolicitudes] = useState([]);
-  /** Vacío hasta que elija Convocatoria / Participación realizada. */
+  /** Vacío hasta que elija Convocatoria / Participación / Para firmar. */
   const [tipo, setTipo] = useState("");
   const [idGira, setIdGira] = useState("");
   const [visibleSolicitudes, setVisibleSolicitudes] = useState(
@@ -126,6 +135,8 @@ export default function ConstanciasModal({
 
   const girasDisponibles = useMemo(() => {
     if (!tipo) return [];
+    // Para firmar: no hay solicitud; todas las elegibles quedan disponibles.
+    if (isModoParaFirmar(tipo)) return giras || [];
     return (giras || []).filter((g) => {
       const prev = yaPedidas.get(solicitudKey(g.id, tipo));
       if (!prev) return true;
@@ -282,6 +293,30 @@ export default function ConstanciasModal({
     }
     if (!idGira) {
       toast.error("Elegí una gira");
+      return;
+    }
+    if (isModoParaFirmar(tipo)) {
+      setSaving(true);
+      try {
+        const { filename } = await descargarConstanciaParticipacionParaFirmar(
+          supabase,
+          {
+            idIntegrante: user.id,
+            idGira: Number(idGira),
+            incluirDiaSalida:
+              Boolean(incluirDiaSalida) && Boolean(logistica?.puedeSalida),
+            incluirDiaRegreso:
+              Boolean(incluirDiaRegreso) && Boolean(logistica?.puedeRegreso),
+          },
+        );
+        toast.success(
+          `Descargado: ${filename}. Imprimila y llévala: te la firman en persona.`,
+        );
+      } catch (err) {
+        toast.error(err?.message || "No se pudo descargar la plantilla");
+      } finally {
+        setSaving(false);
+      }
       return;
     }
     setSaving(true);
@@ -534,12 +569,12 @@ export default function ConstanciasModal({
 
           <section className="space-y-2">
             <h3 className="text-xs font-black uppercase tracking-wide text-slate-500">
-              Nueva solicitud
+              {isModoParaFirmar(tipo) ? "Imprimir plantilla" : "Nueva solicitud"}
             </h3>
             <p className="text-[11px] leading-snug text-slate-500">
-              Elegí el tipo de documento. Podés pedir una de cada tipo por gira
-              (sinfónico / camerata). Las giras se cargan recién cuando
-              seleccionás.
+              Elegí el tipo de documento. Podés pedir una convocatoria y una
+              participación realizada por gira (sinfónico / camerata). La
+              plantilla «para firmar» se descarga al instante, sin solicitud.
             </p>
 
             <div className="space-y-2">
@@ -603,7 +638,46 @@ export default function ConstanciasModal({
                   <strong>finalizadas</strong> (fecha de fin anterior a hoy).
                 </p>
               </button>
+              <button
+                type="button"
+                onClick={() => setTipo(CONSTANCIA_MODO_PARA_FIRMAR)}
+                className={`w-full rounded-lg border px-3 py-2.5 text-left transition-colors ${
+                  tipo === CONSTANCIA_MODO_PARA_FIRMAR
+                    ? `border-amber-300 bg-amber-50 ring-2 ring-amber-200/80 ${
+                        loadingGiras ? "animate-pulse" : ""
+                      }`
+                    : "border-slate-200 bg-white hover:bg-slate-50"
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${tipoBadgeClass(CONSTANCIA_MODO_PARA_FIRMAR)}`}
+                  >
+                    {CONSTANCIA_TIPO_LABEL_SHORT[CONSTANCIA_MODO_PARA_FIRMAR]}
+                  </span>
+                  {tipo === CONSTANCIA_MODO_PARA_FIRMAR && loadingGiras ? (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-800">
+                      <IconLoader size={12} className="animate-spin" />
+                      Cargando giras…
+                    </span>
+                  ) : null}
+                </div>
+                <p className="mt-1.5 text-[11px] leading-snug text-slate-600">
+                  Descargá el PDF de participación <strong>sin firma</strong>.
+                  Incluye giras futuras. No genera solicitud: imprimí y listo.
+                </p>
+              </button>
             </div>
+
+            {isModoParaFirmar(tipo) ? (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-[11px] leading-snug text-amber-950">
+                <p className="font-bold">Importante</p>
+                <p className="mt-1">
+                  Debés <strong>imprimirla y llevarla</strong>. La firma se
+                  hace en persona; el archivo no incluye firma digital.
+                </p>
+              </div>
+            ) : null}
 
             {!tipo ? (
               <p className="text-[11px] text-slate-400">
@@ -630,7 +704,9 @@ export default function ConstanciasModal({
                   <p className="text-[11px] text-slate-400">
                     {tipo === CONSTANCIA_TIPOS.participacion
                       ? "No hay giras finalizadas elegibles pendientes de solicitar."
-                      : "No hay giras elegibles pendientes de solicitar."}
+                      : isModoParaFirmar(tipo)
+                        ? "No hay giras elegibles para imprimir."
+                        : "No hay giras elegibles pendientes de solicitar."}
                   </p>
                 )}
                 {idGira && loadingLogistica ? (
@@ -696,16 +772,25 @@ export default function ConstanciasModal({
                   type="button"
                   disabled={saving || !idGira || loadingLogistica}
                   onClick={handleSolicitar}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-bold text-white hover:bg-indigo-700 disabled:opacity-50"
+                  className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-bold text-white disabled:opacity-50 ${
+                    isModoParaFirmar(tipo)
+                      ? "bg-amber-700 hover:bg-amber-800"
+                      : "bg-indigo-600 hover:bg-indigo-700"
+                  }`}
                 >
                   {saving ? (
                     <IconLoader size={14} className="animate-spin" />
+                  ) : isModoParaFirmar(tipo) ? (
+                    <IconDownload size={14} />
                   ) : (
                     <IconFileText size={14} />
                   )}
-                  Solicitar{" "}
-                  {CONSTANCIA_TIPO_LABEL_SHORT[tipo]?.toLowerCase() ||
-                    "constancia"}
+                  {isModoParaFirmar(tipo)
+                    ? "Descargar PDF (sin firma)"
+                    : `Solicitar ${
+                        CONSTANCIA_TIPO_LABEL_SHORT[tipo]?.toLowerCase() ||
+                        "constancia"
+                      }`}
                 </button>
               </>
             )}
