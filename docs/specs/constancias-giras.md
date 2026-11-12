@@ -8,8 +8,9 @@ Los integrantes pueden solicitar **constancias** de giras **Sinfónico** y **Cam
 |------|-------------|--------------------|
 | **Convocatoria** | «ha sido convocado/a como {función} a participar…» (o sin «como {función}» si el campo está vacío) | Gira elegible (pasada o futura) |
 | **Participación realizada** (`Constancia de participación realizada`) | «participó como {función} de los ensayos…» (o «participó de los ensayos…» si vacío) | Solo giras **pasadas** (`fecha_hasta` &lt; hoy) |
+| **Participación (para firmar)** | Mismo cuerpo que participación realizada; PDF **sin firma** | Giras pasadas **o futuras**; **no** crea solicitud ni mail |
 
-Una persona puede pedir **una de cada tipo por gira** (`UNIQUE (id_integrante, id_gira, tipo)`).
+Una persona puede pedir **una de cada tipo persistido por gira** (`UNIQUE (id_integrante, id_gira, tipo)`). El modo «para firmar» es solo descarga/impresión.
 
 ## UX
 
@@ -18,8 +19,8 @@ Una persona puede pedir **una de cada tipo por gira** (`UNIQUE (id_integrante, i
 | Header (junto a Mi Perfil) | Botón **Constancias** → modal «Mis Constancias» |
 | Badge (músico) | Solicitudes propias aprobadas/denegadas aún no vistas |
 | Badge (editor/admin) | Cantidad de solicitudes **pendientes** (abiertas) |
-| Modal | Primero carga **Mis solicitudes** (más recientes primero; muestra 5 y «Mostrar más»; cada ítem con mes_letra \| nomenclador \| zona + fechas); en **aprobadas**: **Reenviar** / **Descargar**; al elegir gira, si no es local y la logística sale **antes** / vuelve **después** del rango del programa, ofrece tildes «Incluir día de salida/regreso» (el servidor valida contra logística) |
-| Gestión `/management/constancias` | Lista (Tipo + columna **como…** editable), filtros estado/tipo, aprobar, denegar, **Aprobar todas**; columna **Gira** con nombre + **desde–hasta del programa**; **fechas del PDF** editables (también a mano); chip **Igual a: Gira|Logística|Ninguna** por extremo abre menú para aplicar esa fecha. **Generar** preaprobada. En **aprobadas**: lectura + lápiz para editar fechas/rol (borrador local) + **Reemitir**; muestra quién emitió/reemitió (`resuelto_por`). Denegadas: quién denegó + **Deshacer**. **Reenviar** / **Descargar**. Móvil: tarjetas; tabla desde `md`. Mis Constancias **no** muestra el resolutor |
+| Modal | Primero carga **Mis solicitudes** (más recientes primero; muestra 5 y «Mostrar más»; cada ítem con mes_letra \| nomenclador \| zona + fechas); en **aprobadas**: **Reenviar** / **Descargar**; al elegir gira, si no es local y la logística sale **antes** / vuelve **después** del rango del programa, ofrece tildes «Incluir día de salida/regreso» (el servidor valida contra logística). Tercera opción **Participación (para firmar)**: instruye al músico a **imprimirla y llevarla** (firma en persona); descarga PDF sin firma; giras futuras OK; sin solicitud |
+| Gestión `/management/constancias` | Lista (Tipo + columna **como…** editable), filtros estado/tipo, aprobar, denegar, **Aprobar todas**; columna **Gira** con nombre + **desde–hasta del programa**; **fechas del PDF** editables (también a mano); chip **Igual a: Gira|Logística|Ninguna** por extremo abre menú para aplicar esa fecha. **Generar** preaprobada; también **Participación (para firmar)** → solo descarga plantilla. En **aprobadas**: lectura + lápiz para editar fechas/rol (borrador local) + **Reemitir**; muestra quién emitió/reemitió (`resuelto_por`). Denegadas: quién denegó + **Deshacer**. **Reenviar** / **Descargar**. Móvil: tarjetas; tabla desde `md`. Mis Constancias **no** muestra el resolutor |
 
 En Mis Constancias el estado **pendiente** deja claro que hay que esperar la resolución.
 
@@ -85,3 +86,4 @@ Tabla `instrumentos`: columna `funcion` (rol formal precompletado; editable en U
 - [x] Reemitir aprobada (fechas/rol + mail `constancia_modificada` + `reemitida_at`)
 - [x] Mis Constancias: tildes día salida/regreso según logística (no local)
 - [x] Gestión: chip «Igual a:» por extremo (elige Gira / Logística; edición manual sigue)
+- [x] Participación (para firmar): PDF sin firma, giras futuras, sin solicitud; UI instruye imprimir y llevar para firma en persona (Mis Constancias + Generar en Gestión)

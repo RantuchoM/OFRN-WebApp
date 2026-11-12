@@ -3,6 +3,7 @@ import {
   CONSTANCIA_ESTADOS,
   CONSTANCIA_TIPOS,
   CONSTANCIA_TIPO_LABEL,
+  CONSTANCIA_MODO_PARA_FIRMAR,
   CONSTANCIA_MAIL_OFICINA,
   CONSTANCIA_MAIL_MODELOS,
 } from "../constants/constancias";
@@ -248,7 +249,9 @@ export async function buildConstanciaSnapshot(supabase, integrante, programa) {
 /**
  * Giras Sinfónico / Camerata Filarmónica donde la persona está en nómina y no ausente.
  * @param {object} [opts]
- * @param {string} [opts.tipo] convocatoria | participacion — participación solo giras pasadas
+ * @param {string} [opts.tipo] convocatoria | participacion | participacion_para_firmar
+ *   — participación realizada: solo giras pasadas;
+ *   — para firmar: pasadas y futuras (como convocatoria).
  */
 export async function listGirasElegiblesConstancia(
   supabase,
@@ -257,7 +260,8 @@ export async function listGirasElegiblesConstancia(
 ) {
   const id = integranteIdForDb(integranteId);
   if (!id) return [];
-  const tipoNorm = normalizeConstanciaTipo(tipo);
+  const soloPasadas = tipo === CONSTANCIA_TIPOS.participacion;
+  // para_firmar y convocatoria: no filtran por fecha_hasta
 
   const { data: programas, error } = await supabase
     .from("programas")
@@ -286,10 +290,7 @@ export async function listGirasElegiblesConstancia(
     const results = await Promise.all(
       slice.map(async (prog) => {
         if (ausenteByGira.get(String(prog.id)) === "ausente") return null;
-        if (
-          tipoNorm === CONSTANCIA_TIPOS.participacion &&
-          !isGiraPasadaConstancia(prog)
-        ) {
+        if (soloPasadas && !isGiraPasadaConstancia(prog)) {
           return null;
         }
         const ids = await resolveGiraRosterIds(supabase, prog.id);
@@ -1108,9 +1109,7 @@ export async function reemitirConstanciaAprobada(
   return finalRow;
 }
 
-/** Descarga el PDF en el navegador. */
-export async function descargarConstanciaPdf(row) {
-  const { blob, filename } = await buildConstanciaPdfFromSolicitud(row);
+function triggerBrowserPdfDownload(blob, filename) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -1119,7 +1118,84 @@ export async function descargarConstanciaPdf(row) {
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+}
+
+/** Descarga el PDF en el navegador. */
+export async function descargarConstanciaPdf(row) {
+  const { blob, filename } = await buildConstanciaPdfFromSolicitud(row);
+  triggerBrowserPdfDownload(blob, filename);
   return { filename };
+}
+
+/**
+ * Plantilla de participación sin firma: descarga inmediata, sin solicitud ni mail.
+ * Permite giras futuras. Texto = participación realizada; omitFirma.
+ */
+export async function descargarConstanciaParticipacionParaFirmar(
+  supabase,
+  {
+    idIntegrante,
+    idGira,
+    snapFuncion,
+    fechaDesde,
+    fechaHasta,
+    incluirDiaSalida = false,
+    incluirDiaRegreso = false,
+    asAdmin = false,
+  },
+) {
+  const { idInt, programa } = await assertConstanciaElegibilidad(supabase, {
+    idIntegrante,
+    idGira,
+    // Misma elegibilidad de nómina que convocatoria (incluye futuras).
+    tipoNorm: CONSTANCIA_TIPOS.convocatoria,
+    asAdmin: Boolean(asAdmin),
+  });
+
+  const integrante = await loadIntegranteForConstancia(supabase, idInt);
+  const snap = await buildConstanciaSnapshot(supabase, integrante, programa);
+
+  let desde = normalizeSnapFecha(fechaDesde) || snap.snap_fecha_desde;
+  let hasta =
+    normalizeSnapFecha(fechaHasta) ||
+    snap.snap_fecha_hasta ||
+    desde;
+
+  if (!fechaDesde && !fechaHasta) {
+    const fechasMusico = await resolveFechasSolicitudMusico(supabase, {
+      idIntegrante: idInt,
+      idGira,
+      programa,
+      incluirDiaSalida: Boolean(incluirDiaSalida),
+      incluirDiaRegreso: Boolean(incluirDiaRegreso),
+    });
+    if (fechasMusico.desde) desde = fechasMusico.desde;
+    if (fechasMusico.hasta) hasta = fechasMusico.hasta;
+  }
+
+  const como =
+    snapFuncion !== undefined && snapFuncion !== null
+      ? String(snapFuncion).trim()
+      : String(snap.snap_funcion || "").trim();
+
+  const { blob, filename } = await generateConstanciaPdf({
+    nombre: snap.snap_nombre,
+    apellido: snap.snap_apellido,
+    dni: snap.snap_dni,
+    genero: snap.snap_genero,
+    instrumento: snap.snap_instrumento,
+    como,
+    fechaDesde: desde,
+    fechaHasta: hasta,
+    localidades: snap.snap_localidades,
+    fechaEmision: new Date(),
+    tipo: CONSTANCIA_TIPOS.participacion,
+    omitFirma: true,
+    paraFirmar: true,
+  });
+
+  triggerBrowserPdfDownload(blob, filename);
+  return { filename, modo: CONSTANCIA_MODO_PARA_FIRMAR };
 }
 
 async function sendDenegacionMail(supabase, row, motivo) {

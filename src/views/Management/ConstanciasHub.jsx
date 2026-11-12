@@ -20,6 +20,7 @@ import ConfirmModal from "../../components/ui/ConfirmModal";
 import {
   CONSTANCIA_ESTADO_LABEL,
   CONSTANCIA_ESTADOS,
+  CONSTANCIA_MODO_PARA_FIRMAR,
   CONSTANCIA_TIPO_LABEL,
   CONSTANCIA_TIPO_LABEL_SHORT,
   CONSTANCIA_TIPOS,
@@ -33,6 +34,7 @@ import {
   aprobarTodasConstanciasPendientes,
   reenviarConstanciaAprobada,
   descargarConstanciaPdf,
+  descargarConstanciaParticipacionParaFirmar,
   updateConstanciaSnapFuncion,
   updateConstanciaSnapFechas,
   countConstanciasPendientes,
@@ -142,6 +144,11 @@ function filtroTipoChipClass(id, active) {
     return active
       ? "border-sky-400 bg-sky-100 text-sky-950 shadow-sm shadow-sky-200/60"
       : "border-sky-200 bg-sky-50/70 text-sky-800 hover:bg-sky-100";
+  }
+  if (id === CONSTANCIA_MODO_PARA_FIRMAR) {
+    return active
+      ? "border-amber-400 bg-amber-100 text-amber-950 shadow-sm shadow-amber-200/60"
+      : "border-amber-200 bg-amber-50/70 text-amber-900 hover:bg-amber-100";
   }
   return active
     ? "border-indigo-400 bg-indigo-100 text-indigo-950 shadow-sm shadow-indigo-200/60"
@@ -1695,6 +1702,8 @@ function GenerarConstanciaModal({ resueltoPorId, onClose, onCreated }) {
     };
   }, [persona?.id, idGira]);
 
+  const esParaFirmar = tipo === CONSTANCIA_MODO_PARA_FIRMAR;
+
   const handleGenerar = async () => {
     if (!persona?.id) {
       toast.error("Elegí una persona");
@@ -1706,6 +1715,23 @@ function GenerarConstanciaModal({ resueltoPorId, onClose, onCreated }) {
     }
     setSaving(true);
     try {
+      if (esParaFirmar) {
+        const { filename } = await descargarConstanciaParticipacionParaFirmar(
+          supabase,
+          {
+            idIntegrante: persona.id,
+            idGira: Number(idGira),
+            snapFuncion: String(como || "").trim(),
+            fechaDesde,
+            fechaHasta,
+            asAdmin: true,
+          },
+        );
+        toast.success(
+          `Plantilla descargada: ${filename}. El músico debe imprimirla y llevarla para firmar.`,
+        );
+        return;
+      }
       const row = await generarConstanciaGestion(supabase, {
         idIntegrante: persona.id,
         idGira: Number(idGira),
@@ -1724,7 +1750,12 @@ function GenerarConstanciaModal({ resueltoPorId, onClose, onCreated }) {
         toast.warning(err.message);
         await onCreated?.(err.solicitud);
       } else {
-        toast.error(err?.message || "No se pudo generar");
+        toast.error(
+          err?.message ||
+            (esParaFirmar
+              ? "No se pudo descargar la plantilla"
+              : "No se pudo generar"),
+        );
       }
     } finally {
       setSaving(false);
@@ -1737,11 +1768,14 @@ function GenerarConstanciaModal({ resueltoPorId, onClose, onCreated }) {
         <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
           <div>
             <h3 className="text-base font-bold text-slate-800 sm:text-sm">
-              Generar constancia
+              {esParaFirmar
+                ? "Plantilla para firmar"
+                : "Generar constancia"}
             </h3>
             <p className="text-[11px] text-slate-500">
-              Queda aprobada, se envía el PDF por mail y aparece en Mis
-              Constancias.
+              {esParaFirmar
+                ? "Descarga el PDF de participación sin firma. No crea solicitud ni envía mail. Indicá al músico que la imprima y la lleve para firmar."
+                : "Queda aprobada, se envía el PDF por mail y aparece en Mis Constancias."}
             </p>
           </div>
           <button
@@ -1846,6 +1880,10 @@ function GenerarConstanciaModal({ resueltoPorId, onClose, onCreated }) {
                   id: CONSTANCIA_TIPOS.participacion,
                   label: CONSTANCIA_TIPO_LABEL_SHORT.participacion,
                 },
+                {
+                  id: CONSTANCIA_MODO_PARA_FIRMAR,
+                  label: CONSTANCIA_TIPO_LABEL_SHORT[CONSTANCIA_MODO_PARA_FIRMAR],
+                },
               ].map((t) => {
                 const active = tipo === t.id;
                 return (
@@ -1861,6 +1899,12 @@ function GenerarConstanciaModal({ resueltoPorId, onClose, onCreated }) {
                 );
               })}
             </div>
+            {esParaFirmar ? (
+              <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-[11px] leading-snug text-amber-950">
+                El músico debe <strong>imprimirla y llevarla</strong>; la firma
+                se hace en persona. Incluye giras futuras.
+              </p>
+            ) : null}
           </div>
 
           <div>
@@ -1946,14 +1990,20 @@ function GenerarConstanciaModal({ resueltoPorId, onClose, onCreated }) {
             type="button"
             disabled={saving || !persona || !idGira || previewBusy}
             onClick={handleGenerar}
-            className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-3 text-sm font-bold text-white hover:bg-indigo-700 disabled:opacity-50 sm:py-2 sm:text-xs"
+            className={`inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-3 text-sm font-bold text-white disabled:opacity-50 sm:py-2 sm:text-xs ${
+              esParaFirmar
+                ? "bg-amber-700 hover:bg-amber-800"
+                : "bg-indigo-600 hover:bg-indigo-700"
+            }`}
           >
             {saving ? (
               <IconLoader size={14} className="animate-spin" />
+            ) : esParaFirmar ? (
+              <IconDownload size={14} />
             ) : (
               <IconCheck size={14} />
             )}
-            Generar y enviar
+            {esParaFirmar ? "Descargar plantilla" : "Generar y enviar"}
           </button>
         </div>
       </div>
