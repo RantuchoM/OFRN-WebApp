@@ -8,7 +8,7 @@ Los integrantes pueden solicitar **constancias** de giras **Sinfónico** y **Cam
 |------|-------------|--------------------|
 | **Convocatoria** | «ha sido convocado/a como {función} a participar…» (o sin «como {función}» si el campo está vacío) | Gira elegible (pasada o futura) |
 | **Participación realizada** (`Constancia de participación realizada`) | «participó como {función} de los ensayos…» (o «participó de los ensayos…» si vacío) | Solo giras **pasadas** (`fecha_hasta` &lt; hoy) |
-| **Participación (para firmar)** | Mismo cuerpo que participación realizada; PDF **sin firma** | Giras pasadas **o futuras**; **no** crea solicitud ni mail |
+| **Participación (para firmar)** | Mismo cuerpo que participación realizada; PDF **sin firma** | Giras pasadas **o futuras**; **no** crea solicitud ni mail. Si la gira **aún no terminó**, la fecha superior es el **lunes siguiente** al fin del cuerpo (o el **primer hábil** si ese lunes es feriado/puente en `feriados`); si ya pasó, usa la fecha de hoy |
 
 Una persona puede pedir **una de cada tipo persistido por gira** (`UNIQUE (id_integrante, id_gira, tipo)`). El modo «para firmar» es solo descarga/impresión.
 
@@ -49,7 +49,7 @@ Texto común:
 - **Fechas del cuerpo**: por defecto `programas.fecha_desde` / `fecha_hasta`. El músico puede tildar día de salida/regreso si la logística (↑/↓, no local) cae fuera de ese rango; el server solo amplía hasta esas fechas de logística. En Gestión se editan a mano (aprobadas en borrador hasta Reemitir); chip **Igual a:** por extremo (Gira / Logística / Ninguna) permite elegir fecha de programa o de logística.
 - **Instrumento / función**: al solicitar, se toma el instrumento **efectivo de la gira** → `instrumentos.funcion` → `snap_funcion` (editable en Gestión; puede quedar **vacío**). Si hay texto: convocatoria «como {snap_funcion} a participar…»; participación «participó como {snap_funcion} de…». Si está vacío: se omite «como …» y queda «ha sido convocado/a a participar…» / «participó de los ensayos…».
 - **Localidades** concatenadas de tramos / `giras_localidades`
-- **Emisión**: `Viedma, {reemitida_at || fecha de aprobación}`
+- **Emisión**: solicitudes aprobadas → `Viedma, {reemitida_at || fecha de aprobación}`. Plantilla **para firmar** de gira no terminada → lunes siguiente al `fecha_hasta` del cuerpo (primer hábil si feriado); gira pasada → hoy
 - Generación: **jsPDF** (logo + **Calibri** 13pt embebida + firma) y después **aplanado real**: cada página se rasteriza con pdf.js (~216 dpi) y pdf-lib la guarda como una sola imagen. El PDF de **Descargar** y el adjunto del mail no tienen texto seleccionable ni campos. `form.flatten()` no alcanza: jsPDF no crea AcroForm, así que el archivo seguía editable. Fecha a la **derecha**; cuerpo/cierre **justificados**, interlineado **1.5**, sangría 1ª línea ~40 mm. Sin «el Sr.» / «la Sra.»; coma tras el nombre; participio según género en convocatoria.
 - Fuente: `public/fonts/Calibri.ttf`
 
@@ -87,3 +87,4 @@ Tabla `instrumentos`: columna `funcion` (rol formal precompletado; editable en U
 - [x] Mis Constancias: tildes día salida/regreso según logística (no local)
 - [x] Gestión: chip «Igual a:» por extremo (elige Gira / Logística; edición manual sigue)
 - [x] Participación (para firmar): PDF sin firma, giras futuras, sin solicitud; UI instruye imprimir y llevar para firma en persona (Mis Constancias + Generar en Gestión)
+- [x] Para firmar + gira futura: fecha superior = lunes post-gira (hábil vía tabla `feriados`)
