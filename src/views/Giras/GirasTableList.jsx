@@ -15,6 +15,7 @@ import RepertoireManager from "../../components/repertoire/RepertoireManager";
 import { getProgramStyle } from "../../utils/giraUtils";
 import { resolveMiCoberturaForUser } from "../../utils/coberturaGira";
 import { enqueueOrganicoRefresh } from "../../services/organicoConvocadoService";
+import ProgramBorradorHelpBadge from "../../components/giras/ProgramBorradorHelpBadge";
 import GiraActionMenu from "./GiraActionMenu";
 import StagePlotViewerModal from "./StagePlotViewerModal";
 
@@ -169,6 +170,7 @@ function GiraTableRow({
   isHighlighted,
   showRepertoire = false,
   expandAllConcerts = false,
+  onEstadoChange,
 }) {
   const { user, isDifusion, isTechnician, isManagement, isAdmin } = useAuth();
   const [organicoText, setOrganicoText] = useState(
@@ -344,11 +346,21 @@ function GiraTableRow({
             >
               {programStyle.label || gira.tipo || "—"}
             </span>
-            {gira.estado && gira.estado !== "Vigente" && (
+            {gira.estado === "Borrador" && isEditor ? (
+              <ProgramBorradorHelpBadge
+                gira={gira}
+                supabase={supabase}
+                canPromote
+                onPromoted={onEstadoChange}
+                compact
+                className="shrink-0"
+                labelClassName="shrink-0 rounded border border-current px-1 text-[8px] font-bold uppercase leading-tight text-slate-500"
+              />
+            ) : gira.estado && gira.estado !== "Vigente" ? (
               <span className="shrink-0 rounded border border-current px-1 text-[8px] font-bold uppercase leading-tight text-slate-500">
                 {gira.estado.slice(0, 3)}
               </span>
-            )}
+            ) : null}
           </div>
           {nomen ? (
             <span

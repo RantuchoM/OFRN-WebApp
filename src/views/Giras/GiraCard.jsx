@@ -22,6 +22,7 @@ import LocacionNombreSpan, {
 } from "../../components/locations/LocacionNombreSpan";
 import CommentButton from "../../components/comments/CommentButton";
 import RepertoireManager from "../../components/repertoire/RepertoireManager";
+import ProgramBorradorHelpBadge from "../../components/giras/ProgramBorradorHelpBadge";
 import GiraActionMenu from "./GiraActionMenu";
 import StagePlotViewerModal from "./StagePlotViewerModal";
 import AppNavLink from "../../components/ui/AppNavLink";
@@ -126,6 +127,7 @@ export default function GiraCard({
   isHighlighted,
   defaultOpenSection,
   dateAccessory = null,
+  onEstadoChange,
 }) {
   const { user, isDifusion, isTechnician, isManagement, isAdmin } = useAuth();
   const isMenuOpen = activeMenuId === gira.id;
@@ -945,6 +947,19 @@ export default function GiraCard({
                     <span className="opacity-60">{gira.zona}</span>
                   </>
                 )}
+                {gira.estado === "Borrador" && isEditor ? (
+                  <ProgramBorradorHelpBadge
+                    gira={gira}
+                    supabase={supabase}
+                    canPromote
+                    onPromoted={onEstadoChange}
+                    className="shrink-0 normal-case tracking-normal"
+                  />
+                ) : gira.estado && gira.estado !== "Vigente" ? (
+                  <span className="border border-current px-1 rounded text-[9px] uppercase font-bold shrink-0">
+                    {gira.estado}
+                  </span>
+                ) : null}
                 <span className="opacity-30">|</span>
               </div>
               <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wide opacity-60 truncate pr-4">
@@ -1101,11 +1116,19 @@ export default function GiraCard({
               >
                 {gira.mes_letra} {gira.nomenclador}
               </span>
-              {gira.estado !== "Vigente" && (
+              {gira.estado === "Borrador" && isEditor ? (
+                <ProgramBorradorHelpBadge
+                  gira={gira}
+                  supabase={supabase}
+                  canPromote
+                  onPromoted={onEstadoChange}
+                  className="ml-2"
+                />
+              ) : gira.estado && gira.estado !== "Vigente" ? (
                 <span className="border border-current px-1 rounded text-[9px] uppercase font-bold ml-2">
                   {gira.estado}
                 </span>
-              )}
+              ) : null}
               {getSourcesDisplayDesktop()}
             </div>
             {renderMiCoberturaTag("mb-1 max-w-[14rem]")}

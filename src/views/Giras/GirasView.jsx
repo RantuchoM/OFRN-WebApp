@@ -1747,6 +1747,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
             supabase={supabase}
             onDelete={() => handleDeleteGira(gira)}
             isHighlighted={isHighlighted}
+            onEstadoChange={fetchGiras}
           />
         </div>
       );
@@ -1769,6 +1770,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
       handleOpenDup,
       supabase,
       handleDeleteGira,
+      fetchGiras,
     ],
   );
 
@@ -2250,6 +2252,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
                     supabase,
                     onMove: handleOpenMove,
                     onDuplicate: handleOpenDup,
+                    onEstadoChange: fetchGiras,
                   }}
                   canEditGira={canEditGira}
                   highlightedGiraId={highlightedGiraId}
