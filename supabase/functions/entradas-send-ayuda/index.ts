@@ -5,6 +5,7 @@
  * - check_reservas: avisa si el mail ya tiene reservas activas
  * - reenviar_entradas: reenvía confirmación con QR a ese mail
  * - abrir_entrada: pdf_share_token para PDF/QR/WhatsApp sin login (mail + reserva)
+ * - responder_sin_emitir: staff (JWT + entrada_can_terceros) responde por mail sin crear reserva
  */
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
@@ -16,6 +17,7 @@ const AYUDA_TO =
   Deno.env.get("ENTRADAS_AYUDA_TO") || "filarmonica.scrn+entradas@gmail.com";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
 const PUBLIC_BASE = (Deno.env.get("ENTRADAS_PUBLIC_URL") ?? "https://ofrn-web-app.vercel.app").replace(
   /\/$/,
   "",
@@ -442,6 +444,146 @@ async function handleReenviarEntradas(
   return jsonResponse({ success: true });
 }
 
+async function handleResponderSinEmitir(
+  req: Request,
+  admin: SupabaseClient,
+  body: Record<string, unknown>,
+) {
+  if (!GMAIL_USER || !GMAIL_PASS) {
+    throw new Error("Falta ENTRADAS_GMAIL_USER/ENTRADAS_GMAIL_PASS o GMAIL_USER/GMAIL_PASS.");
+  }
+  if (!SUPABASE_ANON_KEY) {
+    throw new Error("Falta SUPABASE_ANON_KEY.");
+  }
+
+  const authHeader = req.headers.get("Authorization") ?? "";
+  if (!authHeader) {
+    return jsonResponse({ error: "No autenticado" }, 401);
+  }
+
+  const supabaseUser = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    global: { headers: { Authorization: authHeader } },
+  });
+  const {
+    data: { user },
+    error: authErr,
+  } = await supabaseUser.auth.getUser();
+  if (authErr || !user) {
+    return jsonResponse({ error: "Sesión inválida" }, 401);
+  }
+
+  const { data: canTerceros, error: canErr } = await supabaseUser.rpc("entrada_can_terceros", {
+    check_user: user.id,
+  });
+  if (canErr) {
+    return jsonResponse({ error: canErr.message || "No se pudo verificar permisos." }, 403);
+  }
+  if (!canTerceros) {
+    return jsonResponse({ error: "No autorizado" }, 403);
+  }
+
+  const consultaId = String(body?.consulta_id ?? body?.consultaId ?? body?.id ?? "").trim();
+  const mensaje = String(body?.mensaje ?? body?.message ?? "").trim();
+  if (!consultaId) {
+    return jsonResponse({ error: "Falta la consulta." }, 400);
+  }
+  if (mensaje.length < 8) {
+    return jsonResponse({ error: "Escribí un mensaje para el consultante." }, 400);
+  }
+  if (mensaje.length > 4000) {
+    return jsonResponse({ error: "El mensaje es demasiado largo." }, 400);
+  }
+
+  const { data: consulta, error: fetchErr } = await admin
+    .from("entrada_ayuda_consulta")
+    .select("id, nombre, email, estado, funcion_label, cantidad, comentarios")
+    .eq("id", consultaId)
+    .maybeSingle();
+  if (fetchErr) throw new Error(fetchErr.message);
+  if (!consulta?.id) {
+    return jsonResponse({ error: "Consulta no encontrada." }, 404);
+  }
+  if (String(consulta.estado) !== "pendiente") {
+    return jsonResponse({ error: "La consulta ya no está pendiente." }, 409);
+  }
+
+  const email = normalizeEmail(consulta.email);
+  if (!isValidEmail(email)) {
+    return jsonResponse({ error: "La consulta no tiene un mail válido." }, 400);
+  }
+
+  const funcion = String(consulta.funcion_label || "").trim();
+  const subject = funcion
+    ? `Respuesta sobre entradas — ${funcion.split("—")[0]?.trim() || "OFRN"}`
+    : "Respuesta sobre tu consulta de entradas OFRN";
+
+  // El mensaje del staff ya incluye saludo; no duplicar "Hola …".
+  const text = [
+    mensaje,
+    "",
+    "Orquesta Filarmónica de Río Negro — Entradas",
+    "",
+    "Revisá también Spam / Correo no deseado por si este mensaje llegó ahí.",
+  ].join("\n");
+
+  const html = `<!DOCTYPE html>
+<html><head><meta charset="utf-8" /></head>
+<body style="font-family: Helvetica, Arial, sans-serif; color: #334155; line-height: 1.55; font-size: 15px;">
+  <div style="margin:16px 0;padding:14px 16px;background:#ecfeff;border-left:4px solid #0891b2;border-radius:8px;color:#164e63;">
+    <p style="margin:0;white-space:pre-wrap;">${escHtml(mensaje)}</p>
+  </div>
+  ${
+    funcion
+      ? `<p style="font-size:13px;color:#64748b;"><strong>Función consultada:</strong> ${escHtml(funcion)}</p>`
+      : ""
+  }
+  <div style="margin:18px 0;padding:14px 16px;background:#fffbeb;border-left:4px solid #ca8a04;border-radius:8px;color:#422006;">
+    <p style="margin:0;font-weight:700;">Revisá Spam / Correo no deseado</p>
+    <p style="margin:8px 0 0;">Si este mail llegó ahí, marcalo como «No es spam» para que los próximos te lleguen bien.</p>
+  </div>
+  <p style="color:#64748b;font-size:13px;border-top:1px solid #e2e8f0;padding-top:14px;margin-top:24px;">
+    <strong>Orquesta Filarmónica de Río Negro</strong><br />Sistema de Entradas
+  </p>
+</body></html>`;
+
+  const transporter = nodemailer.createTransport({
+    service: "gmail",
+    auth: { user: GMAIL_USER, pass: GMAIL_PASS },
+  });
+  await transporter.sendMail({
+    from: `"Entradas OFRN" <${GMAIL_USER}>`,
+    to: email,
+    replyTo: AYUDA_TO,
+    subject,
+    text,
+    html,
+  });
+
+  const { data: updated, error: updErr } = await supabaseUser.rpc(
+    "entrada_ayuda_responder_sin_emitir",
+    {
+      p_id: consultaId,
+      p_mensaje: mensaje,
+    },
+  );
+  if (updErr) {
+    console.error(
+      "[entradas-send-ayuda] mail enviado pero marcar resuelta falló:",
+      updErr.message,
+    );
+    return jsonResponse({
+      success: true,
+      warning: "Mail enviado, pero no se pudo marcar la consulta como resuelta. Marcála a mano.",
+      error_mark: updErr.message,
+    });
+  }
+
+  return jsonResponse({
+    success: true,
+    consulta: updated || null,
+  });
+}
+
 async function handleAbrirEntrada(
   admin: SupabaseClient,
   email: string,
@@ -533,6 +675,9 @@ serve(async (req) => {
     if (action === "abrir_entrada") {
       const reservaId = Number(body?.reservaId ?? body?.reserva_id);
       return await handleAbrirEntrada(admin, email, reservaId, ip);
+    }
+    if (action === "responder_sin_emitir") {
+      return await handleResponderSinEmitir(req, admin, body as Record<string, unknown>);
     }
 
     if (!GMAIL_USER || !GMAIL_PASS) {
