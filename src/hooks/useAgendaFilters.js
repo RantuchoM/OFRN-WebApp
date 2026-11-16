@@ -28,6 +28,23 @@ function getInitialFilterState(storageKey, key, defaultVal) {
 }
 
 /**
+ * «Solo mi transporte» arranca tildado para músico, técnico, enlace personal
+ * y «Ver como» de ese perfil (`defaultPersonalFilter`). No se restaura un
+ * destilde guardado: al abrir la agenda (general o de gira) vuelve a estar on.
+ * Editor / gestión sin ese default respetan lo guardado (o quedan destildados).
+ */
+export function resolveShowOnlyMyTransport({
+  defaultPersonalFilter = false,
+  stored,
+  isViewAsMode = false,
+} = {}) {
+  if (defaultPersonalFilter) return true;
+  if (isViewAsMode) return false;
+  if (stored !== undefined && stored !== null) return !!stored;
+  return false;
+}
+
+/**
  * Músicos: «Mostrar borradores» arranca activo.
  * Si ya eligieron (musicianDraftsChoice), se respeta ese valor.
  */
@@ -66,7 +83,9 @@ function applyRoleDefaultFilters({
     defaultPersonalFilter && (isViewAsMode || isPersonalGuest);
 
   if (giraId) {
-    setShowOnlyMyTransport(usePersonalAgendaView);
+    setShowOnlyMyTransport(
+      resolveShowOnlyMyTransport({ defaultPersonalFilter, isViewAsMode }),
+    );
     setShowOnlyMyMeals(usePersonalAgendaView);
     setShowOnlyMyStay(usePersonalAgendaView);
     setShowNoGray(false);
@@ -84,7 +103,9 @@ function applyRoleDefaultFilters({
 
   setSelectedCategoryIds([]);
   setShowNonActive(!!preferDrafts);
-  setShowOnlyMyTransport(defaultPersonalFilter);
+  setShowOnlyMyTransport(
+    resolveShowOnlyMyTransport({ defaultPersonalFilter, isViewAsMode }),
+  );
   setShowOnlyMyMeals(defaultPersonalFilter);
   setShowOnlyMyStay(defaultPersonalFilter);
   setShowNoGray(false);
@@ -116,7 +137,12 @@ function loadFiltersFromStorage({
       }
       setSelectedCategoryIds(loadedCats);
       setShowNonActive(resolveShowNonActive(storageKey, preferDrafts, false));
-      setShowOnlyMyTransport(p.showOnlyMyTransport ?? defaultPersonalFilter);
+      setShowOnlyMyTransport(
+        resolveShowOnlyMyTransport({
+          defaultPersonalFilter,
+          stored: p.showOnlyMyTransport,
+        }),
+      );
       setShowOnlyMyMeals(p.showOnlyMyMeals ?? defaultPersonalFilter);
       setShowOnlyMyStay(p.showOnlyMyStay ?? defaultPersonalFilter);
       setShowNoGray(p.showAllTransport || false);
@@ -128,7 +154,9 @@ function loadFiltersFromStorage({
 
   setSelectedCategoryIds([]);
   setShowNonActive(!!preferDrafts);
-  setShowOnlyMyTransport(defaultPersonalFilter);
+  setShowOnlyMyTransport(
+    resolveShowOnlyMyTransport({ defaultPersonalFilter }),
+  );
   setShowOnlyMyMeals(defaultPersonalFilter);
   setShowOnlyMyStay(defaultPersonalFilter);
   setShowNoGray(false);
@@ -180,13 +208,13 @@ export function useAgendaFilters({
     resolveShowNonActive(storageKey, preferDrafts, isViewAsMode),
   );
   const [showOnlyMyTransport, setShowOnlyMyTransport] = useState(() =>
-    isViewAsMode
-      ? defaultPersonalFilter
-      : getInitialFilterState(
-          storageKey,
-          "showOnlyMyTransport",
-          defaultPersonalFilter,
-        ),
+    resolveShowOnlyMyTransport({
+      defaultPersonalFilter,
+      isViewAsMode,
+      stored: isViewAsMode
+        ? undefined
+        : readStoredFilters(storageKey)?.showOnlyMyTransport,
+    }),
   );
   const [showOnlyMyMeals, setShowOnlyMyMeals] = useState(() =>
     isViewAsMode
