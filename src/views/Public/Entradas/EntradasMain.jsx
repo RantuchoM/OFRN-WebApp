@@ -89,7 +89,9 @@ import {
   descartarEntradaAyudaConsulta,
   listEntradasAyudaConsultas,
   marcarEntradaAyudaResuelta,
+  mensajeDefaultAyudaSinEmitir,
   reenviarEntradasAyudaReserva,
+  responderEntradaAyudaSinEmitir,
   listProgramasConConciertos,
   compareConciertosPorFechaHora,
   fechaHoraDesdeConciertoEntrada,
@@ -703,6 +705,8 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
   const [ayudaReservasVigentes, setAyudaReservasVigentes] = useState([]);
   const [ayudaReservasVigentesBusy, setAyudaReservasVigentesBusy] = useState(false);
   const [ayudaVincularBusy, setAyudaVincularBusy] = useState(false);
+  /** Mensaje al consultante al responder sin emitir (función agotada). */
+  const [ayudaRespuestaSinEmitir, setAyudaRespuestaSinEmitir] = useState("");
   /** email → reservas vigentes (para badge en la cola). */
   const [ayudaEmailReservasMap, setAyudaEmailReservasMap] = useState(() => ({}));
   /** Admin → Usuarios: historial de entradas de un mail. */
@@ -1150,6 +1154,40 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
     return catalogo ? { ...base, ...catalogo, disponibilidad: catalogo.disponibilidad } : base;
   }, [adminTerceroConciertoId, conciertosTercerosSelect, concertosFlat]);
 
+  /** Concierto de la consulta abierta (para detectar agotado). */
+  const ayudaConsultaConcierto = useMemo(() => {
+    const cid = Number(ayudaConsulta?.concierto_id);
+    if (!Number.isFinite(cid) || cid <= 0) return null;
+    return (
+      concertosFlat.find((c) => Number(c.id) === cid)
+      || conciertosTercerosSelect.find((c) => Number(c.id) === cid)
+      || null
+    );
+  }, [ayudaConsulta?.concierto_id, concertosFlat, conciertosTercerosSelect]);
+
+  const ayudaConsultaAgotada = useMemo(() => {
+    if (!ayudaConsulta || ayudaConsulta.estado !== "pendiente") return false;
+    if (esPedidoAyudaGestion(ayudaConsulta)) return false;
+    if (ayudaConsultaConcierto && conciertoSinPlazasDisponibles(ayudaConsultaConcierto)) {
+      return true;
+    }
+    const label = String(ayudaConsulta.funcion_label || "").toLowerCase();
+    return /\bllena\b|agotad/.test(label);
+  }, [ayudaConsulta, ayudaConsultaConcierto]);
+
+  useEffect(() => {
+    if (!ayudaConsulta || ayudaConsulta.estado !== "pendiente" || !ayudaConsultaAgotada) {
+      setAyudaRespuestaSinEmitir("");
+      return;
+    }
+    setAyudaRespuestaSinEmitir(
+      mensajeDefaultAyudaSinEmitir({
+        nombre: ayudaConsulta.nombre,
+        funcionLabel: ayudaConsulta.funcion_label,
+      }),
+    );
+  }, [ayudaConsulta?.id, ayudaConsulta?.estado, ayudaConsultaAgotada]);
+
   useEffect(() => {
     if (!tercerosViewActive) return;
     if (!conciertosTercerosSelect.length) {
@@ -1353,6 +1391,62 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
       setAyudaVincularBusy(false);
     }
   }, [markAyudaResueltaLocal, scrollToAyudaDetalle]);
+
+  const handleResponderAyudaSinEmitir = useCallback(async () => {
+    if (!ayudaConsulta?.id || ayudaConsulta.estado !== "pendiente") return;
+    const mensaje = String(ayudaRespuestaSinEmitir || "").trim();
+    if (mensaje.length < 8) {
+      toast.error("Escribí un mensaje para el consultante.");
+      return;
+    }
+    if (
+      !window.confirm(
+        `¿Enviar la respuesta a ${ayudaConsulta.email} sin emitir entradas y marcar la consulta como resuelta?`,
+      )
+    ) {
+      return;
+    }
+    setAyudaVincularBusy(true);
+    try {
+      const data = await responderEntradaAyudaSinEmitir({
+        consultaId: ayudaConsulta.id,
+        mensaje,
+      });
+      const updated = data?.consulta || null;
+      const resolved = {
+        ...(ayudaConsulta || {}),
+        ...(updated || {}),
+        telefono: updated?.telefono || ayudaConsulta?.telefono,
+        estado: "resuelta",
+        reserva_id: updated?.reserva_id ?? null,
+        respuesta_staff: updated?.respuesta_staff || mensaje,
+        resolved_at: updated?.resolved_at || new Date().toISOString(),
+        resolved_by_label: updated?.resolved_by_label || null,
+      };
+      setAyudaConsulta(resolved);
+      markAyudaResueltaLocal(
+        { ...resolved, _row: ayudaConsulta, _pendienteRubro: "generales" },
+        "generales",
+      );
+      setAyudaPendientesCount((n) => Math.max(0, n - 1));
+      setAyudaRespuestaSinEmitir("");
+      if (data?.warning) {
+        toast.message(data.warning);
+      } else {
+        toast.success("Respuesta enviada sin emitir entradas.");
+      }
+      scrollToAyudaDetalle();
+    } catch (e) {
+      toast.error(e?.message || "No se pudo enviar la respuesta.");
+    } finally {
+      setAyudaVincularBusy(false);
+    }
+  }, [
+    ayudaConsulta,
+    ayudaRespuestaSinEmitir,
+    markAyudaResueltaLocal,
+    scrollToAyudaDetalle,
+  ]);
 
   const handleReenviarMailAyudaVigente = useCallback(async (email, reservaMeta) => {
     if (!reservaMeta?.id) return;
@@ -5211,9 +5305,16 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
                   Resuelta por {ayudaConsulta.resolved_by_label}
                 </p>
               ) : null}
+              {ayudaConsulta.respuesta_staff && !ayudaConsulta.reserva_id ? (
+                <p className={`text-xs whitespace-pre-wrap ${ui.textMuted}`}>
+                  Respuesta sin emitir: {ayudaConsulta.respuesta_staff}
+                </p>
+              ) : null}
               <div className="flex flex-wrap items-center gap-2">
                 <p className={ui.textMuted}>
-                  No hace falta volver a reservar. Podés avisar por mail o WhatsApp.
+                  {ayudaConsulta.reserva_id
+                    ? "No hace falta volver a reservar. Podés avisar por mail o WhatsApp."
+                    : "Resuelta sin emitir entradas. Podés avisar por WhatsApp si hace falta."}
                 </p>
                 {ayudaConsulta.reserva_id ? (
                   <button
@@ -5392,6 +5493,40 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
                 <p className={`text-xs ${ui.textMuted}`}>
                   Si igual necesitás emitir otra (otra función), usá el formulario de abajo.
                 </p>
+              ) : null}
+              {ayudaConsultaAgotada ? (
+                <div
+                  className={`mt-3 space-y-2 rounded-lg border px-3 py-2.5 ${
+                    isDark
+                      ? "border-rose-800 bg-rose-950/35 text-rose-50"
+                      : "border-rose-200 bg-rose-50 text-rose-950"
+                  }`}
+                >
+                  <p className="text-sm font-bold">Función agotada — responder sin emitir</p>
+                  <p className={`text-xs ${isDark ? "text-rose-100/80" : "text-rose-900"}`}>
+                    Podés avisar por mail que no hay cupo, sin crear una reserva. Si igual querés
+                    emitir con excepción de cupo, usá el formulario de abajo.
+                  </p>
+                  <label htmlFor="ayuda-respuesta-sin-emitir" className={`${ui.label} text-xs`}>
+                    Mensaje al consultante
+                  </label>
+                  <textarea
+                    id="ayuda-respuesta-sin-emitir"
+                    className={`w-full min-h-[120px] ${ui.input}`}
+                    value={ayudaRespuestaSinEmitir}
+                    onChange={(e) => setAyudaRespuestaSinEmitir(e.target.value)}
+                    maxLength={4000}
+                    disabled={ayudaVincularBusy}
+                  />
+                  <button
+                    type="button"
+                    disabled={ayudaVincularBusy || String(ayudaRespuestaSinEmitir || "").trim().length < 8}
+                    className={`${ui.btnPrimary} w-full sm:w-auto`}
+                    onClick={() => void handleResponderAyudaSinEmitir()}
+                  >
+                    {ayudaVincularBusy ? "Enviando…" : "Responder sin emitir entradas"}
+                  </button>
+                </div>
               ) : null}
             </>
           )}

@@ -350,6 +350,45 @@ export async function descartarEntradaAyudaConsulta(id) {
   return data;
 }
 
+/**
+ * Staff: responde por mail sin crear reserva y marca la consulta resuelta.
+ * Pensado para funciones agotadas (u otros casos donde no se emiten entradas).
+ */
+export async function responderEntradaAyudaSinEmitir({ consultaId, mensaje }) {
+  return invokeEntradasAyuda({
+    action: "responder_sin_emitir",
+    consulta_id: consultaId,
+    mensaje: String(mensaje || "").trim(),
+  });
+}
+
+/** Borra pendientes cuyo concierto ya pasó. */
+export async function purgarEntradasAyudaPendientesPasados() {
+  const { data, error } = await supabaseEntradasPublic.rpc(
+    "entrada_ayuda_purgar_pendientes_pasados",
+  );
+  if (error) throw error;
+  return Number(data) || 0;
+}
+
+/** Texto sugerido al responder sin emitir (función agotada). */
+export function mensajeDefaultAyudaSinEmitir({ nombre, funcionLabel } = {}) {
+  const name = String(nombre || "").trim() || "hola";
+  const funcion = String(funcionLabel || "").trim();
+  const sobre = funcion
+    ? `para «${funcion}»`
+    : "para la función que consultaste";
+  return [
+    `Hola ${name},`,
+    "",
+    `Lamentablemente las entradas ${sobre} ya están agotadas y no podemos emitirte nuevas.`,
+    "",
+    "Gracias por tu interés en la Filarmónica. Te esperamos en próximas funciones.",
+    "",
+    "Orquesta Filarmónica de Río Negro — Entradas",
+  ].join("\n");
+}
+
 /** Consulta anónima: si ese mail ya tiene contraseña usable (propia o OFRN). */
 export async function checkEntradasLoginOptions(email) {
   const normalizedEmail = String(email || "").trim().toLowerCase();
