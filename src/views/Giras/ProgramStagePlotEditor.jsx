@@ -31,6 +31,7 @@ import {
   IconPhoto,
   IconRefresh,
   IconCopy,
+  IconClipboard,
   IconChevronDown,
   IconLayers,
   IconMaximize,
@@ -220,6 +221,12 @@ import {
   STAGE_PLOT_FORMATIONATION_KINDS,
   withFormationKind,
 } from "../../utils/stagePlotFormations";
+import {
+  cloneStagePlotSelectionForPaste,
+  copyStagePlotSelectionToClipboard,
+  hasStagePlotSelectionClipboard,
+  readStagePlotSelectionClipboard,
+} from "../../utils/stagePlotSelectionClipboard";
 import {
   buildStagePlotOrganicoCompare,
   computeOrganicoInsertPositions,
@@ -1378,7 +1385,7 @@ function StageLienzoPopover({
                 className="flex w-full items-center gap-2 border-t border-slate-100 px-3 py-1.5 text-left text-[11px] font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
               >
                 <IconUpload size={13} className="text-slate-500" />
-                Importar (archivo / otra gira)…
+                Importar (archivo / gira)…
               </button>
             </div>
           )}
@@ -2065,6 +2072,8 @@ function StagePlotFormationContextMenu({
   onClose,
   onCopyFormation,
   onCopyFormationWithInstruments,
+  onCopySelection,
+  onPasteSelection,
   overlayZ = 100,
 }) {
   const menuRef = useRef(null);
@@ -2088,9 +2097,10 @@ function StagePlotFormationContextMenu({
 
   if (!menu) return null;
 
+  const canPaste = !!menu.canPaste;
   const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
   const left = clamp(menu.x, 8, window.innerWidth - 260);
-  const top = clamp(menu.y, 8, window.innerHeight - 120);
+  const top = clamp(menu.y, 8, window.innerHeight - 200);
 
   return createPortal(
     <div
@@ -2104,9 +2114,36 @@ function StagePlotFormationContextMenu({
         type="button"
         role="menuitem"
         className="block w-full px-3 py-2 text-left text-xs text-slate-700 hover:bg-indigo-50 hover:text-indigo-800"
+        onClick={onCopySelection}
+      >
+        Copiar selección
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        disabled={!canPaste}
+        title={
+          canPaste
+            ? "Pegar selección copiada (sirve en otro lienzo o pestaña)"
+            : "No hay selección copiada"
+        }
+        className={`block w-full px-3 py-2 text-left text-xs ${
+          canPaste
+            ? "text-slate-700 hover:bg-indigo-50 hover:text-indigo-800"
+            : "cursor-not-allowed text-slate-400"
+        }`}
+        onClick={canPaste ? onPasteSelection : undefined}
+      >
+        Pegar selección
+      </button>
+      <div className="my-1 border-t border-slate-100" role="separator" />
+      <button
+        type="button"
+        role="menuitem"
+        className="block w-full px-3 py-2 text-left text-xs text-slate-700 hover:bg-indigo-50 hover:text-indigo-800"
         onClick={onCopyFormation}
       >
-        Copiar formación
+        Duplicar formación
       </button>
       <button
         type="button"
@@ -2114,7 +2151,71 @@ function StagePlotFormationContextMenu({
         className="block w-full px-3 py-2 text-left text-xs text-slate-700 hover:bg-indigo-50 hover:text-indigo-800"
         onClick={onCopyFormationWithInstruments}
       >
-        Copiar formación con instrumentos
+        Duplicar formación con instrumentos
+      </button>
+    </div>,
+    document.body,
+  );
+}
+
+/** Menú de clic derecho en vacío sin selección: solo Pegar. */
+function StagePlotPasteContextMenu({
+  menu,
+  onClose,
+  onPasteSelection,
+  overlayZ = 100,
+}) {
+  const menuRef = useRef(null);
+
+  useEffect(() => {
+    if (!menu) return undefined;
+    const onPointerDown = (e) => {
+      if (menuRef.current?.contains(e.target)) return;
+      onClose();
+    };
+    const onKeyDown = (e) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [menu, onClose]);
+
+  if (!menu) return null;
+
+  const canPaste = !!menu.canPaste;
+  const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+  const left = clamp(menu.x, 8, window.innerWidth - 220);
+  const top = clamp(menu.y, 8, window.innerHeight - 80);
+
+  return createPortal(
+    <div
+      ref={menuRef}
+      role="menu"
+      className="fixed min-w-[200px] rounded-md border border-slate-200 bg-white py-1 shadow-lg"
+      style={{ left, top, zIndex: overlayZ }}
+      onContextMenu={(e) => e.preventDefault()}
+    >
+      <button
+        type="button"
+        role="menuitem"
+        disabled={!canPaste}
+        title={
+          canPaste
+            ? "Pegar selección copiada (sirve en otro lienzo o pestaña)"
+            : "No hay selección copiada"
+        }
+        className={`block w-full px-3 py-2 text-left text-xs ${
+          canPaste
+            ? "text-slate-700 hover:bg-indigo-50 hover:text-indigo-800"
+            : "cursor-not-allowed text-slate-400"
+        }`}
+        onClick={canPaste ? onPasteSelection : undefined}
+      >
+        Pegar selección
       </button>
     </div>,
     document.body,
@@ -2614,6 +2715,8 @@ function StagePlotItemContextMenu({
   onAddSharedAtril,
   onAddPairAndAtril,
   onToggleSoloist,
+  onCopySelection,
+  onPasteSelection,
   overlayZ = 100,
 }) {
   const menuRef = useRef(null);
@@ -2652,10 +2755,11 @@ function StagePlotItemContextMenu({
   const canAddPairAndAtril = !!menu.canAddPairAndAtril;
   const canToggleSoloist = !!menu.canToggleSoloist;
   const isSoloist = !!menu.isSoloist;
+  const canPaste = !!menu.canPaste;
 
   const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
   const left = clamp(menu.x, 8, window.innerWidth - 240);
-  const top = clamp(menu.y, 8, window.innerHeight - 300);
+  const top = clamp(menu.y, 8, window.innerHeight - 360);
 
   return createPortal(
     <div
@@ -2665,6 +2769,33 @@ function StagePlotItemContextMenu({
       style={{ left, top, zIndex: overlayZ }}
       onContextMenu={(e) => e.preventDefault()}
     >
+      <button
+        type="button"
+        role="menuitem"
+        className="block w-full px-3 py-2 text-left text-xs text-slate-700 hover:bg-indigo-50 hover:text-indigo-800"
+        onClick={onCopySelection}
+      >
+        Copiar selección
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        disabled={!canPaste}
+        title={
+          canPaste
+            ? "Pegar selección copiada (sirve en otro lienzo o pestaña)"
+            : "No hay selección copiada"
+        }
+        className={`block w-full px-3 py-2 text-left text-xs ${
+          canPaste
+            ? "text-slate-700 hover:bg-indigo-50 hover:text-indigo-800"
+            : "cursor-not-allowed text-slate-400"
+        }`}
+        onClick={canPaste ? onPasteSelection : undefined}
+      >
+        Pegar selección
+      </button>
+      <div className="my-1 border-t border-slate-100" role="separator" />
       {stagePlotTypeSizeKind(menu.type) && (
         <button
           type="button"
@@ -4033,6 +4164,8 @@ export default function ProgramStagePlot({
   const [itemSnapPreview, setItemSnapPreview] = useState(null);
   /** Menú contextual de ítem (clic derecho). */
   const [itemContextMenu, setItemContextMenu] = useState(null);
+  /** Clic derecho en vacío sin selección: solo Pegar. */
+  const [pasteContextMenu, setPasteContextMenu] = useState(null);
   /** Tipo abierto en el modal de tamaño (clic derecho → Abrir editor). */
   const [typeSizeEditorType, setTypeSizeEditorType] = useState(null);
   const [instrumentsPanelKey, setInstrumentsPanelKey] = useState(0);
@@ -4588,7 +4721,15 @@ export default function ProgramStagePlot({
         setMobileAddOpen(false);
         return;
       }
-      if (lienzoOpen || itemContextMenu || formationContextMenu || typeSizeEditorType) return;
+      if (
+        lienzoOpen ||
+        itemContextMenu ||
+        formationContextMenu ||
+        pasteContextMenu ||
+        typeSizeEditorType
+      ) {
+        return;
+      }
       e.preventDefault();
       if (mobileUi) {
         closeMobileEditor();
@@ -4606,6 +4747,7 @@ export default function ProgramStagePlot({
     lienzoOpen,
     itemContextMenu,
     formationContextMenu,
+    pasteContextMenu,
     typeSizeEditorType,
   ]);
 
@@ -4619,7 +4761,15 @@ export default function ProgramStagePlot({
     if (!canEdit) return undefined;
     const onKeyDown = (e) => {
       if (isEditableKeyboardTarget(e.target)) return;
-      if (lienzoOpen || itemContextMenu || formationContextMenu || typeSizeEditorType) return;
+      if (
+        lienzoOpen ||
+        itemContextMenu ||
+        formationContextMenu ||
+        pasteContextMenu ||
+        typeSizeEditorType
+      ) {
+        return;
+      }
       const mod = e.ctrlKey || e.metaKey;
       const key = e.key;
       if (mod) {
@@ -4691,6 +4841,7 @@ export default function ProgramStagePlot({
     lienzoOpen,
     itemContextMenu,
     formationContextMenu,
+    pasteContextMenu,
     typeSizeEditorType,
     undo,
     redo,
@@ -6014,6 +6165,7 @@ export default function ProgramStagePlot({
       setMarqueeRect(null);
       setItemContextMenu(null);
       setFormationContextMenu(null);
+      setPasteContextMenu(null);
       setFormationCopyMenuOpen(false);
       setItemHoverTooltip(null);
 
@@ -6554,6 +6706,7 @@ export default function ProgramStagePlot({
       setFormationCopyMenuOpen(false);
       setFormationContextMenu(null);
       setItemContextMenu(null);
+      setPasteContextMenu(null);
     },
     [canEdit, commitPayload],
   );
@@ -6562,14 +6715,21 @@ export default function ProgramStagePlot({
     (formationId, e) => {
       if (!canEdit) return;
       const nativeEvt = e?.evt;
+      const keepMixed =
+        selectedFormationIdRef.current === formationId &&
+        selectedIdsRef.current.length > 0;
       setSelectedFormationId(formationId);
       selectedFormationIdRef.current = formationId;
-      setSelectedIds([]);
-      selectedIdsRef.current = [];
+      if (!keepMixed) {
+        setSelectedIds([]);
+        selectedIdsRef.current = [];
+      }
       setItemContextMenu(null);
+      setPasteContextMenu(null);
       setFormationCopyMenuOpen(false);
       setFormationContextMenu({
         formationId,
+        canPaste: hasStagePlotSelectionClipboard(),
         x: nativeEvt?.clientX ?? 0,
         y: nativeEvt?.clientY ?? 0,
       });
@@ -6883,6 +7043,10 @@ export default function ProgramStagePlot({
     setItemContextMenu(null);
   }, []);
 
+  const closePasteContextMenu = useCallback(() => {
+    setPasteContextMenu(null);
+  }, []);
+
   const openTypeSizeEditor = useCallback(
     (type) => {
       if (!stagePlotTypeSizeKind(type)) return;
@@ -6895,6 +7059,94 @@ export default function ProgramStagePlot({
   const closeFormationContextMenu = useCallback(() => {
     setFormationContextMenu(null);
   }, []);
+
+  const copySelectionToAppClipboard = useCallback(() => {
+    if (!canEdit) return;
+    const result = copyStagePlotSelectionToClipboard({
+      items: payloadRef.current.items,
+      formations: payloadRef.current.formations,
+      selectedIds: selectedIdsRef.current,
+      selectedFormationId: selectedFormationIdRef.current,
+    });
+    closeItemContextMenu();
+    closeFormationContextMenu();
+    closePasteContextMenu();
+    if (!result.ok) {
+      toast.error(result.error || "No se pudo copiar la selección");
+      return;
+    }
+    const parts = [];
+    if (result.formationCount) {
+      parts.push(
+        result.formationCount === 1
+          ? "1 formación"
+          : `${result.formationCount} formaciones`,
+      );
+    }
+    if (result.itemCount) {
+      parts.push(
+        result.itemCount === 1 ? "1 ítem" : `${result.itemCount} ítems`,
+      );
+    }
+    toast.success(
+      parts.length
+        ? `Selección copiada (${parts.join(", ")})`
+        : "Selección copiada",
+    );
+  }, [
+    canEdit,
+    closeItemContextMenu,
+    closeFormationContextMenu,
+    closePasteContextMenu,
+  ]);
+
+  const pasteSelectionFromAppClipboard = useCallback(() => {
+    if (!canEdit) return;
+    closeItemContextMenu();
+    closeFormationContextMenu();
+    closePasteContextMenu();
+    const read = readStagePlotSelectionClipboard();
+    if (!read.ok) {
+      toast.message(read.error || "No hay selección copiada");
+      return;
+    }
+    const cloned = cloneStagePlotSelectionForPaste(read.doc, {
+      allocateZ: () => zCounterRef.current++,
+      existingItems: payloadRef.current.items,
+    });
+    if (!cloned) {
+      toast.message("No hay selección copiada");
+      return;
+    }
+    if (!cloned.formations.length && !cloned.items.length) {
+      toast.message(
+        cloned.skippedConductor
+          ? "Este lienzo ya tiene director; no se pegó nada más"
+          : "No hay selección copiada",
+      );
+      return;
+    }
+    commitPayload((prev) => ({
+      ...prev,
+      formations: [...(prev.formations || []), ...cloned.formations],
+      items: [...(prev.items || []), ...cloned.items],
+    }));
+    setSelectedFormationId(cloned.selectedFormationId);
+    selectedFormationIdRef.current = cloned.selectedFormationId;
+    setSelectedIds(cloned.selectedIds);
+    selectedIdsRef.current = cloned.selectedIds;
+    if (cloned.skippedConductor) {
+      toast.success("Selección pegada (director omitido: ya hay uno)");
+    } else {
+      toast.success("Selección pegada");
+    }
+  }, [
+    canEdit,
+    commitPayload,
+    closeItemContextMenu,
+    closeFormationContextMenu,
+    closePasteContextMenu,
+  ]);
 
   const hideItemHoverTooltip = useCallback(() => {
     setItemHoverTooltip(null);
@@ -6943,14 +7195,21 @@ export default function ProgramStagePlot({
       const item = payloadRef.current.items.find((i) => i.id === id);
       if (!item) return;
       const nativeEvt = e?.evt;
-      setSelectedFormationId(null);
       setFormationContextMenu(null);
+      setPasteContextMenu(null);
       setFormationCopyMenuOpen(false);
       const currentSel = selectedIdsRef.current;
+      const keepMixed =
+        currentSel.includes(id) &&
+        !!selectedFormationIdRef.current;
       const nextSel =
         currentSel.includes(id) && currentSel.length > 1
           ? currentSel
           : [id];
+      if (!keepMixed) {
+        setSelectedFormationId(null);
+        selectedFormationIdRef.current = null;
+      }
       setSelectedIds(nextSel);
       selectedIdsRef.current = nextSel;
       const sameTypeCount = payloadRef.current.items.filter(
@@ -6981,6 +7240,7 @@ export default function ProgramStagePlot({
         canAddPairAndAtril: STAGE_PLOT_STRING_PAIR_TYPES.has(item.type),
         canToggleSoloist: stagePlotItemHasInstrumentFootprint(item.type),
         isSoloist: stagePlotItemIsSoloist(item),
+        canPaste: hasStagePlotSelectionClipboard(),
         x: nativeEvt?.clientX ?? 0,
         y: nativeEvt?.clientY ?? 0,
       });
@@ -7009,7 +7269,7 @@ export default function ProgramStagePlot({
     closeItemContextMenu();
   }, [canEdit, itemContextMenu, commitPayload, closeItemContextMenu]);
 
-  /** Clic derecho en vacío: menú de la selección actual (no deselecciona). */
+  /** Clic derecho en vacío: menú de la selección actual (no deselecciona); sin selección → Pegar. */
   const handleStageContextMenu = useCallback(
     (e) => {
       e.evt?.preventDefault?.();
@@ -7026,7 +7286,16 @@ export default function ProgramStagePlot({
       const ids = selectedIdsRef.current;
       if (ids.length) {
         handleItemContextMenu(ids[0], e);
+        return;
       }
+      const nativeEvt = e?.evt;
+      setItemContextMenu(null);
+      setFormationContextMenu(null);
+      setPasteContextMenu({
+        canPaste: hasStagePlotSelectionClipboard(),
+        x: nativeEvt?.clientX ?? 0,
+        y: nativeEvt?.clientY ?? 0,
+      });
     },
     [canEdit, handleFormationContextMenu, handleItemContextMenu],
   );
@@ -8603,6 +8872,7 @@ export default function ProgramStagePlot({
         onClose={() => setImportOpen(false)}
         supabase={supabase}
         targetProgram={program}
+        excludePlotId={activePlotId}
         exportDoc={{
           payload,
           nombre,
@@ -9296,11 +9566,19 @@ export default function ProgramStagePlot({
                 )}
                 <button
                   type="button"
-                  title="Copiar"
+                  title="Duplicar en este lienzo"
                   onClick={duplicateSelected}
                   className="flex h-8 w-8 items-center justify-center rounded-full text-slate-600 transition-colors hover:bg-indigo-50 hover:text-indigo-700"
                 >
                   <IconCopy size={16} />
+                </button>
+                <button
+                  type="button"
+                  title="Copiar selección (para pegar en otro lienzo o pestaña)"
+                  onClick={copySelectionToAppClipboard}
+                  className="flex h-8 w-8 items-center justify-center rounded-full text-slate-600 transition-colors hover:bg-indigo-50 hover:text-indigo-700"
+                >
+                  <IconClipboard size={16} />
                 </button>
                 <button
                   type="button"
@@ -9370,11 +9648,19 @@ export default function ProgramStagePlot({
                   )}
                   <button
                     type="button"
-                    title="Copiar formación"
+                    title="Duplicar formación en este lienzo"
                     onClick={() => duplicateSelectedFormation(false)}
                     className="flex h-10 w-10 items-center justify-center rounded-full text-slate-600 active:bg-indigo-50 active:text-indigo-700"
                   >
                     <IconCopy size={18} />
+                  </button>
+                  <button
+                    type="button"
+                    title="Copiar selección (para pegar en otro lienzo o pestaña)"
+                    onClick={copySelectionToAppClipboard}
+                    className="flex h-10 w-10 items-center justify-center rounded-full text-slate-600 active:bg-indigo-50 active:text-indigo-700"
+                  >
+                    <IconClipboard size={18} />
                   </button>
                   <button
                     type="button"
@@ -9437,6 +9723,8 @@ export default function ProgramStagePlot({
               onAddSharedAtril={addSharedAtrilForSelection}
               onAddPairAndAtril={addPairAndAtrilNearContextItem}
               onToggleSoloist={toggleSoloistFromContext}
+              onCopySelection={copySelectionToAppClipboard}
+              onPasteSelection={pasteSelectionFromAppClipboard}
               overlayZ={portalMenuZ}
             />
           )}
@@ -9465,6 +9753,17 @@ export default function ProgramStagePlot({
                   formationContextMenu?.formationId,
                 )
               }
+              onCopySelection={copySelectionToAppClipboard}
+              onPasteSelection={pasteSelectionFromAppClipboard}
+              overlayZ={portalMenuZ}
+            />
+          )}
+
+          {canEdit && (
+            <StagePlotPasteContextMenu
+              menu={pasteContextMenu}
+              onClose={closePasteContextMenu}
+              onPasteSelection={pasteSelectionFromAppClipboard}
               overlayZ={portalMenuZ}
             />
           )}
@@ -10126,10 +10425,19 @@ export default function ProgramStagePlot({
                 </button>
                 <button
                   type="button"
+                  title="Duplicar en este lienzo"
                   onClick={duplicateSelected}
                   className="inline-flex shrink-0 items-center gap-1 rounded border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
                 >
-                  <IconCopy size={12} /> Copiar
+                  <IconCopy size={12} /> Duplicar
+                </button>
+                <button
+                  type="button"
+                  title="Copiar selección (para pegar en otro lienzo o pestaña)"
+                  onClick={copySelectionToAppClipboard}
+                  className="inline-flex shrink-0 items-center gap-1 rounded border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
+                >
+                  <IconClipboard size={12} /> Copiar
                 </button>
                 {selected && selected.type !== "text" && (
                   <label className="flex shrink-0 items-center gap-1 text-[11px] text-slate-600">

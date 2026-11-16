@@ -23,7 +23,7 @@ Complementa:
    - Action hace `PUT` de los bytes **directo a Google** (chunks de 8 MiB si hace falta).
 4. Lista la carpeta Drive y borra dumps OFRN con stamp &gt; 30 días.
 
-Rol DB: `ofrn_backup` = `SELECT` en `public` + `BYPASSRLS` (necesario para que `pg_dump` no choque con políticas RLS).
+Rol DB: `ofrn_backup` = `SELECT` en tablas **y sequences** de `public` + `BYPASSRLS` (necesario para que `pg_dump` no choque con políticas RLS). Si una migración hace `REVOKE ALL … FROM PUBLIC` sobre una tabla nueva, hay que re-otorgar `SELECT` en su sequence (migración `20261111223052_ofrn_backup_grant_sequences` + `ALTER DEFAULT PRIVILEGES`).
 
 `upload_file` (base64) queda para archivos chicos de la app; **no** se usa para backups.
 

@@ -140,8 +140,9 @@ Hint del canvas cambia según la herramienta activa.
 | `src/services/stagePlotService.js` | CRUD multi-plot, `loadStagePlotStandaloneContext`, `createStagePlotForEvent`, `unlinkEventFromStagePlot` |
 | `src/services/stagePlotTemplatesService.js` | CRUD plantillas globales (`stage_plot_templates`) |
 | `src/utils/stagePlotTransfer.js` | Export/import JSON (`.ofrn-escenario.json`) |
+| `src/utils/stagePlotSelectionClipboard.js` | Memoria interna de selección (`localStorage`): copiar/pegar entre lienzos o pestañas same-origin |
 | `src/utils/appNavigation.js` | `buildStandaloneEscenarioTo` + legacy `buildEscenarioEditorTo` |
-| `src/views/Giras/StagePlotImportModal.jsx` | Import archivo / otra gira + export JSON |
+| `src/views/Giras/StagePlotImportModal.jsx` | Import archivo / desde gira (esta u otra) + export JSON |
 | `src/views/Giras/StagePlotTemplatesModal.jsx` | Crear / aplicar / renombrar / guardar encima / eliminar plantillas |
 | `src/views/Giras/StagePlotViewerModal.jsx` | Vista técnico solo lectura: preview en vivo + opacidades + PDF/JPG/WhatsApp |
 | `src/views/Giras/StagePlotLivePreview.jsx` | Preview raster (canvas 2D) del payload; re-render al cambiar opacidades |
@@ -210,7 +211,7 @@ Catálogo reutilizable entre giras (no atado a `id_programa`).
 
 Migración: `20260923180000_stage_plot_templates` (aplicada en linked).
 
-**Aplicar vs Importar:** Importar archivo/otra gira crea un **lienzo nuevo**. Aplicar plantilla **reemplaza** items/formaciones/groups/`stage` del lienzo activo (conserva id, nombre del lienzo, `bloque_ids`, eventos).
+**Aplicar vs Importar:** Importar archivo / desde gira (esta u otra) crea un **lienzo nuevo**. Aplicar plantilla **reemplaza** items/formaciones/groups/`stage` del lienzo activo (conserva id, nombre del lienzo, `bloque_ids`, eventos).
 
 ### Montaje / URLs
 
@@ -274,7 +275,7 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
 - [x] `resolveFormationFacingPoint` usa posición del director (o canónica si no hay ítem)
 - [x] Multi-lienzo por gira + `bloque_ids` + `stage_plot_eventos` + resolución técnico
 - [x] Varias plantas por concierto (`20261106011735_stage_plot_eventos_many_per_event`): N:N, asociar suma, «Ver escenario» elige por nombre cuál exportar
-- [x] Export/import JSON + import desde otra gira
+- [x] Export/import JSON + import desde gira (esta u otra; excluye el lienzo activo al elegir esta gira)
 - [x] «Ver escenario» técnico (agenda + GiraCard ⋮ + FIMBA Espacios / Backline / Venues) con preview en vivo + 4 opacidades Lienzo + PDF/JPG
 - [x] «Ver escenario»: botón WhatsApp para compartir/descargar la imagen JPG (`shareStagePlotJpgViaWhatsApp` + Web Share / fallback `wa.me`)
 - [x] Preview técnico: `StagePlotLivePreview` vía `renderStagePlotToCanvas` (mismas guías/opacidades que export; desktop + móvil)
@@ -313,7 +314,7 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
 - [x] Export PDF: hoja 1 **landscape** solo escenario + dims Ancho/Profundo; hoja 2 **portrait** mobiliario **necesario** (sillas / banquetas / atriles / podio) + desglose atriles en **1–3 columnas** + tarimas cabecera/hijos — **sin** Orgánico/Plano/Δ ni channel list
 - [x] Export JPG: escenario sin hoja de mobiliario + dims Ancho/Profundo (`widthCm`/`heightCm`)
 - [x] Editor: modal de opciones PDF/JPG (`StagePlotExportOptionsModal`) con mismas 4 opacidades que técnico (override solo descarga)
-- [x] Toolbar desktop: **Importar / Exportar** vive dentro del popover **Lienzo** (PDF, JPG, JSON, Importar archivo/otra gira); sin botones PDF/JPG sueltos en la barra
+- [x] Toolbar desktop: **Importar / Exportar** vive dentro del popover **Lienzo** (PDF, JPG, JSON, Importar archivo/gira); sin botones PDF/JPG sueltos en la barra
 - [x] **Plantillas globales** (`stage_plot_templates`): crear / aplicar (reemplaza disposición) / renombrar / guardar encima / eliminar; UI muestra cantidad de músicos; acceso desde popover **Lienzo**
 - [x] Centrar formación en eje X del director (botón deshabilitado si ya centrada; snap magnético + histeresis al arrastrar)
 - [x] Rotación de formación: botones −15° / +15° (barra desktop + pill móvil) + input Rot °; `patchFormationsAndReanchor`
@@ -325,7 +326,8 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
 - [x] Menú contextual de ítem: «Seleccionar formación» si magnetizado (`slotId` → formación existente)
 - [x] Doble clic / doble tap en ítem magnetizado: selecciona su formación (limpia ítems); texto sigue abriendo editor de etiqueta; sin asociación = no-op
 - [x] SVG en `instrumentos` (`svg_icon` + `stage_plot_type`) + seed 21 filas + guitarra papapishu (`21` / `guitar`) + bandoneón FreeSVG (`22b` / `bandoneon`) + percusión OFRN (`13` / `13a`–`13h`)
-- [x] Clic derecho en vacío del lienzo: abre menú de la selección actual (formación o ítems) sin deseleccionar
+- [x] Clic derecho en vacío del lienzo: abre menú de la selección actual (formación o ítems) sin deseleccionar; sin selección → **Pegar selección**
+- [x] **Copiar/Pegar selección** entre lienzos (menú contextual + `localStorage`; sin Ctrl+C/V); formaciones + ítems; remap `slotId` si la formación viaja
 - [x] Undo/redo de movimiento grupal = **una** entrada: multi-selección / grupo explícito / formación+reanchor / selección mixta ítems+formación; rafaga de flechas coalescida
 - [x] Recuadro gris de selección en formación + asas `box_*` (8): bordes = un eje (L/R ancho, T/B alto); esquinas = escala uniforme (dimensión total); params lineales + traslación anclada; convive con asas paramétricas; undo en drag end + reanchor
 - [x] **Vista Venues** (`/management/venues`): locaciones con conciertos programados agrupadas; eventos con fecha, programa, grupos, estado venue; medidas de escenario de la locación; «Ver escenario» (`StagePlotViewerModal`) y enlace al editor Escenario de la gira
@@ -630,10 +632,17 @@ Parámetros en **px de escenario** (`cm × STAGE_PLOT_CM_TO_PX`). Defaults (íte
   - Lienzo, PDF y JPG dibujan las mismas figuras (opacidad de guías de formación). Copiar la formación copia `role` y `rows`.
 - **Copiar formación** (`cloneStagePlotFormation` en `stagePlotFormations.js`; UI en barra inferior + menú contextual clic derecho):
   - Offset fijo **+40 cm** en X (`STAGE_PLOT_FORMATIONATION_COPY_OFFSET_PX`).
-  - **Copiar formación**: duplica geometría (kind, params, slots, wingSlots/arcSlots si semi_arc, slotMode, slotTs, rotation, facing, y en un coro `role` + `rows` + `figureScale`) con **nuevo id**; plazas vacías (sin ítems). `commitPayload` (undo).
-  - **Copiar formación con instrumentos**: igual + clona ítems con `slotId` de esa formación; nuevos ids de ítem, mismos índices de plaza remapeados al nuevo `formationId`, mismas posiciones relativas (mismo delta). `groupId` de clones = `null`.
-  - Tras copiar: selecciona la formación nueva; si hubo instrumentos, también los clones en `selectedIds`.
+  - **Duplicar formación** (menú contextual) / **Copiar formación** (barra): duplica geometría (kind, params, slots, wingSlots/arcSlots si semi_arc, slotMode, slotTs, rotation, facing, y en un coro `role` + `rows` + `figureScale`) con **nuevo id**; plazas vacías (sin ítems). `commitPayload` (undo). **In-place** (mismo lienzo).
+  - **Duplicar formación con instrumentos**: igual + clona ítems con `slotId` de esa formación; nuevos ids de ítem, mismos índices de plaza remapeados al nuevo `formationId`, mismas posiciones relativas (mismo delta). `groupId` de clones = `null`.
+  - Tras duplicar: selecciona la formación nueva; si hubo instrumentos, también los clones en `selectedIds`.
   - Dropdown **Copiar…** de la barra inferior: portal (`StagePlotFormationCopyMenu`) para no quedar clipado por `overflow-x-auto` ni debajo del canvas.
+- **Copiar / Pegar selección entre lienzos** (`stagePlotSelectionClipboard.js`; **no** usa Ctrl+C/V ni Clipboard API del SO):
+  - Memoria interna en `localStorage` clave `ofrn-stage-plot-selection`, format `ofrn-stage-plot-selection` v1. Sirve al cambiar de lienzo en la misma pestaña **y** entre pestañas same-origin.
+  - Menú contextual de **ítem** y de **formación**: **Copiar selección** / **Pegar selección** (Pegar deshabilitado si no hay buffer). Clic derecho en **vacío sin selección**: menú solo con Pegar.
+  - **Copiar selección** toma `selectedFormationId` (0..1) + `selectedIds` (sin auto-incluir anclados no seleccionados; **incluye `conductor`** si está seleccionado). Toast de confirmación.
+  - **Pegar selección**: nuevos ids; offset +40 cm X; `slotId` se remapea solo si la formación viaja en el documento; si no → `null`; `groupId` siempre `null`. Si el destino **ya tiene** director, el `conductor` del buffer se omite (máx. 1). Un `commitPayload` (undo); deja seleccionados los clones.
+  - Flotante de ítems / barra inferior / pill móvil de formación: **Duplicar** (`IconCopy`, in-place) y **Copiar** (`IconClipboard`, memoria interna). Distintos de «Duplicar formación…» de la barra de formación.
+  - Clic derecho sobre selección mixta: si el target ya estaba seleccionado, se conserva la selección mixta (ítems + formación) para poder copiarla junta.
 - **Centrar (eje X del director)** — kinds `arc` / `semi_arc` / `horseshoe` / `rect` / `line` (`STAGE_PLOT_CENTERABLE_FORMATION_KINDS`):
   - Botón **Centrar** deshabilitado/gris si `isFormationCenteredOnConductor` (`|formation.x − conductorX| ≤ STAGE_PLOT_FORMATIONATION_CENTER_EPSILON_PX` = 0.5 cm ≈ 2 px).
   - Snap magnético al arrastrar: `snapFormationXToConductorCenter` atrae a `conductorX` dentro de `STAGE_PLOT_FORMATIONATION_CENTER_SNAP_PX` (18 cm / 72 px); histeresis de salida `STAGE_PLOT_FORMATIONATION_CENTER_UNSNAP_PX` (28 cm / 112 px). Commit en drag end con `x` snappeado.
@@ -687,7 +696,7 @@ Parámetros en **px de escenario** (`cm × STAGE_PLOT_CM_TO_PX`). Defaults (íte
 - **Tamaño default ítems:** al colocar (paleta, drop, orgánico Insertar) `createStagePlotItem` → `defaultStagePlotItemScale(type)`: `scale = clamp( (STAGE_PLOT_ITEM_DEFAULT_SIZE_CM × STAGE_PLOT_CM_TO_PX) / max(drawW, drawH), 0.25…12 )` con bounds de `getStagePlotItemVisualBounds` (silueta o catálogo). Duplicar conserva `scale`. Ítems existentes sin cambios.
 - **Asas de resize (Transformer):** tamaño fijo ~7 px en pantalla. Konva `Transformer` overridea `getAbsoluteTransform()` (ignora scale del Stage) y toma el box de nodos en coords absolutas → `anchorSize` / `borderStrokeWidth` / `rotateAnchorOffset` / `anchorCornerRadius` / `anchorStrokeWidth` son **px de pantalla constantes** (no dividir por `viewport.scale` ni `item.scale`; eso agrandaba las asas al zoom out). **Asa de giro** (`rotater`): cursor SVG `STAGE_PLOT_ROTATE_CURSOR` (flechas en círculo) vía `anchorStyleFunc` mouseenter/dragstart; no `cursor: grab`. **Formaciones** (`FormationResizeHandles`): Circles normales bajo Stage → `handleSize = 7 / max(viewport.scale, 0.15)`.
 - **Z-order asas de formación (seleccionada):** en el `Layer` Konva el orden es guías de formación → ítems → Transformer (borde de ítems; en selección mixta sin asas de resize/giro) → **asas de la formación seleccionada** (`FormationResizeHandles` al final). Además `useLayoutEffect` hace `moveToTop()` sobre `.stage-plot-formation-handles` al seleccionar/redibujar (deps incluyen `selectedIds` para ganar al `moveToTop` del Transformer). Formaciones **no** seleccionadas siguen debajo de los instrumentos (solo el path/plazas; sin asas). Snap magnético / `slotId` sin cambios.
-- **Floating toolbar (Copiar / Eliminar, + formato texto):** overlay HTML sobre el canvas (`pointer-events` solo en la pill), **después** del Stage Konva en el DOM y `z-[40]` (por encima de `.no-dark-invert` / filter del lienzo). Posición en **coords de pantalla** (`viewport.x/y + stageCoord × viewport.scale`). Regla de colocación (AABB de la selección, single/multi/texto):
+- **Floating toolbar (Duplicar / Copiar / Eliminar, + formato texto):** overlay HTML sobre el canvas (`pointer-events` solo en la pill), **después** del Stage Konva en el DOM y `z-[40]` (por encima de `.no-dark-invert` / filter del lienzo). **Duplicar** = in-place; **Copiar** = memoria interna para pegar en otro lienzo. Posición en **coords de pantalla** (`viewport.x/y + stageCoord × viewport.scale`). Regla de colocación (AABB de la selección, single/multi/texto):
   1. Preferir **a la derecha** del AABB: `left = screenMaxX + 8`, `top = screenMinY` (no tapa el rotate handle centrado arriba, ~20–36 px).
   2. Si no cabe: **a la izquierda** `left = screenMinX − 8 − toolbarW`, mismo `top`.
   3. Fallback: **arriba-derecha** con holgura de rotación: `left = screenMaxX − toolbarW`, `top = screenMinY − 40 − toolbarH` (bottom del toolbar queda ≥40 px sobre el top del AABB). Clamp a bordes del canvas (±8 px).
@@ -763,7 +772,7 @@ Un solo editor a la vez **por lienzo** (`stage_plots.id`). No hay edición simul
 ## Export PDF / JPG (plano de escenario)
 
 - **Archivo**: `src/utils/stagePlotPdf.js` — `exportStagePlotPdf`, `exportStagePlotJpg`, `buildStagePlotJpgBlob`, `shareStagePlotJpgViaWhatsApp`, `renderStagePlotToCanvas` (raster compartido preview + JPG). Íconos/siluetas: `drawImageRotated` / `drawImageRotatedOnCanvas` / `drawSilhouetteOnPdf` / `drawSilhouetteOnCanvas` (restauradas: sin ellas el PDF/JPG rompía en lienzos con instrumentos, p. ej. BOB MARLEY gira 12).
-- **Editor** (`ProgramStagePlotEditor.jsx`): toolbar desktop — submenú **Importar / Exportar** dentro del popover **Lienzo** (no botones PDF/JPG sueltos ni dropdown suelto en la barra). Ítems: **Exportar PDF** / **Exportar JPG** (abren `StagePlotExportOptionsModal` con **preview arriba** + las **mismas 4 opacidades** abajo que el técnico), **Descargar JSON**, **Importar (archivo / otra gira)…** → `StagePlotImportModal`. Los deslizantes del modal de opciones se siembran desde el Lienzo actual pero son **override solo de esa descarga** (`applyStagePlotStagePatch` sobre una copia; **no** persisten ni marcan dirty el payload del editor).
+- **Editor** (`ProgramStagePlotEditor.jsx`): toolbar desktop — submenú **Importar / Exportar** dentro del popover **Lienzo** (no botones PDF/JPG sueltos ni dropdown suelto en la barra). Ítems: **Exportar PDF** / **Exportar JPG** (abren `StagePlotExportOptionsModal` con **preview arriba** + las **mismas 4 opacidades** abajo que el técnico), **Descargar JSON**, **Importar (archivo / gira)…** → `StagePlotImportModal` (pestaña **Desde gira** incluye esta gira, marcada “(esta gira)”, y excluye el lienzo activo). Los deslizantes del modal de opciones se siembran desde el Lienzo actual pero son **override solo de esa descarga** (`applyStagePlotStagePatch` sobre una copia; **no** persisten ni marcan dirty el payload del editor).
 - **Técnico** (`StagePlotViewerModal`): **preview arriba** + deslizadores abajo (misma disposición que el modal exportador); preview en vivo (`StagePlotLivePreview` → `renderStagePlotToCanvas`, sin chrome de título) sobre una copia local del payload; al mover opacidades se re-rasteriza (~50 ms debounce); al **cambiar de lienzo** (`contentKey=activeId`) muestra spinner «Cargando escenario…»; PDF/JPG/WhatsApp usan ese payload parchado. **WhatsApp**: genera el mismo JPG; si hay Web Share con archivos abre la hoja nativa (elegir WhatsApp); si no, descarga el JPG y abre `wa.me` para adjuntarlo. Desktop: modal `max-w-5xl` + preview ~52 vh; móvil: preview más bajo pero misma ruta.
 - **Helpers**: `readStagePlotOpacities` / `opacitiesToStagePatch` en `StagePlotOpacityControls.jsx`; `readStagePlotLayerOpacities` / `resolveStagePlotLayerOpacitiesFromPatch` en `stagePlotPayload.js`.
 - **Dimensiones** (ambos formatos): usan `payload.stage.widthCm` / `heightCm` (mismos valores que Lienzo Ancho / Alto). En el export se etiquetan **Ancho** (widthCm) y **Profundo** (heightCm = profundidad del escenario). Texto resumen `Ancho: X cm · Profundo: Y cm` + etiquetas en bordes inferior (ancho) e izquierdo (profundo).

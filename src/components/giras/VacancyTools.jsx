@@ -224,22 +224,26 @@ export const SwapVacancyModal = ({
       .eq("es_simulacion", false)
       .order("apellido");
 
-    const options = (data || []).map((p) => ({
-      id: p.id,
-      label: seatingApellidoNombre(p),
-      subLabel:
-        legalApellidoNombre(p) !== seatingApellidoNombre(p)
-          ? legalApellidoNombre(p)
-          : undefined,
-      subLabel: ausenteSet.has(String(p.id))
-        ? "Ausente en esta gira"
-        : p.dni || "Sin DNI",
-      nombre: p.nombre,
-      apellido: p.apellido,
-      mail: p.mail,
-      condicion: p.condicion,
-      disabled: ausenteSet.has(String(p.id)),
-    }));
+    const options = (data || []).map((p) => {
+      const legal = legalApellidoNombre(p);
+      const seating = seatingApellidoNombre(p);
+      const ausente = ausenteSet.has(String(p.id));
+      const subParts = [
+        ausente ? "Ausente en esta gira" : null,
+        legal !== seating ? legal : null,
+        ausente ? null : p.dni || "Sin DNI",
+      ].filter(Boolean);
+      return {
+        id: p.id,
+        label: seating,
+        subLabel: subParts.join(" · ") || undefined,
+        nombre: p.nombre,
+        apellido: p.apellido,
+        mail: p.mail,
+        condicion: p.condicion,
+        disabled: ausente,
+      };
+    });
     setCandidates(options);
     setSearching(false);
   };

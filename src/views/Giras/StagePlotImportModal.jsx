@@ -19,7 +19,7 @@ import {
 } from "../../utils/stagePlotTransfer";
 
 /**
- * Importar Escenario: archivo JSON u otra gira.
+ * Importar Escenario: archivo JSON, otra gira, u otro lienzo de esta gira.
  */
 export default function StagePlotImportModal({
   open,
@@ -27,6 +27,8 @@ export default function StagePlotImportModal({
   supabase,
   targetProgram,
   onImported,
+  /** Plot activo: se excluye al importar desde la misma gira. */
+  excludePlotId = null,
   /** Export del plot activo (opcional, pestaña Exportar). */
   exportDoc = null,
 }) {
@@ -38,25 +40,46 @@ export default function StagePlotImportModal({
   const [sourcePlotId, setSourcePlotId] = useState("");
   const fileRef = useRef(null);
 
+  const targetProgramId = Number(targetProgram?.id);
+  const isSameGira =
+    Number.isFinite(targetProgramId) &&
+    Number(sourceProgramId) === targetProgramId;
+
   useEffect(() => {
     if (!open || !supabase) return undefined;
     let cancelled = false;
     (async () => {
-      const { data, error } = await listProgramasWithStagePlots(supabase, {
-        excludeProgramId: targetProgram?.id,
-      });
+      // Incluye la gira actual (para clonar otro lienzo de la misma gira).
+      const { data, error } = await listProgramasWithStagePlots(supabase);
       if (cancelled) return;
       if (error) {
         console.error(error);
         setGiras([]);
         return;
       }
-      setGiras(data || []);
+      const tid = Number(targetProgram?.id);
+      let list = [...(data || [])];
+      if (Number.isFinite(tid)) {
+        const idx = list.findIndex((g) => Number(g.id) === tid);
+        if (idx > 0) {
+          const [cur] = list.splice(idx, 1);
+          list.unshift(cur);
+        } else if (idx < 0) {
+          list.unshift({
+            id: tid,
+            nombre_gira: targetProgram?.nombre_gira || `Gira ${tid}`,
+            nomenclador: targetProgram?.nomenclador || null,
+            mes_letra: targetProgram?.mes_letra || null,
+            fecha_desde: targetProgram?.fecha_desde || null,
+          });
+        }
+      }
+      setGiras(list);
     })();
     return () => {
       cancelled = true;
     };
-  }, [open, supabase, targetProgram?.id]);
+  }, [open, supabase, targetProgram]);
 
   useEffect(() => {
     if (!open || !supabase || !sourceProgramId) {
@@ -76,13 +99,19 @@ export default function StagePlotImportModal({
         setSourcePlots([]);
         return;
       }
-      setSourcePlots(data || []);
-      setSourcePlotId(data?.[0]?.id || "");
+      const tid = Number(targetProgram?.id);
+      const sameGira =
+        Number.isFinite(tid) && Number(sourceProgramId) === tid;
+      const plots = (data || []).filter(
+        (p) => !(sameGira && excludePlotId && p.id === excludePlotId),
+      );
+      setSourcePlots(plots);
+      setSourcePlotId(plots[0]?.id || "");
     })();
     return () => {
       cancelled = true;
     };
-  }, [open, supabase, sourceProgramId]);
+  }, [open, supabase, sourceProgramId, targetProgram?.id, excludePlotId]);
 
   const doImportPayload = async ({ payload, nombre }) => {
     setBusy(true);
@@ -177,7 +206,7 @@ export default function StagePlotImportModal({
         <div className="flex gap-1 border-b border-slate-100 px-3 pt-2">
           {[
             ["file", "Archivo"],
-            ["gira", "Otra gira"],
+            ["gira", "Desde gira"],
             ["export", "Exportar"],
           ].map(([id, label]) => (
             <button
@@ -232,7 +261,8 @@ export default function StagePlotImportModal({
           {tab === "gira" && (
             <>
               <p className="text-xs text-slate-500">
-                Copiá un lienzo desde otra gira que ya tenga Escenario.
+                Copiá un lienzo desde esta gira u otra que ya tenga Escenario. Se
+                crea un lienzo nuevo (sin bloques ni eventos del origen).
               </p>
               <label className="block text-xs font-medium text-slate-600">
                 Gira origen
@@ -242,11 +272,23 @@ export default function StagePlotImportModal({
                   className="mt-1 w-full rounded border border-slate-200 px-2 py-1.5 text-sm"
                 >
                   <option value="">— Elegir —</option>
-                  {giras.map((g) => (
-                    <option key={g.id} value={g.id}>
-                      {[g.nomenclador, g.nombre_gira].filter(Boolean).join(" · ")}
-                    </option>
-                  ))}
+                  {giras.map((g) => {
+                    const same =
+                      Number.isFinite(targetProgramId) &&
+                      Number(g.id) === targetProgramId;
+                    const label = [
+                      g.nomenclador,
+                      g.nombre_gira,
+                      same ? "(esta gira)" : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ");
+                    return (
+                      <option key={g.id} value={g.id}>
+                        {label}
+                      </option>
+                    );
+                  })}
                 </select>
               </label>
               {sourceProgramId && (
@@ -256,12 +298,21 @@ export default function StagePlotImportModal({
                     value={sourcePlotId}
                     onChange={(e) => setSourcePlotId(e.target.value)}
                     className="mt-1 w-full rounded border border-slate-200 px-2 py-1.5 text-sm"
+                    disabled={sourcePlots.length === 0}
                   >
-                    {sourcePlots.map((p, i) => (
-                      <option key={p.id} value={p.id}>
-                        {p.nombre?.trim() || `Lienzo ${i + 1}`}
+                    {sourcePlots.length === 0 ? (
+                      <option value="">
+                        {isSameGira
+                          ? "No hay otros lienzos en esta gira"
+                          : "Sin lienzos"}
                       </option>
-                    ))}
+                    ) : (
+                      sourcePlots.map((p, i) => (
+                        <option key={p.id} value={p.id}>
+                          {p.nombre?.trim() || `Lienzo ${i + 1}`}
+                        </option>
+                      ))
+                    )}
                   </select>
                 </label>
               )}

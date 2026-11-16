@@ -31,3 +31,6 @@ temp_freesvg/
 __pycache__/
 *.pyc
 supabase/.temp/
+
+.vercel
+.env*
