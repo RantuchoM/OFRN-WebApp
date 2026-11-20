@@ -52,6 +52,7 @@
 - `entrada_actualizar_referencia_tercero(p_reserva_id, p_referencia)` — `entrada_can_terceros`
 - `entrada_vincular_reservas_pendientes()`
 - `entrada_staff_listar_reservas_persona(p_email)` — historial titular/beneficiario (`entrada_can_terceros`)
+- `entrada_staff_buscar_personas_con_entradas(p_q)` — typeahead por mail, nombre, apellido o nota de quien ya tuvo reservas (`entrada_can_terceros`). Mínimo 2 caracteres, tope 15. El mail es el del beneficiario: en una reserva de terceros pendiente no se indexa al emisor.
 - `entrada_staff_cambiar_concierto_reserva(p_reserva_id, p_nuevo_concierto_id, p_forzar_cupo)` — mueve activa no usada
 - `entrada_staff_cancelar_reserva(p_reserva_id)` — cancela activa (boletos también, no solo admin)
 - `entrada_cambiar_cantidad_reserva` — además de titular/`reservada_por`, permite `entrada_can_terceros`
@@ -62,12 +63,14 @@ Migraciones:
 - `supabase/migrations/20260819150100_entradas_roles_boletos_rpcs.sql` (RPCs, RLS; transacción aparte por SQLSTATE 55P04)
 - `supabase/migrations/20261023120000_entrada_tercero_forzar_cupo.sql` (`cupo_excepcional` + `p_forzar_cupo`)
 - `supabase/migrations/20261103210000_entrada_staff_historial_reservas_persona.sql` (historial + editar no usadas)
+- `supabase/migrations/20261120113820_entrada_staff_buscar_personas_con_entradas.sql` (búsqueda de personas con entradas)
 
 ## UI
 
 - Menú superior **«🎫 Terceros»** (`?view=entradas-terceros`) para admin, boletos y boletos_recep.
 - Admin ya no tiene pestaña de terceros dentro de Admin (solo Programas y Usuarios).
 - Selector de concierto actual con reservas abiertas + formulario de reserva + listado activo.
+- [x] Mail del beneficiario: desplegable con búsqueda (`EntradasTerceroPersonaSearch`) por mail o nombre de quien ya tuvo entradas. Elegir una cuenta marca «Sí, es esa persona». Un mail que no está en la lista se sigue escribiendo a mano.
 - Componente: `src/components/entradas/EntradasTercerosSection.jsx`.
 - Helpers de rol: `src/utils/entradaRoles.js`.
 - Roles asignables en Usuarios / pre-registro: personal, recepcionista, boletos, boletos+recepc, admin.
@@ -76,7 +79,8 @@ Migraciones:
 ## Consultas de ayuda (formulario público)
 
 - Tabla `entrada_ayuda_consulta` + RPCs `entrada_ayuda_listar` / `get` / `marcar_resuelta` / `descartar` (`entrada_can_terceros`).
-- Edge `entradas-send-ayuda` persiste la fila, manda mail a staff con botón **Reservar en Entradas** → `/entradas?view=entradas-terceros&ayuda=<uuid>`, y **acuse al consultante** (aviso Spam / Correo no deseado).
+- Edge `entradas-send-ayuda` persiste la fila, manda mail a staff (`filarmonica.scrn+entradas@gmail.com` **y** `samadhiest+consultasentradas@gmail.com`; override `ENTRADAS_AYUDA_TO`) con botón **Reservar en Entradas** → `/entradas?view=entradas-terceros&ayuda=<uuid>`, y **acuse al consultante** (aviso Spam / Correo no deseado). El `mailto:` del FAB usa las mismas dos casillas.
+- [x] Copia de avisos de consulta a `samadhiest+consultasentradas@gmail.com` (además de la casilla OFRN).
 - En Terceros: cola con pestañas **Pendientes** / **Resueltas** (`EntradasAyudaConsultasPanel`; resueltas por `resolved_at` desc). Dentro de Pendientes, subpestañas por rubro excluyente (orden UI): **Generales** / **Duplicadas** / **Con entradas** (`classifyAyudaPendientesPorRubro`). Cualquier rol con `entrada_can_terceros` (admin, boletos, boletos_recep) ve **todas** las pendientes y resueltas (no hay filtro por dueño). Al Abrir o Usar entrada vigente el detalle queda en el mismo bloque (banner bajo la cola) con WhatsApp activo e **historial de entradas** del mail; al resolver **no cambia a Resueltas** ni quita la fila: queda en Pendientes con tag **Resuelta** hasta Actualizar / salir de Terceros. En **Con entradas**, el WhatsApp de la fila ya lleva el link público al PDF de la reserva vigente. Pendiente: precarga el formulario de emisión.
 - Tag **quién resolvió**: columna `resolved_by` (UUID de `entrada_usuario`) se setea al marcar resuelta/descartada desde el origen; la UI muestra `resolved_by_label` vía `entrada_usuario_display_short`. Filas viejas sin `resolved_by` no tienen etiqueta.
 - [x] En móvil (y hasta `lg`), cada solicitud usa todo el ancho de la tarjeta: nombre, mail, teléfono, cantidad, función y la anotación. Los botones no comparten fila con esos datos. «Usar entrada vigente» ocupa toda la fila; Abrir y Descartar van en dos columnas. El chip «Ya tiene entrada» no se parte letra por letra y el mail corta por palabras. Desde `lg`, datos a la izquierda y acciones en una columna fija.
@@ -92,6 +96,7 @@ Migraciones:
 - Si `estado=resuelta` (o descartada), el deep link muestra aviso y no pide re-reservar.
 - Al crear la reserva de tercero con una consulta pendiente abierta, se marca resuelta y se guarda `reserva_id`.
 - [x] En **Entradas de terceros activas**, cada reserva que vino de una consulta con teléfono (o tiene `Tel …` en la referencia) muestra el botón **WhatsApp** con el link al PDF ya generado. El listado se desplaza hasta ahí al resolver una consulta o un lote.
+- [x] Teléfono de consultas en `entrada_usuario.telefono` (el perfil público no lo lee). Barrido de consultas viejas + trigger al insertar o cambiar una consulta, y al crear la cuenta. Si el mail todavía no tiene cuenta, el WhatsApp de una entrada de tercero usa la última consulta. RPC `entrada_staff_telefonos_por_emails`. Migración `20261120115151_entrada_usuario_telefono_desde_consultas.sql`.
 - [x] Cola + deep link + detección de ya resuelta.
 - [x] Acuse al consultante + Abrir (scroll / auto-confirm) + mensaje personalizado en mail.
 - [x] Aceptar varias a la vez + aviso de reservas existentes.

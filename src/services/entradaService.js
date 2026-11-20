@@ -904,6 +904,16 @@ export async function buscarBeneficiarioPorEmail(email) {
   return data;
 }
 
+/** Staff: personas que ya tuvieron entradas, por mail, nombre o apellido. */
+export async function buscarPersonasConEntradas(query) {
+  const { data, error } = await supabaseEntradasPublic.rpc(
+    "entrada_staff_buscar_personas_con_entradas",
+    { p_q: String(query || "").trim() },
+  );
+  if (error) throw error;
+  return Array.isArray(data) ? data.filter((row) => row?.email) : [];
+}
+
 export async function crearReservaTercero({
   conciertoId,
   cantidad,
@@ -1376,6 +1386,30 @@ export async function listarEntradasTercerosAdmin() {
   return attachAyudaContactoTerceros((data || []).map(mapReservaConConcierto));
 }
 
+function emailBeneficiarioReservaTercero(row) {
+  const emisor = row?.reservada_por;
+  const titular = row?.usuario_id;
+  const mailTitular = String(row?.titular?.email || "").trim();
+  const mailPendiente = String(row?.email_beneficiario || "").trim();
+  if (emisor && String(titular) !== String(emisor)) return mailTitular || mailPendiente;
+  return mailPendiente;
+}
+
+/** Teléfonos guardados (cuenta o última consulta) para armar el WhatsApp de staff. */
+export async function buscarTelefonosBeneficiarioStaff(emails) {
+  const list = [...new Set(
+    (emails || [])
+      .map((email) => String(email || "").trim().toLowerCase())
+      .filter((email) => email.includes("@")),
+  )];
+  if (!list.length) return [];
+  const { data, error } = await supabaseEntradasPublic.rpc("entrada_staff_telefonos_por_emails", {
+    p_emails: list,
+  });
+  if (error) throw error;
+  return Array.isArray(data) ? data.filter((row) => row?.email && row?.telefono) : [];
+}
+
 /** Teléfono y nombre de la consulta de ayuda que originó cada reserva (para WhatsApp). */
 async function attachAyudaContactoTerceros(rows) {
   const ids = rows.map((row) => row.id).filter((id) => id != null);
@@ -1398,14 +1432,25 @@ async function attachAyudaContactoTerceros(rows) {
       byReserva.set(key, ayuda);
     }
   }
-  if (!byReserva.size) return rows;
+  let phoneByEmail = new Map();
+  try {
+    const phones = await buscarTelefonosBeneficiarioStaff(rows.map(emailBeneficiarioReservaTercero));
+    phoneByEmail = new Map(
+      phones.map((row) => [String(row.email).trim().toLowerCase(), String(row.telefono).trim()]),
+    );
+  } catch (phoneError) {
+    console.error(phoneError);
+  }
   return rows.map((row) => {
     const ayuda = byReserva.get(String(row.id));
-    if (!ayuda) return row;
+    const email = emailBeneficiarioReservaTercero(row).toLowerCase();
+    const telefonoGuardado = phoneByEmail.get(email) || null;
+    const ayudaTelefono = String(ayuda?.telefono || "").trim() || telefonoGuardado;
+    if (!ayuda && !ayudaTelefono) return row;
     return {
       ...row,
-      ayuda_telefono: String(ayuda.telefono || "").trim() || null,
-      ayuda_nombre: String(ayuda.nombre || "").trim() || null,
+      ayuda_telefono: ayudaTelefono || null,
+      ayuda_nombre: String(ayuda?.nombre || "").trim() || row.ayuda_nombre || null,
     };
   });
 }

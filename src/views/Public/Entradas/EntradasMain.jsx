@@ -14,6 +14,7 @@ import EntradasDriveCoverImage from "../../../components/entradas/EntradasDriveC
 import EntradasLiveQrScanner from "../../../components/entradas/EntradasLiveQrScanner";
 import EntradasMisReservasSection from "../../../components/entradas/EntradasMisReservasSection";
 import EntradasTercerosSection from "../../../components/entradas/EntradasTercerosSection";
+import EntradasTerceroPersonaSearch from "../../../components/entradas/EntradasTerceroPersonaSearch";
 import EntradasAyudaConsultasPanel from "../../../components/entradas/EntradasAyudaConsultasPanel";
 import EntradasCambiarCantidadControls from "../../../components/entradas/EntradasCambiarCantidadControls";
 import EntradasPersonaHistorialPanel, {
@@ -715,6 +716,8 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
   const tercerosListadoRef = useRef(null);
   /** Al abrir una consulta de ayuda, confirmar automáticamente el beneficiario hallado. */
   const ayudaAutoConfirmRef = useRef(false);
+  /** Mail elegido en el desplegable: confirma la cuenta solo si el lookup coincide. */
+  const terceroPersonaPickRef = useRef("");
   /** Id de consulta pendiente abierta con Abrir / ?ayuda= — no depende del race del URL. */
   const ayudaPendienteIdRef = useRef(null);
   /** Tras confirmar el ConfirmModal de sobrecupo en un lote. */
@@ -953,6 +956,7 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
     if (!email || !email.includes("@")) {
       setTerceroBeneficiarioLookup(null);
       setTerceroBeneficiarioConfirmado(false);
+      terceroPersonaPickRef.current = "";
       return undefined;
     }
     const t = window.setTimeout(async () => {
@@ -960,14 +964,19 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
       try {
         const data = await buscarBeneficiarioPorEmail(email);
         setTerceroBeneficiarioLookup(data?.encontrado ? data : { encontrado: false, email });
-        if (ayudaAutoConfirmRef.current && data?.encontrado) {
+        const picked = String(terceroPersonaPickRef.current || "").trim().toLowerCase();
+        const looked = String(data?.email || email).trim().toLowerCase();
+        const elegidoEnLista = Boolean(picked) && picked === looked;
+        if ((ayudaAutoConfirmRef.current || elegidoEnLista) && data?.encontrado) {
           setTerceroBeneficiarioConfirmado(true);
-          ayudaAutoConfirmRef.current = false;
         } else {
           setTerceroBeneficiarioConfirmado(false);
         }
+        ayudaAutoConfirmRef.current = false;
+        terceroPersonaPickRef.current = "";
       } catch {
         setTerceroBeneficiarioLookup(null);
+        terceroPersonaPickRef.current = "";
       } finally {
         setTerceroEmailLookupBusy(false);
       }
@@ -5589,12 +5598,25 @@ export default function EntradasMain({ user, profile, onLogout, onProfileUpdated
                 <EntradasDisponibilidadBar concierto={adminTerceroConciertoSelected} isDark={isDark} />
                 <div className="space-y-1.5">
                   <label className={ui.label}>Mail del beneficiario (opcional)</label>
-                  <input
-                    type="email"
-                    className={`w-full max-w-md ${ui.input}`}
+                  <p className={`text-xs ${ui.textMuted}`}>
+                    Buscá por mail o nombre a quien ya tuvo entradas, o escribí un mail nuevo.
+                  </p>
+                  <EntradasTerceroPersonaSearch
                     value={terceroEmail}
-                    onChange={(e) => setTerceroEmail(e.target.value)}
-                    placeholder="correo@ejemplo.com"
+                    ui={ui}
+                    isDark={isDark}
+                    onChange={setTerceroEmail}
+                    onPick={(persona) => {
+                      const email = String(persona?.email || "").trim().toLowerCase();
+                      if (!persona?.tiene_cuenta || !email) {
+                        terceroPersonaPickRef.current = "";
+                        return;
+                      }
+                      terceroPersonaPickRef.current = email;
+                      if (String(terceroEmail || "").trim().toLowerCase() === email) {
+                        setTerceroBeneficiarioConfirmado(true);
+                      }
+                    }}
                   />
                   {terceroEmailLookupBusy && (
                     <p className={`text-xs ${ui.textMuted}`}>Buscando usuario…</p>
