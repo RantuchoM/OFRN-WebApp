@@ -1445,7 +1445,7 @@ export default function WorkForm({
     if (!formData.id) return;
     if (field === "instrumentacion" && particellas.length > 0) return;
     const data = { ...formData, ...overrides };
-    if (field === "estado" && formData.estado === "Oficial" && value !== "Oficial") {
+    if (field === "estado" && formData.estado === "Oficial" && value !== "Oficial" && !isAdmin) {
       toast.error(
         "Una obra Oficial no puede cambiar de estado. Creá un nuevo arreglo si necesitás otra versión.",
       );
@@ -1558,7 +1558,7 @@ export default function WorkForm({
     if (field === "instrumentacion" && instrumentacionLocked) {
       return;
     }
-    if (field === "estado" && formData.estado === "Oficial" && val !== "Oficial") {
+    if (field === "estado" && formData.estado === "Oficial" && val !== "Oficial" && !isAdmin) {
       toast.error(
         "Una obra Oficial no puede cambiar de estado. Creá un nuevo arreglo si necesitás otra versión.",
       );
@@ -2229,7 +2229,7 @@ export default function WorkForm({
               >
                 Borrador
               </span>
-            ) : isOficial ? (
+            ) : isOficial && !isAdmin ? (
               <span
                 className="inline-flex items-center bg-white/95 text-emerald-800 border border-white/50 rounded-lg px-2.5 py-1.5 text-sm sm:text-base font-bold tracking-tight min-w-[10rem]"
                 title="Las obras Oficiales no pueden cambiar de estado. Usá «Nuevo Arreglo» si necesitás otra versión."

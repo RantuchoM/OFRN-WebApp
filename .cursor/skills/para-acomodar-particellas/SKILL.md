@@ -29,9 +29,25 @@ description: >-
 | Combinados | **Un PDF, varias partes en la misma hoja** → sufijo `1y2`, `3y4`, `1y2y3` (nunca `1-2`). Son sillas distintas |
 | Transposición | **Misma silla, distinta afinación** (Re/Sib, D/Bb, `in D`/`in B`, `en Re`/`en Sib`) → **una** particella y varios links en `url_archivo`. No son slots distintos. El orgánico cuenta sillas, no PDFs |
 | Portadas | Página 1 IMSLP (título del grupo) se **excluye** al extraer |
-| `link_drive` | Carpeta original en Para acomodar; **no** `copiar_carpeta_a_archivo` |
+| `link_drive` | Carpeta original; **no** `copiar_carpeta_a_archivo`. Al archivar se **mueve** esa misma carpeta (el id de Drive no cambia) |
 | `obras.titulo` | Formato de programa (tonalidad + movimientos de IMSLP). Ver abajo. No va en la carpeta ni en el nombre del PDF |
 | Spec viva | Actualizar `docs/specs/repertoire-ux-evolution.md` al cerrar |
+
+## Archivar según orgánico
+
+Cuando las carpetas de Para acomodar ya están en BD, se mueven (no se copian) a `H:\Mi unidad\Archivo General OFRN\` según `obras.instrumentacion`. El id de Drive se conserva, así que `link_drive` sigue válido.
+
+| Orgánico | Destino |
+|----------|---------|
+| Solo `Str` (puede sumar Key, voz o bandoneón; sin vientos ni perc) | `CUERDAS` |
+| `Str` más cualquier viento, o `Str` + Perc | `ORQUESTA` |
+| Maderas y a lo sumo 1 corno, sin cuerdas (cuarteto / quinteto de vientos) | `VIENTOS\MADERAS` |
+| Solo bronces, sin sax ni teclado | `VIENTOS\BRONCES` |
+| Bronces + sax o teclado, sin cuerdas (combo / big band) | `BIG BAND` |
+| Vientos mixtos sin cuerdas, octeto (2 cornos), o el nombre dice `[banda]` | `VIENTOS` |
+| Solo percusión | `PERCUSIÓN` |
+
+No mover si el orgánico es solo coro (`Ch`) o solo piano (`Key`), si hay varias obras con orgánico distinto para el mismo título, o si en el destino ya existe una carpeta con el mismo nombre.
 
 ## Flujo (checklist)
 

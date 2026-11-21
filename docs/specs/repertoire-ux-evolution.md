@@ -143,10 +143,12 @@ Evitar crear obras duplicadas cuando el usuario ya eligió compositor y está es
 
 ### Estado «Oficial» (`WorkForm`)
 - Solo un **admin** puede pasar una obra a `Oficial`.
-- Una vez en `Oficial`, **nadie** (incluido admin) puede cambiar el estado: el selector se reemplaza por etiqueta de solo lectura.
+- Un **admin** también puede sacar una obra de `Oficial` y pasarla a otro estado (el selector sigue visible).
+- Quien no es admin no puede cambiar el estado de una obra `Oficial`: el selector se reemplaza por etiqueta de solo lectura.
 - Para otra versión instrumental o de arreglo, usar **Nuevo Arreglo** (`createArrangementFromExistingWork` / botón en footer del formulario).
-- [x] Bloqueo en `updateField` y `saveFieldToDb`
-- [x] UI de estado no editable cuando `estado === "Oficial"`
+- [x] Bloqueo en `updateField` y `saveFieldToDb` (solo si no es admin)
+- [x] UI de estado no editable cuando `estado === "Oficial"` y el usuario no es admin
+- [x] Admin puede cambiar de Oficial a otro estado (2026-11-21)
 - **Sync Drive al pasar a Oficial (2026-09-14):** si el estado anterior es `Solicitud` o `Entregado`, tras persistir se llama `syncObraAssignedProgramsDrive` → `syncProgramRepertoire` (`sync_repertoire_shortcuts`, con fallback `sync_program_metadata`) por cada programa único con fila en `repertorio_obras`. No usa `copiar_carpeta_a_archivo`. No toca seating. Toast lista programas OK y fallidos (un fallo no aborta el resto). Sin asignaciones: no hay toast de Drive.
 
 ### ID de obra en footer (`WorkForm`)
@@ -1503,6 +1505,7 @@ Scripts: `archivoParaOrganizarCatalog.mjs`, `process-archivo-para-organizar-loca
 - [x] Paginación en `manage-drive` `list_folder_files` (antes tope 100; Para acomodar ~146)
 - [x] (2026-11-03) Filtro de **completitud** en los HTMLs de decisión: solo se marcan por defecto obras **completas** (≥1 PDF SCORE + ≥1 PDF de parte; SCORE+partes en un mismo PDF cuenta como ambas). Incompletas (sin SCORE, sin partes, sin PDFs) y comprimidos sin listado (`incompleto_o_desconocido`) arrancan **desmarcadas**; se pueden tildar a mano. Nuevo filtro «Completitud», botón «Desmarcar incompletas», chips `SCORE n / partes n`, y columnas `completitud`/`n_score`/`n_partes` en el export. localStorage pasó a `…_v2_` (migra v1 descartando marcas manuales sobre incompletas). Resultado: 380 candidatos → 188 completas / 192 incompletas+desconocidas; marcadas por defecto 212 → 112 (105 nuevos completos). El inventario ahora guarda `pdfNames`/`pdfEntries`.
 - [x] Patch urls Drive (`patch_archivo_para_organizar_drive_urls.sql`) — 34/34 con carpeta propia
+- [x] (2026-11-18) Para acomodar archivado según orgánico: **210** carpetas movidas (mismo id de Drive, `link_drive` intacto). `Str` → `CUERDAS` (50); `Str`+vientos o `Str`+Perc → `ORQUESTA`; cuarteto/quinteto de vientos → `VIENTOS\MADERAS`; bronces → `VIENTOS\BRONCES`; combo con sax/teclado → `BIG BAND`; `[banda]` y octeto → `VIENTOS`. Quedaron en Para acomodar las 3 Spatocco (ya había copia en `ORQUESTA`) y 15 sin un orgánico único (conciertos de viola/violín sin fila clara, Choclo/Escualo/Oblivion/Lo que vendrá/María/Nostalgias con varias versiones, Ave Maria `Ch`, Soro `Key`, Beethoven-Khym sin instrumentación). Criterio en `.cursor/skills/para-acomodar-particellas/SKILL.md`.
 
 ### Completado (2026-10-27) — Leng *La muerte de Alsino*
 
@@ -1549,3 +1552,14 @@ Scripts: `scripts/lib/loteOrquestalesCatalog.mjs`, `scripts/process-lote-orquest
 - **El Burrito Sabanero, para Orquesta y Coro** - obra **3879** (Hugo Blanco, compositor nuevo; arr. Yimi Giraldo, id 881, Orquesta EAFIT). 27 particellas (SCORE + Coro + 25; `Partes.pdf` de 39 págs. recortado por título/instrumento). Drive `1d6g34ST_DZPjyR-9VobDxkRM6om-JMy3`.
 - **Etiqueta Navidad**: `palabras_clave` id 43 + fila en `obras_palabras_clave` (`id_obra`, `id_palabra_clave`); aplicada a 3878 y 3879 con `buildSeedSql({ tagName: "Navidad" })`.
 - RAR extraídos con `tar` (bsdtar; sin 7-Zip). Scripts: `scripts/process-navidad-rar-local.py`, `scripts/generate-navidad-rar-sync.mjs`, seed `supabase/seed_navidad_rar_sync.sql` (ya ejecutado en linked).
+
+### Completado (2026-11-18) — Strauss Jr., Éljen a Magyar!, Op. 332 (obra **3890**)
+
+Obra nueva **3890**. Carpeta [Para acomodar](https://drive.google.com/open?id=1RvVVg82fu1UnZND27PujLCxp2QDMm-ZW) (antes `Nueva`). Edición Doblinger / Nischkauer, Diletto musicale 1049. IMSLP: mi menor, 1869, «1 polka» (sin lista de movimientos). Título: `Éljen a Magyar! Polka schnell en mi menor, Op. 332`.
+
+7 PDFs → 7 particellas. Orgánico de lo que hay: `Perc - Str`. Set incompleto: SCORE (18), Violín 1–2, Viola, Violoncello, Contrabajo y una percusión (caja, bombo y platillos en la misma silla). Faltan vientos, metales y timbales. `bajo.pdf` era el mismo contrabajo y se descartó.
+
+Scripts: `scripts/lib/eljenMagyarCatalog.mjs`, `scripts/process-eljen-magyar-local.mjs`, `scripts/generate-eljen-magyar-sync.mjs`. Seed linked `supabase/seed_eljen_magyar_sync.sql`. Compositor existente Johann Jr. (id 323).
+
+- [x] Split, rename canónico y carpeta en Drive
+- [x] Seed ejecutado → obra **3890**

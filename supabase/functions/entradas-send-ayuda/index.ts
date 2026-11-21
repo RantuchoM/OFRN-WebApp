@@ -13,8 +13,13 @@ import nodemailer from "npm:nodemailer@6.9.7";
 
 const GMAIL_USER = Deno.env.get("ENTRADAS_GMAIL_USER") || Deno.env.get("GMAIL_USER") || "";
 const GMAIL_PASS = Deno.env.get("ENTRADAS_GMAIL_PASS") || Deno.env.get("GMAIL_PASS") || "";
+/** Destinatarios staff de consultas (coma-separados). Env opcional ENTRADAS_AYUDA_TO. */
 const AYUDA_TO =
-  Deno.env.get("ENTRADAS_AYUDA_TO") || "filarmonica.scrn+entradas@gmail.com";
+  Deno.env.get("ENTRADAS_AYUDA_TO") ||
+  "filarmonica.scrn+entradas@gmail.com,samadhiest+consultasentradas@gmail.com";
+/** Reply-To único hacia la casilla principal OFRN (evitar lista en replyTo). */
+const AYUDA_REPLY_TO =
+  Deno.env.get("ENTRADAS_AYUDA_REPLY_TO") || "filarmonica.scrn+entradas@gmail.com";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
@@ -553,7 +558,7 @@ async function handleResponderSinEmitir(
   await transporter.sendMail({
     from: `"Entradas OFRN" <${GMAIL_USER}>`,
     to: email,
-    replyTo: AYUDA_TO,
+    replyTo: AYUDA_REPLY_TO,
     subject,
     text,
     html,
@@ -930,7 +935,7 @@ serve(async (req) => {
       await transporter.sendMail({
         from: `"Entradas OFRN" <${GMAIL_USER}>`,
         to: email,
-        replyTo: AYUDA_TO,
+        replyTo: AYUDA_REPLY_TO,
         subject: ackSubject,
         text: ackText,
         html: ackHtml,

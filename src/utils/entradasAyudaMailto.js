@@ -1,5 +1,6 @@
-/** Casilla OFRN: el sufijo +entradas llega a filarmonica.scrn@gmail.com y se puede filtrar en Gmail. */
-export const ENTRADAS_AYUDA_EMAIL = "filarmonica.scrn+entradas@gmail.com";
+/** Casillas staff: OFRN (+entradas) y copia a consultasentradas. mailto admite varias separadas por coma. */
+export const ENTRADAS_AYUDA_EMAIL =
+  "filarmonica.scrn+entradas@gmail.com,samadhiest+consultasentradas@gmail.com";
 
 export const ENTRADAS_AYUDA_SUBJECT = "Consulta sobre entradas";
 
