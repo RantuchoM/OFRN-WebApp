@@ -15,11 +15,11 @@ export const GIRAS_LIST_SELECT = `
   *,
   giras_localidades(id_localidad, localidades(localidad)),
   giras_integrantes(
-    id_integrante, rol, estado,
+    id_integrante, rol, estado, id_instr,
     es_cobertura, cobertura_id_integrante, cobertura_nombre,
     integrantes!giras_integrantes_id_integrante_fkey(
       id, nombre, apellido, nombre_preferencia, apellido_preferencia, id_localidad,
-      instrumentos(familia),
+      instrumentos(familia, instrumento),
       integrantes_ensambles(id_ensamble, fecha_desde, fecha_hasta)
     )
   ),

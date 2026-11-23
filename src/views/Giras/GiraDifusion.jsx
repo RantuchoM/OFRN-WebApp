@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   IconEdit,
   IconCheck,
@@ -22,6 +22,8 @@ import { generateSeatingPdf } from "../../utils/seatingPdfExporter"; // <--- IMP
 import ConciertosDifusionPanel from "../../components/difusion/ConciertosDifusionPanel";
 import MusiciansListModal from "../../components/difusion/MusiciansListModal";
 import { repertorioObraTitleForDifusion } from "../../utils/repertorioRowDisplay";
+import { CONCERTO_BLOCK_NAME } from "../../utils/concertoCompeticion";
+import { integranteKey } from "../../utils/integranteIds";
 
 // --- UTILIDAD: RENDERER DE TEXTO RICO ---
 const RichTextPreview = ({ content, className = "" }) => {
@@ -496,7 +498,7 @@ export default function GiraDifusion({ supabase, gira, onBack }) {
         const { data: integrantes } = await supabase
           .from("integrantes")
           .select(
-            "id, nombre, apellido, link_bio, link_foto_popup, mail, email_google",
+            "id, nombre, apellido, link_bio, link_foto_popup, mail, email_google, id_instr, instrumentos(instrumento)",
           );
         setAllIntegrantes(integrantes || []);
 
@@ -505,6 +507,10 @@ export default function GiraDifusion({ supabase, gira, onBack }) {
           artistMap[i.id] = {
             link_bio: i.link_bio,
             link_foto_popup: i.link_foto_popup,
+            instrumento:
+              i.instrumentos?.instrumento != null
+                ? String(i.instrumentos.instrumento).trim()
+                : "",
           };
         });
         setArtistsDetails(artistMap);
@@ -656,6 +662,34 @@ export default function GiraDifusion({ supabase, gira, onBack }) {
       (gi) =>
         ["director", "solista"].includes(gi.rol) && gi.estado === "confirmado",
     ) || [];
+
+  /** Roster ya trae instrumento efectivo (override de gira o ficha). */
+  const rosterByIntegranteId = useMemo(() => {
+    const map = new Map();
+    for (const member of fullRoster || []) {
+      const key = integranteKey(member?.id);
+      if (key) map.set(key, member);
+    }
+    return map;
+  }, [fullRoster]);
+
+  const instrumentoEfectivoSolista = (person, details) => {
+    if (person?.rol !== "solista") return "";
+    const fromRoster = rosterByIntegranteId.get(
+      integranteKey(person.id_integrante),
+    );
+    const fromEffective =
+      fromRoster?.instrumentos?.instrumento != null
+        ? String(fromRoster.instrumentos.instrumento).trim()
+        : "";
+    if (fromEffective) return fromEffective;
+    const fromFicha =
+      (details?.instrumento && String(details.instrumento).trim()) ||
+      (person.integrantes?.instrumentos?.instrumento != null
+        ? String(person.integrantes.instrumentos.instrumento).trim()
+        : "");
+    return fromFicha || "";
+  };
 
   const getComposerName = (obra) => {
     if (obra.obras_compositores?.length > 0) {
@@ -810,7 +844,12 @@ export default function GiraDifusion({ supabase, gira, onBack }) {
           </h3>
           <div className="bg-slate-50 p-4 rounded-lg border border-slate-100">
             <ul className="space-y-2">
-              {localRepertorio.map((rep) => (
+              {localRepertorio
+                .filter(
+                  (rep) =>
+                    String(rep?.nombre || "").trim() !== CONCERTO_BLOCK_NAME,
+                )
+                .map((rep) => (
                 <React.Fragment key={rep.id}>
                   {rep.repertorio_obras
                     ?.filter((o) => !o.excluir)
@@ -864,17 +903,28 @@ export default function GiraDifusion({ supabase, gira, onBack }) {
           <div className="space-y-6">
             {staff.map((person) => {
               const details = artistsDetails[person.id_integrante] || {};
+              const instrumentoSolista = instrumentoEfectivoSolista(
+                person,
+                details,
+              );
               return (
                 <div
                   key={person.id_integrante}
                   className="p-4 border border-slate-200 rounded-lg bg-slate-50/50"
                 >
-                  <div className="flex justify-between items-start mb-2">
-                    <h4 className="font-bold text-lg text-slate-800">
-                      {person.integrantes?.nombre}{" "}
-                      {person.integrantes?.apellido}
-                    </h4>
-                    <div className="text-[10px] font-bold bg-indigo-100 text-indigo-700 px-2 py-1 rounded uppercase">
+                  <div className="flex justify-between items-start mb-2 gap-3">
+                    <div className="min-w-0">
+                      <h4 className="font-bold text-lg text-slate-800">
+                        {person.integrantes?.nombre}{" "}
+                        {person.integrantes?.apellido}
+                      </h4>
+                      {instrumentoSolista ? (
+                        <p className="text-sm font-medium text-slate-500 mt-0.5">
+                          {instrumentoSolista}
+                        </p>
+                      ) : null}
+                    </div>
+                    <div className="text-[10px] font-bold bg-indigo-100 text-indigo-700 px-2 py-1 rounded uppercase shrink-0">
                       {person.rol}
                     </div>
                   </div>

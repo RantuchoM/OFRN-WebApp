@@ -45,6 +45,9 @@ import {
 } from "../utils/rosterMatrixIds";
 import { fetchDirectRepertorioAssignmentsForObra } from "./repertorioPlaceholderOpciones";
 
+/** Misma etiqueta que `CONCERTO_BLOCK_NAME` en concertoCompeticion.js (evitar import circular). */
+const CONCERTO_COMPETITION_BLOCK = "Concerto Competition";
+
 /**
  * Resuelve los IDs de los integrantes de una gira:
  * (Miembros de Ensambles Convocados + Familias Convocadas + Overrides) MINUS (Miembros de Ensambles Excluidos) MINUS (Ausentes).
@@ -1331,6 +1334,10 @@ function toConciertoObraFirstLine(txt) {
 
 function buildRepertorioFromProgramasRepertorios(programasRepertorios = []) {
   return (programasRepertorios || [])
+    .filter(
+      (bloque) =>
+        String(bloque?.nombre || "").trim() !== CONCERTO_COMPETITION_BLOCK,
+    )
     .sort((a, b) => {
       const ao = Number(a?.orden ?? 999999);
       const bo = Number(b?.orden ?? 999999);

@@ -37,6 +37,7 @@ Migración: `supabase/migrations/20260618120000_giras_integrantes_id_instr.sql`
 - [x] `ProgramSeating` — split cuerdas/vientos, particellas, badges
 - [x] `InstrumentationAudit` / `InstrumentationBadges` — conteo Convoked
 - Exportaciones de roster que lean `m.instrumentos` / `m.id_instr`
+- [x] `GiraDifusion` (Sección Artistas · solista): muestra el instrumento efectivo del roster (`giras_integrantes.id_instr` si hay override; si no, ficha)
 
 ## Helpers (`giraUtils.js`)
 

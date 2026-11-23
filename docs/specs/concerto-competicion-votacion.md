@@ -142,6 +142,7 @@ Modales con portal a `document.body` y `z-[100]`. Iconos solo de `src/components
 
 Cada instancia usa `concerto_instancias.id_gira` → `programas.id`. Al vincular, desvincular, quitar o mover desde esta pantalla se reconcilia solo el bloque `programas_repertorios.nombre = 'Concerto Competition'` de esa gira:
 
+- **Difusión / listados de programa público:** el bloque `Concerto Competition` no se lista en Material de Prensa (`GiraDifusion` → Sección Programa) ni en el repertorio aplanado de `buildRepertorioFromProgramasRepertorios` (Conciertos / programas sin conciertos). Sigue visible en Repertorio de la gira y en la pantalla Concerto Competition.
 - Si no existe y hay al menos una obra vinculada, se crea.
 - Si ya existe, se reutiliza (el de menor `id` si hubiera más de uno con el mismo nombre).
 - Las filas del bloque son las `repertorio_obras` de los participantes de las instancias de esa gira que tienen obra vinculada. El `orden` del bloque sigue el orden de la instancia y, dentro, el de los participantes.

@@ -62,6 +62,7 @@ Permitir mover obras dentro del mismo bloque y entre bloques con feedback visual
 
 - **repertorio_obras:** `id`, `id_repertorio` (FK a `programas_repertorios`), `id_obra`, `orden`, `id_arco_seleccionado`, `duracion_segundos_concierto`, `titulo_concierto` (título público solo de esa fila; no pisa `obras.titulo`), ...
 - [x] Título de obra por programa (`titulo_concierto`) editable en el listado como la duración, con formato enriquecido (WysiwygEditor), usado en Difusión.
+- [x] Difusión (Material de Prensa / repertorio aplanado de gestión): el bloque `programas_repertorios.nombre = 'Concerto Competition'` no se publica; permanece en Repertorio de la gira y en Concerto Competition.
 - **programas_repertorios:** Bloques de repertorio por gira (id, nombre, orden, id_programa).
 - **programas_repertorios_grupos:** Grupos de convocatoria del bloque `(id_repertorio, id_grupo)` → `giras_grupos`. Vacío / sin filas = el bloque aplica a todo el roster. Misma semántica que `eventos_grupos`.
 - **obras_arcos:** Sets de arcos por obra (id, id_obra, nombre, link, descripcion, id_drive_folder).
