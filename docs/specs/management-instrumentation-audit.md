@@ -15,6 +15,9 @@ Proveer una interfaz centralizada para comparar la instrumentación técnica req
      - **Rango de fechas** (`fecha_desde` – `fecha_hasta`) en formato legible.
      - **Zona** (`zona`) en texto auxiliar.
    - La cabecera debe ser clickeable y expandir/colapsar el cuerpo del acordeón.
+   - **Expandir/ocultar todas las obras** (2026-11-24): en el header, `IconMusic` (mismo que Repertorio en Giras) muestra u oculta el desglose de obras de **todos** los programas filtrados (mismo efecto que clic en cada tarjeta).
+   - Por obra real: lápiz (`IconEdit`) abre `WorkForm` en modal; Drive sigue con `IconFolder` si hay `link_drive`.
+   - **Ausente desde exceso Conv (2026-11-24):** el botón Ausente del modal de convocados abre `RosterBajaModal` (motivo de baja, R/L/cobertura) y encola mails como en Nómina vía `NotificationQueuePanel`.
 
 3. **Matriz de Comparación**
    - Se renderiza dentro del contenido expandido de cada acordeón.

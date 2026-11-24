@@ -1,4 +1,8 @@
 import { countsTowardInstrumentationConvoked } from "./instrumentation";
+import {
+  buildStringsCompositionDetail,
+  formatStringsCompositionParen,
+} from "./seatingStringsComposition";
 
 export const ORGANICO_KEYS = [
   "Fl",
@@ -138,10 +142,44 @@ export function normalizeOrganicoMap(value) {
   return acc;
 }
 
+/** Detalle Vn1.Vn2.Va.Vc.Cb guardado junto al mapa (opcional). */
+export function normalizeStringsComposition(value) {
+  const src = value?.strings;
+  if (!src || typeof src !== "object") return null;
+  const vn1 = Number(src.vn1) || 0;
+  const vn2 = Number(src.vn2) || 0;
+  const va = Number(src.va) || 0;
+  const vc = Number(src.vc) || 0;
+  const cb = Number(src.cb) || 0;
+  const total = vn1 + vn2 + va + vc + cb;
+  if (total <= 0) return null;
+  return {
+    vn1,
+    vn2,
+    va,
+    vc,
+    cb,
+    vnEstimated: !!src.vnEstimated,
+    total,
+  };
+}
+
 export function organicoMapsEqual(a, b) {
   const left = normalizeOrganicoMap(a);
   const right = normalizeOrganicoMap(b);
-  return ORGANICO_KEYS.every((key) => left[key] === right[key]);
+  if (!ORGANICO_KEYS.every((key) => left[key] === right[key])) return false;
+  const ls = normalizeStringsComposition(a);
+  const rs = normalizeStringsComposition(b);
+  if (!ls && !rs) return true;
+  if (!ls || !rs) return false;
+  return (
+    ls.vn1 === rs.vn1 &&
+    ls.vn2 === rs.vn2 &&
+    ls.va === rs.va &&
+    ls.vc === rs.vc &&
+    ls.cb === rs.cb &&
+    ls.vnEstimated === rs.vnEstimated
+  );
 }
 
 /**
@@ -155,7 +193,7 @@ export function organicoMapForAudit(stored) {
   return map;
 }
 
-export function formatInstrumentationStandard(map) {
+export function formatInstrumentationStandard(map, stringsDetail = null) {
   const source = map || createEmptyOrganicoMap();
   const fl = source.Fl || 0;
   const ob = source.Ob || 0;
@@ -170,6 +208,11 @@ export function formatInstrumentationStandard(map) {
   const harpCount = source.Har || 0;
   const keyCount = source.Pno || 0;
   const hasStr = (source.Str || 0) > 0;
+  const strings =
+    stringsDetail ||
+    normalizeStringsComposition(source) ||
+    null;
+  const stringsParen = formatStringsCompositionParen(strings);
 
   let standardStr = `${fl}.${ob}.${cl}.${bn} - ${hn}.${tpt}.${tbn}.${tba}`;
 
@@ -180,7 +223,9 @@ export function formatInstrumentationStandard(map) {
 
   if (harpCount > 0) standardStr += ` - ${harpCount > 1 ? harpCount : ""}Hp`;
   if (keyCount > 0) standardStr += " - Key";
-  if (hasStr) standardStr += " - Str";
+  if (hasStr) {
+    standardStr += stringsParen ? ` - Str ${stringsParen}` : " - Str";
+  }
 
   const isStandardEmpty =
     standardStr.startsWith("0.0.0.0 - 0.0.0.0") &&
@@ -196,9 +241,33 @@ export function formatInstrumentationStandard(map) {
     .replace("0.0.0.0 - 0.0.0.0", "");
 }
 
-export function snapshotFromRoster(roster) {
+/**
+ * @param {Array} roster
+ * @param {Map|null} [musicianContainerLabels] — seating; sin labels → violines a mitad estimada
+ */
+export function snapshotFromRoster(roster, musicianContainerLabels = null) {
   const map = computeConvoked(roster);
-  const formatted = formatInstrumentationStandard(map);
+  let strings = buildStringsCompositionDetail(
+    roster,
+    musicianContainerLabels,
+  );
+  // Si hay Str en el mapa pero falló el detalle (p. ej. labels raros),
+  // reintenta sin contenedores → mitad estimada de violines.
+  if (!strings && (map.Str || 0) > 0) {
+    strings = buildStringsCompositionDetail(roster, null);
+  }
+  if (strings) {
+    map.strings = {
+      vn1: strings.vn1,
+      vn2: strings.vn2,
+      va: strings.va,
+      vc: strings.vc,
+      cb: strings.cb,
+      vnEstimated: strings.vnEstimated,
+      total: strings.total,
+    };
+  }
+  const formatted = formatInstrumentationStandard(map, strings);
   const text = formatted === "s/d" ? "" : formatted;
-  return { text, map };
+  return { text, map, strings };
 }

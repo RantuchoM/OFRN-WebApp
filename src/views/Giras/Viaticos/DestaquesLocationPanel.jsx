@@ -26,6 +26,8 @@ import {
 import { isTransporteOficial, resolveCheckPatenteOficial } from "../../../utils/transporteOficial";
 import TransporteOficialBadge from "../../../components/giras/transport/TransporteOficialBadge";
 import { calculateDaysDiff } from "../../../utils/viaticosDiasComputables";
+import { calcValorDiarioProporcional } from "../../../utils/viaticosValorDiarioProporcional";
+import { resolveTemporadaModo } from "../../../utils/viaticosTemporadaAlta";
 import DiasComputablesHelp from "./DiasComputablesHelp";
 import {
     blockNumberInputWheel,
@@ -346,15 +348,36 @@ const LiveMassiveValuesForm = ({
     const dias = isGeneral ? 0 : (logisticsInfo?.dias || localConfig.backup_dias_computables || 0);
     const base = parseFloat(globalConfig?.valor_diario_base || 0);
     const factorTempConfig = parseFloat(globalConfig?.factor_temporada || 0);
-    const hasSeasonality = factorTempConfig > 0;
-    const factorTemp = 1 + factorTempConfig; 
-    
+    const temporadaModo = resolveTemporadaModo({
+        factorTemporada: factorTempConfig,
+        temporadaDesde: globalConfig?.temporada_desde,
+        temporadaHasta: globalConfig?.temporada_hasta,
+    });
+    const hasSeasonality = temporadaModo !== "off";
+
     const porcentajeGlobal = globalConfig?.porcentaje_destaques !== undefined ? parseFloat(globalConfig.porcentaje_destaques) : 100;
-    
-    const valDiarioFull = base * factorTemp; 
-    const valDiarioAplicado = Math.round(valDiarioFull * (porcentajeGlobal / 100));
-    
-    const anticipoViaticoTotal = Math.round(valDiarioAplicado * dias);
+
+    const finEst =
+        !isGeneral && dias > 0
+            ? calcValorDiarioProporcional({
+                  fechaSalida: logisticsInfo?.fechaSalidaIso,
+                  horaSalida: logisticsInfo?.horaSalidaIso,
+                  fechaLlegada: logisticsInfo?.fechaLlegadaIso,
+                  horaLlegada: logisticsInfo?.horaLlegadaIso,
+                  vigencias: [],
+                  fallbackBase: base,
+                  porcentaje: porcentajeGlobal,
+                  factorTemporada: factorTempConfig,
+                  temporadaDesde: globalConfig?.temporada_desde,
+                  temporadaHasta: globalConfig?.temporada_hasta,
+              })
+            : null;
+    const valDiarioAplicado = finEst
+        ? Math.round(finEst.valorDiarioCalc)
+        : Math.round(base * (1 + (hasSeasonality ? factorTempConfig : 0)) * (porcentajeGlobal / 100));
+    const anticipoViaticoTotal = finEst
+        ? Math.round(finEst.subtotal)
+        : Math.round(valDiarioAplicado * dias);
 
     let totalGastosEst = 0;
     let totalGastosRen = 0;
@@ -477,10 +500,13 @@ const LiveMassiveValuesForm = ({
                         </div>
                         <div className="flex flex-col items-center">
                             <span className="text-[8px] text-slate-400 font-bold uppercase">Temp (+30%)</span>
-                            {hasSeasonality ? 
-                                <IconCheck size={12} className="text-emerald-500" strokeWidth={4}/> : 
+                            {hasSeasonality ? (
+                                <span className="text-[9px] font-bold text-emerald-600 uppercase">
+                                    {temporadaModo === "parcial" ? "Parc." : "Sí"}
+                                </span>
+                            ) : (
                                 <span className="text-slate-300 font-bold text-[10px]">-</span>
-                            }
+                            )}
                         </div>
                         <div className="flex flex-col items-center">
                             <span className="text-[8px] text-slate-400 font-bold uppercase">% Liq</span>

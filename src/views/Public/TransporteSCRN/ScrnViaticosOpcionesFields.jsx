@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import ArsAmountInput from "../../../components/viaticos/ArsAmountInput";
+import TemporadaAltaFranjaControl from "../../../components/viaticos/TemporadaAltaFranjaControl";
 import { IconRefresh } from "../../../components/ui/Icons";
 import {
   EMPTY_VIATICOS_OPCIONES,
@@ -89,17 +90,20 @@ export default function ScrnViaticosOpcionesFields({
                 <option value="0">0%</option>
               </select>
             </div>
-            <div className="space-y-1 flex items-end">
-              <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer pb-1.5">
-                <input
-                  type="checkbox"
-                  checked={Boolean(opts.temporada_alta)}
-                  onChange={(e) => patch({ temporada_alta: e.target.checked })}
-                  className="rounded border-slate-300"
-                />
-                <span className="text-xs font-semibold">Temporada alta (+30%)</span>
-              </label>
-            </div>
+            <TemporadaAltaFranjaControl
+              variant="scrn"
+              temporadaAlta={Boolean(opts.temporada_alta)}
+              temporadaDesde={opts.temporada_desde}
+              temporadaHasta={opts.temporada_hasta}
+              showAviso={false}
+              onChange={(p) =>
+                patch({
+                  temporada_alta: Boolean(p.temporada_alta),
+                  temporada_desde: p.temporada_desde ?? null,
+                  temporada_hasta: p.temporada_hasta ?? null,
+                })
+              }
+            />
           </div>
 
           <div className="space-y-1">

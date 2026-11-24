@@ -9,7 +9,7 @@ Menú de navegación rápida accesible con **Ctrl+K** / **Cmd+K**, con respaldo 
 | `src/context/CommandPaletteContext.jsx` | Registro de comandos globales, contextuales, de giras y apertura de fichas |
 | `src/components/ui/CommandPalette.jsx` | UI modal (portal a `document.body`, `z-[200]`) con búsqueda |
 | `src/components/ui/CommandPaletteEntityOverlays.jsx` | Portales de `WorkForm` (`z-[9999]`) y `MusicianForm` (`z-[100]`) |
-| `src/utils/commandPaletteEntitySearch.js` | Búsqueda limitada de obras e integrantes (ilike + ranking cliente) |
+| `src/utils/commandPaletteEntitySearch.js` | Búsqueda limitada de obras e integrantes (`~*` + ranking cliente; pool 120/token, UI 20) |
 | `src/components/ui/CommandBarTrigger.jsx` | Botón que dispara `open-command-palette` |
 | `src/constants/managementPalette.js` | **Fuente de verdad** para rutas de informes de Gestión en Ctrl+K |
 
@@ -123,7 +123,8 @@ No hace falta duplicar la URL en más sitios: `buildManagementPaletteCommands()`
 
 ### Cómo se usa
 1. Abrir la paleta. La lista es de comandos (navegación, contexto, giras). No incluye «Buscar personas» ni «Buscar repertorio». En Comandos, cada gira del historial se busca también por `mes_letra` y `nomenclador` (`09b`, `Sinf 12/26` o `09b | Sinf 12/26`). Si esa gira está abierta, sus comandos (Programación, Seating, etc.) coinciden con esos mismos códigos y quedan primero.
-2. **Tab** (o el segmento de arriba) pasa a Personas o Repertorio. Recién ahí se escribe. A los **2+ caracteres**, con debounce **250 ms**, cada token se busca solo (título **o** compositor; en personas, nombre **o** instrumento; tope 20 por token). El filtro de Postgres es `~*` con clases de acentos, así `Garcia` encuentra *García* y `Jose` encuentra *José*. El AND entre palabras lo hace el ranking cliente sobre los campos juntos, igual que la búsqueda rápida del repertorio móvil: `Tchai Ele` encuentra *Elegy* de Tchaikovsky. No se descarga la tabla completa.
+2. **Tab** (o el segmento de arriba) pasa a Personas o Repertorio. Recién ahí se escribe. A los **2+ caracteres**, con debounce **250 ms**, cada token se busca solo (título **o** compositor; en personas, nombre **o** instrumento; tope **120** candidatos por token, ordenados por `id` desc para no cortar obras/personas nuevas). Con **2+ tokens**, además se hace un fetch AND de todos los tokens sobre el título (p. ej. «sinfonía 9»). El filtro de Postgres es `~*` con clases de acentos, así `Garcia` encuentra *García* y `Jose` encuentra *José*. El AND entre palabras lo hace el ranking cliente sobre los campos juntos, igual que la búsqueda rápida del repertorio móvil: `Tchai Ele` encuentra *Elegy* de Tchaikovsky. Se muestran hasta **20** resultados rankeados. No se descarga la tabla completa.
+   - **Fix (2026-11-24):** el tope de 20 por token (sin orden) truncaba por id ascendente; «Beethoven» / «sinfonía» no traían la Sinfonía 9 (id alto). Subido a 120 + `id` desc + AND multi-token en título.
 3. Elegir un resultado abre la ficha: `WorkForm` (`z-[9999]`) o `MusicianForm` (id numérico, `z-[100]`). En personas, si hay teléfono o mail, la fila muestra **WhatsApp** (`wa.me`, con el mismo normalizado que el resto de la app) y **mail** (`mailto:`). Un clic en esos iconos no abre la ficha. ESC limpia el texto y, si ya está vacío, vuelve a comandos; ESC de nuevo cierra.
 
 ### Alternar las tres vistas con Tab

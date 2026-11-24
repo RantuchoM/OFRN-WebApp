@@ -32,6 +32,11 @@ import {
 import RangosValorDiario from "../../components/viaticos/RangosValorDiario";
 import AnticipoDiasHelp from "../../components/viaticos/AnticipoDiasHelp";
 import ArsAmountInput from "../../components/viaticos/ArsAmountInput";
+import TemporadaAltaFranjaControl from "../../components/viaticos/TemporadaAltaFranjaControl";
+import {
+  FACTOR_TEMPORADA_ALTA,
+  resolveTemporadaModo,
+} from "../../utils/viaticosTemporadaAlta";
 import ManualClearChoiceModal from "../../components/public/ManualClearChoiceModal";
 import {
   baseFieldClass,
@@ -160,7 +165,9 @@ const DEFAULT_FORM = {
 
   // Financieros
   valor_diario_base: 0, // debe iniciar en 0
-  temporada_alta: false, // +30%
+  temporada_alta: false, // +30% (completa si fechas null)
+  temporada_desde: null,
+  temporada_hasta: null,
   porcentaje: 100,
   /** Override del anticipo calculado (null = automático). */
   anticipo_custom: null,
@@ -282,7 +289,12 @@ export default function ViaticosManual() {
     );
   }, [form.fecha_salida, form.hora_salida, form.fecha_llegada, form.hora_llegada]);
 
-  const factor_temporada = form.temporada_alta ? 0.3 : 0;
+  const factor_temporada = form.temporada_alta ? FACTOR_TEMPORADA_ALTA : 0;
+  const temporadaModo = resolveTemporadaModo({
+    temporadaAlta: form.temporada_alta,
+    temporadaDesde: form.temporada_desde,
+    temporadaHasta: form.temporada_hasta,
+  });
 
   const valorDiarioBaseInfo = useMemo(
     () =>
@@ -312,6 +324,8 @@ export default function ViaticosManual() {
       fallbackBase: 0,
       porcentaje: form.porcentaje,
       factorTemporada: factor_temporada,
+      temporadaDesde: form.temporada_desde,
+      temporadaHasta: form.temporada_hasta,
     });
   }, [
     form.fecha_salida,
@@ -319,6 +333,8 @@ export default function ViaticosManual() {
     form.fecha_llegada,
     form.hora_llegada,
     form.porcentaje,
+    form.temporada_desde,
+    form.temporada_hasta,
     factor_temporada,
     vigencias,
   ]);
@@ -839,6 +855,8 @@ export default function ViaticosManual() {
             : String(get("temporada_alta") || "").toLowerCase() === "false" || String(get("temporada_alta") || "") === "0"
               ? false
               : prev.temporada_alta,
+        temporada_desde: get("temporada_desde") || prev.temporada_desde || null,
+        temporada_hasta: get("temporada_hasta") || prev.temporada_hasta || null,
         gasto_alojamiento: get("gasto_alojamiento") !== "" ? get("gasto_alojamiento") : prev.gasto_alojamiento,
         gasto_pasajes: get("gasto_pasajes") !== "" ? get("gasto_pasajes") : prev.gasto_pasajes,
         gasto_combustible: get("gasto_combustible") !== "" ? get("gasto_combustible") : prev.gasto_combustible,
@@ -1118,17 +1136,23 @@ export default function ViaticosManual() {
                         <option value="0">0%</option>
                       </select>
                     </label>
-                    <label className="flex h-full min-w-0 flex-col text-xs font-bold text-slate-600">
-                      <span className="flex min-h-8 items-end">Temporada alta</span>
-                      <span className="mt-1 flex min-h-[38px] flex-1 items-center justify-end rounded-lg border border-slate-200 bg-slate-50 px-3">
-                        <input
-                          type="checkbox"
-                          checked={form.temporada_alta}
-                          onChange={update("temporada_alta")}
-                          className="h-5 w-5 accent-[#0054a6]"
-                        />
-                      </span>
-                    </label>
+                    <TemporadaAltaFranjaControl
+                      variant="form"
+                      temporadaAlta={form.temporada_alta}
+                      temporadaDesde={form.temporada_desde}
+                      temporadaHasta={form.temporada_hasta}
+                      lugarTexto={form.lugar_comision || ""}
+                      viajeDesde={form.fecha_salida || ""}
+                      viajeHasta={form.fecha_llegada || form.fecha_salida || ""}
+                      onChange={(patch) => {
+                        setForm((prev) => ({
+                          ...prev,
+                          temporada_alta: Boolean(patch.temporada_alta),
+                          temporada_desde: patch.temporada_desde ?? null,
+                          temporada_hasta: patch.temporada_hasta ?? null,
+                        }));
+                      }}
+                    />
                   </div>
                 </div>
 
@@ -1369,7 +1393,13 @@ export default function ViaticosManual() {
                         : "—"}
                   </span>{" "}
                   · %: <span className="font-bold">{String(form.porcentaje || 0)}%</span> · Temp:{" "}
-                  <span className="font-bold">{form.temporada_alta ? "ALTA (+30%)" : "BAJA"}</span>
+                  <span className="font-bold">
+                    {temporadaModo === "off"
+                      ? "BAJA"
+                      : temporadaModo === "parcial"
+                        ? "ALTA parcial (+30%)"
+                        : "ALTA (+30%)"}
+                  </span>
                 </div>
               </div>
               <div className="rounded-xl border border-slate-200 bg-white p-4">

@@ -9,6 +9,8 @@ Optimizar la interfaz de Auditoría de Instrumentación para mejorar la densidad
 - **Una sola fila**: Título "Auditoría de Instrumentación", filtro Fecha desde, Fecha hasta, selector Tipo de programa, indicador de diferencias Req/Conv y estado de carga en una única línea (`flex flex-wrap items-center gap-3`).
 - **Eliminadas** las leyendas explicativas largas (texto sobre `getInstrumentValue`, Req Max, Conv, etc.).
 - **DateInput**: etiquetas cortas "Desde" / "Hasta" y ancho controlado para mantener compacidad.
+- **Toggle obras (2026-11-24):** botón `IconMusic` (mismo que Repertorio en `GirasView`) en el header de Auditoría. Expande o colapsa **todas** las tarjetas filtradas a la vez (`expandedIds` = todos los `programas.id` o vacío). Equivale a hacer clic en cada tarjeta. `aria-pressed` refleja el estado; activo = violeta.
+- **Conformación Str (2026-11-24):** cabecera Str y texto orgánico muestran `(Vn1.Vn2.Va.Vc.Cb)`; violines sin contenedores → mitad estimada en itálica (`StringsCompositionMark`).
 
 ### 2. Cards de gira tematizadas
 - **Estilos por tipo de programa**: Se usa `getProgramStyle(gira.tipo)` de `src/utils/giraUtils.js` para aplicar el esquema de colores OFRN (Sinfónico, Camerata Filarmónica, Ensamble, Jazz Band, Comisión, default) a cada card.
@@ -22,16 +24,22 @@ Optimizar la interfaz de Auditoría de Instrumentación para mejorar la densidad
 
 ### 4. Desglose de obras (lazy) y acciones por obra
 - **Lazy rendering**: `ProgramWorksTable` usa `program._worksAudit` precalculado al cargar (incluye seating); solo se monta al expandir la gira.
-- **Icono `IconPencil`** junto al título de cada obra: abre el modal de **WorkForm** para editar la obra. Se pasa `workFormInitialData = { id: obraId }`; WorkForm carga el detalle por id.
+- **Lápiz (`IconEdit`)** junto al título de cada obra real (`obra_id` presente; no en placeholders): abre el modal de **WorkForm**. Se pasa `workFormInitialData = { id: obraId }`; WorkForm carga el detalle por id.
 - **Icono `IconFolder`** (solo si la obra tiene `link_drive`): abre el enlace de Drive en nueva pestaña. Se usa `buildDriveUrl(link_drive)` para soportar tanto URL completa como solo ID de carpeta (`https://drive.google.com/drive/folders/<id>`).
 - **Modal WorkForm**: Renderizado en la vista con estado `workFormOpen` y `workFormInitialData`; cierre con `closeWorkForm` o desde `onSave`/`onCancel` del formulario. Se usa `catalogoInstrumentos={[]}`; WorkForm puede cargar instrumentos internamente si hace falta.
 
-### 5b. Fila "Vacantes" e inclusión de cuerdas (2026-09)
+### 5c. Fila "Vacantes" e inclusión de cuerdas (2026-09)
 - La fila **Vacantes** cuenta plazas `es_simulacion` por columna (ámbar `bg-amber-200`).
 - **Cuerdas** (`id_instr` 01–04 o familia `cuerd`): no entran en Conv/nombres de Conv; sí se muestran en Vacantes bajo la columna **Str** (tooltip con rótulos).
 - **Vacantes auto** no inventa plazas de cuerda ni de Tim (sigue el loop de vientos/perc/arpa/piano; salta Tim).
 
-### 5. Tooltips en fila "Conv"
+### 5. Exceso Conv → Ausente con modal de baja (2026-11-24)
+- Clic en celda Conv en exceso abre el modal **Convocados: {col}**.
+- **Ausente** ya no marca directo: abre `RosterBajaModal` (mismo que Nómina) con `action: 'ausente'`.
+- Al confirmar: guarda `estado=ausente` + `motivo_estado` / timestamp; opciones R / L / cobertura (alta del cubridor, baja del cubridor previo); encola `NotificationQueuePanel` con variante `AUSENTE` (+ mails de cobertura si aplica) cuando `notificacion_inicial_enviada` y `notificaciones_habilitadas` y el músico tiene mail.
+- Visibilidad de edición: `isEditor` o `isManagement`.
+
+### 5b. Tooltips en fila "Conv"
 - En la fila de **Convocados (Conv)** de la tabla de resumen, cada celda de instrumento tiene un **tooltip nativo** (`title`) con la lista de **apellidos y nombres** de los músicos confirmados para ese instrumento en esa gira.
 - **Lógica**: Función `getConvokedNamesByColumn(roster)` que:
   - Filtra el roster por `estado_gira === 'confirmado'` y excluye roles no orquestales (staff, produccion, chofer).
@@ -46,6 +54,7 @@ Optimizar la interfaz de Auditoría de Instrumentación para mejorar la densidad
 
 ### 7. Alineación con Seating (auditoría de instrumentación)
 - **Requerido máximo** (`Req Max`): misma lógica que `ProgramSeating` — `buildProgramInstrumentationAudit` con asignaciones de seating, particellas y requerido híbrido por familia (`getEffectiveRequiredColumnMap`).
+- **Fix Fl inflado (2026-11-24):** `getEffectiveRequiredColumnMap` ya no hace `Math.max(partes, músicos)`. Si seating duplica músicos en una parte (obra 2732: Flauta 2 con 2 ids), el Req sigue el techo de particellas (= WorkForm). Solo baja por consolidación.
 - **Colores**:
   - **Naranja** (celdas y fila Sug.): solo si `requerido > convocado`.
   - **Violeta** (Req Max y obras): `requerido == convocado` por asignación múltiple.
@@ -66,7 +75,8 @@ Optimizar la interfaz de Auditoría de Instrumentación para mejorar la densidad
 | Eliminar "Formato requerido"          | Sí     |
 | Botón acceso rápido a GiraRoster      | Sí     |
 | Lazy desglose de obras               | Sí     |
-| IconPencil → WorkForm modal          | Sí     |
+| IconEdit (lápiz) → WorkForm modal    | Sí     |
+| IconMusic → expand/collapse all      | Sí (2026-11-24) |
 | IconFolder → link_drive              | Sí     |
 | Tooltips Conv con nombres            | Sí     |
 | IDs integrantes como integers        | Sí (ya en uso en fetch/roster) |

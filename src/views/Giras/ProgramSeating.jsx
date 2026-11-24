@@ -34,8 +34,14 @@ import { useAuth } from "../../context/AuthContext";
 import { useGiraRoster } from "../../hooks/useGiraRosterQuery";
 import {
   computeConvoked,
+  formatInstrumentationStandard,
   normalizeOrganicoMap,
 } from "../../utils/organicoConvocado";
+import {
+  buildMusicianContainerLabelsFromSeating,
+  buildStringsCompositionDetail,
+} from "../../utils/seatingStringsComposition";
+import StringsCompositionMark from "../../components/instrumentation/StringsCompositionMark";
 import {
   calculateInstrumentation,
   calculateInstrumentationFromSeatingAssignments,
@@ -2502,6 +2508,20 @@ export default function ProgramSeating({
     rosterLoading,
   ]);
 
+  const stringsCompositionDetail = useMemo(() => {
+    const labels = buildMusicianContainerLabelsFromSeating(
+      containers || [],
+      (containers || []).flatMap((c) =>
+        (c.items || []).map((it) => ({
+          ...it,
+          id_contenedor: it.id_contenedor ?? c.id,
+          id_musico: it.id_musico,
+        })),
+      ),
+    );
+    return buildStringsCompositionDetail(filteredRoster, labels);
+  }, [containers, filteredRoster]);
+
   const normalizeForCompare = (key, value) => {
     if (key === "Str") {
       return value > 0 ? 1 : 0;
@@ -2575,45 +2595,6 @@ export default function ProgramSeating({
     () => (filteredRoster || []).some((r) => !!r.es_simulacion),
     [filteredRoster],
   );
-
-  const formatInstrumentationStandard = (map) => {
-    const fl = map.Fl || 0;
-    const ob = map.Ob || 0;
-    const cl = map.Cl || 0;
-    const bn = map.Fg || 0;
-    const hn = map.Cr || 0;
-    const tpt = map.Tp || 0;
-    const tbn = map.Tb || 0;
-    const tba = map.Tba || 0;
-
-    const harpCount = map.Har || 0;
-    const keyCount = map.Pno || 0;
-    const hasStr = (map.Str || 0) > 0;
-
-    const percTotal = (map.Tim || 0) + (map.Perc || 0);
-    let standardStr = `${fl}.${ob}.${cl}.${bn} - ${hn}.${tpt}.${tbn}.${tba}`;
-
-    const percStr = formatPercussionLabel(percTotal);
-    if (percStr) standardStr += ` - ${percStr}`;
-
-    if (harpCount > 0)
-      standardStr += ` - ${harpCount > 1 ? harpCount : ""}Hp`;
-    if (keyCount > 0) standardStr += ` - Key`;
-    if (hasStr) standardStr += " - Str";
-
-    const isStandardEmpty =
-      standardStr.startsWith("0.0.0.0 - 0.0.0.0") &&
-      percTotal === 0 &&
-      !hasStr &&
-      harpCount === 0 &&
-      keyCount === 0;
-
-    if (isStandardEmpty) return "s/d";
-
-    return standardStr
-      .replace("0.0.0.0 - 0.0.0.0 - ", "")
-      .replace("0.0.0.0 - 0.0.0.0", "");
-  };
 
   const renderInstrumentationStandardDiff = (
     displayMap,
@@ -2769,17 +2750,23 @@ export default function ProgramSeating({
       );
     }
 
-    // Str
+    // Str + (Vn1.Vn2.Va.Vc.Cb)
     if (hasStr) {
       parts.push(" - ");
       const base =
-        "inline-flex items-center justify-center rounded px-0.5 text-[10px]";
+        "inline-flex items-center justify-center rounded px-0.5 text-[10px] gap-0.5";
       parts.push(
         <span
           key="str"
           className={`${base} ${tokenClass("Str", showConsolidatedHighlight)}`}
         >
           Str
+          {stringsCompositionDetail ? (
+            <StringsCompositionMark
+              detail={stringsCompositionDetail}
+              className="text-[8px] font-semibold"
+            />
+          ) : null}
         </span>,
       );
     }
@@ -4089,8 +4076,11 @@ export default function ProgramSeating({
                     className={`inline-grid grid-cols-[auto_minmax(0,1fr)] gap-x-1 gap-y-px items-center px-2 py-0.5 rounded-md text-[10px] font-semibold border text-left transition-colors min-w-0 max-w-[22rem] ${badgeBaseClass}`}
                     title={
                       hasWorks
-                        ? `${formatInstrumentationStandard(instrumentationConvoked)}\n${formatInstrumentationStandard(instrumentationRequired)}`
-                        : formatInstrumentationStandard(instrumentationConvoked)
+                        ? `${formatInstrumentationStandard(instrumentationConvoked, stringsCompositionDetail)}\n${formatInstrumentationStandard(instrumentationRequired)}`
+                        : formatInstrumentationStandard(
+                            instrumentationConvoked,
+                            stringsCompositionDetail,
+                          )
                     }
                   >
                     <span className="leading-tight shrink-0">Conv:</span>

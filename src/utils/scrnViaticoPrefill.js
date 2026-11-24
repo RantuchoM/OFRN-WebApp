@@ -4,6 +4,8 @@ import { VIATICO_GASTO_KEYS as GASTO_KEYS } from "./viaticosManualStorage";
 export const EMPTY_VIATICOS_OPCIONES = {
   porcentaje: 100,
   temporada_alta: false,
+  temporada_desde: null,
+  temporada_hasta: null,
   /** null = automático en la planilla; número = override (incluye 0). */
   anticipo_custom: null,
   ...Object.fromEntries(GASTO_KEYS.map((key) => [key, 0])),
@@ -34,6 +36,14 @@ export function normalizeViaticosOpciones(raw) {
   if ([100, 80, 0].includes(pct)) base.porcentaje = pct;
 
   base.temporada_alta = Boolean(raw.temporada_alta);
+  const desde = raw.temporada_desde != null ? String(raw.temporada_desde).slice(0, 10) : "";
+  const hasta = raw.temporada_hasta != null ? String(raw.temporada_hasta).slice(0, 10) : "";
+  base.temporada_desde = desde || null;
+  base.temporada_hasta = hasta || null;
+  if (!base.temporada_alta) {
+    base.temporada_desde = null;
+    base.temporada_hasta = null;
+  }
   base.anticipo_custom = parseOpcionesAnticipoCustom(raw.anticipo_custom);
 
   for (const key of GASTO_KEYS) {
@@ -169,6 +179,8 @@ export function buildScrnViaticoPrefill({
 
     porcentaje: opciones.porcentaje,
     temporada_alta: opciones.temporada_alta,
+    temporada_desde: opciones.temporada_desde,
+    temporada_hasta: opciones.temporada_hasta,
     anticipo_custom: opciones.anticipo_custom,
 
     check_terrestre: true,

@@ -15,6 +15,8 @@ import RepertoireManager from "../../components/repertoire/RepertoireManager";
 import { getProgramStyle } from "../../utils/giraUtils";
 import { resolveMiCoberturaForUser } from "../../utils/coberturaGira";
 import { enqueueOrganicoRefresh } from "../../services/organicoConvocadoService";
+import { normalizeStringsComposition } from "../../utils/organicoConvocado";
+import { OrganicoConvocadoWithStrings } from "../../components/instrumentation/StringsCompositionMark";
 import ProgramBorradorHelpBadge from "../../components/giras/ProgramBorradorHelpBadge";
 import GiraActionMenu from "./GiraActionMenu";
 import StagePlotViewerModal from "./StagePlotViewerModal";
@@ -176,6 +178,9 @@ function GiraTableRow({
   const [organicoText, setOrganicoText] = useState(
     gira.organico_convocado || "",
   );
+  const [organicoStrings, setOrganicoStrings] = useState(() =>
+    normalizeStringsComposition(gira.organico_convocado_map),
+  );
   const [organicoPending, setOrganicoPending] = useState(
     !gira.organico_convocado_at,
   );
@@ -195,8 +200,14 @@ function GiraTableRow({
 
   useEffect(() => {
     setOrganicoText(gira.organico_convocado || "");
+    setOrganicoStrings(normalizeStringsComposition(gira.organico_convocado_map));
     setOrganicoPending(!gira.organico_convocado_at);
-  }, [gira.id, gira.organico_convocado, gira.organico_convocado_at]);
+  }, [
+    gira.id,
+    gira.organico_convocado,
+    gira.organico_convocado_map,
+    gira.organico_convocado_at,
+  ]);
 
   useEffect(() => {
     if (gira.organico_convocado_at) return undefined;
@@ -211,6 +222,9 @@ function GiraTableRow({
       (snap) => {
         if (cancelled || !snap) return;
         setOrganicoText(snap.text || "");
+        setOrganicoStrings(
+          snap.strings || normalizeStringsComposition(snap.map) || null,
+        );
         setOrganicoPending(false);
       },
     );
@@ -450,7 +464,17 @@ function GiraTableRow({
             className="truncate text-[11px] font-semibold text-slate-800"
             title={organicoText || undefined}
           >
-            {organicoPending ? "…" : organicoText || "—"}
+            {organicoPending ? (
+              "…"
+            ) : organicoText ? (
+              <OrganicoConvocadoWithStrings
+                text={organicoText}
+                detail={organicoStrings}
+                organicoMap={gira.organico_convocado_map}
+              />
+            ) : (
+              "—"
+            )}
           </div>
         </div>
         </div>

@@ -255,7 +255,7 @@ function StringsCompositionBlock({ label, prodLabel, hasDraft }) {
   return (
     <div
       className="shrink-0 min-w-[4.75rem] max-w-[7rem] border-l border-slate-200 pl-1.5 py-0.5 flex items-center"
-      title="01 Violín · 02 Viola · 03 Cello · 04 Cb; paréntesis = mismo instrumento en distintos contenedores de seating, orden alfabético por nombre de contenedor; sin ausentes. En borrador, cuerdas nuevas se ubican tentativamente en un contenedor."
+      title="Str (Vn1.Vn2.Va.Vc.Cb). Violines sin dividir en contenedores → mitad calculada. Sin ausentes. En borrador, cuerdas nuevas se ubican tentativamente en un contenedor."
     >
       <span
         className={`font-mono text-[9px] leading-tight tabular-nums truncate ${

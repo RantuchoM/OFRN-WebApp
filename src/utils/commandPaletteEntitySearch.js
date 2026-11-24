@@ -56,8 +56,14 @@ export function rankPaletteCommands(actions, query) {
 }
 
 export const PALETTE_ENTITY_MIN_QUERY = 2;
+/** Resultados finales que ve el usuario. */
 export const PALETTE_ENTITY_LIMIT = 20;
-const FETCH_LIMIT = 20;
+/**
+ * Candidatos por token en DB (antes del ranking cliente).
+ * 20 era demasiado bajo: tokens comunes («sinfonía», «beethoven») truncaban
+ * por id ascendente y las obras nuevas (p. ej. Sinfonía 9) no entraban al pool.
+ */
+const FETCH_LIMIT = 120;
 
 const OBRA_SELECT =
   "id, titulo, obras_compositores(rol, compositores(apellido, nombre))";
@@ -171,11 +177,12 @@ function mergeById(rows) {
 async function obrasMatchingToken(supabase, token) {
   let byTitleQuery = supabase.from("obras").select(OBRA_SELECT);
   byTitleQuery = applyAccentFoldOr(byTitleQuery, ["titulo"], token);
-  const titlePromise = byTitleQuery.limit(FETCH_LIMIT);
+  // id desc: si el token es muy frecuente, preferir obras recientes en el tope.
+  const titlePromise = byTitleQuery.order("id", { ascending: false }).limit(FETCH_LIMIT);
 
   let composersQuery = supabase.from("compositores").select("id");
   composersQuery = applyAccentFoldOr(composersQuery, ["apellido", "nombre"], token);
-  const composersPromise = composersQuery.limit(20);
+  const composersPromise = composersQuery.limit(40);
 
   const [{ data: byTitle }, { data: composers }] = await Promise.all([
     titlePromise,
@@ -191,11 +198,27 @@ async function obrasMatchingToken(supabase, token) {
         "id, titulo, obras_compositores!inner(rol, id_compositor, compositores(apellido, nombre))",
       )
       .in("obras_compositores.id_compositor", composerIds)
+      .order("id", { ascending: false })
       .limit(FETCH_LIMIT);
     byComposer = data || [];
   }
 
   return [...(byTitle || []), ...byComposer];
+}
+
+/**
+ * Todos los tokens a la vez sobre el título (AND).
+ * Complementa el fetch por token: «sinfonía 9» sigue entrando aunque
+ * cada token por separado haya saturado el tope de candidatos.
+ */
+async function obrasMatchingAllTitleTokens(supabase, tokens) {
+  if (!tokens?.length) return [];
+  let q = supabase.from("obras").select(OBRA_SELECT);
+  for (const token of tokens) {
+    q = applyAccentFoldOr(q, ["titulo"], token);
+  }
+  const { data } = await q.order("id", { ascending: false }).limit(FETCH_LIMIT);
+  return data || [];
 }
 
 /**
@@ -215,13 +238,17 @@ export async function searchPaletteObras(supabase, query) {
     ? supabase.from("obras").select(OBRA_SELECT).eq("id", numericId).maybeSingle()
     : Promise.resolve({ data: null });
 
-  const [tokenGroups, { data: byIdRow }] = await Promise.all([
+  const [tokenGroups, titleAndRows, { data: byIdRow }] = await Promise.all([
     Promise.all(tokens.map((token) => obrasMatchingToken(supabase, token))),
+    tokens.length > 1
+      ? obrasMatchingAllTitleTokens(supabase, tokens)
+      : Promise.resolve([]),
     idPromise,
   ]);
 
   const merged = mergeById([
     ...tokenGroups.flat(),
+    ...titleAndRows,
     ...(byIdRow ? [byIdRow] : []),
   ]);
 
@@ -255,11 +282,11 @@ async function peopleMatchingToken(supabase, token) {
     ["nombre", "apellido", "nombre_preferencia", "apellido_preferencia"],
     token,
   );
-  const namePromise = byName.limit(FETCH_LIMIT);
+  const namePromise = byName.order("id", { ascending: false }).limit(FETCH_LIMIT);
 
   let instrQuery = supabase.from("instrumentos").select("id");
   instrQuery = applyAccentFoldOr(instrQuery, ["instrumento"], token);
-  const instrPromise = instrQuery.limit(20);
+  const instrPromise = instrQuery.limit(40);
 
   const [{ data: named }, { data: instruments }] = await Promise.all([
     namePromise,
@@ -274,6 +301,7 @@ async function peopleMatchingToken(supabase, token) {
       .select(PERSON_SELECT)
       .eq("es_simulacion", false)
       .in("id_instr", instrIds)
+      .order("id", { ascending: false })
       .limit(FETCH_LIMIT);
     byInstr = data || [];
   }

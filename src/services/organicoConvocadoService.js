@@ -3,6 +3,7 @@ import {
   organicoMapsEqual,
   snapshotFromRoster,
 } from "../utils/organicoConvocado";
+import { fetchMusicianSeatingContainerLabels } from "../utils/seatingStringsComposition";
 
 const queue = [];
 const pendingIds = new Set();
@@ -21,9 +22,25 @@ function drainOrganicoQueue() {
   }
 }
 
-export async function persistOrganicoFromRoster(supabase, programaId, roster) {
+export async function persistOrganicoFromRoster(
+  supabase,
+  programaId,
+  roster,
+  { musicianContainerLabels = null } = {},
+) {
   if (!supabase || programaId == null) return null;
-  const snap = snapshotFromRoster(roster);
+
+  let labels = musicianContainerLabels;
+  if (labels == null) {
+    try {
+      labels = await fetchMusicianSeatingContainerLabels(supabase, programaId);
+    } catch (err) {
+      console.warn("organico strings labels:", err?.message || err);
+      labels = new Map();
+    }
+  }
+
+  const snap = snapshotFromRoster(roster, labels);
   const { data: current, error: readErr } = await supabase
     .from("programas")
     .select("organico_convocado, organico_convocado_map")

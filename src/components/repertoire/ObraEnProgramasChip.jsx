@@ -22,6 +22,32 @@ export default function ObraEnProgramasChip({
       : "text-[10px] px-1.5 py-0.5";
   const btnCls =
     size === "xs" ? "p-0.5" : "p-1";
+  const historyBtn =
+    showHistoryButton && onOpenHistory ? (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onOpenHistory();
+        }}
+        onMouseDown={(e) => e.stopPropagation()}
+        className={`inline-flex items-center justify-center rounded border border-indigo-200 bg-white text-indigo-600 hover:bg-indigo-100 ${btnCls}`}
+        title="Ver historial de programas"
+        aria-label="Ver historial de programas"
+      >
+        <IconHistory size={size === "xs" ? 10 : 12} />
+      </button>
+    ) : null;
+
+  // Un solo programa: sin chip «En n más»; solo botón Historial si aplica.
+  if (!label) {
+    return historyBtn ? (
+      <span className={`inline-flex items-center gap-0.5 ${className}`}>
+        {historyBtn}
+      </span>
+    ) : null;
+  }
 
   return (
     <span className={`inline-flex items-center gap-0.5 ${className}`}>
@@ -31,22 +57,7 @@ export default function ObraEnProgramasChip({
       >
         {label}
       </span>
-      {showHistoryButton && onOpenHistory ? (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            onOpenHistory();
-          }}
-          onMouseDown={(e) => e.stopPropagation()}
-          className={`inline-flex items-center justify-center rounded border border-indigo-200 bg-white text-indigo-600 hover:bg-indigo-100 ${btnCls}`}
-          title="Ver historial de programas"
-          aria-label="Ver historial de programas"
-        >
-          <IconHistory size={size === "xs" ? 10 : 12} />
-        </button>
-      ) : null}
+      {historyBtn}
     </span>
   );
 }

@@ -140,7 +140,7 @@ function resolveVehiculoLabel(row) {
   return "";
 }
 
-function resolveMonto(row, schedule, vigencias, factorTemporada) {
+function resolveMonto(row, schedule, vigencias, temporadaCfg) {
   if (row.anticipo_custom != null && row.anticipo_custom !== "") {
     const custom = parseFloat(row.anticipo_custom);
     if (Number.isFinite(custom)) return round2(custom);
@@ -152,6 +152,18 @@ function resolveMonto(row, schedule, vigencias, factorTemporada) {
 
   const rawPct =
     row.porcentaje === 0 || row.porcentaje ? row.porcentaje : 100;
+  const factorTemporada =
+    typeof temporadaCfg === "object" && temporadaCfg != null
+      ? temporadaCfg.factor || 0
+      : temporadaCfg || 0;
+  const temporadaDesde =
+    typeof temporadaCfg === "object" && temporadaCfg != null
+      ? temporadaCfg.desde
+      : null;
+  const temporadaHasta =
+    typeof temporadaCfg === "object" && temporadaCfg != null
+      ? temporadaCfg.hasta
+      : null;
   const fin = calcValorDiarioProporcional({
     fechaSalida: schedule.fecha_salida,
     horaSalida: schedule.hora_salida,
@@ -160,7 +172,9 @@ function resolveMonto(row, schedule, vigencias, factorTemporada) {
     vigencias,
     fallbackBase: 0,
     porcentaje: rawPct,
-    factorTemporada: factorTemporada || 0,
+    factorTemporada,
+    temporadaDesde,
+    temporadaHasta,
   });
   if (fin.subtotal > 0) return round2(fin.subtotal);
 
@@ -248,7 +262,9 @@ export async function fetchViaticosSeguimientoRows(supabase, options = {}) {
       .lte("programas.fecha_desde", hasta)
       .order("id", { ascending: true }),
     listValorDiarioVigencias(supabase),
-    supabase.from("giras_viaticos_config").select("id_gira, factor_temporada"),
+    supabase
+      .from("giras_viaticos_config")
+      .select("id_gira, factor_temporada, temporada_desde, temporada_hasta"),
   ]);
 
   if (detalleError) throw detalleError;
@@ -256,7 +272,11 @@ export async function fetchViaticosSeguimientoRows(supabase, options = {}) {
 
   const factorByGira = new Map();
   (configsData || []).forEach((c) => {
-    factorByGira.set(String(c.id_gira), parseFloat(c.factor_temporada || 0) || 0);
+    factorByGira.set(String(c.id_gira), {
+      factor: parseFloat(c.factor_temporada || 0) || 0,
+      desde: c.temporada_desde || null,
+      hasta: c.temporada_hasta || null,
+    });
   });
 
   const inYear = detalleData || [];
@@ -343,7 +363,11 @@ export async function fetchViaticosSeguimientoRows(supabase, options = {}) {
       fecha_llegada: fechaLlegada,
       hora_llegada: horaLlegada,
     };
-    const factor = factorByGira.get(String(row.id_gira)) || 0;
+    const factor = factorByGira.get(String(row.id_gira)) || {
+      factor: 0,
+      desde: null,
+      hasta: null,
+    };
     const anticipoViatico = resolveMonto(row, schedule, vigencias, factor);
     const anticipo = round2(anticipoViatico + sumAnticipoGastos(row));
     const rendicion = round2(sumRendicionTotal(row));

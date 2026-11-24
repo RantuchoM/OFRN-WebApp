@@ -14,7 +14,7 @@ Proveer una interfaz de carga única y manual de viáticos que permita exportar 
 4. **Campos del Formulario**:
    - Personales: Apellido, Nombre, DNI, Cargo, Jornada, Ciudad Origen.
    - Comisión: Motivo, Lugar, Fecha/Hora Salida, Fecha/Hora Llegada.
-   - Financieros: % Viático (100/80/0), Switch Temporada (30%), **anticipo editable** (`anticipo_custom`).
+   - Financieros: % Viático (100/80/0), Temporada alta como franja Off / Completa / Parcial (`temporada_alta` + `temporada_desde`/`temporada_hasta`; +30% día a día), **anticipo editable** (`anticipo_custom`).
    - Transporte: Terrestre, patente oficial, detalle.
    - Gastos: Alojamiento, Pasajes, Combustible, Otros, Capacitación, Movilidad otros, Ceremonial.
 
@@ -41,6 +41,7 @@ Se utilizará `exportViaticosToPDFForm` enviando un objeto que cumpla con la int
 - [x] **Actualización silenciosa (2026-09-25):** al abrir `/viaticos-manual` o `/rendiciones-manual`, si hay un build nuevo se recarga la página sola, sin el banner «Actualizar versión». Mismo criterio que `/entradas` (`isSilentVersionUpdateRoute`).
 - [x] **Fechas aplanadas (2026-09-26):** con `keep_editable`, `dia_salida` y `dia_llegada` se pintan en la página y se quitan del formulario. La plantilla de viáticos valida salida como `mm/dd/yyyy` y llegada como `dd/mm/yyyy`; el valor exportado es `dd/MM/yy` (viático) o `dd/MM/yyyy` (rendición). En GD el campo se veía vacío, al hacer clic mostraba la fecha y al salir la borraba. El resto del PDF sigue editable.
 - [x] **Dos vigencias (2026-09-25):** si el viaje cruza más de un valor diario, la pantalla muestra cada rango (fechas, días × valor ponderado y subtotal del tramo), el mismo par que rellena `plantilla_viaticos_multiples.pdf` (`dias_computados` / `valor_diario` y `dias_computados1` / `valor_diario1`). Un solo valor sigue `plantilla_viaticos.pdf` y un único importe en pantalla. El anticipo es la suma de los tramos, no días × promedio. Cada vigencia dura tres meses, así que un viaje es siempre un tramo o dos; las dos líneas de la plantilla múltiple cubren el cruce.
+- [x] **Temporada alta franja (2026-11-24):** control Off / Completa / Parcial (fechas) en lugar del checkbox; aviso si lugar + fechas tocan destinos oficiales (Bariloche, El Bolsón, etc.). Parcial genera segmentos con/sin +30% y usa plantilla múltiple si hay ≥2 valores. Legacy: `temporada_alta=true` sin fechas = completa.
 
 ## Estado
 - **Ruta pública lista**: `/viaticos-manual` renderiza la vista sin pasar por `ProtectedRoute`/`AppContent` (login OTP opcional para guardado en nube).

@@ -85,7 +85,10 @@ export function obraHasProgramHistory(presence) {
 /** @param {ObraProgramPresence | null | undefined} presence */
 export function formatObraProgramPresenceLabel(presence) {
   if (!obraHasProgramHistory(presence)) return null;
-  const n = (presence.liveCount || 0) + (presence.legacyCount || 0);
+  // «más» = programas adicionales (total − 1). Con un solo programa no hay chip de texto.
+  const total = (presence.liveCount || 0) + (presence.legacyCount || 0);
+  const n = total - 1;
+  if (n <= 0) return null;
   return n === 1 ? `En ${n} programa más` : `En ${n} programas más`;
 }
 

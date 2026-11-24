@@ -942,6 +942,18 @@ export default function GiraRoster({
     };
   }, [supabase, gira?.id]);
 
+  const musicianContainerLabelsForStrings = useMemo(() => {
+    if (!seatingSortCtx) return null;
+    const map = new Map();
+    for (const m of rawRoster || []) {
+      const cid = seatingSortCtx.getContainerId(m.id);
+      if (cid == null) continue;
+      const name = seatingSortCtx.getContainerName(cid);
+      if (name) map.set(Number(m.id), name);
+    }
+    return map;
+  }, [seatingSortCtx, rawRoster]);
+
   const [visibleColumns, setVisibleColumns] = useState({
     telefono: true,
     mail: true,
@@ -3811,6 +3823,7 @@ export default function GiraRoster({
                   works={instrumentationWorks}
                   roster={rawRoster}
                   convokedMap={headerConvokedMap}
+                  musicianContainerLabels={musicianContainerLabelsForStrings}
                   organicoRevisado={!!organicoAgg.organico_revisado}
                   organicoComentario={organicoAgg.organico_comentario}
                   repertoireBlocks={instrumentationBlockScopes}

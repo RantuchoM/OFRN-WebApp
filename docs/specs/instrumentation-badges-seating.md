@@ -10,7 +10,8 @@ Visualizar en tiempo real la diferencia entre la instrumentación técnica reque
 - Por obra y por familia (`getEffectiveRequiredColumnMap`):
   1. **Particellas sin asignar** en esa familia → conteo real por archivos de parte (ej. 3 fagotes aunque solo 2 estén asignados).
   2. **Todas asignadas con consolidación** (varias partes en un músico) → músicos asignados (ej. 2 fagotes).
-  3. Sin asignaciones de seating → `calculateInstrumentation(particellas)`.
+  3. **Resto** → conteo por archivos de parte (mismo techo que WorkForm / `obras.instrumentacion`). **No** inflar si seating asigna más músicos que partes (ej. 2 en Flauta 2 → sigue Req Fl=2; fix 2026-11-24 obra 2732).
+  4. Sin asignaciones de seating → `calculateInstrumentation(particellas)`.
 - El **máximo de programa** (`Req`) es el máximo entre obras de esos mapas efectivos.
 
 ### 2. Colores de auditoría (Seating)
@@ -66,6 +67,7 @@ Visualizar en tiempo real la diferencia entre la instrumentación técnica reque
 
 ### Contenido
 - **Un solo recuadro apilado**: fila `Conv:` (orgánico convocado) y, si hay obras, fila `Req:` debajo. Las mismas familias se alinean en columnas (maderas, metales, Perc, Hp, Key, Str); si una fila no tiene el instrumento, la celda queda vacía. Un clic abre el modal.
+- **Str + cuerdas (2026-11-24):** junto a `Str` en Conv se muestra `(Vn1.Vn2.Va.Vc.Cb)` vía `buildStringsCompositionDetail` / `StringsCompositionMark`. Si los violines aún no están en contenedores distintos de seating, se parten a la mitad (impar → +1 a 1ros) y **solo** esos dos números (`Vn1.Vn2`) van en **itálica** (estimado); Va/Vc/Cb siempre normales y reales. Mismo dato en GiraRoster badges, Gestión→Instrumentación, listado GirasView (`organico_convocado` + `organico_convocado_map.strings`) y al refrescar orgánico. Backfill de las **160** giras corrido 2026-11-24 (`vnEstimated` en mapa cuando aplica). Reparadas Sinf 15/26 y 18/26 que habían quedado con `Str` sin paréntesis; `snapshotFromRoster` reintenta sin labels si `Str>0` y el detalle sale vacío.
 - Sin obras, solo la fila **Conv** (estilo neutro: no hay requerido con qué comparar).
 
 ### Visibilidad sin obras

@@ -824,10 +824,13 @@ export function instrumentationColumnMapToString(columnMap) {
 }
 
 /**
- * Requerido efectivo por obra:
- * - Familia con particellas sin asignar → conteo real por archivos de parte.
- * - Familia consolidada (todas asignadas, varias partes en un músico) → músicos asignados.
- * - Resto → máximo entre archivos y asignados.
+ * Requerido efectivo por obra (alineado con WorkForm / `obras.instrumentacion`):
+ * - Familia con particellas sin asignar → conteo por archivos de parte.
+ * - Familia consolidada (todas asignadas, varias partes en un músico) → músicos asignados (baja).
+ * - Resto → conteo por archivos de parte.
+ *
+ * Nunca inflar por encima de las particellas: si seating pone 2 músicos en la misma
+ * parte (p. ej. Flauta 2), eso no sube el Req (caso obra 2732: Fl 2 partes / 3 asignados).
  */
 export function getEffectiveRequiredColumnMap(
   partsColumnMap,
@@ -853,8 +856,11 @@ export function getEffectiveRequiredColumnMap(
       result[key] = partsCount;
     } else if (consolidated.has(key)) {
       result[key] = assignedCount;
-    } else if (partsCount > 0 || assignedCount > 0) {
-      result[key] = Math.max(partsCount, assignedCount);
+    } else if (partsCount > 0) {
+      result[key] = partsCount;
+    } else if (assignedCount > 0) {
+      // Sin archivos de parte clasificados, pero sí seating (fallback raro).
+      result[key] = assignedCount;
     }
   });
 
@@ -870,9 +876,12 @@ export function getEffectiveRequiredColumnMap(
   } else if (consolidated.has("Perc")) {
     result.Tim = 0;
     result.Perc = assignedPerc;
-  } else if (partsPerc > 0 || assignedPerc > 0) {
+  } else if (partsPerc > 0) {
     result.Tim = 0;
-    result.Perc = Math.max(partsPerc, assignedPerc);
+    result.Perc = partsPerc;
+  } else if (assignedPerc > 0) {
+    result.Tim = 0;
+    result.Perc = assignedPerc;
   }
 
   return result;

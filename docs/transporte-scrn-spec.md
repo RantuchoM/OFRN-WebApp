@@ -25,7 +25,7 @@ Sección pública para la gestión de flota y solicitudes de transporte de pasaj
 
 ## Vinculación con Viáticos Manual
 - [x] Columnas `viaticos_opciones` (jsonb) en `scrn_reservas`, `scrn_reserva_pasajeros` y `scrn_solicitudes_nuevo_viaje` (migración `20260622120000_scrn_viaticos_opciones.sql`).
-- [x] En solicitud de plaza (`SolicitudModal`) y propuesta de recorrido (`ProponerNuevoViajeModal`): bloque opcional por titular y por cada pasajero (% viático, temporada alta, gastos).
+- [x] En solicitud de plaza (`SolicitudModal`) y propuesta de recorrido (`ProponerNuevoViajeModal`): bloque opcional por titular y por cada pasajero (% viático, temporada alta como franja Off/Completa/Parcial, gastos).
 - [x] En **Mis viajes** (`MisReservas`): botón **Completar viático** para la persona logueada (titular o pasajero invitado), si el recorrido no está cancelado/rechazado y la salida fue hace menos de 30 días.
 - [x] El botón pasa el prefill por el estado de navegación (`navigate(state)`) con `sessionStorage` como respaldo, y navega a `/viaticos-manual?prefill=scrn`.
 - [x] **Retorno (badge)**: en **Mis viajes** se muestra "✓ Viático generado" cuando existe un viático del usuario cuyo `datos.scrn_origen` apunta a la reserva/pasajero (estado derivado, sin write-back). Ver `docs/specs/scrn-viatico-retorno.md`.
@@ -36,6 +36,8 @@ Sección pública para la gestión de flota y solicitudes de transporte de pasaj
 {
   "porcentaje": 100,
   "temporada_alta": false,
+  "temporada_desde": null,
+  "temporada_hasta": null,
   "anticipo_custom": null,
   "gasto_alojamiento": 0,
   "gasto_pasajes": 0,
@@ -46,6 +48,7 @@ Sección pública para la gestión de flota y solicitudes de transporte de pasaj
   "gasto_ceremonial": 0
 }
 ```
+- [x] **`temporada_alta` + fechas (2026-11-24):** `true` sin fechas = completa (+30% todo el viaje); con `temporada_desde`/`temporada_hasta` = parcial. Prefill a `/viaticos-manual` vía `scrnViaticoPrefill.js`.
 - [x] **`anticipo_custom`** (nullable): si es número (incluye `0`), precompleta el anticipo en `/viaticos-manual`; si es `null`/vacío, la planilla calcula solo. UI en `ScrnViaticosOpcionesFields` (placeholder «Automático», botón volver a automático).
 
 ### Utilidades

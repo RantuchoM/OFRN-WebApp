@@ -161,7 +161,7 @@ Evitar crear obras duplicadas cuando el usuario ya eligió compositor y está es
 - Click **Ir** → `AppNavLink` `/?tab=giras&view=REPERTOIRE&giraId=` (`giras-url-routing.md`); clic con rueda abre pestaña. Empty state si no hay programas.
 - Componente compartido: `WorkProgramHistoryModal.jsx` (también Archivo / `RepertoireView` / pickers / QuickWorkRow / Command Palette).
 - Chip **En programas** (`ObraEnProgramasChip` + `obraProgramHistoryService.fetchObraProgramPresence`) en picker, alta rápida, duplicados de título y paleta.
-  - **Copy (2026-11-02):** el chip dice **«En n programas más»** (`En 1 programa más` si n=1). `n` = programas vivos distintos (`repertorio_obras` → `programas_repertorios.id_programa`) + giras legacy distintas (`obras_repertorios_legacy`, por `drive_folder_id` o `nombre_gira|fecha_desde`). Se calcula en lote en `fetchObraProgramPresence` (`liveCount`, `legacyCount`, `programCount`); formato en `formatObraProgramPresenceLabel`. Un programa vivo y su espejo legacy se suman (sin dedupe cruzado).
+  - **Copy (2026-11-24):** el chip dice **«En n programas más»** donde `n = total − 1` (programas adicionales). Si la obra figura en un solo programa/gira, **no** se muestra el texto (`formatObraProgramPresenceLabel` → `null`); sí puede quedar el botón Historial. `total` = programas vivos distintos (`repertorio_obras` → `programas_repertorios.id_programa`) + giras legacy distintas (`obras_repertorios_legacy`, por `drive_folder_id` o `nombre_gira|fecha_desde`). Se calcula en lote en `fetchObraProgramPresence` (`liveCount`, `legacyCount`, `programCount`). Un programa vivo y su espejo legacy se suman (sin dedupe cruzado).
   - **Biblioteca (`RepertoireView.jsx`, 2026-11-02):** mismo chip (`ObraEnProgramasChip`, size `xs`) bajo la columna «Próxima gira» (desktop) y junto al chip de gira en la card móvil, con botón Historial. Presencia por lote solo para las obras de la página visible (`fetchObraProgramPresence`, cache por id; se invalida al guardar una obra o recargar). No se muestra en modo «Ya programado» (ahí ya se listan los programas).
 - [x] Listado real de asignaciones + navegación a gira
 - [x] Empty state
@@ -365,6 +365,48 @@ Optimizar `src/views/Repertoire/RepertoireView.jsx` en pantallas móviles para m
 - [x] PDFs procesados y sincronizados a Drive con nombres canónicos
 - [x] Seed ejecutado en Supabase (obra 3885, 30 particellas, gira 201 orden 3)
 - [x] Fix `pdfPartsRenaming`: `Trompeta C 3` antes del catch-all `Trompeta C`
+
+### Temporada 2027 — Solicitud → Para acomodar (pipeline completo, 2026-11-23)
+- Criterio: skill `para-acomodar-particellas` (carpeta canónica, split/crop/rename, `obras.titulo` HTML desde IMSLP, `link_drive` = carpeta original, seed + Oficial).
+- Descarga IMSLP: wiki bloqueada por ban de IP en curl; CDN `s9.imslp.org` con MD5 del nombre `PMLP…` + `api.php?action=parse` (File Name) desde WebFetch.
+- Aplicado en BD (linked):
+
+| Obra | id | Partes | Drive |
+|------|---:|-------:|-------|
+| Borodin — Sinfonía Nro. 2 si menor (Lancec) | 3891 | 30 | [folder](https://drive.google.com/open?id=1OX5rBCNDV-jsB8cAWXg0jhmRvx7PBdey) |
+| Kalinnikov — Serenata cuerdas sol menor | 3893 | 6 | [folder](https://drive.google.com/open?id=17d5fG6TlXZ4LlK6UqJ8aaI4G0brXmj17) |
+| Kalinnikov — Sinfonía Nro. 2 La mayor | 3895 | 27 | [folder](https://drive.google.com/open?id=1cAWx5gzsaZPExf1ANDdyRxpO2mN2MZxV) |
+| Schubert — Rosamunda D.797 Entreacto Nro. 3 (Erfastee) | 3902 | 14 | [folder](https://drive.google.com/open?id=14VEZ9Mi1Mn9-F10UAK-6JDb-azj6XYA3) |
+| Beethoven — Elegischer Gesang Op. 118 | 3907 | 9 | [folder](https://drive.google.com/open?id=1OoF0zwFgA8Z6INziq5O-fT59h8c3-DBk) |
+| Beethoven — Sinfonía Nro. 9 Op. 125 | 3901 | 28 | [folder](https://drive.google.com/open?id=1tEW3ilWi9T07uLfBW5ckwG88hXKQcL9e) |
+| Sibelius — Pelléas et Mélisande Op. 46 | 3899 | 15 | [folder](https://drive.google.com/open?id=1ZG0K4TWdLi72nGqVbNFJie2850TCUEXk) |
+| Paganini — Concierto Vn Op. 6 (orquesta extendida) | 3916 | 25 | [folder](https://drive.google.com/open?id=1i39M9YvNhh81IWKTrvqnxXhx8aqtY1Gc) |
+| Wagner — Idilio de Sigfrido WWV 103 | 3913 | 14 | [folder](https://drive.google.com/open?id=1HXnLQ4ij6jihGMDUa0RdnJZkSAnMOije) |
+
+| Script | Rol |
+|--------|-----|
+| `scripts/lib/borodinSym2Catalog.mjs` + `process-borodin-sym2-local.mjs` | Wholes Lancec + SCORE |
+| `scripts/lib/kalinnikovSerenataCatalog.mjs` + `process-kalinnikov-serenata-local.mjs` | Wholes Sawano |
+| `scripts/lib/kalinnikovSym2Catalog.mjs` + `process-kalinnikov-sym2-local.mjs` | Splits Kalmus A4236 + SCORE |
+| `scripts/lib/schubertRosamundaE3Catalog.mjs` + `process-schubert-rosamunda-e3-local.mjs` | Wholes 1y2 Erfastee |
+| `scripts/lib/beethovenElegischerCatalog.mjs` + `process-beethoven-elegischer-local.mjs` | Wholes + voces |
+| `scripts/lib/beethoven9Catalog.mjs` + `process-beethoven9-local.mjs` | Ottaviano + Feduol cuerdas + coro + SCORE |
+| `scripts/lib/sibeliusPelleasCatalog.mjs` + `process-sibelius-pelleas-local.mjs` | SCORE + split Cl/Bn/Hn + wholes Horndude |
+| `scripts/lib/paganiniOp6ExtendedCatalog.mjs` + `process-paganini-op6-extended-local.mjs` | Orquesta extendida completa (obra 3916) |
+| `scripts/lib/wagnerIdilioCatalog.mjs` + `process-wagner-idilio-local.mjs` | Split Cl/Hn + wholes |
+| `scripts/generate-temporada-2027-para-acomodar-sync.mjs` | Seed `supabase/seed_temporada_2027_para_acomodar_sync.sql` |
+
+- [x] 6 obras Oficial con particellas + `link_drive` (Borodin + Rosamunda E3 añadidos)
+- [x] Haydn trompeta 2027 (Sinf 17/27): usa obra archivo **3592** (reemplaza Solicitud 3903)
+- [x] Mozart 40 Horndude (#3896 Oficial, 14 partes; Vc/Cb suplemento #36332/36333)
+- [x] Debussy Fauno Reinisch (#3897 Oficial, 23 partes; CDN `imslp.eu/euimg`)
+- [x] Nun danket BWV 192 kowalski (#3909 Oficial, 9 partes)
+- [x] Paganini Op.6: **3900** Solicitud set vientos Generoso (14) + **3916** Oficial orquesta extendida completa (25; cuerdas/fagot/perc/Trombón Bajo). Ambas en el mismo repertorio; director elige
+- [x] Beethoven 9 completo (#3901 Oficial, 28 partes): SCORE CCARH + Ottaviano vientos/metales/timp/perc (#965934–54) + Feduol cuerdas (#862950–54) + coro vocal score #463296 (Schlusschor; no SATB separadas ni solistas sueltos)
+- [x] Triple Op.56: Solicitud **3898** fusionada → archivo **2458** (título corregido Oboe→Violín; PDFs canónicos; 18 partes orquesta+SCORE+Timp). Raw Ivdruiz #51158 en Para acomodar — faltan solistas (Vn/Vc/Piano)
+- [ ] Händel Messiah excerpt / Purcell: sin set concreto en el JSON; Magnificat skip
+- [x] Sibelius Pelléas Op.46 (#3899 Oficial, 15 partes): SCORE Daphnis #15908 + Horndude/Generoso Kalmus; Fl/Ob doblan Picc/Cor.ing. en la misma particella
+- [x] Sin set / derechos: Brotons, Shost/Barshai, Rutter, Falú, Coppola, Ripper, Stravinsky Danses — siguen Solicitud; Magnificat K.193 página IMSLP vacía
 
 ### Falla — Danza Española Nro 1 ('La Vida Breve') (2026-06-19)
 - Carpeta [Para acomodar / Falla](https://drive.google.com/open?id=16TvE6QokADJSSk9gpZXpP1D8GcrngIQS): 16 PDFs IMSLP → **26 particellas** canónicas.
@@ -842,7 +884,7 @@ Obra **nueva** (#**3595**), distinta de #3491 (ARIAS solo orquesta, tag `Medoza 
 - [x] Los **coordinadores de ensamble** (`isEnsembleCoordinator`: fila en `ensambles_coordinadores` o roles que la incluyen) tienen el **mismo acceso solo lectura** al Archivo (menú, `?tab=repertorio`, Ctrl+K «Ir a Repertorio» y Tab Repertorio).
 - [x] `canEdit` en `RepertoireView`: `isEditor || isArchivista || isManagement`. Arreglador o coordinador sin esos roles ve listado, filtros, export «Ya programado», historial, links Drive y copiar enlaces; **no** puede crear/editar/eliminar obras, gestionar compositores/tags, selección masiva ni asignar a programa.
 - [x] Badge **«Solo lectura»** en el encabezado cuando `!canEdit`.
-- [x] **Ctrl+K:** vista **Repertorio** con Tab; al escribir, `ilike` limitado (no se carga el archivo completo al abrir la paleta). Spec `docs/specs/command-palette.md`.
+- [x] **Ctrl+K:** vista **Repertorio** con Tab; al escribir, búsqueda limitada (pool 120/token + ranking; no se carga el archivo completo al abrir la paleta). Spec `docs/specs/command-palette.md`.
 
 ---
 

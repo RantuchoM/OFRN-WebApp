@@ -734,6 +734,8 @@ CREATE TABLE public.giras_viaticos_config (
   valor_diario_base numeric DEFAULT 0,
   created_at timestamp with time zone DEFAULT now(),
   factor_temporada numeric DEFAULT 0.3,
+  temporada_desde date,
+  temporada_hasta date,
   motivo text,
   lugar_comision text,
   link_drive text,

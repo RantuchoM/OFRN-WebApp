@@ -74,6 +74,7 @@ import {
   localityIdsFromRecorridosStored,
 } from "../../../utils/destaquesLugarComisionRecorridos";
 import DateInput from "../../../components/ui/DateInput";
+import TemporadaAltaFranjaControl from "../../../components/viaticos/TemporadaAltaFranjaControl";
 import MusicianForm from "../../Musicians/MusicianForm";
 import { firstMondayAfter } from "../../../utils/dates";
 import {
@@ -312,6 +313,8 @@ export default function ViaticosManager({ supabase, giraId }) {
   const [config, setConfig] = useState({
     valor_diario_base: 0,
     factor_temporada: 0,
+    temporada_desde: null,
+    temporada_hasta: null,
     motivo: "",
     motivo_destaques_exportacion: "",
     lugar_comision: "",
@@ -616,9 +619,7 @@ export default function ViaticosManager({ supabase, giraId }) {
     }
   };
 
-  const updateConfig = (key, val) => {
-    setConfig((prev) => ({ ...prev, [key]: val }));
-    pendingUpdatesRef.current = { ...pendingUpdatesRef.current, [key]: val };
+  const flushConfigSave = () => {
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     saveTimeoutRef.current = setTimeout(async () => {
       const changesToSave = pendingUpdatesRef.current;
@@ -633,13 +634,30 @@ export default function ViaticosManager({ supabase, giraId }) {
           toast.error(
             error.message?.includes("porcentaje_destaques")
               ? "Falta la columna porcentaje_destaques en la BD. Ejecutá la migración 20260519120000."
-              : "Error al guardar configuración de viáticos",
+              : error.message?.includes("temporada_")
+                ? "Falta la columna de franja de temporada en la BD. Ejecutá la migración 20261124133316."
+                : "Error al guardar configuración de viáticos",
           );
         }
       } catch (err) {
         console.error("Error guardando config:", err);
       }
     }, 1000);
+  };
+
+  const updateConfig = (key, val) => {
+    setConfig((prev) => ({ ...prev, [key]: val }));
+    pendingUpdatesRef.current = { ...pendingUpdatesRef.current, [key]: val };
+    flushConfigSave();
+  };
+
+  const updateConfigPatch = (patch) => {
+    if (!patch || typeof patch !== "object") return;
+    const clean = { ...patch };
+    delete clean.temporada_alta;
+    setConfig((prev) => ({ ...prev, ...clean }));
+    pendingUpdatesRef.current = { ...pendingUpdatesRef.current, ...clean };
+    flushConfigSave();
   };
 
   /** Integrantes del roster que aún no tienen fila en viáticos (no ausentes, no perfil masivo, no vacantes). */
@@ -1564,7 +1582,19 @@ const collectTransportSupportDocs = (personData) => {
     if (!peopleArray || peopleArray.length === 0)
       return toast.error("No hay personas.");
     const targetFolderId = folderId || config.link_drive;
-    if (!targetFolderId) return toast.error("Carpeta Drive no configurada.");
+    if (!targetFolderId) {
+      toast.error("Sin carpeta Drive", {
+        description: "Creá la carpeta de esta gira para subir los PDFs.",
+        action: {
+          label: "Crear carpeta",
+          onClick: () => {
+            void handleCreateDriveFolder(false);
+          },
+        },
+        duration: 12000,
+      });
+      return;
+    }
 
     setIsExporting(true);
     setExportStatus("Preparando datos masivos...");
@@ -1751,19 +1781,30 @@ const collectTransportSupportDocs = (personData) => {
             fallbackBase: 0,
             porcentaje: pctGlobal,
             factorTemporada: config.factor_temporada || 0,
+            temporadaDesde: config.temporada_desde,
+            temporadaHasta: config.temporada_hasta,
           });
           rich.valorDiarioCalc = fin.valorDiarioCalc;
           rich.subtotal = fin.subtotal;
           rich.segmentosValorDiario = fin.segmentos;
           rich.usaProporcional = fin.usaProporcional;
         } else if (aplicaViaticoProporcional && dias > 0) {
-          const base = parseFloat(vigenteValorDiario || 0);
-          const factor = 1 + parseFloat(config.factor_temporada || 0);
-          const valDiario = Math.round(base * factor * (pctGlobal / 100));
-          rich.valorDiarioCalc = valDiario;
-          rich.subtotal = Math.round(dias * valDiario * 100) / 100;
-          rich.segmentosValorDiario = [];
-          rich.usaProporcional = false;
+          const fin = calcValorDiarioProporcional({
+            fechaSalida,
+            horaSalida,
+            fechaLlegada,
+            horaLlegada,
+            vigencias: [],
+            fallbackBase: parseFloat(vigenteValorDiario || 0),
+            porcentaje: pctGlobal,
+            factorTemporada: config.factor_temporada || 0,
+            temporadaDesde: config.temporada_desde,
+            temporadaHasta: config.temporada_hasta,
+          });
+          rich.valorDiarioCalc = fin.valorDiarioCalc;
+          rich.subtotal = fin.subtotal;
+          rich.segmentosValorDiario = fin.segmentos;
+          rich.usaProporcional = fin.usaProporcional;
         } else {
           rich.valorDiarioCalc = 0;
           rich.subtotal = 0;
@@ -1942,7 +1983,16 @@ const collectTransportSupportDocs = (personData) => {
 
     const driveFolderId = config?.link_drive;
     if (!driveFolderId) {
-      toast.error("Sin carpeta Drive");
+      toast.error("Sin carpeta Drive", {
+        description: "Creá la carpeta de esta gira para subir los PDFs.",
+        action: {
+          label: "Crear carpeta",
+          onClick: () => {
+            void handleCreateDriveFolder(false);
+          },
+        },
+        duration: 12000,
+      });
       return;
     }
 
@@ -2420,26 +2470,16 @@ const collectTransportSupportDocs = (personData) => {
                       {baseVigenciasChip.help}
                     </p>
                   </div>
-                  <div
-                    className="flex items-center gap-1 px-2 py-1 rounded border border-amber-100 bg-white shadow-sm cursor-pointer hover:bg-amber-50"
-                    onClick={() =>
-                      updateConfig(
-                        "factor_temporada",
-                        config.factor_temporada === 0.3 ? 0 : 0.3,
-                      )
-                    }
-                  >
-                    <div
-                      className={`w-3 h-3 rounded-sm border flex items-center justify-center ${config.factor_temporada === 0.3 ? "bg-amber-500 border-amber-600" : "border-slate-300"}`}
-                    >
-                      {config.factor_temporada === 0.3 && (
-                        <IconCheck size={10} className="text-white" />
-                      )}
-                    </div>
-                    <span className="text-xs font-bold text-amber-700">
-                      TEMP (30%)
-                    </span>
-                  </div>
+                  <TemporadaAltaFranjaControl
+                    variant="chip"
+                    factorTemporada={config.factor_temporada}
+                    temporadaDesde={config.temporada_desde}
+                    temporadaHasta={config.temporada_hasta}
+                    lugarTexto={config.lugar_comision || ""}
+                    viajeDesde={giraData?.fecha_desde || ""}
+                    viajeHasta={giraData?.fecha_hasta || giraData?.fecha_desde || ""}
+                    onChange={updateConfigPatch}
+                  />
                 </div>
                 <div className="flex flex-1 gap-2 flex-wrap items-center">
                   <input

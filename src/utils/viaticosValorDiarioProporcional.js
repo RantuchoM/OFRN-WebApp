@@ -4,6 +4,7 @@ import {
   getArrivalFactor,
   getDepartureFactor,
 } from "./viaticosDiasComputables";
+import { factorTemporadaParaFecha } from "./viaticosTemporadaAlta";
 
 const round2 = (num) => Math.round((num + Number.EPSILON) * 100) / 100;
 
@@ -119,6 +120,8 @@ export function calcValorDiarioProporcional({
   fallbackBase = 0,
   porcentaje = 100,
   factorTemporada = 0,
+  temporadaDesde = null,
+  temporadaHasta = null,
 }) {
   const explained = explainViaticosDiasCalculation(
     fechaSalida,
@@ -131,7 +134,12 @@ export function calcValorDiarioProporcional({
   const rawPct =
     porcentaje === 0 || porcentaje ? porcentaje : 100;
   const pct = parseFloat(String(rawPct).replace("%", "")) / 100;
-  const factor = parseFloat(factorTemporada || 0);
+  const factor = parseFloat(factorTemporada || 0) || 0;
+  const temporadaOpts = {
+    factorTemporada: factor,
+    temporadaDesde,
+    temporadaHasta,
+  };
 
   if (dias_computables <= 0) {
     const base = getMontoVigenteParaFecha(
@@ -139,7 +147,8 @@ export function calcValorDiarioProporcional({
       vigencias,
       fallbackBase,
     );
-    const valorDiarioCalc = round2(base * pct * (1 + factor));
+    const factorDia = factorTemporadaParaFecha(fechaSalida, temporadaOpts);
+    const valorDiarioCalc = round2(base * pct * (1 + factorDia));
     return {
       dias_computables: 0,
       subtotal: 0,
@@ -160,9 +169,11 @@ export function calcValorDiarioProporcional({
   for (const { fecha, dias } of pieces) {
     const row = findVigenciaParaFecha(fecha, vigencias);
     const montoBase = getMontoVigenteParaFecha(fecha, vigencias, fallbackBase);
-    const key = String(montoBase);
+    const factorDia = factorTemporadaParaFecha(fecha, temporadaOpts);
+    const key = `${montoBase}|${factorDia}`;
     const g = grupos.get(key) || {
       montoBase,
+      factorDia,
       dias: 0,
       fechas: [],
       vigenciaDesde: row ? toIsoDay(row.vigencia_desde) : "",
@@ -176,12 +187,15 @@ export function calcValorDiarioProporcional({
   let subtotal = 0;
 
   for (const g of grupos.values()) {
-    const valorDiarioTramo = round2(g.montoBase * pct * (1 + factor));
+    const valorDiarioTramo = round2(
+      g.montoBase * pct * (1 + (g.factorDia || 0)),
+    );
     const subtotalTramo = round2(g.dias * valorDiarioTramo);
     subtotal += subtotalTramo;
     const fechas = [...g.fechas].sort();
     segmentos.push({
       montoBase: g.montoBase,
+      factorTemporada: g.factorDia || 0,
       dias: round2(g.dias),
       valorDiarioCalc: valorDiarioTramo,
       subtotalTramo,

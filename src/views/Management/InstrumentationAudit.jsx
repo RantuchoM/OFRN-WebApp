@@ -8,12 +8,13 @@ import {
   IconChevronDown,
   IconUsers,
   IconUserPlus,
-  IconPencil,
+  IconEdit,
   IconFolder,
   IconX,
   IconCheckCircle,
   IconInfo,
   IconRefresh,
+  IconMusic,
 } from "../../components/ui/Icons";
 import {
   countsTowardInstrumentationConvoked,
@@ -32,12 +33,32 @@ import {
   refreshOrganicoProgramas,
   touchOrganicoConvocado,
 } from "../../services/organicoConvocadoService";
-import { getProgramStyle, stampRosterActor } from "../../utils/giraUtils";
+import {
+  getProgramStyle,
+  buildGiraIntegranteUpsert,
+} from "../../utils/giraUtils";
+import {
+  buildCoberturaAusenteFields,
+  emptyCoberturaFields,
+  removeCoberturaCoverPerson,
+} from "../../utils/coberturaGira";
+import { seatingApellidoNombre } from "../../utils/integranteDisplayName";
 import { crearVacante } from "../../services/giraService";
 import { useAuth } from "../../context/AuthContext";
 import DateInput from "../../components/ui/DateInput";
 import WorkForm from "../Repertoire/WorkForm";
 import NotificationQueuePanel from "../../components/giras/NotificationQueuePanel";
+import RosterBajaModal from "../../components/giras/RosterBajaModal";
+import StringsCompositionMark, {
+  OrganicoConvocadoWithStrings,
+} from "../../components/instrumentation/StringsCompositionMark";
+import {
+  batchFetchMusicianSeatingContainerLabels,
+  buildStringsCompositionDetail,
+} from "../../utils/seatingStringsComposition";
+import {
+  normalizeStringsComposition,
+} from "../../utils/organicoConvocado";
 
 const InstrumentationSandbox = lazy(
   () => import("./InstrumentationSandbox"),
@@ -495,19 +516,26 @@ function ProgramWorksTable({
                       </div>
                     </div>
                     <span className="flex items-center gap-0.5 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => onOpenWorkForm(w.obra_id)}
-                        className="p-1 rounded text-slate-500 hover:bg-slate-200 hover:text-slate-700"
-                        title="Editar obra"
-                      >
-                        <IconPencil size={14} />
-                      </button>
+                      {w.obra_id != null && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onOpenWorkForm(w.obra_id);
+                          }}
+                          className="p-1 rounded text-slate-500 hover:bg-slate-200 hover:text-indigo-700"
+                          title="Editar obra"
+                          aria-label="Editar obra"
+                        >
+                          <IconEdit size={14} />
+                        </button>
+                      )}
                       {w.link_drive && (
                         <a
                           href={buildDriveUrl(w.link_drive)}
                           target="_blank"
                           rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
                           className="p-1 rounded text-slate-500 hover:bg-slate-200 hover:text-green-700"
                           title="Abrir carpeta Drive"
                         >
@@ -575,7 +603,8 @@ function ProgramWorksTable({
 }
 
 export default function InstrumentationAudit({ supabase }) {
-  const { user } = useAuth();
+  const { user, isEditor, isManagement } = useAuth();
+  const canEditRoster = isEditor || isManagement;
   const [searchParams, setSearchParams] = useSearchParams();
   const [loading, setLoading] = useState(false);
   const [programs, setPrograms] = useState([]);
@@ -595,6 +624,8 @@ export default function InstrumentationAudit({ supabase }) {
   const [refreshingOrganicoId, setRefreshingOrganicoId] = useState(null);
   const [organicoBatch, setOrganicoBatch] = useState(null);
   const [excessModal, setExcessModal] = useState(null);
+  /** Misma baja que Nómina: `{ program, musician, action: 'ausente' }`. */
+  const [pendingBaja, setPendingBaja] = useState(null);
   const notificationQueueRef = useRef(null);
 
   const navigateToRoster = (giraId) => {
@@ -894,6 +925,17 @@ export default function InstrumentationAudit({ supabase }) {
           }
         }
 
+        let stringsLabelsByProgram = new Map();
+        try {
+          stringsLabelsByProgram =
+            await batchFetchMusicianSeatingContainerLabels(
+              supabase,
+              programIds,
+            );
+        } catch (err) {
+          console.warn("strings composition labels:", err?.message || err);
+        }
+
         const enriched = basePrograms.map((p) => {
           const blocks = (blocksByProgram[p.id] || []).slice().sort(
             (a, b) => (a.orden || 0) - (b.orden || 0),
@@ -922,6 +964,12 @@ export default function InstrumentationAudit({ supabase }) {
             partsMax,
           );
           const organicoAgg = aggregateOrganicoFromBlocks(blocks);
+          const stringsDetail =
+            normalizeStringsComposition(p.organico_convocado_map) ||
+            buildStringsCompositionDetail(
+              roster,
+              stringsLabelsByProgram.get(Number(p.id)) || new Map(),
+            );
           return {
             ...p,
             organico_revisado: organicoAgg.organico_revisado,
@@ -929,6 +977,7 @@ export default function InstrumentationAudit({ supabase }) {
             _blocks: blocks,
             _worksAudit: workRows,
             _roster: roster,
+            _stringsDetail: stringsDetail,
             _convocacionSources: sourcesByProgram[p.id] || [],
             _ensambleLabels: ensambleLabelById,
             instrumentationRequired: required,
@@ -1016,64 +1065,318 @@ export default function InstrumentationAudit({ supabase }) {
     };
   }, []);
 
-  const handleMarkAusenteFromAudit = useCallback(
-    async (program, musician) => {
+  const requestAusenteFromAudit = useCallback((program, musician) => {
+    if (!canEditRoster || pendingBaja) return;
+    setPendingBaja({
+      integranteId: musician.id,
+      action: "ausente",
+      musician,
+      program,
+    });
+  }, [canEditRoster, pendingBaja]);
+
+  const cancelBajaFromAudit = useCallback(() => {
+    setPendingBaja(null);
+  }, []);
+
+  const resolveIntegranteNotifyInfo = useCallback(
+    async (integranteId, roster = []) => {
+      const id = Number(integranteId);
+      if (!Number.isFinite(id)) return null;
+      const fromRoster = (roster || []).find(
+        (m) => Number(m.id) === id || String(m.id) === String(integranteId),
+      );
+      if (fromRoster?.mail) {
+        return {
+          id,
+          mail: fromRoster.mail,
+          nombre:
+            fromRoster.nombre_completo ||
+            seatingApellidoNombre(fromRoster) ||
+            `ID ${id}`,
+        };
+      }
+      const { data, error } = await supabase
+        .from("integrantes")
+        .select("id, nombre, apellido, nombre_preferencia, apellido_preferencia, mail")
+        .eq("id", id)
+        .maybeSingle();
+      if (error || !data?.mail) return null;
+      return {
+        id,
+        mail: data.mail,
+        nombre: seatingApellidoNombre(data) || `ID ${id}`,
+      };
+    },
+    [supabase],
+  );
+
+  const applyCoberturaPairFromAudit = useCallback(
+    async (program, musician, cobertura, motivoPayload = {}) => {
       const giraId = program.id;
-      const notifOk =
-        program.notificacion_inicial_enviada === true &&
-        program.notificaciones_habilitadas !== false &&
-        musician.mail;
+      const actorId = user?.id;
+      const prevCoverId = musician?.cobertura_id_integrante;
+      const nextId =
+        cobertura?.idIntegrante != null ? Number(cobertura.idIntegrante) : null;
+      const nextNombre = String(cobertura?.nombre || "").trim();
+      const clearing = Boolean(cobertura?.clear) || (!nextId && !nextNombre);
+
+      if (clearing) {
+        if (prevCoverId != null) {
+          await removeCoberturaCoverPerson(supabase, {
+            idGira: giraId,
+            actorId,
+            coverIntegranteId: prevCoverId,
+            motivo: "Fin de cobertura",
+          });
+        }
+        const { error } = await supabase.from("giras_integrantes").upsert(
+          buildGiraIntegranteUpsert(
+            giraId,
+            musician,
+            {
+              estado: "ausente",
+              es_cobertura: false,
+              ...emptyCoberturaFields(),
+              ...motivoPayload,
+            },
+            actorId,
+          ),
+          { onConflict: "id_gira, id_integrante" },
+        );
+        if (error) throw error;
+        return { prevCoverId, nextCoverId: null };
+      }
+
+      const fields = buildCoberturaAusenteFields({
+        coberturaIdIntegrante: nextId,
+        coberturaNombre: nextNombre,
+      });
+
+      if (
+        prevCoverId != null &&
+        Number(prevCoverId) !== Number(fields.cobertura_id_integrante)
+      ) {
+        await removeCoberturaCoverPerson(supabase, {
+          idGira: giraId,
+          actorId,
+          coverIntegranteId: prevCoverId,
+          motivo: "Cambio de cobertura",
+        });
+      }
 
       const { error } = await supabase.from("giras_integrantes").upsert(
-        stampRosterActor(
+        buildGiraIntegranteUpsert(
+          giraId,
+          musician,
           {
-            id_gira: giraId,
-            id_integrante: musician.id,
             estado: "ausente",
-            rol: musician.rol_gira || "musico",
+            es_cobertura: false,
+            ...fields,
+            ...motivoPayload,
           },
-          user?.id,
+          actorId,
         ),
         { onConflict: "id_gira, id_integrante" },
       );
-      if (error) {
-        toast.error("No se pudo marcar ausente: " + error.message);
-        return;
+      if (error) throw error;
+
+      if (fields.cobertura_id_integrante != null) {
+        const { error: coverErr } = await supabase
+          .from("giras_integrantes")
+          .upsert(
+            buildGiraIntegranteUpsert(
+              giraId,
+              { id: fields.cobertura_id_integrante },
+              {
+                estado: "confirmado",
+                es_cobertura: true,
+                abona_reemplazo: false,
+                abona_licencia: false,
+                cobertura_id_integrante: null,
+                cobertura_nombre: null,
+                rol: "musico",
+              },
+              actorId,
+            ),
+            { onConflict: "id_gira, id_integrante" },
+          );
+        if (coverErr) throw coverErr;
       }
 
-      if (notifOk) {
-        const nombreCompleto =
-          musician.nombre_completo ||
-          `${musician.apellido || ""}, ${musician.nombre || ""}`.trim();
-        const ctx = notifGiraContext(program);
-        setPendingNotifications((prev) => [
-          ...prev,
-          {
+      return {
+        prevCoverId,
+        nextCoverId: fields.cobertura_id_integrante ?? null,
+      };
+    },
+    [supabase, user?.id],
+  );
+
+  const confirmBajaFromAudit = useCallback(
+    async ({
+      motivoText,
+      motivoId,
+      notify,
+      abonaReemplazo,
+      abonaLicencia,
+      cobertura,
+    }) => {
+      if (!pendingBaja?.program || !pendingBaja?.musician) return;
+      const { program, musician } = pendingBaja;
+      const giraId = program.id;
+      const actorId = user?.id;
+      const roster = program._roster || [];
+      const notificationsReady =
+        program.notificacion_inicial_enviada === true &&
+        program.notificaciones_habilitadas !== false;
+      const shouldNotify = Boolean(notify) && notificationsReady;
+      const nombreCompleto =
+        musician.nombre_completo || seatingApellidoNombre(musician);
+      const shouldNotifyMusician = shouldNotify && musician.mail;
+      const motivoPayload = {
+        motivo_estado: motivoText,
+        motivo_estado_actualizado_at: new Date().toISOString(),
+      };
+      const wantsCobertura = Boolean(cobertura) && !cobertura.clear;
+      const ctx = notifGiraContext(program);
+      const queued = [];
+
+      try {
+        const prevCoverId = musician?.cobertura_id_integrante ?? null;
+        let nextCoverId = null;
+
+        if (wantsCobertura) {
+          const result = await applyCoberturaPairFromAudit(
+            program,
+            musician,
+            cobertura,
+            motivoPayload,
+          );
+          nextCoverId = result?.nextCoverId ?? null;
+        } else {
+          if (prevCoverId != null) {
+            await removeCoberturaCoverPerson(supabase, {
+              idGira: giraId,
+              actorId,
+              coverIntegranteId: prevCoverId,
+              motivo: "Fin de cobertura",
+            });
+          }
+          const { error } = await supabase.from("giras_integrantes").upsert(
+            buildGiraIntegranteUpsert(
+              giraId,
+              musician,
+              {
+                estado: "ausente",
+                es_cobertura: false,
+                cobertura_id_integrante: null,
+                cobertura_nombre: null,
+                abona_reemplazo: Boolean(abonaReemplazo),
+                abona_licencia: Boolean(abonaLicencia) && !abonaReemplazo,
+                ...motivoPayload,
+              },
+              actorId,
+            ),
+            { onConflict: "id_gira, id_integrante" },
+          );
+          if (error) throw error;
+        }
+
+        if (shouldNotifyMusician) {
+          queued.push({
             id: `audit-ausente-${musician.id}-${Date.now()}`,
             variant: "AUSENTE",
+            plantillaVariant: "AUSENTE",
             emails: [musician.mail],
             nombres: [nombreCompleto],
-            reason: "Se te marcó como ausente",
+            motivoText,
+            motivoBajaId: motivoId || undefined,
+            vars: { motivo: motivoText },
             ...ctx,
-          },
-        ]);
-      }
+          });
+        }
 
-      toast.success(
-        notifOk
-          ? "Ausente guardado. La notificación quedó en cola."
-          : "Marcado como ausente.",
-      );
-      setExcessModal(null);
-      try {
-        await touchOrganicoConvocado(supabase, giraId);
+        if (shouldNotify) {
+          const prevId =
+            prevCoverId != null && Number.isFinite(Number(prevCoverId))
+              ? Number(prevCoverId)
+              : null;
+          const nextId =
+            nextCoverId != null && Number.isFinite(Number(nextCoverId))
+              ? Number(nextCoverId)
+              : null;
+          if (prevId != null && prevId !== nextId) {
+            const prev = await resolveIntegranteNotifyInfo(prevId, roster);
+            if (prev?.mail) {
+              queued.push({
+                id: `audit-cobertura-baja-${prev.id}-${Date.now()}`,
+                variant: "BAJA",
+                plantillaVariant: "BAJA:cobertura_fin",
+                emails: [prev.mail],
+                nombres: [prev.nombre],
+                titularLabel: nombreCompleto,
+                vars: { titular: nombreCompleto },
+                ...ctx,
+              });
+            }
+          }
+          if (nextId != null && nextId !== prevId) {
+            const next = await resolveIntegranteNotifyInfo(nextId, roster);
+            if (next?.mail) {
+              queued.push({
+                id: `audit-cobertura-alta-${next.id}-${Date.now()}`,
+                variant: "ALTA",
+                plantillaVariant: "ALTA:cobertura",
+                emails: [next.mail],
+                nombres: [next.nombre],
+                titularLabel: nombreCompleto,
+                vars: { titular: nombreCompleto },
+                ...ctx,
+              });
+            }
+          }
+        }
+
+        if (queued.length) {
+          setPendingNotifications((prev) => [...prev, ...queued]);
+        }
+
+        toast.success(
+          queued.length
+            ? "Ausente guardado. La notificación quedó en cola."
+            : "Marcado como ausente.",
+        );
+        setPendingBaja(null);
+        setExcessModal(null);
+        try {
+          await touchOrganicoConvocado(supabase, giraId);
+        } catch (err) {
+          console.warn("organico_convocado:", err?.message || err);
+        }
+        await fetchProgramsData();
       } catch (err) {
-        console.warn("organico_convocado:", err?.message || err);
+        toast.error(
+          "No se pudo marcar ausente: " + (err?.message || String(err)),
+        );
       }
-      await fetchProgramsData();
     },
-    [supabase, fetchProgramsData, notifGiraContext, user?.id],
+    [
+      pendingBaja,
+      user?.id,
+      supabase,
+      notifGiraContext,
+      applyCoberturaPairFromAudit,
+      resolveIntegranteNotifyInfo,
+      fetchProgramsData,
+    ],
   );
+
+  const pendingBajaProgram = pendingBaja?.program;
+  const pendingBajaNotificationsReady =
+    pendingBajaProgram?.notificacion_inicial_enviada === true &&
+    pendingBajaProgram?.notificaciones_habilitadas !== false;
+  const pendingBajaCanNotify =
+    pendingBajaNotificationsReady && Boolean(pendingBaja?.musician?.mail);
 
   const handleGenerateAutoVacancies = useCallback(
     async (program) => {
@@ -1203,6 +1506,18 @@ export default function InstrumentationAudit({ supabase }) {
     });
   };
 
+  const allWorksExpanded =
+    filteredPrograms.length > 0 &&
+    filteredPrograms.every((p) => expandedIds.has(p.id));
+
+  const toggleExpandAllWorks = () => {
+    if (allWorksExpanded) {
+      setExpandedIds(new Set());
+      return;
+    }
+    setExpandedIds(new Set(filteredPrograms.map((p) => p.id)));
+  };
+
   const hasAnyMismatch = useMemo(
     () =>
       filteredPrograms.some((p) =>
@@ -1287,22 +1602,47 @@ export default function InstrumentationAudit({ supabase }) {
             </div>
           )}
           {viewMode === "audit" && (
-            <button
-              type="button"
-              disabled={!!organicoBatch || loading}
-              onClick={handleRefreshOrganicoVigentes}
-              className="inline-flex items-center gap-1 shrink-0 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-[11px] font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-              title="Recalcula el orgánico convocado de todos los programas vigentes o futuros"
-            >
-              {organicoBatch ? (
-                <IconLoader size={12} className="animate-spin shrink-0" />
-              ) : (
-                <IconRefresh size={12} className="shrink-0" />
-              )}
-              {organicoBatch && organicoBatch.total > 0
-                ? `Recalculando ${organicoBatch.done}/${organicoBatch.total}`
-                : "Recalcular vigentes"}
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={toggleExpandAllWorks}
+                disabled={filteredPrograms.length === 0 || loading}
+                className={`inline-flex items-center justify-center shrink-0 rounded-lg border p-1.5 disabled:opacity-50 ${
+                  allWorksExpanded
+                    ? "border-violet-400 bg-violet-100 text-violet-800 hover:bg-violet-200"
+                    : "border-slate-300 bg-white text-slate-600 hover:bg-slate-50 hover:text-violet-700"
+                }`}
+                title={
+                  allWorksExpanded
+                    ? "Ocultar obras de todos los programas"
+                    : "Mostrar obras de todos los programas"
+                }
+                aria-label={
+                  allWorksExpanded
+                    ? "Ocultar obras de todos los programas"
+                    : "Mostrar obras de todos los programas"
+                }
+                aria-pressed={allWorksExpanded}
+              >
+                <IconMusic size={16} />
+              </button>
+              <button
+                type="button"
+                disabled={!!organicoBatch || loading}
+                onClick={handleRefreshOrganicoVigentes}
+                className="inline-flex items-center gap-1 shrink-0 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-[11px] font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                title="Recalcula el orgánico convocado de todos los programas vigentes o futuros"
+              >
+                {organicoBatch ? (
+                  <IconLoader size={12} className="animate-spin shrink-0" />
+                ) : (
+                  <IconRefresh size={12} className="shrink-0" />
+                )}
+                {organicoBatch && organicoBatch.total > 0
+                  ? `Recalculando ${organicoBatch.done}/${organicoBatch.total}`
+                  : "Recalcular vigentes"}
+              </button>
+            </>
           )}
           {loading && (
             <span className="inline-flex items-center gap-1 text-[11px] text-slate-400 shrink-0 ml-auto">
@@ -1397,7 +1737,17 @@ export default function InstrumentationAudit({ supabase }) {
                       ? `→ ${fechaHasta}`
                       : ""}
                     {p.zona ? ` · ${p.zona}` : ""}
-                    {p.organico_convocado ? ` · ${p.organico_convocado}` : ""}
+                    {p.organico_convocado ? (
+                      <>
+                        {" · "}
+                        <OrganicoConvocadoWithStrings
+                          text={p.organico_convocado}
+                          detail={p._stringsDetail}
+                          organicoMap={p.organico_convocado_map}
+                          className="text-[11px]"
+                        />
+                      </>
+                    ) : null}
                   </span>
                   <ConvocacionFuentesResumen
                     sources={p._convocacionSources}
@@ -1421,9 +1771,21 @@ export default function InstrumentationAudit({ supabase }) {
                           {AUDIT_SUMMARY_COLUMNS.map((col) => (
                             <th
                               key={col.id}
-                              className={`${AUDIT_SUMMARY_INST_TH_TD} font-semibold text-slate-600`}
+                              className={`${AUDIT_SUMMARY_INST_TH_TD} font-semibold text-slate-600 ${
+                                col.id === "Str" ? "min-w-[4.5rem] max-w-none w-auto" : ""
+                              }`}
                             >
-                              {col.label}
+                              {col.id === "Str" && p._stringsDetail ? (
+                                <span className="inline-flex flex-col items-center gap-0 leading-tight">
+                                  <span>Str</span>
+                                  <StringsCompositionMark
+                                    detail={p._stringsDetail}
+                                    className="text-[7px] font-semibold text-slate-500 normal-case"
+                                  />
+                                </span>
+                              ) : (
+                                col.label
+                              )}
                             </th>
                           ))}
                         </tr>
@@ -1871,9 +2233,9 @@ export default function InstrumentationAudit({ supabase }) {
                 </button>
               </div>
               <p className="text-[11px] text-slate-500 mb-3">
-                Podés marcar como ausente; si la convocatoria inicial ya se
-                envió y las notificaciones están activas, se encola el mismo
-                aviso que en Nómina.
+                Ausente abre el mismo modal de motivo de baja que Nómina
+                (cobertura / R / L). Si la convocatoria inicial ya se envió y
+                las notificaciones están activas, el aviso queda en cola.
               </p>
               {(() => {
                 const mus = getMusiciansForExcessColumn(
@@ -1901,9 +2263,10 @@ export default function InstrumentationAudit({ supabase }) {
                         </span>
                         <button
                           type="button"
-                          className="shrink-0 text-[10px] font-bold uppercase text-red-700 border border-red-200 rounded px-2 py-0.5 hover:bg-red-50"
+                          disabled={!canEditRoster || !!pendingBaja}
+                          className="shrink-0 text-[10px] font-bold uppercase text-red-700 border border-red-200 rounded px-2 py-0.5 hover:bg-red-50 disabled:opacity-50"
                           onClick={() =>
-                            handleMarkAusenteFromAudit(excessModal.program, m)
+                            requestAusenteFromAudit(excessModal.program, m)
                           }
                         >
                           Ausente
@@ -1917,6 +2280,17 @@ export default function InstrumentationAudit({ supabase }) {
           </div>,
           document.body,
         )}
+
+      <RosterBajaModal
+        pendingBaja={pendingBaja}
+        canNotify={pendingBajaCanNotify}
+        notificationsReady={pendingBajaNotificationsReady}
+        isEditor={canEditRoster}
+        onClose={cancelBajaFromAudit}
+        onConfirm={confirmBajaFromAudit}
+        supabase={supabase}
+        rosterIds={(pendingBaja?.program?._roster || []).map((m) => m.id)}
+      />
 
       {pendingNotifications.length > 0 && (
         <NotificationQueuePanel

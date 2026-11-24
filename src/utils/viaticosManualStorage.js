@@ -110,7 +110,9 @@ export function hasMeaningfulViaticoData(form) {
     form.check_terrestre ||
     form.check_patente_oficial ||
     form.check_patente_particular ||
-    form.temporada_alta
+    form.temporada_alta ||
+    form.temporada_desde ||
+    form.temporada_hasta
   ) {
     return true;
   }

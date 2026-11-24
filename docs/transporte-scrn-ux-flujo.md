@@ -72,7 +72,7 @@ Escribe en `scrn_reservas` (titular) y `scrn_reserva_pasajeros` (acompañantes).
   - el usuario actual incluido por defecto (removible para solicitar solo para terceros).
   - Se valida contra `plazasDisponibles`.
 - **Opciones de viático** (opcional, por titular y por acompañante) — `ScrnViaticosOpcionesFields`:
-  `% viático` (100/80/0), *Temporada alta +30%*, y 7 montos de gasto.
+  `% viático` (100/80/0), *Temporada alta* Off/Completa/Parcial (+30%), y 7 montos de gasto.
 - **Estado**: `aceptada` si admin, `pendiente` si no (dispara mail vía `mails_produccion`
   a `filarmonica.scrn@gmail.com`, template `scrn_transporte_evento`).
 
@@ -90,6 +90,8 @@ Escribe en `scrn_solicitudes_nuevo_viaje`. Campos (`ViajeFormFields`):
 {
   "porcentaje": 100,
   "temporada_alta": false,
+  "temporada_desde": null,
+  "temporada_hasta": null,
   "anticipo_custom": null,
   "gasto_alojamiento": 0,
   "gasto_pasajes": 0,

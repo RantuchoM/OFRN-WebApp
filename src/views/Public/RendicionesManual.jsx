@@ -29,6 +29,8 @@ import {
 } from "../../utils/viaticosValorDiarioProporcional";
 import RangosValorDiario from "../../components/viaticos/RangosValorDiario";
 import ArsAmountInput from "../../components/viaticos/ArsAmountInput";
+import TemporadaAltaFranjaControl from "../../components/viaticos/TemporadaAltaFranjaControl";
+import { FACTOR_TEMPORADA_ALTA } from "../../utils/viaticosTemporadaAlta";
 import {
   baseFieldClass,
   buildPersonaLabel,
@@ -149,6 +151,8 @@ const DEFAULT_BASE = {
   valor_diario_base: 0,
   porcentaje: 100,
   temporada_alta: false,
+  temporada_desde: null,
+  temporada_hasta: null,
 };
 
 const ZERO_REND = {
@@ -272,7 +276,7 @@ export default function RendicionesManual() {
   });
 
   const porcentajeNum = toNumber(base?.porcentaje || 100);
-  const factor_temporada = base?.temporada_alta ? 0.3 : 0;
+  const factor_temporada = base?.temporada_alta ? FACTOR_TEMPORADA_ALTA : 0;
 
   const dias_computables = useMemo(() => {
     return calculateDaysDiff(
@@ -316,12 +320,16 @@ export default function RendicionesManual() {
       fallbackBase: 0,
       porcentaje: porcentajeNum,
       factorTemporada: factor_temporada,
+      temporadaDesde: base?.temporada_desde,
+      temporadaHasta: base?.temporada_hasta,
     });
   }, [
     base?.fecha_salida,
     base?.hora_salida,
     base?.fecha_llegada,
     base?.hora_llegada,
+    base?.temporada_desde,
+    base?.temporada_hasta,
     porcentajeNum,
     factor_temporada,
     vigencias,
@@ -793,6 +801,8 @@ export default function RendicionesManual() {
           get("temporada_alta") || base.temporada_alta || "",
         ).toLowerCase() === "true" ||
         String(get("temporada_alta") || "").trim() === "1",
+      temporada_desde: get("temporada_desde") || base.temporada_desde || null,
+      temporada_hasta: get("temporada_hasta") || base.temporada_hasta || null,
       subtotal: toNumber(get("subtotal") || base.subtotal),
       anticipo_custom: (() => {
         if (!has("anticipo_custom")) return base.anticipo_custom ?? null;
@@ -1265,17 +1275,23 @@ export default function RendicionesManual() {
                         <option value="0">0%</option>
                       </select>
                     </label>
-                    <label className="flex h-full min-w-0 flex-col text-xs font-bold text-slate-600">
-                      <span className="flex min-h-8 items-end">Temporada alta</span>
-                      <span className="mt-1 flex min-h-[38px] flex-1 items-center justify-end rounded-lg border border-slate-200 bg-slate-50 px-3">
-                        <input
-                          type="checkbox"
-                          checked={!!base?.temporada_alta}
-                          onChange={updateBase("temporada_alta")}
-                          className="h-5 w-5 accent-[#0054a6]"
-                        />
-                      </span>
-                    </label>
+                    <TemporadaAltaFranjaControl
+                      variant="form"
+                      temporadaAlta={!!base?.temporada_alta}
+                      temporadaDesde={base?.temporada_desde}
+                      temporadaHasta={base?.temporada_hasta}
+                      lugarTexto={base?.lugar_comision || ""}
+                      viajeDesde={base?.fecha_salida || ""}
+                      viajeHasta={base?.fecha_llegada || base?.fecha_salida || ""}
+                      onChange={(patch) => {
+                        setBase((prev) => ({
+                          ...prev,
+                          temporada_alta: Boolean(patch.temporada_alta),
+                          temporada_desde: patch.temporada_desde ?? null,
+                          temporada_hasta: patch.temporada_hasta ?? null,
+                        }));
+                      }}
+                    />
                   </div>
                 </div>
 

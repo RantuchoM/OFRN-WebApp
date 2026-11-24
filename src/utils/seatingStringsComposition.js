@@ -286,10 +286,183 @@ function formatSegmentForInstrumentCode(roster, instrumentCode, musicianContaine
 }
 
 /**
+ * ¿El nombre de contenedor apunta a Violín 1 / primeros?
+ * (Violín 1, Vn1, 1ros, Primeros…)
+ */
+export function isViolin1ContainerName(name) {
+  const n = String(name || "")
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .trim();
+  if (!n || n === UNASSIGNED_LABEL.toLowerCase()) return false;
+  if (/\b(2|ii|segund)/i.test(n) && !/\b(1|i|primer)/i.test(n)) return false;
+  return (
+    /\bviol[ií]n\s*1\b/.test(n) ||
+    /\bvn\s*1\b/.test(n) ||
+    /\b1ros?\b/.test(n) ||
+    /\bprimer/.test(n) ||
+    (/\bi\b/.test(n) && /\bviol/.test(n))
+  );
+}
+
+/** ¿Nombre de contenedor = Violín 2 / segundos? */
+export function isViolin2ContainerName(name) {
+  const n = String(name || "")
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .trim();
+  if (!n || n === UNASSIGNED_LABEL.toLowerCase()) return false;
+  return (
+    /\bviol[ií]n\s*2\b/.test(n) ||
+    /\bvn\s*2\b/.test(n) ||
+    /\b2dos?\b/.test(n) ||
+    /\bsegund/.test(n) ||
+    (/\bii\b/.test(n) && /\bviol/.test(n))
+  );
+}
+
+function countByInstr(roster, code) {
+  return (roster || []).filter(
+    (m) =>
+      passesRosterFilters(m) &&
+      seatingInstrumentCode(m.id_instr) === String(code).trim(),
+  ).length;
+}
+
+function violinMembersByContainer(roster, musicianContainerLabels) {
+  const byContainer = new Map();
+  for (const m of roster || []) {
+    if (!passesRosterFilters(m)) continue;
+    if (seatingInstrumentCode(m.id_instr) !== "01") continue;
+    const mid = Number(m.id);
+    const label =
+      musicianContainerLabels?.get?.(mid) ??
+      musicianContainerLabels?.get?.(String(mid)) ??
+      UNASSIGNED_LABEL;
+    byContainer.set(label, (byContainer.get(label) || 0) + 1);
+  }
+  return byContainer;
+}
+
+/**
+ * Divide violines en 1ros / 2dos.
+ * - Si hay contenedores reales de seating (Violín 1 / 2 u otros ≥2 bloques),
+ *   usa esos conteos (`vnEstimated: false`).
+ * - Si todos están sin dividir (un solo bloque o Sin contenedor),
+ *   parte a la mitad (impar → +1 a 1ros) y marca `vnEstimated: true` (UI en itálica).
+ *
+ * @returns {{ vn1: number, vn2: number, va: number, vc: number, cb: number, vnEstimated: boolean, total: number } | null}
+ */
+export function buildStringsCompositionDetail(
+  roster,
+  musicianContainerLabels = null,
+) {
+  const va = countByInstr(roster, "02");
+  const vc = countByInstr(roster, "03");
+  const cb = countByInstr(roster, "04");
+  const byVn = violinMembersByContainer(roster, musicianContainerLabels);
+  const vnTotal = [...byVn.values()].reduce((a, b) => a + b, 0);
+  const total = vnTotal + va + vc + cb;
+  if (total <= 0) return null;
+
+  const entries = [...byVn.entries()].filter(([, n]) => n > 0);
+  const onlyUnassigned =
+    entries.length === 0 ||
+    (entries.length === 1 && entries[0][0] === UNASSIGNED_LABEL);
+
+  let vn1 = 0;
+  let vn2 = 0;
+  let vnEstimated = false;
+
+  if (vnTotal === 0) {
+    vn1 = 0;
+    vn2 = 0;
+  } else if (onlyUnassigned || entries.length === 1) {
+    // Sin división real en contenedores → mitad calculada.
+    vn1 = Math.ceil(vnTotal / 2);
+    vn2 = Math.floor(vnTotal / 2);
+    vnEstimated = true;
+  } else {
+    let named1 = 0;
+    let named2 = 0;
+    let other = 0;
+    const unnamed = [];
+    for (const [label, n] of entries) {
+      if (isViolin1ContainerName(label)) named1 += n;
+      else if (isViolin2ContainerName(label)) named2 += n;
+      else unnamed.push([label, n]);
+    }
+    if (named1 > 0 || named2 > 0) {
+      unnamed.sort(([a], [b]) =>
+        a.localeCompare(b, "es", { sensitivity: "base" }),
+      );
+      // Contenedores no nombrados: el primero va a 1ros, el resto a 2dos.
+      unnamed.forEach(([, n], idx) => {
+        if (idx === 0 && named1 === 0) named1 += n;
+        else named2 += n;
+      });
+      vn1 = named1;
+      vn2 = named2;
+      vnEstimated = false;
+    } else {
+      // Varios contenedores sin nombre canónico: orden alfabético → 1ros / 2dos.
+      entries.sort(([a], [b]) =>
+        a.localeCompare(b, "es", { sensitivity: "base" }),
+      );
+      vn1 = entries[0][1];
+      vn2 = entries.slice(1).reduce((acc, [, n]) => acc + n, 0);
+      vnEstimated = false;
+    }
+  }
+
+  return { vn1, vn2, va, vc, cb, vnEstimated, total };
+}
+
+/** Texto plano `(5.5.4.3.3)` o null. */
+export function formatStringsCompositionParen(detail) {
+  if (!detail || !(detail.total > 0)) return null;
+  return `(${detail.vn1}.${detail.vn2}.${detail.va}.${detail.vc}.${detail.cb})`;
+}
+
+/**
+ * Mapa id_musico → nombre de contenedor a partir de containers + items ya cargados
+ * (p. ej. GiraRoster / ProgramSeating sin refetch).
+ */
+export function buildMusicianContainerLabelsFromSeating(
+  containers = [],
+  items = [],
+) {
+  const map = new Map();
+  const idToNombre = new Map(
+    (containers || []).map((c) => [
+      Number(c.id),
+      String(c.nombre ?? "").trim() || `Grupo ${c.id}`,
+    ]),
+  );
+  const deduped = dedupeSeatingStringItems(items || [], containers || []);
+  for (const it of deduped) {
+    const mid = Number(it.id_musico);
+    if (Number.isNaN(mid) || map.has(mid)) continue;
+    map.set(mid, idToNombre.get(Number(it.id_contenedor)) ?? UNASSIGNED_LABEL);
+  }
+  return map;
+}
+
+/**
  * Ej.: Str: (8.6).4.2.1 — orden fijo 01 Violín, 02 Viola, 03 Cello, 04 Cb.
  * `musicianContainerLabels`: Map(id_musico → nombre contenedor) desde seating de la gira.
+ * Preferí `formatStringsCompositionParen` / `buildStringsCompositionDetail` para el
+ * formato fijo Vn1.Vn2.Va.Vc.Cb con itálica en badges.
  */
 export function formatStringsCompositionLabel(roster, musicianContainerLabels) {
+  const detail = buildStringsCompositionDetail(
+    roster,
+    musicianContainerLabels,
+  );
+  const paren = formatStringsCompositionParen(detail);
+  if (paren) return `Str ${paren}`;
   const parts = SEATING_STRING_INSTR_IDS.map((idc) =>
     formatSegmentForInstrumentCode(roster, idc, musicianContainerLabels),
   );

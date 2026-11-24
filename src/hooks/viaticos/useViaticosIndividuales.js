@@ -239,6 +239,8 @@ export function useViaticosIndividuales(
           fallbackBase: 0,
           porcentaje: rawPct,
           factorTemporada: factorTempGlobal,
+          temporadaDesde: config?.temporada_desde,
+          temporadaHasta: config?.temporada_hasta,
         });
         const valorDiarioCalc = fin.valorDiarioCalc;
         const subtotal = fin.subtotal;
@@ -414,7 +416,7 @@ export function useViaticosIndividuales(
       jornada_laboral: person.jornada || person.jornada_laboral || "",
       motivo: person.motivo || "",
       dias_computables: 0,
-      porcentaje: 100,
+      porcentaje: 80,
     };
   };
 

@@ -10,7 +10,12 @@ import {
   computeConvoked,
   formatInstrumentationStandard,
   normalizeOrganicoMap,
+  normalizeStringsComposition,
 } from "../../utils/organicoConvocado";
+import {
+  buildStringsCompositionDetail,
+} from "../../utils/seatingStringsComposition";
+import StringsCompositionMark from "./StringsCompositionMark";
 
 export { computeConvoked, formatInstrumentationStandard };
 
@@ -208,6 +213,7 @@ function renderAlignedRowTokens(
   highlightClass,
   skipDiffHighlight,
   rowKey,
+  stringsDetail = null,
 ) {
   const cells = [];
   const pushNum = (key) => {
@@ -238,12 +244,26 @@ function renderAlignedRowTokens(
     if (key === "Perc") label = percLabelOf(percTotalOf(map));
     else if (key === "Har") label = harpLabelOf(map.Har || 0);
     else if (key === "Pno") label = (map.Pno || 0) > 0 ? "Key" : "";
-    else if (key === "Str") label = (map.Str || 0) > 0 ? "Str" : "";
+    else if (key === "Str") {
+      if ((map.Str || 0) > 0) {
+        label = (
+          <span className="inline-flex items-baseline gap-0.5">
+            <span>Str</span>
+            {rowKey === "conv" && stringsDetail ? (
+              <StringsCompositionMark
+                detail={stringsDetail}
+                className="text-[8px] font-semibold text-slate-600"
+              />
+            ) : null}
+          </span>
+        );
+      }
+    }
 
     cells.push(
       <AlignmentToken
         key={`${rowKey}-${key}`}
-        wide={key === "Perc"}
+        wide={key === "Perc" || key === "Str"}
         highlight={shouldHighlightKey(key, map, otherMap, skipDiffHighlight)}
         highlightClass={highlightClass}
       >
@@ -268,6 +288,8 @@ export default function InstrumentationBadges({
   onOrganicoSave = null,
   scopeLabel = null,
   repertoireBlocks = [],
+  /** Map id_musico → nombre contenedor (seating); si falta, violines a mitad estimada. */
+  musicianContainerLabels = null,
 }) {
   const [showModal, setShowModal] = useState(false);
 
@@ -291,6 +313,12 @@ export default function InstrumentationBadges({
     }
     return computeConvoked(roster);
   }, [roster, convokedMap]);
+
+  const stringsDetail = useMemo(() => {
+    const fromMap = normalizeStringsComposition(convokedMap);
+    if (fromMap) return fromMap;
+    return buildStringsCompositionDetail(roster, musicianContainerLabels);
+  }, [roster, musicianContainerLabels, convokedMap]);
 
   const mismatch = useMemo(
     () => hasInstrumentationMismatch(required, convoked),
@@ -324,7 +352,11 @@ export default function InstrumentationBadges({
     ? "bg-sky-200 text-sky-800 font-extrabold"
     : "bg-orange-200 text-black font-extrabold";
   const extraColCss = extraKeys
-    .map((k) => (k === "Perc" ? "minmax(2.6em,auto)" : "minmax(1.5em,auto)"))
+    .map((k) =>
+      k === "Perc" || k === "Str"
+        ? "minmax(2.6em,auto)"
+        : "minmax(1.5em,auto)",
+    )
     .join(" ");
   const gridTemplateColumns = [
     "auto",
@@ -336,6 +368,10 @@ export default function InstrumentationBadges({
   ]
     .filter(Boolean)
     .join(" ");
+
+  const convTitleWithStrings = stringsDetail
+    ? formatInstrumentationStandard(convoked, stringsDetail)
+    : convTitle;
 
   return (
     <>
@@ -362,7 +398,11 @@ export default function InstrumentationBadges({
           onClick={() => setShowModal(true)}
           className={`inline-grid gap-x-0.5 gap-y-px items-center px-2 py-0.5 rounded-md text-[10px] font-semibold border text-left transition-colors min-w-0 max-w-full overflow-x-auto ${badgeBaseClass}`}
           style={{ gridTemplateColumns }}
-          title={reqTitle ? `${convTitle}\n${reqTitle}` : convTitle}
+          title={
+            reqTitle
+              ? `${convTitleWithStrings}\n${reqTitle}`
+              : convTitleWithStrings
+          }
         >
           <IconUsers
             size={12}
@@ -376,6 +416,7 @@ export default function InstrumentationBadges({
             highlightClass,
             !hasWorks,
             "conv",
+            stringsDetail,
           )}
           {hasWorks && (
             <>
@@ -387,6 +428,7 @@ export default function InstrumentationBadges({
                 highlightClass,
                 false,
                 "req",
+                null,
               )}
             </>
           )}
