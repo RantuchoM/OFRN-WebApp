@@ -45,7 +45,8 @@ Permitir a los editores importar cronogramas completos de giras pasadas hacia la
     - Arrancan activos los tipos reales de la gira origen. El usuario los destilda para esconderlos.
     - **Selección vacía = ningún tipo.** Destildar el último tipo (o toda la categoría, aunque sea Conciertos) no vuelve a incluir el listado completo.
     - El id de tipo se compara normalizado (`Number`), así un bigint string `"1"` y el número `1` son el mismo Concierto.
-    - Eventos con `id_tipo_evento` nulo no heredan ningún tipo. Van al filtro **Sin tipo** (visible si hay alguno, eventos igual destildados). Un texto «Concierto» sin tipo no entra al tildar o destildar el tipo Concierto.
+    - Eventos con `id_tipo_evento` nulo no heredan ningún tipo. Van al filtro **Sin tipo** (visible si hay alguno, eventos igual destildados).
+    - Backfill `20261027122723`: las 47 filas que estaban sin tipo recibieron el tipo de catálogo que corresponde a su descripción. El evento 2821 (14/05/2026, Fernández Oro) quedó como Concierto. No quedan eventos sin tipo.
 - **Columna Derecha (Vista previa)**  
   - Contenedor con scroll que reutiliza la estética de `UnifiedAgenda`:
     - Se muestran:
