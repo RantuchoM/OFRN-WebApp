@@ -49,6 +49,7 @@ Se deben filtrar los eventos de la tabla `eventos` (eventos de gira) para exclui
 - [x] Vacío en cada selector = sin filtro en ese eje; se combinan con el toggle de tipo de servicio (D/A/M/C/Cat). Default: A/M/C+Cat activos (Desayuno destildado); «Incluir Pendientes» activo.
 - [x] La tabla, totales, «Texto pedido» y PDF (`handlePrintExport`) respetan la vista filtrada e incluyen desglose por **tipos de alimentación**; el PDF imprime el resumen de filtros activos. **Limpiar** resetea todos los ejes.
 - [x] **Texto pedido (2026-09-23):** `buildMealsPedidoText` (`mealsReportText.js`) ya no anexa el cierre de hospedaje (`Fecha de ingreso y egreso` / `Hospedaje (no locales)` / `Grupo ingreso …`). El pedido cubre solo `Cantidad de pasajeros` y los renglones D/A/M/C/Catering (FIMBA: + pie de especificaciones artistas).
+- [x] **Texto pedido 1 línea por servicio (2026-11-24):** `buildMealsPedidoText` no unifica comidas del mismo tipo en un día; emite una línea por evento/servicio. El cuadro FIMBA sigue unificando fecha+tipo+lugar solo en vista/PDF/Excel.
 - [x] Etiquetas `LOC:` / `ENS:` resueltas a nombre (roster + `localidades` / `ensambles` en BD); no más `Ens. 12` / `Loc. 3`.
 - [x] `MealsManager`: comensales abre modal (click) con cantidades por dieta y listado agrupado por localidad de residencia; reemplaza el tooltip hover. Filtros Locación/Artista/Catering en matriz.
 - [x] `MealsAttendance`: columnas de eventos respetan Locación/Artista/Catering/servicios (misma semántica).

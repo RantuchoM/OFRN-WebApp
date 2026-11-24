@@ -117,7 +117,8 @@ export function buildMealsReportBundlesByArtista(
 
   return Array.from(map.values())
     .map((bundle) => {
-      const rows = unifyMealsReportRowsByTypeAndPlace(bundle.rows, {
+      const rowsScoped = bundle.rows;
+      const rows = unifyMealsReportRowsByTypeAndPlace(rowsScoped, {
         includeArtists: true,
         partsByPropuesta: fimbaPartsByPropuesta,
         labelFn,
@@ -125,8 +126,9 @@ export function buildMealsReportBundlesByArtista(
       return {
         ...bundle,
         rows,
+        rowsScoped,
         specs: collectArtistMealSpecsFromReportRows(
-          rows,
+          rowsScoped,
           fimbaPartsByPropuesta,
           { onlyArtistaIds: [bundle.id] },
         ),
@@ -262,7 +264,7 @@ async function writeArtistTextZip(fileName, bundles) {
     }
     used.add(name.toLowerCase());
     const text = appendArtistMealSpecsSection(
-      buildMealsPedidoText(bundle.rows, {
+      buildMealsPedidoText(bundle.rowsScoped || bundle.rows, {
         groupByLugar: true,
       }),
       bundle.specs,

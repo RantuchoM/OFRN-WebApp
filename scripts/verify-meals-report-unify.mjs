@@ -1,5 +1,6 @@
 /**
- * Unificación visual del MealsReport FIMBA (fecha + tipo + lugar).
+ * Unificación visual del MealsReport FIMBA (fecha + tipo + lugar) + texto pedido
+ * (1 línea por evento, sin unificar mismo tipo).
  * Espejo de `unifyMealsReportRowsByTypeAndPlace` / `buildMealsPedidoText`
  * en src/utils/mealsReportText.js (Node no resuelve imports Vite sin .js).
  *
@@ -158,29 +159,36 @@ function mealsReportPlaceLabel(row) {
 
 function buildMealsPedidoText(filteredRows = [], opts = {}) {
   const { groupByLugar = false } = opts;
+  const serviceOrder = ["Desayuno", "Almuerzo", "Merienda", "Cena", "Catering"];
+  const servicePlural = {
+    Desayuno: "desayunos",
+    Almuerzo: "almuerzos",
+    Merienda: "meriendas",
+    Cena: "cenas",
+    Catering: "catering",
+  };
   const perDate = {};
   for (const row of filteredRows) {
-    if (!perDate[row.fecha]) perDate[row.fecha] = {};
-    const typeKey = row.servicioLabel || row.servicio;
-    const placeKey = groupByLugar
-      ? String(row.locKey ?? row.id_locacion ?? "")
-      : "";
-    const groupKey = groupByLugar ? `${typeKey}\0${placeKey}` : typeKey;
-    if (!perDate[row.fecha][groupKey]) {
-      perDate[row.fecha][groupKey] = {
-        Total: 0,
-        label: typeKey,
-        place: groupByLugar ? mealsReportPlaceLabel(row) : "",
-      };
-    }
-    perDate[row.fecha][groupKey].Total += row.counts?.Total || 0;
+    if (!row?.fecha) continue;
+    if (!perDate[row.fecha]) perDate[row.fecha] = [];
+    perDate[row.fecha].push(row);
   }
   const lines = [];
   for (const dateKey of Object.keys(perDate).sort()) {
-    for (const counts of Object.values(perDate[dateKey])) {
-      if (!counts.Total) continue;
-      const placeSuffix = counts.place ? ` en ${counts.place}` : "";
-      lines.push(`${counts.Total} ${String(counts.label).toLowerCase()}s${placeSuffix}`);
+    const rows = [...perDate[dateKey]].sort((a, b) => {
+      const oa = serviceOrder.indexOf(a.servicio);
+      const ob = serviceOrder.indexOf(b.servicio);
+      if (oa !== ob) return (oa < 0 ? 99 : oa) - (ob < 0 ? 99 : ob);
+      return String(a.id ?? "").localeCompare(String(b.id ?? ""));
+    });
+    for (const row of rows) {
+      const total = Number(row.counts?.Total) || 0;
+      if (!total) continue;
+      const base = row.servicio;
+      const name = servicePlural[base] || String(row.servicioLabel || base).toLowerCase();
+      const place = groupByLugar ? mealsReportPlaceLabel(row) : "";
+      const placeSuffix = place ? ` en ${place}` : "";
+      lines.push(`${total} ${name}${placeSuffix}`);
     }
   }
   return lines.join("\n");
@@ -293,30 +301,42 @@ assert(
   "propuesta duplicada no infla pax de artistas",
 );
 
-const textUnified = buildMealsPedidoText(
-  unifyMealsReportRowsByTypeAndPlace([samePlaceA, samePlaceB], {
-    includeArtists: true,
-  }),
-  { groupByLugar: true },
+const textPerEvent = buildMealsPedidoText([samePlaceA, samePlaceB], {
+  groupByLugar: true,
+});
+assert(
+  /6 almuerzos en Hotel NH/.test(textPerEvent) &&
+    /5 almuerzos en Hotel NH/.test(textPerEvent),
+  "texto pedido: una línea por evento aunque mismo tipo y lugar",
 );
 assert(
-  /10 almuerzos en Hotel NH/.test(textUnified),
-  "texto FIMBA: un renglón con lugar para el grupo unificado",
-);
-assert(
-  (textUnified.match(/almuerzos/g) || []).length === 1,
-  "texto no repite almuerzo del mismo lugar",
+  (textPerEvent.match(/almuerzos/g) || []).length === 2,
+  "texto no unifica comidas del mismo tipo",
 );
 
-const textTwoPlaces = buildMealsPedidoText(
-  unifyMealsReportRowsByTypeAndPlace([samePlaceA, otherPlace], {
-    includeArtists: true,
-  }),
-  { groupByLugar: true },
-);
+const textTwoPlaces = buildMealsPedidoText([samePlaceA, otherPlace], {
+  groupByLugar: true,
+});
 assert(
   /en Hotel NH/.test(textTwoPlaces) && /en Breogan/.test(textTwoPlaces),
-  "texto FIMBA: lugares distintos del mismo tipo quedan separados",
+  "texto FIMBA: lugares distintos del mismo tipo quedan en líneas separadas",
+);
+
+const textSameTypeOfrn = buildMealsPedidoText(
+  [
+    row({ id: 301, counts: { Total: 10, Estándar: 10 }, ofrnCounts: { Total: 10 } }),
+    row({
+      id: 302,
+      hora: "14:00",
+      counts: { Total: 8, Estándar: 8 },
+      ofrnCounts: { Total: 8 },
+    }),
+  ],
+  { groupByLugar: false },
+);
+assert(
+  (textSameTypeOfrn.match(/almuerzos/g) || []).length === 2,
+  "texto OFRN: dos almuerzos del mismo día → dos líneas",
 );
 
 if (process.exitCode) {
