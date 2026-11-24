@@ -84,9 +84,9 @@ Formato de atribución sugerido por game-icons.net:
 
 No hay equivalente usable en game-icons; se dibujó a propósito para leerse a ~22 px en paleta y ~50×50 cm en lienzo. Colores fijos (no `currentColor`) para legibilidad en miniatura.
 
-## OFRN original — percusión (ids `13` / `13a`–`13h`)
+## OFRN original — percusión (ids `13` / `13a`–`13i`)
 
-Siluetas geométricas vista cenital (`currentColor`), seed en `instrumentos.svg_icon` + fallback estático. Migración `20260829020843_instrumentos_percusion_variants`.
+Siluetas geométricas vista cenital (`currentColor`), seed en `instrumentos.svg_icon` + fallback estático. Migraciones `20260829020843_instrumentos_percusion_variants` + `20261124140815_instrumentos_triangulo_13i`.
 
 | Archivo | Tipo | `instrumentos.id` |
 |---------|------|-------------------|
@@ -98,6 +98,7 @@ Siluetas geométricas vista cenital (`currentColor`), seed en `instrumentos.svg_
 | cymbals.svg | cymbals | 13f Platillos |
 | xylophone-ofrn.svg | xylophone | 13g Xilófono |
 | tubular-bells.svg | tubular_bells | 13h Campanas tubulares |
+| triangle.svg | triangle | 13i Triángulo |
 | perc.svg | perc | 13 Percusión (genérico; ya existía) |
 
 Los SVG game-icons `drum-kit` / `drum` / `djembe` / `gong` / `xylophone` / `ringing-bell` quedan en la carpeta como reserva histórica; el catálogo apunta a los OFRN de arriba.

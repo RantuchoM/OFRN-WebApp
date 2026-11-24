@@ -62,6 +62,9 @@ export const STAGE_PLOT_SILHOUETTES = {
     "M10 18h44l-4 28H14L10 18zm6 5h3v18h-3V23zm7 2h3v16h-3V25zm7 2h3v14h-3V27zm7 2h3v12h-3V29zm7 2h3v10h-3V31z",
   tubular_bells:
     "M12 8h40v6H12V8zm4 10h4v38h-4V18zm8 4h4v34h-4V22zm8 0h4v34h-4V22zm8-2h4v36h-4V20zm8 6h4v30h-4V26zM10 56h44v4H10v-4z",
+  // Fallback sin evenodd: triángulo sólido + baqueta (el SVG canónico usa aro).
+  triangle:
+    "M32 5a4 4 0 1 0 0 8 4 4 0 0 0 0-8zm0 10L54 52H10L32 15zM37.2 40.8l11.5 11.5-2.8 2.8-11.5-11.5 2.8-2.8z",
   piano:
     "M6 14c0-2 1.5-3.5 3.5-3.5H38c12 0 20 8 20 18.5S50 47.5 38 47.5H9.5C7.5 47.5 6 46 6 44V14zm8 4v26h24c8 0 13.5-5.5 13.5-13S46 18 38 18H14zm4 6h16v3H18v-3zm0 7h12v3H18v-3z",
   celesta:

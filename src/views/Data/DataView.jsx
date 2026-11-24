@@ -346,6 +346,7 @@ export default function DataView({ supabase }) {
             { value: "cymbals", label: "cymbals" },
             { value: "xylophone", label: "xylophone" },
             { value: "tubular_bells", label: "tubular_bells" },
+            { value: "triangle", label: "triangle" },
             { value: "piano", label: "piano" },
             { value: "celesta", label: "celesta" },
             { value: "conductor", label: "conductor" },

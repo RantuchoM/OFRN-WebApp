@@ -39,6 +39,7 @@ export const STAGE_PLOT_ID_INSTR_TO_TYPE = {
   "13f": "cymbals",
   "13g": "xylophone",
   "13h": "tubular_bells",
+  "13i": "triangle",
   "21": "guitar",
   "22b": "bandoneon",
 };
@@ -80,6 +81,7 @@ export const STAGE_PLOT_INSTRUMENT_TYPE_OPTIONS = [
   { value: "cymbals", label: "Platillos" },
   { value: "xylophone", label: "Xilófono" },
   { value: "tubular_bells", label: "Campanas" },
+  { value: "triangle", label: "Triángulo" },
   { value: "piano", label: "Piano" },
   { value: "celesta", label: "Celesta" },
   { value: "conductor", label: "Director" },

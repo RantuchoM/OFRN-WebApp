@@ -148,6 +148,13 @@ export const STAGE_PLOT_ORGANICO_ROWS = [
     nameMatch: ["campana"],
   },
   {
+    key: "triangle",
+    label: "Triángulo",
+    types: ["triangle"],
+    idInstr: ["13i"],
+    nameMatch: ["triang", "triangle"],
+  },
+  {
     key: "perc",
     label: "Percusión",
     types: ["perc"],
@@ -183,6 +190,7 @@ export const STAGE_PLOT_PERC_ORGANICO_KEYS = new Set([
   "cymbals",
   "xylophone",
   "tubular_bells",
+  "triangle",
   "perc",
 ]);
 
@@ -197,6 +205,7 @@ export const STAGE_PLOT_BANQUETA_ORGANICO_KEYS = new Set([
   "cymbals",
   "xylophone",
   "tubular_bells",
+  "triangle",
   "perc",
 ]);
 
@@ -257,6 +266,7 @@ const DRAWN_PERC_OTHER = new Set([
   "cymbals",
   "xylophone",
   "tubular_bells",
+  "triangle",
   "perc",
 ]);
 const DRAWN_KEY_TYPES = new Set(["piano", "celesta"]);

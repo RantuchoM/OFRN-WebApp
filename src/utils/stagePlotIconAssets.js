@@ -42,6 +42,7 @@ export const STAGE_PLOT_ICON_FILES = {
   cymbals: "cymbals.svg",
   xylophone: "xylophone-ofrn.svg",
   tubular_bells: "tubular-bells.svg",
+  triangle: "triangle.svg",
   piano: "grand-piano.svg",
   celesta: "keyboard.svg",
   chair: "desk.svg",

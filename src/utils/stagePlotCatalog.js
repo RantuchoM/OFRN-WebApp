@@ -37,7 +37,7 @@ export const STAGE_PLOT_CATALOG = [
   { type: "trumpet", name: "Trompeta", category: "Metales", color: "#eab308", w: 44, h: 44, includeInChannels: true },
   { type: "trombone", name: "Trombón", category: "Metales", color: "#a16207", w: 48, h: 48, includeInChannels: true },
   { type: "tuba", name: "Tuba", category: "Metales", color: "#854d0e", w: 48, h: 48, includeInChannels: true },
-  // Percusión / teclado (ids DB: 13 + 13a–13h)
+  // Percusión / teclado (ids DB: 13 + 13a–13i)
   { type: "timpani", name: "Timbales", category: "Percusión", color: "#b91c1c", w: 48, h: 48, includeInChannels: true },
   { type: "perc", name: "Percusión", category: "Percusión", color: "#991b1b", w: 48, h: 48, includeInChannels: true },
   { type: "marimba", name: "Marimba", category: "Percusión", color: "#c2410c", w: 56, h: 44, includeInChannels: true },
@@ -47,6 +47,7 @@ export const STAGE_PLOT_CATALOG = [
   { type: "cymbals", name: "Platillos", category: "Percusión", color: "#e11d48", w: 48, h: 48, includeInChannels: true },
   { type: "xylophone", name: "Xilófono", category: "Percusión", color: "#f43f5e", w: 52, h: 44, includeInChannels: true },
   { type: "tubular_bells", name: "Campanas", category: "Percusión", color: "#fb7185", w: 44, h: 52, includeInChannels: true },
+  { type: "triangle", name: "Triángulo", category: "Percusión", color: "#e11d48", w: 44, h: 44, includeInChannels: true },
   { type: "piano", name: "Piano", category: "Teclado", color: "#1e293b", w: 56, h: 56, includeInChannels: true },
   { type: "celesta", name: "Celesta", category: "Teclado", color: "#334155", w: 48, h: 48, includeInChannels: true },
   { type: "saxophone", name: "Saxofón", category: "Maderas", color: "#115e59", w: 44, h: 52, includeInChannels: true },
@@ -197,6 +198,7 @@ export const STAGE_PLOT_BANQUETA_INSTRUMENT_TYPES = new Set([
   "cymbals",
   "xylophone",
   "tubular_bells",
+  "triangle",
 ]);
 
 /** Figuras de persona: el tamaño canónico es Ancho × Alto cm del elemento. */
