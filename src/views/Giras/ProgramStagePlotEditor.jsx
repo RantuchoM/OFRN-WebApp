@@ -1006,6 +1006,94 @@ function formatLocacionPresetOption(loc) {
   };
 }
 
+function StageToolbarExportMenu({
+  open,
+  anchorRef,
+  onClose,
+  onExportPdf,
+  onExportJpg,
+  overlayZ = 100,
+}) {
+  const menuRef = useRef(null);
+  const [pos, setPos] = useState({ left: 0, top: 0 });
+
+  useLayoutEffect(() => {
+    if (!open || !anchorRef.current) return undefined;
+    const updatePos = () => {
+      if (!anchorRef.current) return;
+      const rect = anchorRef.current.getBoundingClientRect();
+      const menuW = 168;
+      const left = Math.max(
+        8,
+        Math.min(rect.left, window.innerWidth - menuW - 8),
+      );
+      setPos({ left, top: rect.bottom + 4 });
+    };
+    updatePos();
+    window.addEventListener("resize", updatePos);
+    return () => window.removeEventListener("resize", updatePos);
+  }, [open, anchorRef]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onPointerDown = (e) => {
+      if (
+        menuRef.current?.contains(e.target) ||
+        anchorRef.current?.contains(e.target)
+      ) {
+        return;
+      }
+      onClose();
+    };
+    const onKeyDown = (e) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open, onClose, anchorRef]);
+
+  if (!open) return null;
+
+  const runAndClose = (fn) => {
+    onClose();
+    fn?.();
+  };
+
+  return createPortal(
+    <div
+      ref={menuRef}
+      role="menu"
+      className="fixed w-[168px] overflow-hidden rounded-md border border-slate-200 bg-white shadow-lg"
+      style={{ left: pos.left, top: pos.top, zIndex: overlayZ }}
+    >
+      <button
+        type="button"
+        role="menuitem"
+        onClick={() => runAndClose(onExportPdf)}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left text-[11px] font-medium text-slate-700 hover:bg-indigo-50 hover:text-indigo-800"
+      >
+        <IconFileText size={13} className="text-indigo-600" />
+        Exportar PDF
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        onClick={() => runAndClose(onExportJpg)}
+        className="flex w-full items-center gap-2 border-t border-slate-100 px-3 py-2 text-left text-[11px] font-medium text-slate-700 hover:bg-slate-50"
+        title="Exportar plano (solo escenario; sin hoja de mobiliario)"
+      >
+        <IconPhoto size={13} className="text-slate-500" />
+        Exportar JPG
+      </button>
+    </div>,
+    document.body,
+  );
+}
+
 function StageLienzoPopover({
   open,
   anchorRef,
@@ -1027,6 +1115,7 @@ function StageLienzoPopover({
   onExportJpg,
   onExportJson,
   onImport,
+  onReload,
   onOpenTemplates,
   onOpenFooterNote,
 }) {
@@ -1409,6 +1498,18 @@ function StageLienzoPopover({
                 <IconUpload size={13} className="text-slate-500" />
                 Importar (archivo / gira)…
               </button>
+              {onReload && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => runAndClose(onReload)}
+                  className="flex w-full items-center gap-2 border-t border-slate-100 px-3 py-1.5 text-left text-[11px] font-medium text-slate-700 hover:bg-slate-50"
+                  title="Vuelve a leer el lienzo desde el servidor (descarta cambios locales no guardados)"
+                >
+                  <IconRefresh size={13} className="text-slate-500" />
+                  Recargar desde servidor
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -4200,7 +4301,9 @@ export default function ProgramStagePlot({
   const [itemHoverTooltip, setItemHoverTooltip] = useState(null);
   const itemDraggingRef = useRef(false);
   const [lienzoOpen, setLienzoOpen] = useState(false);
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [footerNoteOpen, setFooterNoteOpen] = useState(false);
+  const exportBtnRef = useRef(null);
   const lienzoBtnRef = useRef(null);
   /** Imperative flush of Lienzo Ancho/Alto/Líneas drafts (blur is unreliable on close). */
   const lienzoFlushRef = useRef(null);
@@ -4746,6 +4849,7 @@ export default function ProgramStagePlot({
       }
       if (
         lienzoOpen ||
+        exportMenuOpen ||
         itemContextMenu ||
         formationContextMenu ||
         pasteContextMenu ||
@@ -4768,6 +4872,7 @@ export default function ProgramStagePlot({
     mobileAddOpen,
     closeMobileEditor,
     lienzoOpen,
+    exportMenuOpen,
     itemContextMenu,
     formationContextMenu,
     pasteContextMenu,
@@ -4786,6 +4891,7 @@ export default function ProgramStagePlot({
       if (isEditableKeyboardTarget(e.target)) return;
       if (
         lienzoOpen ||
+        exportMenuOpen ||
         itemContextMenu ||
         formationContextMenu ||
         pasteContextMenu ||
@@ -4862,6 +4968,7 @@ export default function ProgramStagePlot({
   }, [
     canEdit,
     lienzoOpen,
+    exportMenuOpen,
     itemContextMenu,
     formationContextMenu,
     pasteContextMenu,
@@ -8665,7 +8772,10 @@ export default function ProgramStagePlot({
               if (!lienzoOpen) return;
               lienzoFlushRef.current?.();
             }}
-            onClick={() => setLienzoOpen((o) => !o)}
+            onClick={() => {
+              setExportMenuOpen(false);
+              setLienzoOpen((o) => !o);
+            }}
             className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-xs font-medium ${
               lienzoOpen
                 ? "border-indigo-300 bg-indigo-50 text-indigo-700"
@@ -8699,6 +8809,7 @@ export default function ProgramStagePlot({
             onExportJpg={handleExportJpg}
             onExportJson={handleExportJson}
             onImport={() => setImportOpen(true)}
+            onReload={load}
             onOpenTemplates={() => setTemplatesOpen(true)}
             onOpenFooterNote={() => setFooterNoteOpen(true)}
           />
@@ -8788,12 +8899,38 @@ export default function ProgramStagePlot({
             {fullscreen ? "Salir" : "Pantalla completa"}
           </button>
           <button
+            ref={exportBtnRef}
             type="button"
-            onClick={load}
-            className="inline-flex items-center gap-1 rounded border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
+            onClick={() => {
+              setLienzoOpen(false);
+              setExportMenuOpen((o) => !o);
+            }}
+            className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-xs font-medium ${
+              exportMenuOpen
+                ? "border-indigo-300 bg-indigo-50 text-indigo-700"
+                : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+            }`}
+            title="Exportar plano PDF o JPG"
+            aria-expanded={exportMenuOpen}
+            aria-haspopup="menu"
           >
-            <IconRefresh size={14} /> Recargar
+            <IconDownload size={14} />
+            Exportar
+            <IconChevronDown
+              size={12}
+              className={`transition-transform ${
+                exportMenuOpen ? "rotate-180" : ""
+              }`}
+            />
           </button>
+          <StageToolbarExportMenu
+            open={exportMenuOpen}
+            anchorRef={exportBtnRef}
+            onClose={() => setExportMenuOpen(false)}
+            onExportPdf={handleExportPdf}
+            onExportJpg={handleExportJpg}
+            overlayZ={portalMenuZ}
+          />
           {onBack && !embedded && (
             <button
               type="button"
