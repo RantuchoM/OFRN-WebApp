@@ -5,7 +5,8 @@ Mantener un Google Sheet actualizado con los conciertos del año calendario, en 
 
 ## Criterios de inclusión (filas en el Sheet)
 - `eventos.id_tipo_evento = 1` (Concierto)
-- `eventos.is_deleted = false` (soft-deleted **nunca** aparecen)
+- `eventos.is_deleted = false` (soft-deleted **nunca** aparecen; el mapeo también descarta `is_deleted === true`)
+- No solo-FIMBA: misma regla que la agenda OFRN (`audiencia_ofrn = none`, sin `eventos_grupos`, sin `id_gira_transporte`). Los conciertos FIMBA que convocan OFRN sí entran.
 - `fecha` entre `YYYY-01-01` y `YYYY-12-31` del año actual (o el `year` pasado en el body)
 
 ## Disparo
@@ -44,6 +45,7 @@ Fecha (formato largo es-AR) | Hora | Locación | Localidad | Tipo de programa | 
 ## Checklist
 - [x] Edge Function con rewrite completo + create Sheet si no existe
 - [x] Filtro `is_deleted = false`
+- [x] Excluir solo-FIMBA (`isFimbaOnlyConcert`, 2026-11-25)
 - [x] Trigger solo tipo concierto (= 1)
 - [x] Cron diario + pending
 - [x] Botón sync en ConciertosView

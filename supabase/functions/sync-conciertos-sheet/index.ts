@@ -23,6 +23,28 @@ const lockedSheetUrl = (id: string) =>
 const SHEET_TAB = "Conciertos";
 const ID_TIPO_CONCIERTO = 1;
 
+/** Misma regla que `isFimbaOnlyAgendaEvent`: sin orquesta ni flota OFRN. */
+function isFimbaOnlyConcert(evt: {
+  audiencia_ofrn?: string | null;
+  id_gira_transporte?: number | string | null;
+  eventos_grupos?: Array<{
+    id_grupo?: number | string | null;
+    giras_grupos?: { id?: number | string | null } | null;
+  }> | null;
+}) {
+  if (evt?.audiencia_ofrn !== "none") return false;
+  const grupos = evt.eventos_grupos || [];
+  if (
+    grupos.some((eg) => eg?.id_grupo != null || eg?.giras_grupos?.id != null)
+  ) {
+    return false;
+  }
+  if (evt.id_gira_transporte != null && String(evt.id_gira_transporte) !== "") {
+    return false;
+  }
+  return true;
+}
+
 const HEADERS = [
   "Fecha",
   "Hora",
@@ -109,6 +131,10 @@ async function fetchConciertosYear(
       fecha,
       hora_inicio,
       id_tipo_evento,
+      is_deleted,
+      audiencia_ofrn,
+      id_gira_transporte,
+      eventos_grupos ( id_grupo, giras_grupos ( id ) ),
       programas (
         nombre_gira,
         nomenclador,
@@ -126,7 +152,10 @@ async function fetchConciertosYear(
     .order("hora_inicio", { ascending: true });
 
   if (error) throw new Error(`Query conciertos: ${error.message}`);
-  const events = data || [];
+  const events = (data || []).filter(
+    (evt: { is_deleted?: boolean | null }) =>
+      evt?.is_deleted !== true && !isFimbaOnlyConcert(evt),
+  );
 
   return events.map((evt: any) => {
     const programa = [

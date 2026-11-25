@@ -29,7 +29,7 @@ Se asume la existencia de la tabla `venue_status_types` y la columna `id_estado_
     - Botón "Gestión General" en el header, bajo etiqueta "Administración", que abre el `ManagementPanel`.
     - Render del componente `VenuesManagementPanel` cuando `mode === "MANAGEMENT"` y el usuario es admin/editor.
   - `src/services/giraService.js`:
-    - Nueva función `getAllConcertVenues(supabase)` que trae todos los eventos con `id_tipo_evento = 1` e incluye joins a `programas` y `venue_status_types`.
+    - Nueva función `getAllConcertVenues(supabase)` que trae todos los eventos con `id_tipo_evento = 1` e incluye joins a `programas` y `venue_status_types`. Excluye `is_deleted = true` (2026-11-25).
 - **Comportamiento de Filtros:**
   - Filtro por Programa usa la lista única de programas presentes en los resultados de `getAllConcertVenues`.
   - Filtro por Estado usa `VENUE_STATUS_OPTIONS` definido en `src/utils/venueUtils.js`.

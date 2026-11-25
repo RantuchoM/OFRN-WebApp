@@ -12,6 +12,8 @@ Visualizar y exportar la programación de conciertos con filtros dinámicos por 
 
 ## 3. Lógica de Filtros
 - **Fecha**: Por defecto `>= CURRENT_DATE`.
+- **Borrados**: `eventos.is_deleted = true` no entra (query + filtro en cliente). Lo mismo en Gestión → Espacios (`getAllConcertVenues`).
+- **Solo-FIMBA**: misma regla que la agenda OFRN con «con FIMBA» apagado (`isFimbaOnlyAgendaEvent`): `audiencia_ofrn = none`, sin `eventos_grupos` y sin `id_gira_transporte`. Esos conciertos no se listan, no se exportan y no cuentan como concierto del programa (un programa que solo tiene esos queda en «sin conciertos»). Los que convocan OFRN (tutti o grupo) siguen.
 - **Tipo de Programa**: Columna `public.programas.tipo`. (Excluir "Comisión" por defecto).
 - **Participantes**:
   - Ensambles: Basado en `eventos_ensambles`.
@@ -27,3 +29,4 @@ Visualizar y exportar la programación de conciertos con filtros dinámicos por 
 - [x] Aplicar formato de repertorio `"Apellido, Nombre (Compositor) - Título [1ra línea]"`.
 - [x] Agregar exportación a Excel y PDF reutilizando `src/utils/excelExporter.js` y `src/utils/agendaPdfExporter.js`.
 - [x] Registrar la vista en Gestión dentro de la navegación de la app (`src/App.jsx` + `src/views/Management/ManagementView.jsx`).
+- [x] Excluir solo-FIMBA y `is_deleted` en `getConciertosFullData` / `getProgramasSinConciertos` (2026-11-25). Audiencia usa la misma consulta.

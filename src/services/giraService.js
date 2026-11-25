@@ -38,6 +38,7 @@ import {
   resolveLocalidadResidencia,
 } from "../utils/integranteDomicilioViaticos";
 import { isRepertorioPlaceholder } from "../utils/repertorioRowDisplay";
+import { isFimbaOnlyAgendaEvent } from "../utils/agendaHelpers";
 import {
   hasGiraCobertura,
   partitionRosterForMatrix,
@@ -1289,18 +1290,20 @@ export const getAllConcertVenues = async (supabase) => {
           localidades ( localidad )
         ),
         programas ( id, nombre_gira, nomenclador, tipo ),
+        is_deleted,
         venue_status_types ( id, nombre, color, slug ),
         eventos_venue_log ( nota, created_at ),
         eventos_grupos ( id_grupo, giras_grupos ( id, nombre, color ) )
       `,
       )
       .eq("id_tipo_evento", 1)
+      .eq("is_deleted", false)
       .not("id_locacion", "is", null)
       .order("fecha", { ascending: true })
       .order("hora_inicio", { ascending: true });
 
     if (error) throw error;
-    return data || [];
+    return (data || []).filter((evt) => !conciertoEstaBorrado(evt));
   } catch (err) {
     console.error("[GiraService] getAllConcertVenues:", err);
     return [];
@@ -1452,6 +1455,21 @@ function buildEnsamblesFromGirasFuentes(girasFuentes = [], ensambleNameMap = new
   return buildEnsamblesForConciertoGestion(girasFuentes, [], ensambleNameMap);
 }
 
+/** Concierto con el tilde de borrado. Null no cuenta como borrado. */
+function conciertoEstaBorrado(evt) {
+  return evt?.is_deleted === true;
+}
+
+/**
+ * Gestión → Conciertos, Audiencia y el Sheet: misma grilla OFRN.
+ * Fuera: borrados y solo-FIMBA (sin convocatoria de orquesta ni flota).
+ */
+function conciertoCuentaEnGestion(evt) {
+  if (!evt || conciertoEstaBorrado(evt)) return false;
+  if (isFimbaOnlyAgendaEvent(evt)) return false;
+  return true;
+}
+
 /**
  * Obtiene la grilla completa de conciertos para el módulo de Gestión.
  * Incluye relaciones de programa, venue, ensambles, familias convocadas y repertorio.
@@ -1475,6 +1493,10 @@ export const getConciertosFullData = async (
         id_gira,
         id_locacion,
         id_estado_venue,
+        is_deleted,
+        audiencia_ofrn,
+        id_gira_transporte,
+        eventos_grupos ( id_grupo, giras_grupos ( id ) ),
         programas (
           id,
           nombre_gira,
@@ -1520,7 +1542,7 @@ export const getConciertosFullData = async (
 
     const { data, error } = await query;
     if (error) throw error;
-    const events = data || [];
+    const events = (data || []).filter(conciertoCuentaEnGestion);
 
     const ensambleIdsFromEvents = new Set();
     events.forEach((evt) => {
@@ -1827,14 +1849,18 @@ export const getProgramasSinConciertos = async (
     const ids = programas.map((p) => p.id);
     const { data: conciertos, error: concErr } = await supabase
       .from("eventos")
-      .select("id_gira")
+      .select(
+        "id_gira, is_deleted, audiencia_ofrn, id_gira_transporte, eventos_grupos(id_grupo, giras_grupos(id))",
+      )
       .eq("id_tipo_evento", 1)
       .eq("is_deleted", false)
       .in("id_gira", ids);
 
     if (concErr) throw concErr;
 
-    const withConcerts = new Set((conciertos || []).map((e) => e.id_gira));
+    const withConcerts = new Set(
+      (conciertos || []).filter(conciertoCuentaEnGestion).map((e) => e.id_gira),
+    );
     const sinConciertos = programas.filter((p) => !withConcerts.has(p.id));
 
     const ensambleIds = new Set();
