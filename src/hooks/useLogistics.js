@@ -8,6 +8,8 @@ import {
   getCategoriaLogistica,
   resolveTransportAdmissionStatus,
   resolveRuleFieldInstant,
+  isActiveLogisticsEvent,
+  sanitizeLogisticsRouteRules,
 } from "../utils/giraUtils";
 import {
   resolveLocalidadEfectivaViaticos,
@@ -46,6 +48,8 @@ export {
   isPersonVetoedFromTransport,
   isAdmissionExclusionRule,
   getExclusionAdmissionRulesForPerson,
+  isActiveLogisticsEvent,
+  sanitizeLogisticsRouteRules,
 } from "../utils/giraUtils";
 
 export const getPriorityValue = (scope) => {
@@ -297,18 +301,32 @@ export const calculateLogisticsSummary = (
           matchesRule(r, person, allLocalities),
       );
 
+      // Usar id_evento_* como fuente de verdad; el embed PostgREST puede
+      // faltar. Soft-deleted nunca cuenta como parada (fecha de viáticos).
+      const resolveRouteEvent = (joined, rawId) => {
+        let evt = null;
+        if (joined?.id != null) evt = joined;
+        else if (rawId != null && rawId !== "") {
+          evt =
+            (allEvents || []).find((e) => String(e.id) === String(rawId)) ||
+            null;
+        }
+        return isActiveLogisticsEvent(evt) ? evt : null;
+      };
+
       // Importante: la existencia de reglas "Persona" se evalúa
       // por transporte, no de forma global. Así evitamos que una
       // excepción en otro bus anule reglas de localidad aquí.
+      // Solo cuenta si el evento de subida/bajada sigue activo.
       const hasPersonalSubida = myRoutes.some(
         (r) =>
           ["persona", "integrante"].includes(normalize(r.alcance)) &&
-          r.id_evento_subida,
+          Boolean(resolveRouteEvent(r.evento_subida, r.id_evento_subida)),
       );
       const hasPersonalBajada = myRoutes.some(
         (r) =>
           ["persona", "integrante"].includes(normalize(r.alcance)) &&
-          r.id_evento_bajada,
+          Boolean(resolveRouteEvent(r.evento_bajada, r.id_evento_bajada)),
       );
       let sub = {
           prio: -1,
@@ -319,14 +337,6 @@ export const calculateLogisticsSummary = (
         },
         baj = { prio: -1, data: null, scope: null, rawId: null };
       let maxPrio = 0;
-
-      const resolveRouteEvent = (joined, rawId) => {
-        if (joined?.id != null) return joined;
-        if (rawId == null || rawId === "") return null;
-        return (
-          (allEvents || []).find((e) => String(e.id) === String(rawId)) || null
-        );
-      };
 
       /** Fecha-hora del extremo de ruta (para empate de prioridad). */
       const routeEventDateTime = (evt) => {
@@ -368,29 +378,26 @@ export const calculateLogisticsSummary = (
         const allowBajada =
           !hasPersonalBajada || ["persona", "integrante"].includes(scope);
 
-        // Usar id_evento_* como fuente de verdad; el embed PostgREST puede
-        // faltar y dejaba subidaId/bajadaId en null aunque la regla existiera
-        // (síntoma típico: bajada OFRN «guardada» que no mueve el tránsito).
         if (r.id_evento_subida && allowSubida) {
           const data = resolveRouteEvent(r.evento_subida, r.id_evento_subida);
-          if (shouldTakeRouteEndpoint(p, sub, data, true)) {
+          if (data && shouldTakeRouteEndpoint(p, sub, data, true)) {
             sub = {
               prio: p,
               data,
               scope,
-              rawId: r.id_evento_subida,
+              rawId: data.id,
               es_chofer: Boolean(r.es_chofer),
             };
           }
         }
         if (r.id_evento_bajada && allowBajada) {
           const data = resolveRouteEvent(r.evento_bajada, r.id_evento_bajada);
-          if (shouldTakeRouteEndpoint(p, baj, data, false)) {
+          if (data && shouldTakeRouteEndpoint(p, baj, data, false)) {
             baj = {
               prio: p,
               data,
               scope,
-              rawId: r.id_evento_bajada,
+              rawId: data.id,
             };
           }
         }
@@ -410,8 +417,8 @@ export const calculateLogisticsSummary = (
         vehicleDocumentation: transportMap[tid]?.transportes?.documentacion || "",
         id_chofer: transportMap[tid]?.id_chofer || null,
         chofer: transportMap[tid]?.chofer || null,
-        subidaId: sub.data?.id ?? sub.rawId ?? null,
-        bajadaId: baj.data?.id ?? baj.rawId ?? null,
+        subidaId: sub.data?.id ?? null,
+        bajadaId: baj.data?.id ?? null,
         subidaData: enrichEvent(sub.data),
         bajadaData: enrichEvent(baj.data),
         subidaScope: sub.scope,
@@ -518,9 +525,13 @@ export function useLogistics(supabase, gira, trigger = 0) {
           })),
         ]);
 
+      // Soft-deleted no alimentan paradas ni fechas de viáticos (embed PostgREST
+      // sí los trae; allEvents ya filtra is_deleted=false).
+      const routeSanitized = sanitizeLogisticsRouteRules(r.data || []);
+
       // 1. Cálculo de destinos para giraStatsCalculator
       const destinations = new Set();
-      (r.data || []).forEach((route) => {
+      routeSanitized.forEach((route) => {
         if (route.evento_subida?.locaciones?.id_localidad)
           destinations.add(Number(route.evento_subida.locaciones.id_localidad));
         if (route.evento_bajada?.locaciones?.id_localidad)
@@ -559,7 +570,7 @@ export function useLogistics(supabase, gira, trigger = 0) {
       setDb({
         log: l.data || [],
         adm: a.data || [],
-        route: r.data || [],
+        route: routeSanitized,
         trans: t.data || [],
         locs: locs.data || [],
         regs: regs.data || [],

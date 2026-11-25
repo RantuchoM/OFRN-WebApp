@@ -1,5 +1,8 @@
 import { fetchRosterForGira } from "../hooks/useGiraRoster";
-import { calculateLogisticsSummary } from "../hooks/useLogistics";
+import {
+  calculateLogisticsSummary,
+  sanitizeLogisticsRouteRules,
+} from "../hooks/useLogistics";
 import { buildPersonalLogisticsFromSummary } from "../utils/viaticosLogisticsSchedule";
 import {
   enrichRosterWithGrupoIds,
@@ -146,7 +149,7 @@ async function loadGiraLogisticsBundle(supabase, idGira) {
       rosterWithGrupos,
       logRes.data || [],
       admRes.data || [],
-      routeRes.data || [],
+      sanitizeLogisticsRouteRules(routeRes.data || []),
       transRes.data || [],
       [],
       locs,

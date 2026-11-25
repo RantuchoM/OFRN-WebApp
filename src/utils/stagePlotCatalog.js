@@ -37,7 +37,7 @@ export const STAGE_PLOT_CATALOG = [
   { type: "trumpet", name: "Trompeta", category: "Metales", color: "#eab308", w: 44, h: 44, includeInChannels: true },
   { type: "trombone", name: "Trombón", category: "Metales", color: "#a16207", w: 48, h: 48, includeInChannels: true },
   { type: "tuba", name: "Tuba", category: "Metales", color: "#854d0e", w: 48, h: 48, includeInChannels: true },
-  // Percusión / teclado (ids DB: 13 + 13a–13i)
+  // Percusión / teclado (ids DB: 13 + 13a–13q)
   { type: "timpani", name: "Timbales", category: "Percusión", color: "#b91c1c", w: 48, h: 48, includeInChannels: true },
   { type: "perc", name: "Percusión", category: "Percusión", color: "#991b1b", w: 48, h: 48, includeInChannels: true },
   { type: "marimba", name: "Marimba", category: "Percusión", color: "#c2410c", w: 56, h: 44, includeInChannels: true },
@@ -48,6 +48,14 @@ export const STAGE_PLOT_CATALOG = [
   { type: "xylophone", name: "Xilófono", category: "Percusión", color: "#f43f5e", w: 52, h: 44, includeInChannels: true },
   { type: "tubular_bells", name: "Campanas", category: "Percusión", color: "#fb7185", w: 44, h: 52, includeInChannels: true },
   { type: "triangle", name: "Triángulo", category: "Percusión", color: "#e11d48", w: 44, h: 44, includeInChannels: true },
+  { type: "glockenspiel", name: "Glockenspiel", category: "Percusión", color: "#e11d48", w: 52, h: 44, includeInChannels: true },
+  { type: "congas", name: "Congas", category: "Percusión", color: "#be123c", w: 48, h: 48, includeInChannels: true },
+  { type: "guiro", name: "Güiro", category: "Percusión", color: "#e11d48", w: 44, h: 40, includeInChannels: true },
+  { type: "crystal_glasses", name: "Vasos de cristal", category: "Percusión", color: "#fb7185", w: 48, h: 44, includeInChannels: true },
+  { type: "metal_chimes", name: "Campanas de metal", category: "Percusión", color: "#f43f5e", w: 44, h: 52, includeInChannels: true },
+  { type: "tam_tam", name: "Tam-tam", category: "Percusión", color: "#9f1239", w: 52, h: 52, includeInChannels: true },
+  { type: "maracas", name: "Maracas", category: "Percusión", color: "#e11d48", w: 40, h: 44, includeInChannels: true },
+  { type: "bongo", name: "Bongó", category: "Percusión", color: "#be123c", w: 44, h: 40, includeInChannels: true },
   { type: "piano", name: "Piano", category: "Teclado", color: "#1e293b", w: 56, h: 56, includeInChannels: true },
   { type: "celesta", name: "Celesta", category: "Teclado", color: "#334155", w: 48, h: 48, includeInChannels: true },
   { type: "saxophone", name: "Saxofón", category: "Maderas", color: "#115e59", w: 44, h: 52, includeInChannels: true },
@@ -199,6 +207,14 @@ export const STAGE_PLOT_BANQUETA_INSTRUMENT_TYPES = new Set([
   "xylophone",
   "tubular_bells",
   "triangle",
+  "glockenspiel",
+  "congas",
+  "guiro",
+  "crystal_glasses",
+  "metal_chimes",
+  "tam_tam",
+  "maracas",
+  "bongo",
 ]);
 
 /** Figuras de persona: el tamaño canónico es Ancho × Alto cm del elemento. */

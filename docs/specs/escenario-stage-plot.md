@@ -325,7 +325,7 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
 - [x] Flechas mueven formación seleccionada con reanchor (mismo path que drag; no demagnetiza `slotId`)
 - [x] Menú contextual de ítem: «Seleccionar formación» si magnetizado (`slotId` → formación existente)
 - [x] Doble clic / doble tap en ítem magnetizado: selecciona su formación (limpia ítems); texto sigue abriendo editor de etiqueta; sin asociación = no-op
-- [x] SVG en `instrumentos` (`svg_icon` + `stage_plot_type`) + seed 21 filas + guitarra papapishu (`21` / `guitar`) + bandoneón FreeSVG (`22b` / `bandoneon`) + percusión OFRN (`13` / `13a`–`13i`)
+- [x] SVG en `instrumentos` (`svg_icon` + `stage_plot_type`) + seed 21 filas + guitarra papapishu (`21` / `guitar`) + bandoneón FreeSVG (`22b` / `bandoneon`) + percusión OFRN (`13` / `13a`–`13q`)
 - [x] Clic derecho en vacío del lienzo: abre menú de la selección actual (formación o ítems) sin deseleccionar; sin selección → **Pegar selección**
 - [x] **Copiar/Pegar selección** entre lienzos (menú contextual + `localStorage`; sin Ctrl+C/V); formaciones + ítems; remap `slotId` si la formación viaja
 - [x] Undo/redo de movimiento grupal = **una** entrada: multi-selección / grupo explícito / formación+reanchor / selección mixta ítems+formación; rafaga de flechas coalescida
@@ -493,7 +493,7 @@ Seed: silla / banqueta / atril qty 0; tarima rect 200×100 qty 0. Unique parcial
 
   El PNG de cada fila (`stage_plot_raster_url`) queda en esa fila y gana sobre el SVG. No se copian rasters. **Voces**, cada una con clave propia: `20` soprano, `80` mezzo (no hay fila Contralto; la voz grave femenina es Mezzo), `81` tenor, `38` baritone. `50` Director sigue en `conductor`. `20a` Voz, `23` Coro y `51` Director Musical siguen sin clave, para no pisar el ícono de otra fila. Un ítem ya colocado conserva el `type` con el que se insertó. **Sin** UNIQUE constraint en DB. Índice parcial existente `instrumentos_stage_plot_type_idx`.
 - **PK `id`**: `text` manual (ej. `01`, `06b`, `22c`) — no serial.
-- **Percusión variantes** (base **`13`** Percusión / `perc`): ids `13a`–`13i` con `stage_plot_type` únicos y SVG OFRN (`currentColor`, viewBox 64). Migraciones `20260829020843_instrumentos_percusion_variants` + `20261124140815_instrumentos_triangulo_13i` (linked).
+- **Percusión variantes** (base **`13`** Percusión / `perc`): ids `13a`–`13q` con `stage_plot_type` únicos y SVG OFRN (`currentColor`, viewBox 64). Migraciones `20260829020843` + `20261124140815` + `20261124155000` (linked). **Gran Cassa** = fila existente **`13d` Bombo** (`bass_drum`); no se duplicó.
 
 | id | Nombre | stage_plot_type |
 |----|--------|-----------------|
@@ -507,8 +507,18 @@ Seed: silla / banqueta / atril qty 0; tarima rect 200×100 qty 0. Unique parcial
 | 13g | Xilófono | xylophone |
 | 13h | Campanas tubulares | tubular_bells |
 | 13i | Triángulo | triangle |
+| 13j | Glockenspiel | glockenspiel |
+| 13k | Congas | congas |
+| 13l | Güiro | guiro |
+| 13m | Vasos de cristal | crystal_glasses |
+| 13n | Campanas de metal | metal_chimes |
+| 13o | Tam-tam | tam_tam |
+| 13p | Maracas | maracas |
+| 13q | Bongó | bongo |
 
-  Fallback estático: `public/stage-plot/icons/{timpani,marimba,vibraphone,bass-drum,snare,cymbals,xylophone-ofrn,tubular-bells,triangle,perc}.svg`. Orgánico: filas por tipo + `idInstr` 13/13a–i; banquetas para toda la familia.
+  Fallback estático: `public/stage-plot/icons/{…,triangle,glockenspiel,congas,guiro,crystal-glasses,metal-chimes,tam-tam,maracas,bongo,perc}.svg` (+ PNG raster donde existe). Orgánico: filas por tipo + `idInstr` 13/13a–q; banquetas para toda la familia.
+  **`13i` raster:** foto PNG (fondo transparente, 801×1024, ≤1 MB) en Storage `stage-plot-icons/instrumentos/13i/…` → `instrumentos.stage_plot_raster_url` (gana sobre SVG). Copia local: `public/stage-plot/icons/triangle.png`.
+  **`13j`–`13q` raster:** fotos AI (fondo transparente, 1024×1024, ≤1 MB) en Storage `stage-plot-icons/instrumentos/{id}/…` + copias locales `public/stage-plot/icons/{slug}.png`. `metal_chimes` ≠ `tubular_bells`.
 
 ### Timbales: cuatro medidas de parche
 
@@ -551,6 +561,8 @@ Seed: silla / banqueta / atril qty 0; tarima rect 200×100 qty 0. Unique parcial
 - [x] Editor: familia-first + Crear instrumento; `stage_plot_type` = clave de ícono (sin UNIQUE DB)
 - [x] Percusión `13a`–`13h` (Timbales…Campanas) + SVG OFRN + catálogo/orgánico (`20260829020843`, linked)
 - [x] Percusión `13i` Triángulo (`triangle`) + SVG OFRN + catálogo/orgánico/paleta (`20261124140815`, linked)
+- [x] `13i` PNG foto (alpha) en bucket `stage-plot-icons` + `stage_plot_raster_url` remoto; fallback local `triangle.png`
+- [x] Percusión `13j`–`13q` (Glockenspiel…Bongó) + SVG/PNG + catálogo/orgánico/paleta (`20261124155000`, linked); Gran Cassa → `13d`
 - [x] Timbales: medidas 32/29/26/23 en `timpaniSize` (sin medida = 32); huella cm por medida (32 en columnas, 29/26/23 en `stage_plot_timpani_sizes`); número centrado en el parche claro (lienzo, PDF, JPG); paleta 2×2 con número arriba a la izquierda; detalle de carga solo medidas presentes
 - [x] Renombrar lienzo: botón lápiz (`IconPencil`) **junto al `SearchableSelect` de plots en la toolbar** → input inline; Enter/blur guarda, Escape cancela
 - [x] Atriles needed: percusión = 1 × percusionista convocado (no por ícono); modal **Ver detalle de atriles** (desglose + lista perc.)

@@ -25,6 +25,14 @@ Se deben filtrar los eventos de la tabla `eventos` (eventos de gira) para exclui
   - La vista "Mis Comidas" del músico (`MealsAttendancePersonal`).
   - Los listados de eventos de gira usados por logística cuando se trate de eventos de comida.
 
+### Fechas de viáticos / paradas de transporte (completado 2026-11-25)
+- [x] Un evento soft-deleted **no** puede ser fecha de viáticos (`fecha_salida` / `fecha_llegada`) ni parada ↑/↓ en logística.
+- [x] Causa: el embed PostgREST de `giras_logistica_rutas` (`evento_subida` / `evento_bajada`) seguía trayendo filas con `is_deleted = true` aunque `allEvents` ya filtraba.
+- [x] `sanitizeLogisticsRouteRules` / `isActiveLogisticsEvent` en `giraUtils.js`: anulan embed + FK in-memory si el join devolvió eliminado.
+- [x] `calculateLogisticsSummary` (`useLogistics.js`): `resolveRouteEvent` ignora soft-deleted; match Persona ↑/↓ solo cuenta con evento activo; no se asigna `subidaId`/`bajadaId` fantasma.
+- [x] `viaticosLogisticsSchedule.js` + `DestaquesLocationPanel` + `constanciaLogisticsFechas`: misma exclusión al armar schedules / headers.
+- [x] Check-in/out de reglas hotel (`resolveRuleFieldInstant`): tampoco resuelve instante desde evento soft-deleted.
+
 ### Borrado hard de eventos vs reglas de logística (completado)
 - [x] Agenda usa soft-delete (`is_deleted` / `deleted_at`); borrado definitivo y `MealsManager.deleteRow` hacen `DELETE` hard.
 - [x] FKs opcionales `giras_logistica_reglas.id_evento_{checkin,checkout}` y `giras_logistica_reglas_transportes.id_evento_{subida,bajada}` → `eventos(id)` con **ON DELETE SET NULL**. Las ventanas de comida ya no usan evento: slot `(fecha, servicio)` (`docs/specs/logistica-comida-slot.md`); borrar una comida no toca la regla.

@@ -23,6 +23,7 @@ import {
     mergeTravelPreferringLocality,
     findBestRouteRule,
 } from "../../../utils/viaticosLogisticsSchedule";
+import { isActiveLogisticsEvent } from "../../../utils/giraUtils";
 import { isTransporteOficial, resolveCheckPatenteOficial } from "../../../utils/transporteOficial";
 import TransporteOficialBadge from "../../../components/giras/transport/TransporteOficialBadge";
 import { calculateDaysDiff } from "../../../utils/viaticosDiasComputables";
@@ -1063,9 +1064,13 @@ const DestaquesLocationPanel = forwardRef(function DestaquesLocationPanel({
             const buildHeaderInfo = (ruleSubida, ruleBajada = null) => {
                 const subidaRule = ruleSubida || null;
                 const bajadaRule = ruleBajada || ruleSubida || null;
-                if (!subidaRule?.evento_subida && !bajadaRule?.evento_bajada) return null;
-                const evt = subidaRule?.evento_subida || null;
-                const evtLlegada = bajadaRule?.evento_bajada || null;
+                const evt = isActiveLogisticsEvent(subidaRule?.evento_subida)
+                    ? subidaRule.evento_subida
+                    : null;
+                const evtLlegada = isActiveLogisticsEvent(bajadaRule?.evento_bajada)
+                    ? bajadaRule.evento_bajada
+                    : null;
+                if (!evt && !evtLlegada) return null;
                 const bus = transportMap[subidaRule?.id_transporte_fisico || bajadaRule?.id_transporte_fisico];
                 const tNombre = bus?.transportes?.nombre || bus?.nombre || "Transporte";
                 const tDetalle = bus?.detalle ? ` - ${bus.detalle}` : ""; 

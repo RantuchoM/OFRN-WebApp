@@ -3,6 +3,7 @@ import {
   resolveLocalidadEfectivaViaticos,
 } from "./integranteDomicilioViaticos";
 import { isTransporteOficial } from "./transporteOficial";
+import { isActiveLogisticsEvent } from "./giraUtils";
 
 const normalizeScope = (value) =>
   String(value || "")
@@ -66,15 +67,13 @@ export function eventMatchesLocalidad(evt, locId, locName) {
 
 function ruleHasRouteEvent(rule, eventField) {
   if (!rule) return false;
-  if (rule[eventField]) return true;
-  const idField =
-    eventField === "evento_subida" ? "id_evento_subida" : "id_evento_bajada";
-  return rule[idField] != null && rule[idField] !== "";
+  // Solo embed activo: soft-deleted no cuenta aunque el FK siga en la fila.
+  return isActiveLogisticsEvent(rule[eventField]);
 }
 
 function eventDateTimeFromRule(rule, eventField) {
   const evt = rule?.[eventField];
-  if (!evt) return null;
+  if (!isActiveLogisticsEvent(evt)) return null;
   return parseDateTime(evt.fecha, evt.hora_inicio || evt.hora);
 }
 
@@ -147,10 +146,14 @@ export function findBestRouteRule(routeRules, locId, regionId, eventField) {
 function buildTravelScheduleFromRules(subidaRule, bajadaRule, transportMap) {
   const subida = subidaRule || null;
   const bajada = bajadaRule || subidaRule || null;
-  if (!subida?.evento_subida && !bajada?.evento_bajada) return null;
+  const evtSalida = isActiveLogisticsEvent(subida?.evento_subida)
+    ? subida.evento_subida
+    : null;
+  const evtLlegada = isActiveLogisticsEvent(bajada?.evento_bajada)
+    ? bajada.evento_bajada
+    : null;
+  if (!evtSalida && !evtLlegada) return null;
 
-  const evtSalida = subida?.evento_subida || null;
-  const evtLlegada = bajada?.evento_bajada || null;
   const bus =
     transportMap?.[subida?.id_transporte_fisico || bajada?.id_transporte_fisico];
   const tNombre = bus?.transportes?.nombre || bus?.nombre || "Transporte";
@@ -584,8 +587,11 @@ export function resolveViaticoRowLogData(row, logisticsMap, options = {}) {
 
   const { allEvents, logisticsTransportsByPerson } = options;
   const events = Array.isArray(allEvents) ? allEvents : [];
-  const findEvt = (id) =>
-    id != null ? events.find((e) => String(e.id) === String(id)) : null;
+  const findEvt = (id) => {
+    if (id == null) return null;
+    const evt = events.find((e) => String(e.id) === String(id));
+    return isActiveLogisticsEvent(evt) ? evt : null;
+  };
 
   const startEvt = findEvt(row.id_evento_parada_inicio);
   const endEvt = findEvt(row.id_evento_parada_fin);

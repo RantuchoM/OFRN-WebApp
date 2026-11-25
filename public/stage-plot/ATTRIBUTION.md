@@ -84,21 +84,30 @@ Formato de atribución sugerido por game-icons.net:
 
 No hay equivalente usable en game-icons; se dibujó a propósito para leerse a ~22 px en paleta y ~50×50 cm en lienzo. Colores fijos (no `currentColor`) para legibilidad en miniatura.
 
-## OFRN original — percusión (ids `13` / `13a`–`13i`)
+## OFRN original — percusión (ids `13` / `13a`–`13q`)
 
-Siluetas geométricas vista cenital (`currentColor`), seed en `instrumentos.svg_icon` + fallback estático. Migraciones `20260829020843_instrumentos_percusion_variants` + `20261124140815_instrumentos_triangulo_13i`.
+Siluetas geométricas vista cenital (`currentColor`), seed en `instrumentos.svg_icon` + fallback estático. Migraciones `20260829020843_instrumentos_percusion_variants` + `20261124140815_instrumentos_triangulo_13i` + `20261124155000_instrumentos_percusion_13j_13q`.
 
 | Archivo | Tipo | `instrumentos.id` |
 |---------|------|-------------------|
 | timpani.svg | timpani | 13a Timbales |
 | marimba.svg | marimba | 13b Marimba |
 | vibraphone.svg | vibraphone | 13c Vibráfono |
-| bass-drum.svg | bass_drum | 13d Bombo |
+| bass-drum.svg | bass_drum | 13d Bombo (= Gran Cassa; sin fila nueva) |
 | snare.svg | snare | 13e Caja |
 | cymbals.svg | cymbals | 13f Platillos |
 | xylophone-ofrn.svg | xylophone | 13g Xilófono |
 | tubular-bells.svg | tubular_bells | 13h Campanas tubulares |
 | triangle.svg | triangle | 13i Triángulo |
+| triangle.png | triangle (raster; gana al SVG vía `stage_plot_raster_url`) | 13i Triángulo — foto usuario, fondo quitado (PIL), Storage `stage-plot-icons/instrumentos/13i/` |
+| glockenspiel.svg / .png | glockenspiel | 13j Glockenspiel — foto AI, fondo quitado (PIL flood), Storage `…/13j/` |
+| congas.svg / .png | congas | 13k Congas — foto AI + PIL, Storage `…/13k/` |
+| guiro.svg / .png | guiro | 13l Güiro — foto AI + PIL, Storage `…/13l/` |
+| crystal-glasses.svg / .png | crystal_glasses | 13m Vasos de cristal — foto AI + PIL, Storage `…/13m/` |
+| metal-chimes.svg / .png | metal_chimes | 13n Campanas de metal (≠ tubular_bells) — foto AI + PIL, Storage `…/13n/` |
+| tam-tam.svg / .png | tam_tam | 13o Tam-tam — foto AI + PIL, Storage `…/13o/` |
+| maracas.svg / .png | maracas | 13p Maracas — SVG game-icons reserva + PNG AI/PIL, Storage `…/13p/` |
+| bongo.svg / .png | bongo | 13q Bongó — foto AI + PIL, Storage `…/13q/` |
 | perc.svg | perc | 13 Percusión (genérico; ya existía) |
 
 Los SVG game-icons `drum-kit` / `drum` / `djembe` / `gong` / `xylophone` / `ringing-bell` quedan en la carpeta como reserva histórica; el catálogo apunta a los OFRN de arriba.

@@ -73,6 +73,35 @@ export const personMatchesEnsConvocadoTag = (person, tag) => {
   });
 };
 
+/**
+ * Evento usable en logística / viáticos.
+ * Soft-delete (`is_deleted`) no cuenta como parada de subida/bajada ni fecha.
+ */
+export const isActiveLogisticsEvent = (evt) =>
+  Boolean(evt && evt.id != null && evt.is_deleted !== true);
+
+/**
+ * Quita embeds soft-deleted de reglas de ruta (in-memory).
+ * Si el join devolvió un evento eliminado, también anula el FK en memoria
+ * para que primera ↑ / última ↓ y match Persona no lo tomen.
+ */
+export const sanitizeLogisticsRouteRules = (routes = []) =>
+  (routes || []).map((row) => {
+    const sub = row?.evento_subida;
+    const baj = row?.evento_bajada;
+    const subAlive = isActiveLogisticsEvent(sub);
+    const bajAlive = isActiveLogisticsEvent(baj);
+    const subDeleted = sub?.is_deleted === true;
+    const bajDeleted = baj?.is_deleted === true;
+    return {
+      ...row,
+      evento_subida: subAlive ? sub : null,
+      evento_bajada: bajAlive ? baj : null,
+      id_evento_subida: subDeleted ? null : row.id_evento_subida,
+      id_evento_bajada: bajDeleted ? null : row.id_evento_bajada,
+    };
+  });
+
 /** Subidas/bajadas y admisión por territorio usan residencia, no viáticos. */
 export const isTransportTerritoryRule = (rule) =>
   Boolean(
@@ -703,7 +732,7 @@ export const resolveRuleFieldInstant = (rule, field, allEvents = []) => {
     const linked = (allEvents || []).find(
       (e) => String(e.id) === String(rule[cfg.event]),
     );
-    if (linked?.fecha) {
+    if (isActiveLogisticsEvent(linked) && linked.fecha) {
       return {
         fecha: linked.fecha,
         hora: linked.hora_inicio || linked.hora || "12:00",
