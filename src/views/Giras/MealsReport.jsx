@@ -737,7 +737,8 @@ export default function MealsReport({
     }
   }, [artistOptions, selectedArtistaIds]);
 
-  const filteredReport = useMemo(() => {
+  // Filas filtradas sin unificar (texto pedido = 1 línea por servicio).
+  const filteredReportScoped = useMemo(() => {
     const locSet =
       selectedLocationKeys.length > 0
         ? new Set(selectedLocationKeys.map(String))
@@ -772,44 +773,33 @@ export default function MealsReport({
 
     // Con filtro de artista: solo sumar dietas de las propuestas seleccionadas
     // (el total OFRN del servicio se mantiene; no se inventan splits).
-    const scoped =
-      !fimbaMode || !artistSet
-        ? rows
-        : rows.map((row) => {
-            const scopedProps = filterFimbaPropuestasForMeals(
-              row.propuestas || [],
-            ).filter(
-              (p) => p?.id != null && artistSet.has(String(p.id)),
-            );
-            const ofrn = row.ofrnCounts || { Total: 0 };
-            const counts = { ...ofrn };
-            const { dietCounts, residualArt, total: artistTotal } =
-              fimbaArtistMealDietBreakdown(
-                scopedProps,
-                fimbaPartsByPropuesta,
-                labelFimbaAlimentacion,
-              );
-            for (const [diet, n] of Object.entries(dietCounts)) {
-              if (!n) continue;
-              counts[diet] = (counts[diet] || 0) + n;
-            }
-            if (residualArt > 0) {
-              counts[ARTISTAS_FIMBA_DIET] =
-                (counts[ARTISTAS_FIMBA_DIET] || 0) + residualArt;
-            } else {
-              delete counts[ARTISTAS_FIMBA_DIET];
-            }
-            counts.Total = (Number(ofrn.Total) || 0) + artistTotal;
-            return { ...row, counts, propuestas: scopedProps };
-          });
-
-    // FIMBA: cuadro/texto unifican misma fecha + tipo + lugar (solo vista;
-    // no fusiona eventos en BD). Cobertura A/M/C sigue leyendo reportData.
-    if (!fimbaMode) return scoped;
-    return unifyMealsReportRowsByTypeAndPlace(scoped, {
-      includeArtists: true,
-      partsByPropuesta: fimbaPartsByPropuesta,
-      labelFn: labelFimbaAlimentacion,
+    if (!fimbaMode || !artistSet) return rows;
+    return rows.map((row) => {
+      const scopedProps = filterFimbaPropuestasForMeals(
+        row.propuestas || [],
+      ).filter(
+        (p) => p?.id != null && artistSet.has(String(p.id)),
+      );
+      const ofrn = row.ofrnCounts || { Total: 0 };
+      const counts = { ...ofrn };
+      const { dietCounts, residualArt, total: artistTotal } =
+        fimbaArtistMealDietBreakdown(
+          scopedProps,
+          fimbaPartsByPropuesta,
+          labelFimbaAlimentacion,
+        );
+      for (const [diet, n] of Object.entries(dietCounts)) {
+        if (!n) continue;
+        counts[diet] = (counts[diet] || 0) + n;
+      }
+      if (residualArt > 0) {
+        counts[ARTISTAS_FIMBA_DIET] =
+          (counts[ARTISTAS_FIMBA_DIET] || 0) + residualArt;
+      } else {
+        delete counts[ARTISTAS_FIMBA_DIET];
+      }
+      counts.Total = (Number(ofrn.Total) || 0) + artistTotal;
+      return { ...row, counts, propuestas: scopedProps };
     });
   }, [
     reportData,
@@ -822,6 +812,17 @@ export default function MealsReport({
     fimbaMode,
     fimbaPartsByPropuesta,
   ]);
+
+  // FIMBA cuadro/PDF: unifica misma fecha + tipo + lugar (solo vista;
+  // no fusiona eventos en BD). Texto pedido usa filteredReportScoped.
+  const filteredReport = useMemo(() => {
+    if (!fimbaMode) return filteredReportScoped;
+    return unifyMealsReportRowsByTypeAndPlace(filteredReportScoped, {
+      includeArtists: true,
+      partsByPropuesta: fimbaPartsByPropuesta,
+      labelFn: labelFimbaAlimentacion,
+    });
+  }, [fimbaMode, filteredReportScoped, fimbaPartsByPropuesta]);
 
   /** Tipos de alimentación presentes en el set filtrado (exports / tabla). */
   const allDiets = useMemo(() => {
@@ -893,21 +894,26 @@ export default function MealsReport({
         id !== NO_ARTIST_KEY && id !== MEAL_FILTER_ORCHESTRA_ONLY,
     );
     return collectArtistMealSpecsFromReportRows(
-      filteredReport,
+      filteredReportScoped,
       fimbaPartsByPropuesta,
       { onlyArtistaIds: onlyIds.length > 0 ? onlyIds : null },
     );
-  }, [fimbaMode, filteredReport, fimbaPartsByPropuesta, selectedArtistaIds]);
+  }, [
+    fimbaMode,
+    filteredReportScoped,
+    fimbaPartsByPropuesta,
+    selectedArtistaIds,
+  ]);
 
   const textSummary = useMemo(
     () =>
       appendArtistMealSpecsSection(
-        buildMealsPedidoText(filteredReport, {
+        buildMealsPedidoText(filteredReportScoped, {
           groupByLugar: Boolean(fimbaMode),
         }),
         artistMealSpecs,
       ),
-    [filteredReport, artistMealSpecs, fimbaMode],
+    [filteredReportScoped, artistMealSpecs, fimbaMode],
   );
 
   /** Filas del reporte sin filtro de artista (base del batch por artista). */

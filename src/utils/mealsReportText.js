@@ -188,7 +188,8 @@ export function unifyMealsReportRowsByTypeAndPlace(rows = [], opts = {}) {
 }
 
 /**
- * @param {Array<{ fecha: string, servicio: string, servicioLabel?: string, counts: Record<string, number> }>} filteredRows
+ * Una línea por servicio/evento (no unifica comidas del mismo tipo).
+ * @param {Array<{ fecha: string, servicio: string, servicioLabel?: string, counts: Record<string, number>, hora?: string, id?: unknown, locKey?: unknown, id_locacion?: unknown, locacionLabel?: string, lugar?: string }>} filteredRows
  * @param {{ groupByLugar?: boolean }} [opts]
  */
 export function buildMealsPedidoText(filteredRows = [], opts = {}) {
@@ -215,55 +216,41 @@ export function buildMealsPedidoText(filteredRows = [], opts = {}) {
   };
 
   const perDate = {};
-  filteredRows.forEach((row) => {
-    if (!perDate[row.fecha]) perDate[row.fecha] = {};
-    const typeKey = row.servicioLabel || row.servicio;
-    const placeKey = groupByLugar
-      ? String(row.locKey ?? row.id_locacion ?? "")
-      : "";
-    const groupKey = groupByLugar ? `${typeKey}\0${placeKey}` : typeKey;
-    if (!perDate[row.fecha][groupKey]) {
-      perDate[row.fecha][groupKey] = {
-        Total: 0,
-        base: row.servicio,
-        label: typeKey,
-        place: groupByLugar ? mealsReportPlaceLabel(row) : "",
-      };
+  const dateOrder = [];
+  for (const row of filteredRows || []) {
+    if (!row?.fecha) continue;
+    if (!perDate[row.fecha]) {
+      perDate[row.fecha] = [];
+      dateOrder.push(row.fecha);
     }
-    perDate[row.fecha][groupKey].Total += row.counts?.Total || 0;
-    Object.entries(row.counts || {}).forEach(([diet, value]) => {
-      if (diet === "Total" || !value) return;
-      perDate[row.fecha][groupKey][diet] =
-        (perDate[row.fecha][groupKey][diet] || 0) + value;
-    });
-  });
+    perDate[row.fecha].push(row);
+  }
+  dateOrder.sort((a, b) => a.localeCompare(b));
 
-  const orderedDates = Object.keys(perDate).sort((a, b) => a.localeCompare(b));
-
-  const mealBlocks = orderedDates
+  const mealBlocks = dateOrder
     .map((dateKey) => {
-      const groups = Object.values(perDate[dateKey] || {}).sort((a, b) => {
-        const oa = serviceOrder.indexOf(a.base);
-        const ob = serviceOrder.indexOf(b.base);
+      const rows = [...(perDate[dateKey] || [])].sort((a, b) => {
+        const oa = serviceOrder.indexOf(a.servicio);
+        const ob = serviceOrder.indexOf(b.servicio);
         if (oa !== ob) return (oa < 0 ? 99 : oa) - (ob < 0 ? 99 : ob);
-        const byLabel = String(a.label).localeCompare(String(b.label), "es");
+        const ha = String(a.hora || "").slice(0, 5);
+        const hb = String(b.hora || "").slice(0, 5);
+        if (ha !== hb) return ha.localeCompare(hb);
+        const byLabel = String(a.servicioLabel || a.servicio || "").localeCompare(
+          String(b.servicioLabel || b.servicio || ""),
+          "es",
+        );
         if (byLabel !== 0) return byLabel;
-        return String(a.place || "").localeCompare(String(b.place || ""), "es");
+        return String(a.id ?? "").localeCompare(String(b.id ?? ""));
       });
 
-      const dateRows = groups
-        .map((counts) => {
-          if (!counts || !counts.Total) return null;
+      const dateRows = rows
+        .map((row) => {
+          const total = Number(row.counts?.Total) || 0;
+          if (!total) return null;
 
-          const diets = Object.entries(counts)
-            .filter(
-              ([k, v]) =>
-                k !== "Total" &&
-                k !== "base" &&
-                k !== "label" &&
-                k !== "place" &&
-                v > 0,
-            )
+          const diets = Object.entries(row.counts || {})
+            .filter(([k, v]) => k !== "Total" && v > 0)
             .sort(([a], [b]) => compareMealDietLabels(a, b))
             .map(([diet, value]) => {
               const label = canonicalizeMealDiet(diet);
@@ -271,16 +258,17 @@ export function buildMealsPedidoText(filteredRows = [], opts = {}) {
             });
 
           const details = diets.length > 0 ? ` (${diets.join(", ")})` : "";
-          const base = counts.base;
+          const base = row.servicio;
+          const typeKey = row.servicioLabel || row.servicio;
           const pluralRoot =
-            servicePlural[base] || String(counts.label || "").toLowerCase();
+            servicePlural[base] || String(typeKey || "").toLowerCase();
           const isSub =
-            counts.label &&
-            String(counts.label).toLowerCase() !==
-              String(base || "").toLowerCase();
-          const name = isSub ? String(counts.label).toLowerCase() : pluralRoot;
-          const placeSuffix = counts.place ? ` en ${counts.place}` : "";
-          return `${counts.Total} ${name}${placeSuffix}${details}`;
+            typeKey &&
+            String(typeKey).toLowerCase() !== String(base || "").toLowerCase();
+          const name = isSub ? String(typeKey).toLowerCase() : pluralRoot;
+          const place = groupByLugar ? mealsReportPlaceLabel(row) : "";
+          const placeSuffix = place ? ` en ${place}` : "";
+          return `${total} ${name}${placeSuffix}${details}`;
         })
         .filter(Boolean);
 
