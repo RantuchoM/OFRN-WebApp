@@ -109,6 +109,7 @@ export default function ViaticosBulkEditPanel({
     docComun: false,
     docReducida: false,
     docVehiculoChofer: false,
+    docChofer: true,
     addDj: false,
     unifyFiles: false,
     renuncia_viaticos: true,
@@ -180,7 +181,8 @@ export default function ViaticosBulkEditPanel({
     exportOptions.rendicion ||
     exportOptions.docComun ||
     exportOptions.docReducida ||
-    exportOptions.docVehiculoChofer;
+    exportOptions.docVehiculoChofer ||
+    exportOptions.docChofer;
 
   // Título dinámico del header
   const getHeaderTitle = () => {
@@ -714,7 +716,10 @@ export default function ViaticosBulkEditPanel({
                   />{" "}
                   Agregar DJ (antes de Doc. Reducida)
                 </label>
-                <label className="flex items-center gap-2 text-xs text-slate-700 p-1.5 hover:bg-slate-50 rounded cursor-pointer">
+                <label
+                  className="flex items-center gap-2 text-xs text-slate-700 p-1.5 hover:bg-slate-50 rounded cursor-pointer"
+                  title="Incluye la documentación PDF del vehículo asignado al integrante."
+                >
                   <input
                     type="checkbox"
                     checked={exportOptions.docVehiculoChofer}
@@ -726,7 +731,27 @@ export default function ViaticosBulkEditPanel({
                     }
                     className="rounded text-green-600"
                   />{" "}
-                  Doc. del vehículo y chofer
+                  Doc. del vehículo
+                </label>
+                <label
+                  className="flex items-center gap-2 text-xs text-slate-700 p-1.5 hover:bg-slate-50 rounded cursor-pointer"
+                  title="Carnet y DNI del chofer: solo a quien esté asignado como chofer de un transporte de la gira (nunca a pasajeros). Encendido por defecto."
+                >
+                  <input
+                    type="checkbox"
+                    checked={exportOptions.docChofer}
+                    onChange={(e) =>
+                      setExportOptions((prev) => ({
+                        ...prev,
+                        docChofer: e.target.checked,
+                      }))
+                    }
+                    className="rounded text-green-600"
+                  />{" "}
+                  Doc. del chofer (carnet/DNI)
+                  <span className="text-[10px] font-normal text-slate-400">
+                    (solo al propio chofer)
+                  </span>
                 </label>
               </div>
 

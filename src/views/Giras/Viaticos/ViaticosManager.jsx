@@ -951,32 +951,107 @@ export default function ViaticosManager({ supabase, giraId }) {
     personData?.dj ||
     "";
 
-const isPdfUrl = (url) => /\.pdf(\?|$)/i.test(String(url || "").trim());
+  const isPdfUrl = (url) => /\.pdf(\?|$)/i.test(String(url || "").trim());
 
-const collectTransportSupportDocs = (personData) => {
-  const transports = Array.isArray(personData?.logistics_transports)
-    ? personData.logistics_transports
-    : [];
-  const docs = [];
-  const seen = new Set();
-  const addDoc = (url, label) => {
-    const clean = String(url || "").trim();
-    if (!clean || seen.has(`${label}:${clean}`)) return;
-    seen.add(`${label}:${clean}`);
-    docs.push({ url: clean, label });
+  /** ID de integrante (no el id de fila de `giras_viaticos_detalle`). */
+  const getPersonExportIntegranteId = (personData) => {
+    const raw =
+      personData?.id_integrante ?? personData?.integrante_id ?? personData?.id;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
   };
-  transports.forEach((t, idx) => {
-    const suffix = transports.length > 1 ? ` (${idx + 1})` : "";
-    if (t?.vehicleDocumentation) {
-      addDoc(t.vehicleDocumentation, `Doc. Vehículo${suffix}`);
+
+  const isPersonChoferOfTransport = (personId, transport) =>
+    personId != null &&
+    transport?.id_chofer != null &&
+    Number(transport.id_chofer) === personId;
+
+  /** Asignado como `giras_transportes.id_chofer` en esta gira. */
+  const personIsChoferOfGira = (personData) => {
+    const personId = getPersonExportIntegranteId(personData);
+    if (personId == null) return false;
+    const fromLogistics = (personData?.logistics_transports || []).some((t) =>
+      isPersonChoferOfTransport(personId, t),
+    );
+    if (fromLogistics) return true;
+    return (transportes || []).some((t) =>
+      isPersonChoferOfTransport(personId, t),
+    );
+  };
+
+  /**
+   * Docs de logística para export.
+   * - Vehículo: si `includeVehicle` (checkbox), de los buses del integrante.
+   * - Chofer (carnet/DNI): solo si la persona ES el chofer de esa unidad;
+   *   nunca a pasajeros. Por defecto al exportar choferes.
+   */
+  const collectTransportSupportDocs = (
+    personData,
+    { includeVehicle = false, includeChofer = false } = {},
+  ) => {
+    const personId = getPersonExportIntegranteId(personData);
+    const logisticsTransports = Array.isArray(personData?.logistics_transports)
+      ? personData.logistics_transports
+      : [];
+    const docs = [];
+    const seen = new Set();
+    const addDoc = (url, label) => {
+      const clean = String(url || "").trim();
+      if (!clean || seen.has(`${label}:${clean}`)) return;
+      seen.add(`${label}:${clean}`);
+      docs.push({ url: clean, label });
+    };
+
+    if (includeVehicle) {
+      logisticsTransports.forEach((t, idx) => {
+        const suffix = logisticsTransports.length > 1 ? ` (${idx + 1})` : "";
+        if (t?.vehicleDocumentation) {
+          addDoc(t.vehicleDocumentation, `Doc. Vehículo${suffix}`);
+        }
+      });
     }
-    if (t?.id_chofer) {
-      addDoc(t?.chofer?.link_carnet, `Carnet Chofer${suffix}`);
-      addDoc(t?.chofer?.link_dni_img, `DNI Chofer${suffix}`);
+
+    if (includeChofer && personId != null) {
+      const choferUnits = [];
+      const seenUnitIds = new Set();
+      const pushUnit = (t) => {
+        if (!isPersonChoferOfTransport(personId, t)) return;
+        const uid = t?.id != null ? String(t.id) : null;
+        if (uid) {
+          if (seenUnitIds.has(uid)) return;
+          seenUnitIds.add(uid);
+        }
+        choferUnits.push(t);
+      };
+      logisticsTransports.forEach(pushUnit);
+      (transportes || []).forEach(pushUnit);
+
+      choferUnits.forEach((t, idx) => {
+        const suffix = choferUnits.length > 1 ? ` (${idx + 1})` : "";
+        const carnet =
+          t?.chofer?.link_carnet || personData?.link_carnet || "";
+        const dni =
+          t?.chofer?.link_dni_img || personData?.link_dni_img || "";
+        addDoc(carnet, `Carnet Chofer${suffix}`);
+        addDoc(dni, `DNI Chofer${suffix}`);
+      });
     }
-  });
-  return docs;
-};
+
+    return docs;
+  };
+
+  const resolveTransportDocsForExport = (personData, options) => {
+    const includeVehicle = !!options?.docVehiculoChofer;
+    // Por defecto ON (undefined/true); se puede destildar con `docChofer: false`.
+    const docChoferOpt = options?.docChofer !== false;
+    const includeChofer =
+      docChoferOpt && personIsChoferOfGira(personData);
+    if (!includeVehicle && !includeChofer) return [];
+    return collectTransportSupportDocs(personData, {
+      includeVehicle,
+      includeChofer,
+    });
+  };
 
   const appendPersonToDoc = async (
     targetDoc,
@@ -1106,25 +1181,23 @@ const collectTransportSupportDocs = (personData) => {
         );
     }
 
-    if (options.docVehiculoChofer) {
-      const supportDocs = collectTransportSupportDocs(personData);
-      for (const doc of supportDocs) {
-        if (!isPdfUrl(doc.url)) {
-          pushExportFailure(
-            doc.label,
-            "No se adjuntó porque el archivo no es PDF.",
-          );
-          continue;
-        }
-        await paintDetail(`Descargando ${doc.label} (${shortName})...`);
-        const bytes = await fetchPdfFromDrive(doc.url);
-        if (bytes) await mergeBytes(bytes, doc.label);
-        else
-          pushExportFailure(
-            doc.label,
-            "No se pudo descargar el archivo del vehículo/chofer.",
-          );
+    const supportDocs = resolveTransportDocsForExport(personData, options);
+    for (const doc of supportDocs) {
+      if (!isPdfUrl(doc.url)) {
+        pushExportFailure(
+          doc.label,
+          "No se adjuntó porque el archivo no es PDF.",
+        );
+        continue;
       }
+      await paintDetail(`Descargando ${doc.label} (${shortName})...`);
+      const bytes = await fetchPdfFromDrive(doc.url);
+      if (bytes) await mergeBytes(bytes, doc.label);
+      else
+        pushExportFailure(
+          doc.label,
+          "No se pudo descargar el archivo del vehículo/chofer.",
+        );
     }
   };
 
@@ -1373,10 +1446,12 @@ const collectTransportSupportDocs = (personData) => {
         await yieldExportLoop();
 
         try {
+          const willAttachChoferDocs =
+            options.docChofer !== false && personIsChoferOfGira(personData);
           const shouldBuildMergedPacket =
             options.docComun ||
             options.docReducida ||
-            (options.docVehiculoChofer &&
+            ((options.docVehiculoChofer || willAttachChoferDocs) &&
               !options.viatico &&
               !options.destaque &&
               !options.rendicion);
@@ -1477,25 +1552,26 @@ const collectTransportSupportDocs = (personData) => {
               `${nameSafe} - Doc. Reducida`,
             );
           }
-          if (options.docVehiculoChofer) {
-            const supportDocs = collectTransportSupportDocs(personData);
-            for (const doc of supportDocs) {
-              if (!isPdfUrl(doc.url)) {
-                setExportFailureLog((prev) => [
-                  ...prev,
-                  {
-                    ts: new Date().toISOString(),
-                    personId: personData.id,
-                    personLabel: nameSafe,
-                    item: doc.label,
-                    message: "No se adjuntó porque el archivo no es PDF.",
-                  },
-                ]);
-                continue;
-              }
-              setExportDetail(`Duplicando ${doc.label} en Drive...`);
-              await copyDriveFile(doc.url, folderId, `${nameSafe} - ${doc.label}`);
+          const supportDocs = resolveTransportDocsForExport(
+            personData,
+            options,
+          );
+          for (const doc of supportDocs) {
+            if (!isPdfUrl(doc.url)) {
+              setExportFailureLog((prev) => [
+                ...prev,
+                {
+                  ts: new Date().toISOString(),
+                  personId: personData.id,
+                  personLabel: nameSafe,
+                  item: doc.label,
+                  message: "No se adjuntó porque el archivo no es PDF.",
+                },
+              ]);
+              continue;
             }
+            setExportDetail(`Duplicando ${doc.label} en Drive...`);
+            await copyDriveFile(doc.url, folderId, `${nameSafe} - ${doc.label}`);
           }
           successCount++;
         } catch (err) {

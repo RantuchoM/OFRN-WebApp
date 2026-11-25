@@ -28,6 +28,7 @@ export default function LocationBulkPanel({
         docComun: false,
         docReducida: false,
         docVehiculoChofer: false,
+        docChofer: true,
         addDj: false,
         renuncia_viaticos: true,
     });
@@ -185,9 +186,24 @@ export default function LocationBulkPanel({
                             />
                             <span className="text-[11px] text-slate-600">Agregar DJ (antes de Doc. Reducida)</span>
                         </label>
-                        <label className="flex items-center gap-2 cursor-pointer">
+                        <label
+                            className="flex items-center gap-2 cursor-pointer"
+                            title="Incluye la documentación PDF del vehículo asignado al integrante."
+                        >
                             <input type="checkbox" checked={options.docVehiculoChofer} onChange={() => handleToggle('docVehiculoChofer')} className="w-3 h-3 text-indigo-600 rounded" />
-                            <span className="text-xs text-slate-600">Doc. del vehículo y chofer</span>
+                            <span className="text-xs text-slate-600">Doc. del vehículo</span>
+                        </label>
+                        <label
+                            className="flex items-center gap-2 cursor-pointer"
+                            title="Carnet y DNI del chofer: solo a quien esté asignado como chofer de un transporte de la gira (nunca a pasajeros). Encendido por defecto."
+                        >
+                            <input type="checkbox" checked={options.docChofer} onChange={() => handleToggle('docChofer')} className="w-3 h-3 text-indigo-600 rounded" />
+                            <span className="text-xs text-slate-600">
+                                Doc. del chofer (carnet/DNI)
+                                <span className="block text-[10px] font-normal text-slate-400">
+                                    Solo al propio chofer
+                                </span>
+                            </span>
                         </label>
                     </div>
                 </div>
@@ -231,7 +247,7 @@ export default function LocationBulkPanel({
                     </button>
                     <button 
                         onClick={handleExportClick} 
-                        disabled={busy || countToExport === 0 || (!options.viatico && !options.destaque && !options.rendicion && !options.docComun && !options.docReducida && !options.docVehiculoChofer)}
+                        disabled={busy || countToExport === 0 || (!options.viatico && !options.destaque && !options.rendicion && !options.docComun && !options.docReducida && !options.docVehiculoChofer && !options.docChofer)}
                         className="flex-1 py-2.5 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 transition-colors shadow-lg disabled:opacity-50 disabled:shadow-none flex items-center justify-center gap-2"
                     >
                         {isExporting ? 'Exportando...' : `Exportar (${countToExport})`} <IconFileText size={18} />
