@@ -110,11 +110,10 @@ function createEmptySelectionByMode() {
   };
 }
 
-/** Año calendario siguiente completo (proyección de planificación). */
+/** Año calendario en curso completo (1 ene – 31 dic). */
 function yearDefaultRange() {
   const b = currentYearBounds();
-  const y = b.year + 1;
-  return { fechaDesde: `${y}-01-01`, fechaHasta: `${y}-12-31` };
+  return { fechaDesde: b.desde, fechaHasta: b.hasta };
 }
 
 /** Misma ordenación que Gestión → Convocatorias. */
@@ -2272,10 +2271,10 @@ export default function ServiciosCantidadReport({ supabase }) {
             type="button"
             onClick={resetYear}
             className="mb-px inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-[11px] font-bold text-slate-600 hover:border-slate-300 hover:bg-white"
-            title="Rango = año calendario siguiente completo"
+            title="Rango = año calendario en curso completo"
           >
             <IconRefresh size={14} />
-            Año siguiente
+            Año en curso
           </button>
         </div>
       </div>
