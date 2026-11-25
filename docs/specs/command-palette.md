@@ -18,7 +18,7 @@ Menú de navegación rápida accesible con **Ctrl+K** / **Cmd+K**, con respaldo 
 2. **Acciones locales** — registradas por componentes vía `useCommandPalette`
 3. **General / Gestión / Ayuda** — navegación global filtrada por rol
 4. **Informes de Gestión** — un comando por informe (`/management/{slug}`)
-5. **Historial de Giras** — acceso directo a programas desde DB
+5. **Historial de Giras** — acceso directo a programas desde DB. A igual relevancia de texto, la más próxima a hoy va primero (0 si la fecha de hoy cae en el rango; si no, días al extremo más cercano). El desempate de longitud del rótulo no la adelanta.
 
 Personas y repertorio no son comandos de la lista. Se entra con el selector de arriba (Tab). Al abrir Ctrl+K no hay fetch de `obras` ni `integrantes`.
 

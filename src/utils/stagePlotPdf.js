@@ -1,5 +1,4 @@
 import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
 import {
   getStagePlotCatalogItem,
   stagePlotItemHasInstrumentFootprint,
@@ -62,12 +61,497 @@ import {
   readStagePlotLayerOpacities,
 } from "./stagePlotPayload";
 import {
+  isStagePlotFooterNoteEmpty,
+  parseStagePlotFooterNoteBlocks,
+  sanitizeStagePlotFooterNoteHtml,
+} from "./stagePlotFooterNote";
+import {
   drawSoloistOutlineOnCanvas,
   stagePlotSoloistOutlineMetrics,
   stagePlotSoloistOutlinePx,
   getSoloistOutlineCanvas,
 } from "./stagePlotSoloistOutline";
 import { canShareFiles } from "./downloadBlob";
+
+/**
+ * @param {ReturnType<typeof normalizeStagePlotPayload>} payload
+ * @param {{ includeFooterNote?: boolean }} [options]
+ * @returns {string}
+ */
+function resolveExportFooterNoteHtml(payload, options = {}) {
+  const html = sanitizeStagePlotFooterNoteHtml(payload?.stage?.footerNote);
+  if (isStagePlotFooterNoteEmpty(html)) return "";
+  if (options.includeFooterNote === false) return "";
+  if (options.includeFooterNote === true) return html;
+  // Default: incluir si hay nota.
+  return html;
+}
+
+/**
+ * @param {boolean|undefined} bold
+ * @param {boolean|undefined} italic
+ */
+function pdfFontStyle(bold, italic) {
+  if (bold && italic) return "bolditalic";
+  if (bold) return "bold";
+  if (italic) return "italic";
+  return "normal";
+}
+
+/**
+ * Envuelve runs con estilos a líneas de ancho máximo (mm).
+ * @param {import("jspdf").jsPDF} doc
+ * @param {import("./stagePlotFooterNote").FooterNoteRun[]} runs
+ * @param {number} maxWidth
+ * @param {number} fontSize
+ * @returns {{ runs: import("./stagePlotFooterNote").FooterNoteRun[] }[]}
+ */
+function wrapFooterRunsToLines(doc, runs, maxWidth, fontSize) {
+  /** @type {{ runs: import("./stagePlotFooterNote").FooterNoteRun[] }[]} */
+  const lines = [];
+  /** @type {import("./stagePlotFooterNote").FooterNoteRun[]} */
+  let current = [];
+  let width = 0;
+
+  const flush = () => {
+    if (!current.length) return;
+    lines.push({ runs: current });
+    current = [];
+    width = 0;
+  };
+
+  const pushToken = (text, bold, italic) => {
+    if (!text) return;
+    doc.setFont("helvetica", pdfFontStyle(bold, italic));
+    doc.setFontSize(fontSize);
+    const w = doc.getTextWidth(text);
+    if (current.length && width + w > maxWidth && text !== " ") {
+      flush();
+    }
+    // Palabra más ancha que el renglón: forzar.
+    if (!current.length && w > maxWidth && text.length > 1 && text !== " ") {
+      let chunk = "";
+      for (const ch of text) {
+        doc.setFont("helvetica", pdfFontStyle(bold, italic));
+        const next = chunk + ch;
+        if (doc.getTextWidth(next) > maxWidth && chunk) {
+          current.push({ text: chunk, bold, italic });
+          flush();
+          chunk = ch;
+        } else {
+          chunk = next;
+        }
+      }
+      if (chunk) {
+        current.push({ text: chunk, bold, italic });
+        width = doc.getTextWidth(chunk);
+      }
+      return;
+    }
+    current.push({ text, bold, italic });
+    width += w;
+  };
+
+  for (const run of runs || []) {
+    const parts = String(run.text || "").split(/(\n| +)/);
+    for (const part of parts) {
+      if (!part) continue;
+      if (part === "\n") {
+        flush();
+        continue;
+      }
+      pushToken(part, !!run.bold, !!run.italic);
+    }
+  }
+  flush();
+  return lines.length ? lines : [{ runs: [] }];
+}
+
+/**
+ * Estima alto de la nota en mm.
+ * @param {import("jspdf").jsPDF} doc
+ * @param {import("./stagePlotFooterNote").FooterNoteBlock[]} blocks
+ * @param {number} maxWidth
+ * @param {{ fontSize?: number, lineHeight?: number, paraGap?: number }} [opts]
+ */
+function measureFooterNoteHeightMm(doc, blocks, maxWidth, opts = {}) {
+  const fontSize = opts.fontSize ?? 8;
+  const lineHeight = opts.lineHeight ?? 3.6;
+  const paraGap = opts.paraGap ?? 1.2;
+  if (!blocks?.length) return 0;
+  let h = 0;
+  for (let i = 0; i < blocks.length; i += 1) {
+    const b = blocks[i];
+    if (b.type === "ul" || b.type === "ol") {
+      (b.items || []).forEach((item, idx) => {
+        const prefix = b.type === "ol" ? `${idx + 1}. ` : "• ";
+        const runs = [{ text: prefix, bold: false }, ...(item || [])];
+        const lines = wrapFooterRunsToLines(doc, runs, maxWidth, fontSize);
+        h += lines.length * lineHeight;
+      });
+    } else {
+      const lines = wrapFooterRunsToLines(doc, b.runs || [], maxWidth, fontSize);
+      h += Math.max(1, lines.length) * lineHeight;
+    }
+    if (i < blocks.length - 1) h += paraGap;
+  }
+  return h;
+}
+
+/**
+ * Dibuja nota dentro de [startY, maxY]. Si `opts.truncate` es true y no cabe,
+ * corta con "…" y no devuelve remaining (PDF de una sola hoja).
+ * @param {import("jspdf").jsPDF} doc
+ * @param {import("./stagePlotFooterNote").FooterNoteBlock[]} blocks
+ * @param {number} x
+ * @param {number} startY
+ * @param {number} maxWidth
+ * @param {number} maxY
+ * @param {{ fontSize?: number, lineHeight?: number, paraGap?: number, title?: string, truncate?: boolean }} [opts]
+ * @returns {{ y: number, remaining: import("./stagePlotFooterNote").FooterNoteBlock[], truncated: boolean }}
+ */
+function drawFooterNotePdf(doc, blocks, x, startY, maxWidth, maxY, opts = {}) {
+  const fontSize = opts.fontSize ?? 8;
+  const lineHeight = opts.lineHeight ?? 3.6;
+  const paraGap = opts.paraGap ?? 1.2;
+  const truncate = opts.truncate === true;
+  let y = startY;
+  /** @type {import("./stagePlotFooterNote").FooterNoteBlock[]} */
+  const remaining = [];
+  let truncated = false;
+
+  if (opts.title && blocks.length) {
+    if (y + lineHeight > maxY) {
+      return { y, remaining: truncate ? [] : blocks, truncated: truncate };
+    }
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(fontSize);
+    doc.setTextColor(51, 65, 85);
+    doc.text(opts.title, x, y);
+    doc.setTextColor(0);
+    y += lineHeight + 0.5;
+  }
+
+  const drawLines = (lines) => {
+    for (let li = 0; li < lines.length; li += 1) {
+      const line = lines[li];
+      if (y + lineHeight > maxY) {
+        if (truncate && li > 0) {
+          // Marca truncado en la última línea ya dibujada no es trivial;
+          // dibujamos "…" en la posición actual si aún hay 1 línea de aire.
+          return "overflow";
+        }
+        return "overflow";
+      }
+      let cx = x;
+      for (const run of line.runs) {
+        if (!run.text) continue;
+        doc.setFont("helvetica", pdfFontStyle(run.bold, run.italic));
+        doc.setFontSize(fontSize);
+        doc.setTextColor(30, 41, 59);
+        doc.text(run.text, cx, y);
+        cx += doc.getTextWidth(run.text);
+      }
+      y += lineHeight;
+    }
+    return "ok";
+  };
+
+  const appendEllipsis = () => {
+    truncated = true;
+    if (y - lineHeight >= startY - 0.1) {
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(fontSize);
+      doc.setTextColor(30, 41, 59);
+      const ell = "…";
+      const ew = doc.getTextWidth(ell);
+      doc.text(ell, x + maxWidth - ew, y - lineHeight);
+    }
+  };
+
+  for (let bi = 0; bi < blocks.length; bi += 1) {
+    const b = blocks[bi];
+    if (b.type === "ul" || b.type === "ol") {
+      const items = b.items || [];
+      for (let ii = 0; ii < items.length; ii += 1) {
+        const prefix = b.type === "ol" ? `${ii + 1}. ` : "• ";
+        const runs = [{ text: prefix, bold: false }, ...(items[ii] || [])];
+        const lines = wrapFooterRunsToLines(doc, runs, maxWidth, fontSize);
+        const status = drawLines(lines);
+        if (status !== "ok") {
+          if (truncate) {
+            appendEllipsis();
+            doc.setTextColor(0);
+            return { y, remaining: [], truncated: true };
+          }
+          remaining.push({
+            type: b.type,
+            items: items.slice(ii),
+          });
+          for (let j = bi + 1; j < blocks.length; j += 1) remaining.push(blocks[j]);
+          return { y, remaining, truncated: false };
+        }
+      }
+    } else {
+      const lines = wrapFooterRunsToLines(doc, b.runs || [], maxWidth, fontSize);
+      const status = drawLines(lines);
+      if (status !== "ok") {
+        if (truncate) {
+          appendEllipsis();
+          doc.setTextColor(0);
+          return { y, remaining: [], truncated: true };
+        }
+        remaining.push(b);
+        for (let j = bi + 1; j < blocks.length; j += 1) remaining.push(blocks[j]);
+        return { y, remaining, truncated: false };
+      }
+    }
+    if (bi < blocks.length - 1) y += paraGap;
+  }
+  doc.setTextColor(0);
+  return { y, remaining: [], truncated };
+}
+
+/** Tipografías candidatas para encajar la nota en una sola franja. */
+const FOOTER_NOTE_FIT_CANDIDATES = [
+  { fontSize: 8, lineHeight: 3.6, paraGap: 1.2 },
+  { fontSize: 7, lineHeight: 3.15, paraGap: 1.0 },
+  { fontSize: 6.5, lineHeight: 2.9, paraGap: 0.85 },
+  { fontSize: 6, lineHeight: 2.65, paraGap: 0.7 },
+  { fontSize: 5.5, lineHeight: 2.45, paraGap: 0.55 },
+];
+
+/**
+ * Elige la tipografía más grande cuya nota + título quepan en maxBodyH.
+ * Si ninguna cabe, usa la más chica (el draw truncará).
+ * @param {import("jspdf").jsPDF} doc
+ * @param {import("./stagePlotFooterNote").FooterNoteBlock[]} blocks
+ * @param {number} maxWidth
+ * @param {number} maxBodyH  alto disponible para título+cuerpo (mm)
+ */
+function fitFooterNoteTypography(doc, blocks, maxWidth, maxBodyH) {
+  const titleExtra = blocks.length ? 4.5 : 0;
+  const bodyBudget = Math.max(0, maxBodyH - titleExtra);
+  for (const c of FOOTER_NOTE_FIT_CANDIDATES) {
+    const h = measureFooterNoteHeightMm(doc, blocks, maxWidth, c);
+    if (h <= bodyBudget + 0.05) {
+      return { ...c, fits: true, measuredH: titleExtra + h };
+    }
+  }
+  const last = FOOTER_NOTE_FIT_CANDIDATES[FOOTER_NOTE_FIT_CANDIDATES.length - 1];
+  return {
+    ...last,
+    fits: false,
+    measuredH: Math.min(maxBodyH, titleExtra + bodyBudget),
+  };
+}
+
+/**
+ * Resumen compacto de mobiliario para el pie de la hoja única.
+ * @param {ReturnType<typeof computeStagePlotFurnitureSummary>} furniture
+ * @returns {string[]}
+ */
+function stagePlotFurnitureCompactLines(furniture) {
+  const { furnitureBody, atrilBreakdownBody } =
+    stagePlotFurniturePdfTableBody(furniture);
+  /** @type {string[]} */
+  const lines = [];
+  if (furnitureBody.length) {
+    const parts = furnitureBody.map(([label, qty]) => {
+      const name = String(label || "").trim();
+      return `${name} ${qty}`;
+    });
+    lines.push(`Mobiliario: ${parts.join(" · ")}`);
+  }
+  if (atrilBreakdownBody.length) {
+    const parts = atrilBreakdownBody.map(([grupo, , atr]) => {
+      const g = String(grupo || "").trim();
+      return `${g} ${atr}`;
+    });
+    lines.push(`Atriles: ${parts.join(" · ")}`);
+  }
+  return lines;
+}
+
+/**
+ * Dibuja líneas de mobiliario compacto; trunca con "…" si no caben.
+ * @returns {number} y final
+ */
+function drawCompactFurnitureLines(
+  doc,
+  lines,
+  x,
+  startY,
+  maxWidth,
+  maxY,
+  opts = {},
+) {
+  const fontSize = opts.fontSize ?? 6;
+  const lineHeight = opts.lineHeight ?? 2.7;
+  let y = startY;
+  if (!lines.length) return y;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(fontSize);
+  doc.setTextColor(51, 65, 85);
+  for (let i = 0; i < lines.length; i += 1) {
+    if (y + lineHeight > maxY + 0.05) {
+      if (i > 0) {
+        const ell = "…";
+        doc.text(ell, x + maxWidth - doc.getTextWidth(ell), y - lineHeight);
+      }
+      break;
+    }
+    const raw = String(lines[i] || "");
+    // Recorte horizontal si la línea es más ancha que el renglón.
+    let text = raw;
+    if (doc.getTextWidth(text) > maxWidth) {
+      while (text.length > 1 && doc.getTextWidth(`${text}…`) > maxWidth) {
+        text = text.slice(0, -1);
+      }
+      text = `${text}…`;
+    }
+    doc.text(text, x, y);
+    y += lineHeight;
+  }
+  doc.setTextColor(0);
+  return y;
+}
+
+/**
+ * Canvas: mide alto de nota en px.
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {import("./stagePlotFooterNote").FooterNoteBlock[]} blocks
+ * @param {number} maxWidth
+ * @param {{ fontSize?: number, lineHeight?: number, paraGap?: number }} [opts]
+ */
+function measureFooterNoteHeightPx(ctx, blocks, maxWidth, opts = {}) {
+  const fontSize = opts.fontSize ?? 13;
+  const lineHeight = opts.lineHeight ?? 18;
+  const paraGap = opts.paraGap ?? 6;
+  if (!blocks?.length) return 0;
+
+  const measureLine = (runs) => {
+    let w = 0;
+    let lines = 1;
+    for (const run of runs || []) {
+      const parts = String(run.text || "").split(/(\n| +)/);
+      for (const part of parts) {
+        if (!part) continue;
+        if (part === "\n") {
+          lines += 1;
+          w = 0;
+          continue;
+        }
+        ctx.font = canvasFont(run.bold, run.italic, fontSize);
+        const tw = ctx.measureText(part).width;
+        if (w + tw > maxWidth && w > 0 && part !== " ") {
+          lines += 1;
+          w = tw;
+        } else {
+          w += tw;
+        }
+      }
+    }
+    return lines;
+  };
+
+  let h = 0;
+  for (let i = 0; i < blocks.length; i += 1) {
+    const b = blocks[i];
+    if (b.type === "ul" || b.type === "ol") {
+      (b.items || []).forEach((item, idx) => {
+        const prefix = b.type === "ol" ? `${idx + 1}. ` : "• ";
+        h += measureLine([{ text: prefix }, ...(item || [])]) * lineHeight;
+      });
+    } else {
+      h += Math.max(1, measureLine(b.runs || [])) * lineHeight;
+    }
+    if (i < blocks.length - 1) h += paraGap;
+  }
+  return h;
+}
+
+/**
+ * @param {boolean|undefined} bold
+ * @param {boolean|undefined} italic
+ * @param {number} fontSize
+ */
+function canvasFont(bold, italic, fontSize) {
+  const style = [italic ? "italic" : "", bold ? "bold" : ""]
+    .filter(Boolean)
+    .join(" ");
+  return `${style} ${fontSize}px Helvetica, Arial, sans-serif`.trim();
+}
+
+/**
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {import("./stagePlotFooterNote").FooterNoteBlock[]} blocks
+ * @param {number} x
+ * @param {number} startY
+ * @param {number} maxWidth
+ * @param {{ fontSize?: number, lineHeight?: number, paraGap?: number, title?: string }} [opts]
+ * @returns {number} y final
+ */
+function drawFooterNoteOnCanvas(ctx, blocks, x, startY, maxWidth, opts = {}) {
+  const fontSize = opts.fontSize ?? 13;
+  const lineHeight = opts.lineHeight ?? 18;
+  const paraGap = opts.paraGap ?? 6;
+  let y = startY;
+
+  if (opts.title && blocks.length) {
+    ctx.fillStyle = "#334155";
+    ctx.font = `bold ${fontSize}px Helvetica, Arial, sans-serif`;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+    ctx.fillText(opts.title, x, y, maxWidth);
+    y += lineHeight + 2;
+  }
+
+  const drawRunsWrapped = (runs) => {
+    let cx = x;
+    const tokens = [];
+    for (const run of runs || []) {
+      const parts = String(run.text || "").split(/(\n| +)/);
+      for (const part of parts) {
+        if (!part) continue;
+        tokens.push({ text: part, bold: !!run.bold, italic: !!run.italic });
+      }
+    }
+    for (const tok of tokens) {
+      if (tok.text === "\n") {
+        y += lineHeight;
+        cx = x;
+        continue;
+      }
+      ctx.font = canvasFont(tok.bold, tok.italic, fontSize);
+      ctx.fillStyle = "#1e293b";
+      ctx.textAlign = "left";
+      ctx.textBaseline = "top";
+      const tw = ctx.measureText(tok.text).width;
+      if (cx > x && cx + tw > x + maxWidth && tok.text !== " ") {
+        y += lineHeight;
+        cx = x;
+      }
+      ctx.fillText(tok.text, cx, y);
+      cx += tw;
+    }
+    y += lineHeight;
+  };
+
+  for (let i = 0; i < blocks.length; i += 1) {
+    const b = blocks[i];
+    if (b.type === "ul" || b.type === "ol") {
+      (b.items || []).forEach((item, idx) => {
+        const prefix = b.type === "ol" ? `${idx + 1}. ` : "• ";
+        drawRunsWrapped([{ text: prefix }, ...(item || [])]);
+      });
+    } else {
+      drawRunsWrapped(b.runs || []);
+    }
+    if (i < blocks.length - 1) y += paraGap;
+  }
+  return y;
+}
 
 const VB = STAGE_PLOT_SILHOUETTE_VIEWBOX;
 const GRID_MINOR = stagePlotGridMinorPx();
@@ -201,51 +685,16 @@ function stagePlotExportTitle(gira, plotNombre) {
 }
 
 /**
- * Parte filas en N columnas (relleno vertical: arriba→abajo, luego siguiente col).
- * @template T
- * @param {T[]} rows
- * @param {number} columnCount
- * @returns {T[][]}
- */
-function chunkRowsIntoColumns(rows, columnCount) {
-  const list = Array.isArray(rows) ? rows : [];
-  if (list.length === 0) return [];
-  const n = Math.max(1, Math.min(Math.floor(columnCount) || 1, list.length));
-  const perCol = Math.ceil(list.length / n);
-  /** @type {T[][]} */
-  const chunks = [];
-  for (let i = 0; i < n; i += 1) {
-    const slice = list.slice(i * perCol, (i + 1) * perCol);
-    if (slice.length) chunks.push(slice);
-  }
-  return chunks;
-}
-
-/**
- * Cuántas columnas para el desglose de atriles según filas y ancho útil.
- * Portrait A4 (~210 mm): 2 cols cómodas; 3 solo con muchas filas.
- * @param {number} rowCount
- * @param {number} pageWidthMm
- */
-function atrilBreakdownColumnCount(rowCount, pageWidthMm) {
-  const n = Number(rowCount) || 0;
-  if (n <= 3) return 1;
-  const w = Number(pageWidthMm) || 0;
-  if (n >= 10 && w >= 200) return 3;
-  if (n >= 4) return 2;
-  return 1;
-}
-
-/**
- * PDF: hoja 1 landscape = solo escenario (+ dims). Hoja 2 **portrait** =
- * mobiliario necesario (sillas / banquetas / atriles / podio / tarimas) +
- * desglose de atriles en 1–3 columnas (`stagePlotFurniturePdfTableBody`).
+ * PDF de **una sola hoja** landscape A4:
+ * escenario escalado + dims + franja inferior (nota + mobiliario compacto).
+ * Nunca `addPage` por overflow de nota ni por mobiliario/atriles.
+ * Prioridad: escenario + nota; mobiliario entra si cabe en la franja.
  * Sin channel list ni columnas Orgánico/Plano/Δ.
  *
  * @param {unknown} gira
  * @param {unknown} payloadRaw
  * @param {string} [plotNombre]
- * @param {{ roster?: Array, groups?: Array }} [options]
+ * @param {{ roster?: Array, groups?: Array, includeFooterNote?: boolean }} [options]
  */
 export async function exportStagePlotPdf(
   gira,
@@ -262,6 +711,11 @@ export async function exportStagePlotPdf(
     roster,
     groups,
   );
+  const furnitureLines = stagePlotFurnitureCompactLines(furniture);
+  const footerNoteHtml = resolveExportFooterNoteHtml(payload, options);
+  const footerBlocks = footerNoteHtml
+    ? parseStagePlotFooterNoteBlocks(footerNoteHtml)
+    : [];
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
@@ -283,11 +737,59 @@ export async function exportStagePlotPdf(
     align: "right",
   });
 
-  // Página 1: escenario a casi toda la hoja (sin listado de mobiliario).
+  // Layout de una hoja: header → escenario → dims → franja (nota | mobiliario) → atribución.
   const plotTop = 22;
-  const footerReserve = 14;
-  const plotH = pageH - plotTop - footerReserve;
-  const plotW = pageW - margin * 2;
+  const attrReserve = 5;
+  const dimReserve = 5;
+  const bandGap = 2.5;
+  const minPlotH = 55;
+  const contentW = pageW - margin * 2;
+  const hasNote = footerBlocks.length > 0;
+  const hasFurniture = furnitureLines.length > 0;
+
+  // Alto máximo de la franja inferior (deja al menos minPlotH al escenario).
+  const maxBandH = Math.max(
+    0,
+    Math.min(
+      pageH * 0.3,
+      52,
+      pageH - plotTop - minPlotH - dimReserve - attrReserve - bandGap,
+    ),
+  );
+
+  // Nota y mobiliario lado a lado si hay ambos; si no, ancho completo.
+  const sideBySide = hasNote && hasFurniture;
+  const colGap = sideBySide ? 3.5 : 0;
+  const noteColW = sideBySide ? contentW * 0.58 : contentW;
+  const furnColW = sideBySide
+    ? contentW - noteColW - colGap
+    : contentW;
+
+  const noteTypo = hasNote
+    ? fitFooterNoteTypography(doc, footerBlocks, noteColW, maxBandH)
+    : null;
+  const noteNaturalH = noteTypo ? noteTypo.measuredH : 0;
+  const furnLineH = 2.7;
+  const furnNaturalH = hasFurniture
+    ? furnitureLines.length * furnLineH + (hasNote && !sideBySide ? 1.5 : 0)
+    : 0;
+
+  let bandH = 0;
+  if (sideBySide) {
+    bandH = Math.min(maxBandH, Math.max(noteNaturalH, furnNaturalH, 8));
+  } else if (hasNote) {
+    bandH = Math.min(maxBandH, Math.max(noteNaturalH, 6));
+  } else if (hasFurniture) {
+    // Mobiliario solo: compacto, no robar mucho al escenario.
+    bandH = Math.min(maxBandH, Math.min(furnNaturalH, 10));
+  }
+
+  const footerReserve = bandH > 0 ? bandGap + bandH : 0;
+  const plotH = Math.max(
+    minPlotH,
+    pageH - plotTop - attrReserve - dimReserve - footerReserve,
+  );
+  const plotW = contentW;
   doc.setDrawColor(180);
   doc.setFillColor(248, 250, 252);
   doc.rect(margin, plotTop, plotW, plotH, "FD");
@@ -323,7 +825,6 @@ export async function exportStagePlotPdf(
   doc.setFontSize(7);
   doc.setTextColor(51, 65, 85);
   doc.setFont("helvetica", "bold");
-  // Etiquetas sobre los bordes del rect del escenario (dentro del área útil).
   const anchoY = Math.min(stageBottom + 4.5, plotTop + plotH - 1.5);
   doc.text(`Ancho: ${widthCm} cm`, stageMidX, anchoY, { align: "center" });
   doc.text(`Profundo: ${depthCm} cm`, Math.max(stageLeft + 4, margin + 3), stageMidY, {
@@ -333,7 +834,8 @@ export async function exportStagePlotPdf(
   doc.setFont("helvetica", "normal");
   doc.setFontSize(7);
   doc.setTextColor(100);
-  doc.text(dimLabel, margin, pageH - 8);
+  const dimY = plotTop + plotH + 3.5;
+  doc.text(dimLabel, margin, dimY);
   doc.setTextColor(0);
 
   doc.setFontSize(6);
@@ -341,106 +843,84 @@ export async function exportStagePlotPdf(
   doc.text(
     "Iconos: game-icons.net (CC BY 3.0). Ver public/stage-plot/ATTRIBUTION.md",
     margin,
-    pageH - 4,
+    pageH - 3,
   );
   doc.setTextColor(0);
 
-  // Hoja 2 portrait: mobiliario necesario + desglose atriles (1–3 cols) — sin Plano/Δ.
-  // jsPDF: addPage(format, orientation) — la forma objeto {orientation} NO rota la página.
-  doc.addPage("a4", "portrait");
-  const pageW2 = doc.internal.pageSize.getWidth();
-  const pageH2 = doc.internal.pageSize.getHeight();
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(12);
-  doc.text("Mobiliario / atriles", margin, 14);
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(8);
-  doc.text(title, margin, 20);
-  if (nombre) {
-    doc.text(nombre, margin, 24);
-  }
-  const { furnitureBody, atrilBreakdownBody } =
-    stagePlotFurniturePdfTableBody(furniture);
-  autoTable(doc, {
-    startY: nombre ? 28 : 24,
-    head: [["Ítem", "Necesario"]],
-    body: furnitureBody,
-    styles: { fontSize: 9, cellPadding: 2 },
-    headStyles: { fillColor: [51, 65, 85] },
-    columnStyles: {
-      0: { cellWidth: "auto" },
-      1: { halign: "right", cellWidth: 28 },
-    },
-    margin: { left: margin, right: margin },
-    tableWidth: pageW2 - margin * 2,
-    didParseCell: (data) => {
-      // «Tarimas» total row = section header; size rows underneath sum to it.
-      if (
-        data.section === "body" &&
-        data.column.index === 0 &&
-        String(data.cell.raw || "").trim() === "Tarimas"
-      ) {
-        data.cell.styles.fontStyle = "bold";
-        if (data.row.cells[1]) data.row.cells[1].styles.fontStyle = "bold";
+  // Franja inferior: nota (+ mobiliario compacto). Sin addPage.
+  if (bandH > 0) {
+    const bandTop = dimY + bandGap;
+    const bandMaxY = Math.min(pageH - attrReserve - 0.5, bandTop + bandH);
+
+    if (sideBySide) {
+      const noteX = margin;
+      const furnX = margin + noteColW + colGap;
+      if (hasNote && noteTypo) {
+        drawFooterNotePdf(
+          doc,
+          footerBlocks,
+          noteX,
+          bandTop,
+          noteColW,
+          bandMaxY,
+          {
+            fontSize: noteTypo.fontSize,
+            lineHeight: noteTypo.lineHeight,
+            paraGap: noteTypo.paraGap,
+            title: "Nota",
+            truncate: true,
+          },
+        );
       }
-    },
-  });
-  let nextY = (doc.lastAutoTable?.finalY || 40) + 8;
-  if (atrilBreakdownBody.length > 0) {
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(10);
-    doc.setTextColor(51, 65, 85);
-    doc.text("Desglose de atriles", margin, nextY);
-    doc.setTextColor(0);
-    const colCount = atrilBreakdownColumnCount(
-      atrilBreakdownBody.length,
-      pageW2,
-    );
-    const chunks = chunkRowsIntoColumns(atrilBreakdownBody, colCount);
-    const gap = 3.5;
-    const usableW = pageW2 - margin * 2;
-    const colW =
-      (usableW - gap * Math.max(0, chunks.length - 1)) /
-      Math.max(1, chunks.length);
-    const startY = nextY + 3;
-    const tight = chunks.length >= 3;
-    const numW = tight ? 12 : 16;
-    let maxFinalY = startY;
-    for (let i = 0; i < chunks.length; i += 1) {
-      const left = margin + i * (colW + gap);
-      autoTable(doc, {
-        startY,
-        head: [["Grupo", "Mús.", "Atr.", "Regla"]],
-        body: chunks[i],
-        styles: {
-          fontSize: tight ? 7 : 8,
-          cellPadding: tight ? 1.2 : 1.6,
-          overflow: "linebreak",
+      drawCompactFurnitureLines(
+        doc,
+        furnitureLines,
+        furnX,
+        bandTop,
+        furnColW,
+        bandMaxY,
+        { fontSize: 6, lineHeight: furnLineH },
+      );
+    } else if (hasNote && noteTypo) {
+      const drawn = drawFooterNotePdf(
+        doc,
+        footerBlocks,
+        margin,
+        bandTop,
+        contentW,
+        bandMaxY,
+        {
+          fontSize: noteTypo.fontSize,
+          lineHeight: noteTypo.lineHeight,
+          paraGap: noteTypo.paraGap,
+          title: "Nota",
+          truncate: true,
         },
-        headStyles: { fillColor: [71, 85, 105], fontSize: tight ? 7 : 8 },
-        columnStyles: {
-          0: { cellWidth: "auto" },
-          1: { halign: "right", cellWidth: numW },
-          2: { halign: "right", cellWidth: numW },
-          3: { cellWidth: "auto" },
-        },
-        margin: { left, right: Math.max(margin, pageW2 - left - colW) },
-        tableWidth: colW,
-      });
-      maxFinalY = Math.max(maxFinalY, doc.lastAutoTable?.finalY || startY);
+      );
+      // Mobiliario debajo de la nota solo si quedó aire en la franja.
+      if (hasFurniture && drawn.y + furnLineH <= bandMaxY) {
+        drawCompactFurnitureLines(
+          doc,
+          furnitureLines,
+          margin,
+          drawn.y + 1.2,
+          contentW,
+          bandMaxY,
+          { fontSize: 6, lineHeight: furnLineH },
+        );
+      }
+    } else if (hasFurniture) {
+      drawCompactFurnitureLines(
+        doc,
+        furnitureLines,
+        margin,
+        bandTop,
+        contentW,
+        bandMaxY,
+        { fontSize: 6, lineHeight: furnLineH },
+      );
     }
-    nextY = maxFinalY + 8;
   }
-  const footY = Math.min(nextY, pageH2 - 14);
-  doc.setFontSize(7);
-  doc.setTextColor(100);
-  doc.text(
-    "Cantidades = lo necesario según roster convocado (no compara con el plano). Banquetas: contrabajo + percusionista. Resto: sillas. Director: 1 atril + 1 podio (sin silla). Atriles: ceil(n/2) cuerdas; 1× resto; 1× percusionista; +director. Tarimas: según plano (forma + dims).",
-    margin,
-    footY,
-    { maxWidth: pageW2 - margin * 2 },
-  );
-  doc.setTextColor(0);
 
   const safeName = stagePlotExportSafeName(gira);
   doc.save(`plano-escenario_${safeName}.pdf`);
@@ -455,6 +935,7 @@ export async function exportStagePlotPdf(
  *   maxStagePx?: number,
  *   maxScale?: number,
  *   includeChrome?: boolean,
+ *   includeFooterNote?: boolean,
  *   gira?: unknown,
  *   plotNombre?: string,
  * }} [options]
@@ -487,6 +968,11 @@ export async function renderStagePlotToCanvas(payloadRaw, options = {}) {
   let dimLabel = "";
   let widthCm = 0;
   let depthCm = 0;
+  /** @type {import("./stagePlotFooterNote").FooterNoteBlock[]} */
+  let footerBlocks = [];
+  let noteH = 0;
+  const noteFontSize = 13;
+  const noteLineHeight = 18;
 
   if (includeChrome) {
     ({ title, plotNombre: nombre } = stagePlotExportTitle(gira, plotNombre));
@@ -496,6 +982,23 @@ export async function renderStagePlotToCanvas(payloadRaw, options = {}) {
     padX = 56;
     padTop = nombre ? 72 : 56;
     padBottom = 48;
+    const noteHtml = resolveExportFooterNoteHtml(payload, options);
+    footerBlocks = noteHtml ? parseStagePlotFooterNoteBlocks(noteHtml) : [];
+  }
+
+  // Medir nota con un canvas temporal (mismo font metrics).
+  const measureCanvas = document.createElement("canvas");
+  const measureCtx = measureCanvas.getContext("2d");
+  if (includeChrome && footerBlocks.length && measureCtx) {
+    noteH =
+      28 +
+      measureFooterNoteHeightPx(
+        measureCtx,
+        footerBlocks,
+        stageW,
+        { fontSize: noteFontSize, lineHeight: noteLineHeight, paraGap: 6 },
+      );
+    padBottom += noteH;
   }
 
   const canvasW = padX * 2 + stageW;
@@ -557,6 +1060,20 @@ export async function renderStagePlotToCanvas(payloadRaw, options = {}) {
     ctx.fillText(`Profundo: ${depthCm} cm`, 0, 0);
     ctx.restore();
 
+    if (footerBlocks.length) {
+      const stripTop = oy + stageH + 28;
+      ctx.fillStyle = "#f1f5f9";
+      ctx.fillRect(ox, stripTop - 8, stageW, noteH);
+      ctx.strokeStyle = "#e2e8f0";
+      ctx.strokeRect(ox, stripTop - 8, stageW, noteH);
+      drawFooterNoteOnCanvas(ctx, footerBlocks, ox + 10, stripTop, stageW - 20, {
+        fontSize: noteFontSize,
+        lineHeight: noteLineHeight,
+        paraGap: 6,
+        title: "Nota",
+      });
+    }
+
     ctx.fillStyle = "#64748b";
     ctx.font = "12px Helvetica, Arial, sans-serif";
     ctx.textAlign = "left";
@@ -568,14 +1085,25 @@ export async function renderStagePlotToCanvas(payloadRaw, options = {}) {
 }
 
 /**
- * JPG: raster del escenario únicamente (sin hoja de mobiliario) + dims Ancho/Profundo.
+ * JPG: raster del escenario únicamente (sin hoja de mobiliario) + dims Ancho/Profundo
+ * + franja de nota al pie si `includeFooterNote` (default: on si hay nota).
+ * @param {unknown} gira
+ * @param {unknown} payloadRaw
+ * @param {string} [plotNombre]
+ * @param {{ includeFooterNote?: boolean }} [options]
  * @returns {Promise<{ blob: Blob, fileName: string }>}
  */
-export async function buildStagePlotJpgBlob(gira, payloadRaw, plotNombre) {
+export async function buildStagePlotJpgBlob(
+  gira,
+  payloadRaw,
+  plotNombre,
+  options = {},
+) {
   const canvas = await renderStagePlotToCanvas(payloadRaw, {
     maxStagePx: 1600,
     maxScale: 2,
     includeChrome: true,
+    includeFooterNote: options.includeFooterNote,
     gira,
     plotNombre,
   });
@@ -597,12 +1125,22 @@ export async function buildStagePlotJpgBlob(gira, payloadRaw, plotNombre) {
 
 /**
  * Descarga el JPG (misma ruta que antes).
+ * @param {unknown} gira
+ * @param {unknown} payloadRaw
+ * @param {string} [plotNombre]
+ * @param {{ includeFooterNote?: boolean }} [options]
  */
-export async function exportStagePlotJpg(gira, payloadRaw, plotNombre) {
+export async function exportStagePlotJpg(
+  gira,
+  payloadRaw,
+  plotNombre,
+  options = {},
+) {
   const { blob, fileName } = await buildStagePlotJpgBlob(
     gira,
     payloadRaw,
     plotNombre,
+    options,
   );
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -623,15 +1161,23 @@ export async function exportStagePlotJpg(gira, payloadRaw, plotNombre) {
  *
  * @returns {Promise<"shared"|"cancelled"|"downloaded-fallback">}
  */
+/**
+ * @param {unknown} gira
+ * @param {unknown} payloadRaw
+ * @param {string} [plotNombre]
+ * @param {{ includeFooterNote?: boolean }} [options]
+ */
 export async function shareStagePlotJpgViaWhatsApp(
   gira,
   payloadRaw,
   plotNombre,
+  options = {},
 ) {
   const { blob, fileName } = await buildStagePlotJpgBlob(
     gira,
     payloadRaw,
     plotNombre,
+    options,
   );
   const label =
     String(plotNombre || "").trim() ||

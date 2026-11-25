@@ -6,6 +6,7 @@ import {
   IconPhoto,
   IconX,
 } from "../../components/ui/Icons";
+import { isStagePlotFooterNoteEmpty } from "../../utils/stagePlotFooterNote";
 import { applyStagePlotStagePatch } from "../../utils/stagePlotPayload";
 import StagePlotLivePreview from "./StagePlotLivePreview";
 import StagePlotOpacityControls, {
@@ -18,6 +19,7 @@ import { useStagePlotNarrowViewport } from "./StagePlotMobileEditor";
  * Modal previo a descargar PDF/JPG: preview arriba + mismas 4 opacidades
  * que el técnico en StagePlotViewerModal. Los deslizantes son override solo
  * de exportación (no escriben el payload del Lienzo).
+ * Toggle «Incluir nota» (default on si `stage.footerNote` no está vacío).
  */
 export default function StagePlotExportOptionsModal({
   open,
@@ -28,19 +30,31 @@ export default function StagePlotExportOptionsModal({
   stage,
   plotNombre,
   onClose,
-  /** Recibe patch de stage; el padre aplica a una copia y exporta. */
+  /**
+   * Recibe `{ stagePatch, includeFooterNote }`.
+   * El padre aplica el patch a una copia y exporta.
+   */
   onConfirm,
   /** Por encima del editor inmersivo (`STAGE_PLOT_OVERLAY_Z`). */
   zIndex = 100,
 }) {
   const seedStage = payload?.stage || stage;
   const [op, setOp] = useState(() => readStagePlotOpacities(seedStage));
+  const [includeFooterNote, setIncludeFooterNote] = useState(true);
   const [busy, setBusy] = useState(false);
   const isNarrow = useStagePlotNarrowViewport();
+
+  const noteHtml = payload?.stage?.footerNote ?? seedStage?.footerNote ?? "";
+  const hasNote = !isStagePlotFooterNoteEmpty(noteHtml);
 
   useEffect(() => {
     if (!open) return;
     setOp(readStagePlotOpacities(payload?.stage || stage));
+    setIncludeFooterNote(
+      !isStagePlotFooterNoteEmpty(
+        payload?.stage?.footerNote ?? stage?.footerNote ?? "",
+      ),
+    );
     setBusy(false);
     // Semilla solo al abrir; no resetear si `stage`/`payload` cambian por autosave.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional
@@ -60,7 +74,10 @@ export default function StagePlotExportOptionsModal({
     if (busy || !onConfirm) return;
     setBusy(true);
     try {
-      await onConfirm(opacitiesToStagePatch(op));
+      await onConfirm({
+        stagePatch: opacitiesToStagePatch(op),
+        includeFooterNote: hasNote ? includeFooterNote : false,
+      });
       onClose?.();
     } catch {
       // El padre ya muestra toast; mantener modal abierto.
@@ -132,6 +149,33 @@ export default function StagePlotExportOptionsModal({
             onChange={setOp}
             disabled={busy}
           />
+
+          {hasNote ? (
+            <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={includeFooterNote}
+                disabled={busy}
+                onChange={(e) => setIncludeFooterNote(e.target.checked)}
+              />
+              <span>
+                <span className="font-semibold text-slate-800">
+                  Incluir nota
+                </span>
+                <span className="mt-0.5 block text-[11px] text-slate-500">
+                  {isPdf
+                    ? "Pie bajo el escenario en la hoja 1 (si es larga, continúa antes del mobiliario)."
+                    : "Franja de texto bajo la imagen del escenario."}
+                </span>
+              </span>
+            </label>
+          ) : (
+            <p className="text-[11px] text-slate-400">
+              Este lienzo no tiene nota al pie. Podés agregarla con el botón
+              «Nota» junto a Lienzo.
+            </p>
+          )}
         </div>
 
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-slate-200 bg-white px-4 py-3">

@@ -284,8 +284,10 @@ import {
 } from "../../services/giraGruposService";
 import { isConfirmedConvocadoForSeatingReports } from "../../utils/seatingRosterGate";
 import StagePlotExportOptionsModal from "./StagePlotExportOptionsModal";
+import StagePlotFooterNoteModal from "./StagePlotFooterNoteModal";
 import StagePlotImportModal from "./StagePlotImportModal";
 import StagePlotTemplatesModal from "./StagePlotTemplatesModal";
+import { isStagePlotFooterNoteEmpty } from "../../utils/stagePlotFooterNote";
 import StagePlotInventarioPanel from "./StagePlotInventarioPanel";
 import {
   findInventarioElementoRow,
@@ -1026,6 +1028,7 @@ function StageLienzoPopover({
   onExportJson,
   onImport,
   onOpenTemplates,
+  onOpenFooterNote,
 }) {
   const popoverRef = useRef(null);
   const flushersRef = useRef(null);
@@ -1305,6 +1308,25 @@ function StageLienzoPopover({
         </>
       )}
       <div className="mt-2 space-y-1 border-t border-slate-100 pt-2">
+        {onOpenFooterNote && (
+          <button
+            type="button"
+            onClick={() => runAndClose(onOpenFooterNote)}
+            className={`inline-flex w-full items-center gap-1.5 rounded border px-2 py-1.5 text-left text-[11px] font-medium ${
+              !isStagePlotFooterNoteEmpty(stage?.footerNote)
+                ? "border-indigo-300 bg-indigo-50 text-indigo-700"
+                : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+            }`}
+            title="Nota al pie del escenario (PDF/JPG)"
+          >
+            <IconAlignLeft size={13} /> Nota al pie
+            {!isStagePlotFooterNoteEmpty(stage?.footerNote) && (
+              <span className="ml-auto rounded-full bg-indigo-100 px-1.5 text-[10px] text-indigo-700">
+                Sí
+              </span>
+            )}
+          </button>
+        )}
         {canEdit && onToggleAsociar && (
           <button
             type="button"
@@ -4178,6 +4200,7 @@ export default function ProgramStagePlot({
   const [itemHoverTooltip, setItemHoverTooltip] = useState(null);
   const itemDraggingRef = useRef(false);
   const [lienzoOpen, setLienzoOpen] = useState(false);
+  const [footerNoteOpen, setFooterNoteOpen] = useState(false);
   const lienzoBtnRef = useRef(null);
   /** Imperative flush of Lienzo Ancho/Alto/Líneas drafts (blur is unreliable on close). */
   const lienzoFlushRef = useRef(null);
@@ -8349,16 +8372,28 @@ export default function ProgramStagePlot({
     }
   };
 
-  const handleConfirmExport = async (stagePatch) => {
-    const exportPayload = applyStagePlotStagePatch(payload, stagePatch);
+  const handleConfirmExport = async (opts) => {
+    // Compat: callers viejos pasaban solo stagePatch.
+    const stagePatch =
+      opts && typeof opts === "object" && "stagePatch" in opts
+        ? opts.stagePatch
+        : opts;
+    const includeFooterNote =
+      opts && typeof opts === "object" && "includeFooterNote" in opts
+        ? !!opts.includeFooterNote
+        : undefined;
+    const exportPayload = applyStagePlotStagePatch(payload, stagePatch || {});
     try {
       if (exportModal?.kind === "pdf") {
         await exportStagePlotPdf(program, exportPayload, nombre || undefined, {
           roster: organicoRoster,
           groups: exportPayload.groups,
+          includeFooterNote,
         });
       } else {
-        await exportStagePlotJpg(program, exportPayload, nombre || undefined);
+        await exportStagePlotJpg(program, exportPayload, nombre || undefined, {
+          includeFooterNote,
+        });
       }
     } catch (err) {
       console.error(err);
@@ -8665,7 +8700,21 @@ export default function ProgramStagePlot({
             onExportJson={handleExportJson}
             onImport={() => setImportOpen(true)}
             onOpenTemplates={() => setTemplatesOpen(true)}
+            onOpenFooterNote={() => setFooterNoteOpen(true)}
           />
+          <button
+            type="button"
+            onClick={() => setFooterNoteOpen(true)}
+            className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-xs font-medium ${
+              !isStagePlotFooterNoteEmpty(payload.stage?.footerNote)
+                ? "border-indigo-300 bg-indigo-50 text-indigo-700"
+                : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+            }`}
+            title="Nota al pie del escenario (se incluye al exportar PDF/JPG)"
+          >
+            <IconAlignLeft size={14} />
+            Nota
+          </button>
           {canEdit && (
             <div
               className="inline-flex overflow-hidden rounded border border-slate-200 bg-white"
@@ -8865,6 +8914,15 @@ export default function ProgramStagePlot({
         zIndex={immersive ? STAGE_PLOT_OVERLAY_Z : 100}
         onClose={() => setExportModal(null)}
         onConfirm={handleConfirmExport}
+      />
+
+      <StagePlotFooterNoteModal
+        open={footerNoteOpen}
+        value={payload.stage?.footerNote || ""}
+        canEdit={canEdit}
+        zIndex={immersive ? STAGE_PLOT_OVERLAY_Z : 100}
+        onClose={() => setFooterNoteOpen(false)}
+        onSave={(html) => patchStage({ footerNote: html })}
       />
 
       <StagePlotImportModal

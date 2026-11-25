@@ -1,6 +1,6 @@
 import {
-  filterAndRankMultiTokenSearch,
   normalizeForSearch,
+  scoreMultiTokenSearch,
   splitSearchTokens,
 } from "./sanitize";
 import { stripRepertorioTitleHtml } from "./repertorioRowDisplay";
@@ -37,15 +37,55 @@ export function programaPaletteLabel(programa) {
   return head || nombre;
 }
 
-export function rankPaletteCommands(actions, query) {
+function parseIsoDateUtc(iso) {
+  if (!iso || typeof iso !== "string") return null;
+  const [y, m, d] = iso.slice(0, 10).split("-").map(Number);
+  if (!y || !m || !d) return null;
+  return Date.UTC(y, m - 1, d);
+}
+
+/**
+ * Distancia en días de una gira respecto de hoy.
+ * 0 si hoy cae entre inicio y fin; si no, días hasta el extremo más cercano.
+ */
+export function giraProximityDays(fechaDesde, fechaHasta, now = new Date()) {
+  const start = parseIsoDateUtc(fechaDesde);
+  if (start == null) return Number.POSITIVE_INFINITY;
+  const end = parseIsoDateUtc(fechaHasta) ?? start;
+  const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+  const lo = Math.min(start, end);
+  const hi = Math.max(start, end);
+  if (today >= lo && today <= hi) return 0;
+  if (today < lo) return Math.round((lo - today) / 86400000);
+  return Math.round((today - hi) / 86400000);
+}
+
+function commandSearchParts(action) {
+  return [action.label, action.section, action.subtitle, ...(action.aliases || [])];
+}
+
+export function rankPaletteCommands(actions, query, now = new Date()) {
   const trimmed = String(query || "").trim();
   if (!trimmed) return actions.slice(0, 10);
 
-  const ranked = filterAndRankMultiTokenSearch(
-    actions,
-    (action) => [action.label, action.section, action.subtitle, ...(action.aliases || [])],
-    trimmed,
-  );
+  const ranked = (actions || [])
+    .map((action) => ({
+      action,
+      score: scoreMultiTokenSearch(commandSearchParts(action), trimmed),
+    }))
+    .filter((row) => row.score >= 0)
+    .sort((a, b) => {
+      const diff = b.score - a.score;
+      // El desempate de longitud del texto es < 1. Ahí manda la gira más cercana.
+      if (Math.abs(diff) >= 1) return diff;
+      if (!a.action.fechaDesde || !b.action.fechaDesde) return diff;
+      const da = giraProximityDays(a.action.fechaDesde, a.action.fechaHasta, now);
+      const db = giraProximityDays(b.action.fechaDesde, b.action.fechaHasta, now);
+      if (da !== db) return da - db;
+      return diff;
+    })
+    .map((row) => row.action);
+
   const inGira = [];
   const rest = [];
   for (const action of ranked) {

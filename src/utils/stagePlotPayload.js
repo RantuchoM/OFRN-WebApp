@@ -32,6 +32,7 @@ import {
   normalizeStagePlotGroup,
   reconcileStagePlotGroups,
 } from "./stagePlotGroups";
+import { normalizeStagePlotFooterNote } from "./stagePlotFooterNote";
 
 export const STAGE_PLOT_PAYLOAD_VERSION = 1;
 
@@ -522,6 +523,7 @@ export function applyStagePlotStagePatch(prev, patch) {
     ...opacities,
     ...flags,
     radialLines: normalizeStagePlotRadialLines(merged.radialLines),
+    footerNote: normalizeStagePlotFooterNote(merged.footerNote),
     id_locacion:
       merged.id_locacion != null &&
       merged.id_locacion !== "" &&
@@ -585,6 +587,8 @@ export function createEmptyStagePlotPayload() {
       ...stagePlotVisibilityBooleansFromOpacities(opacities),
       radialLines: STAGE_PLOT_RADIAL_LINES_DEFAULT,
       id_locacion: null,
+      /** Nota al pie del lienzo (HTML mínimo Quill). */
+      footerNote: "",
       /** Plots nuevos ya usan huella 50×50 a scale=1; no re-migrar. */
       instrumentFootprintMigrated: true,
     },
@@ -609,6 +613,7 @@ export function normalizeStagePlotPayload(raw) {
   const opacities = readStagePlotLayerOpacities(stageIn);
   const flags = stagePlotVisibilityBooleansFromOpacities(opacities);
   const radialLines = normalizeStagePlotRadialLines(stageIn.radialLines);
+  const footerNote = normalizeStagePlotFooterNote(stageIn.footerNote);
   const idLocacion =
     stageIn.id_locacion != null && stageIn.id_locacion !== ""
       ? Number(stageIn.id_locacion)
@@ -638,6 +643,7 @@ export function normalizeStagePlotPayload(raw) {
       ...opacities,
       ...flags,
       radialLines,
+      footerNote,
       id_locacion:
         Number.isFinite(idLocacion) && idLocacion > 0 ? idLocacion : null,
       instrumentFootprintMigrated: true,

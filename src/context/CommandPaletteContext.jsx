@@ -188,7 +188,7 @@ export const CommandPaletteProvider = ({ children }) => {
         try {
             const { data } = await supabase
                 .from('programas')
-                .select('id, nombre_gira, nomenclador, mes_letra, fecha_desde')
+                .select('id, nombre_gira, nomenclador, mes_letra, fecha_desde, fecha_hasta')
                 .order('fecha_desde', { ascending: false });
 
             if (data) {
@@ -200,6 +200,8 @@ export const CommandPaletteProvider = ({ children }) => {
                         id: `goto-gira-${gira.id}`,
                         label: programaPaletteLabel(gira),
                         subtitle: year,
+                        fechaDesde: gira.fecha_desde || null,
+                        fechaHasta: gira.fecha_hasta || null,
                         aliases: programaSearchAliases(gira),
                         icon: <IconMusic size={14} className="text-indigo-500" />,
                         section: 'Historial de Giras',

@@ -30,11 +30,13 @@ import StagePlotOpacityControls, {
   readStagePlotOpacities,
 } from "./StagePlotOpacityControls";
 import StagePlotLivePreview from "./StagePlotLivePreview";
+import StagePlotExportOptionsModal from "./StagePlotExportOptionsModal";
 import { useStagePlotNarrowViewport } from "./StagePlotMobileEditor";
 
 /**
  * Vista de solo lectura para técnicos: elige lienzo, 4 opacidades Lienzo,
  * preview en vivo + PDF/JPG/WhatsApp con las mismas opacidades.
+ * PDF/JPG abren `StagePlotExportOptionsModal` (incluye toggle «Incluir nota»).
  */
 export default function StagePlotViewerModal({
   open,
@@ -50,6 +52,7 @@ export default function StagePlotViewerModal({
   const [eventScoped, setEventScoped] = useState(false);
   const [payload, setPayload] = useState(() => normalizeStagePlotPayload(null));
   const [exporting, setExporting] = useState(false);
+  const [exportModal, setExportModal] = useState(null);
   const isNarrow = useStagePlotNarrowViewport();
 
   const programId =
@@ -140,30 +143,45 @@ export default function StagePlotViewerModal({
     return p?.nombre || "Escenario";
   }, [plots, activeId]);
 
-  const handleExport = async (kind) => {
+  const handleConfirmExport = async (opts) => {
+    const stagePatch =
+      opts && typeof opts === "object" && "stagePatch" in opts
+        ? opts.stagePatch
+        : opts;
+    const includeFooterNote =
+      opts && typeof opts === "object" && "includeFooterNote" in opts
+        ? !!opts.includeFooterNote
+        : undefined;
+    const exportPayload = applyStagePlotStagePatch(payload, stagePatch || {});
+    const giraRef = gira || evento?.programas || { id: programId };
+    if (exportModal?.kind === "pdf") {
+      await exportStagePlotPdf(giraRef, exportPayload, activeNombre, {
+        roster: pdfRoster,
+        groups: exportPayload.groups,
+        includeFooterNote,
+      });
+    } else {
+      await exportStagePlotJpg(giraRef, exportPayload, activeNombre, {
+        includeFooterNote,
+      });
+    }
+  };
+
+  const handleWhatsApp = async () => {
     setExporting(true);
     try {
       const giraRef = gira || evento?.programas || { id: programId };
-      if (kind === "pdf") {
-        await exportStagePlotPdf(giraRef, payload, activeNombre, {
-          roster: pdfRoster,
-          groups: payload.groups,
-        });
-      } else if (kind === "whatsapp") {
-        const mode = await shareStagePlotJpgViaWhatsApp(
-          giraRef,
-          payload,
-          activeNombre,
+      const mode = await shareStagePlotJpgViaWhatsApp(
+        giraRef,
+        payload,
+        activeNombre,
+      );
+      if (mode === "shared") {
+        toast.success("Listo para enviar por WhatsApp");
+      } else if (mode === "downloaded-fallback") {
+        toast.success(
+          "Imagen descargada. Adjuntála en el chat de WhatsApp que se abrió.",
         );
-        if (mode === "shared") {
-          toast.success("Listo para enviar por WhatsApp");
-        } else if (mode === "downloaded-fallback") {
-          toast.success(
-            "Imagen descargada. Adjuntála en el chat de WhatsApp que se abrió.",
-          );
-        }
-      } else {
-        await exportStagePlotJpg(giraRef, payload, activeNombre);
       }
     } catch (err) {
       console.error(err);
@@ -286,8 +304,8 @@ export default function StagePlotViewerModal({
                   {(payload.formations || []).length} formaciones
                 </p>
                 <p className="mt-2 text-[11px] text-slate-500">
-                  Vista de solo lectura. La preview usa las opacidades de
-                  abajo; PDF/JPG/WhatsApp exportan con las mismas.
+                  Vista de solo lectura. PDF/JPG abren opciones (opacidades +
+                  nota). WhatsApp usa la nota si el lienzo la tiene.
                 </p>
               </div>
             </>
@@ -298,7 +316,7 @@ export default function StagePlotViewerModal({
           <button
             type="button"
             disabled={exporting || !plots.length}
-            onClick={() => handleExport("jpg")}
+            onClick={() => setExportModal({ kind: "jpg" })}
             className="inline-flex items-center gap-1.5 rounded border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
           >
             <IconPhoto size={14} /> JPG
@@ -306,7 +324,7 @@ export default function StagePlotViewerModal({
           <button
             type="button"
             disabled={exporting || !plots.length}
-            onClick={() => handleExport("whatsapp")}
+            onClick={handleWhatsApp}
             title="Descargar o compartir la imagen por WhatsApp"
             className="inline-flex items-center gap-1.5 rounded border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
           >
@@ -315,7 +333,7 @@ export default function StagePlotViewerModal({
           <button
             type="button"
             disabled={exporting || !plots.length}
-            onClick={() => handleExport("pdf")}
+            onClick={() => setExportModal({ kind: "pdf" })}
             className="inline-flex items-center gap-1.5 rounded border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-bold text-indigo-700 hover:bg-indigo-100 disabled:opacity-50"
           >
             <IconFileText size={14} /> PDF
@@ -329,6 +347,27 @@ export default function StagePlotViewerModal({
           </button>
         </div>
       </div>
+
+      <StagePlotExportOptionsModal
+        open={!!exportModal}
+        kind={exportModal?.kind || "pdf"}
+        payload={payload}
+        plotNombre={activeNombre}
+        zIndex={110}
+        onClose={() => setExportModal(null)}
+        onConfirm={async (opts) => {
+          setExporting(true);
+          try {
+            await handleConfirmExport(opts);
+          } catch (err) {
+            console.error(err);
+            toast.error(err?.message || "No se pudo exportar");
+            throw err;
+          } finally {
+            setExporting(false);
+          }
+        }}
+      />
     </div>,
     document.body,
   );
