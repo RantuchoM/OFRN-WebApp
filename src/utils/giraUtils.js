@@ -1536,6 +1536,58 @@ export const getProgramStyle = (type) => {
   return PROGRAM_TYPES[type] || PROGRAM_TYPES["default"];
 };
 
+/** Estados de `programas.estado` (enum `estado_gira`). */
+export const GIRA_ESTADOS = ["Vigente", "Borrador", "Pausada", "Cancelada"];
+
+/** Chips de filtro visibles para editor/admin/management (incluye Cancelada). */
+export const GIRA_ESTADOS_FILTRO_STAFF = [
+  "Vigente",
+  "Borrador",
+  "Pausada",
+  "Cancelada",
+];
+
+/** Defaults de filtro en GirasView para staff (Cancelada destildada). */
+export const GIRA_ESTADOS_DEFAULT_STAFF = ["Vigente", "Borrador", "Pausada"];
+
+/** Defaults de filtro para coordinador / personal. */
+export const GIRA_ESTADOS_DEFAULT_PERSONAL = ["Vigente", "Borrador"];
+
+export function normalizeGiraEstado(estado) {
+  const value = String(estado || "Borrador").trim();
+  return value || "Borrador";
+}
+
+export function isGiraCancelada(programOrEstado) {
+  const estado =
+    typeof programOrEstado === "string" || programOrEstado == null
+      ? programOrEstado
+      : programOrEstado?.estado;
+  return normalizeGiraEstado(estado) === "Cancelada";
+}
+
+/** Borrador o Cancelada: fuera de reportes / year summary / constancias “activas”. */
+export function programaExcluidoDeReportes(program) {
+  const estado = normalizeGiraEstado(program?.estado);
+  return estado === "Borrador" || estado === "Cancelada";
+}
+
+/**
+ * ¿Se puede ofrecer notificación masiva (traslado / cancelación)?
+ * Solo si ya hubo convocatoria inicial y las notificaciones de la gira están habilitadas.
+ */
+export function giraPuedeNotificarMasivo(gira) {
+  return (
+    gira?.notificacion_inicial_enviada === true &&
+    gira?.notificaciones_habilitadas !== false
+  );
+}
+
+/** ¿Mostrar el checkbox de notify? (aunque esté deshabilitado por silencio). */
+export function giraMuestraOpcionNotificar(gira) {
+  return gira?.notificacion_inicial_enviada === true;
+}
+
 /**
  * Programas en estado Borrador que un músico (no editor) no ve
  * en Agenda general ni en el listado de Giras.
@@ -1548,7 +1600,7 @@ export const MUSICIAN_EXCLUDED_DRAFT_PROGRAM_TYPES = new Set([
 
 export function isMusicianExcludedDraftProgram(program) {
   if (!program) return false;
-  const estado = String(program.estado || "Borrador").trim();
+  const estado = normalizeGiraEstado(program.estado);
   if (estado !== "Borrador") return false;
   return MUSICIAN_EXCLUDED_DRAFT_PROGRAM_TYPES.has(program.tipo);
 }

@@ -131,6 +131,7 @@ export default function DashboardGeneral({ supabase, onViewChange }) {
       // 2. NUEVO: Filtro Estado
       // Si es null (legacy), asumimos Borrador o Vigente. Aquí asumimos Borrador para obligar a actualizar.
       const estadoActual = g.estado || "Borrador";
+      if (estadoActual === "Cancelada") return false;
       if (filterStatus.size > 0 && !filterStatus.has(estadoActual)) return false;
 
       // 3. Filtro Fechas

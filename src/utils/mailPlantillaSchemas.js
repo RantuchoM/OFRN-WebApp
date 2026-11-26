@@ -346,6 +346,17 @@ export const MAIL_PLANTILLA_SCHEMAS = [
     },
   ),
   conv(
+    "GIRA_CANCELADA",
+    "Gira cancelada",
+    "Gira cancelada | {gira}",
+    {
+      titulo_interno: "Gira cancelada",
+      lead: "Te informamos que la gira <strong>{gira}</strong> ha sido <strong>cancelada</strong> y ya no forma parte del cronograma.",
+      cierre: "Si tenés consultas, contactá a la administración.",
+      footer: "Orquesta Filarmónica de Río Negro – Sistema de Gestión",
+    },
+  ),
+  conv(
     "SEATING_CAMBIO",
     "Novedades de seating",
     "Novedades de seating | {gira}",
@@ -950,6 +961,7 @@ export function resolveConvocatoriaPlantillaVariant({
   if (v === "ALTA_ACCESO_PERSONAL") return "ALTA_ACCESO_PERSONAL";
   if (v === "INITIAL_BROADCAST") return "INITIAL_BROADCAST";
   if (v === "GIRA_ELIMINADA") return "GIRA_ELIMINADA";
+  if (v === "GIRA_CANCELADA") return "GIRA_CANCELADA";
   if (v === "SEATING_CAMBIO") return "SEATING_CAMBIO";
   if (v === "SEATING_CAMBIO_JEFE_RESUMEN") return "SEATING_CAMBIO_JEFE_RESUMEN";
   if (v === "SEATING_ATRIL_CAMBIO") return "SEATING_ATRIL_CAMBIO";

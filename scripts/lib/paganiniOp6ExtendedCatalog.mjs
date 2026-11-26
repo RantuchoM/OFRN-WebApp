@@ -85,7 +85,7 @@ export const PAGANINI_OP6_EXTENDED_WORK = {
     },
     {
       pdf: "IMSLP291651-PMLP30286-Paganini_-_Violin_Concerto_No1_Op6_D_major_8_ContraBassoon.pdf",
-      instrument: "Contrafagot",
+      instrument: "Fg Contrafagot",
     },
     {
       pdf: "Corno F 1 - op.6. Concierto Violin Nro 1 - Paganini, N.pdf",

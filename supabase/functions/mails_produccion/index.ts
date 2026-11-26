@@ -767,14 +767,14 @@
             ${fechasZonaBlock}
             <p>${cierreAus}</p>
           `;
-        } else if (variant === "GIRA_ELIMINADA") {
+        } else if (variant === "GIRA_ELIMINADA" || variant === "GIRA_CANCELADA") {
           titulo = slotOf(d, "titulo_interno", "Gira cancelada");
           const nombreGiraUnico = gira || nomenclador || "esta gira";
-          const leadDel = slotOf(
-            d,
-            "lead",
-            `Te informamos que la gira <strong>${nombreGiraUnico}</strong> ha sido <strong>cancelada definitivamente</strong> y eliminada del cronograma.`,
-          );
+          const leadDefault =
+            variant === "GIRA_CANCELADA"
+              ? `Te informamos que la gira <strong>${nombreGiraUnico}</strong> ha sido <strong>cancelada</strong> y ya no forma parte del cronograma.`
+              : `Te informamos que la gira <strong>${nombreGiraUnico}</strong> ha sido <strong>cancelada definitivamente</strong> y eliminada del cronograma.`;
+          const leadDel = slotOf(d, "lead", leadDefault);
           const cierreDel = slotOf(
             d,
             "cierre",
@@ -1330,7 +1330,7 @@
             }
             else if (v === 'BAJA') subject = `Baja de gira | ${nombreGira}`;
             else if (v === 'AUSENTE') subject = `Ausencia en gira | ${nombreGira}`;
-            else if (v === 'GIRA_ELIMINADA') subject = `Gira cancelada | ${nombreGira}`;
+            else if (v === 'GIRA_ELIMINADA' || v === 'GIRA_CANCELADA') subject = `Gira cancelada | ${nombreGira}`;
             else if (v === 'SEATING_CAMBIO') {
               subject = detalle?.es_modelo
                 ? `[MODELO] Novedades de seating | ${nombreGira}`

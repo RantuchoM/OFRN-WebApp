@@ -48,8 +48,8 @@ BEGIN
   INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
   VALUES (v_obra, '04', 'Contrabajo', '[{"url":"https://drive.google.com/file/d/1VXBYQXTd0ssKEYSE6Rn7iy8eDgaQSwWD/view?usp=drivesdk","description":"Contrabajo - op.6. Concierto Violin Nro 1 - Paganini, N.pdf"}]', false);
 
-  INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
-  VALUES (v_obra, '08b', 'Contrafagot', '[{"url":"https://drive.google.com/file/d/1nk2PB4fn-onqArubmuIp-PuQL-YXyyXJ/view?usp=drivesdk","description":"Contrafagot - op.6. Concierto Violin Nro 1 - Paganini, N.pdf"}]', false);
+  INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista, nota_organico)
+  VALUES (v_obra, '08b', 'Fg Contrafagot', '[{"url":"https://drive.google.com/file/d/1nk2PB4fn-onqArubmuIp-PuQL-YXyyXJ/view?usp=drivesdk","description":"Fg Contrafagot - op.6. Concierto Violin Nro 1 - Paganini, N.pdf"}]', false, 'CFg');
 
   INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
   VALUES (v_obra, '09', 'Corno F 1', '[{"url":"https://drive.google.com/file/d/1gI9-dqlPQheAzXIYtYIWvlC2qEFW5XCC/view?usp=drivesdk","description":"Corno F 1 - op.6. Concierto Violin Nro 1 - Paganini, N.pdf"}]', false);

@@ -54,6 +54,7 @@ export function resolveConvocatoriaPlantillaVariant(d: any): string {
   if (v === "ALTA_ACCESO_PERSONAL") return "ALTA_ACCESO_PERSONAL";
   if (v === "INITIAL_BROADCAST") return "INITIAL_BROADCAST";
   if (v === "GIRA_ELIMINADA") return "GIRA_ELIMINADA";
+  if (v === "GIRA_CANCELADA") return "GIRA_CANCELADA";
   if (v === "SEATING_CAMBIO") return "SEATING_CAMBIO";
   if (v === "SEATING_CAMBIO_JEFE_RESUMEN") return "SEATING_CAMBIO_JEFE_RESUMEN";
   if (v === "SEATING_ATRIL_CAMBIO") return "SEATING_ATRIL_CAMBIO";

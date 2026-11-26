@@ -707,8 +707,8 @@ BEGIN
     VALUES (_id_obra, '07b', 'Clarinete Bajo', '[{"url":"https://drive.google.com/file/d/1zlYPHbYKTxtX829BhZVUemQXXoGxefyK/view?usp=drivesdk","description":"Clarinete Bajo - Sinfonía Nro. 4 - Mahler, G.pdf"}]', false);
     INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
     VALUES (_id_obra, '04', 'Contrabajo', '[{"url":"https://drive.google.com/file/d/137qLX5FjG58KH7FsAOc1xEf9wgZq7C9v/view?usp=drivesdk","description":"Contrabajo - Sinfonía Nro. 4 - Mahler, G.pdf"}]', false);
-    INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
-    VALUES (_id_obra, '08b', 'Contrafagot', '[{"url":"https://drive.google.com/file/d/1r3xUGFcvH-l21PzaYHq3HFI1cHRECXMC/view?usp=drivesdk","description":"Contrafagot - Sinfonía Nro. 4 - Mahler, G.pdf"}]', false);
+    INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista, nota_organico)
+    VALUES (_id_obra, '08b', 'Fg Contrafagot', '[{"url":"https://drive.google.com/file/d/1r3xUGFcvH-l21PzaYHq3HFI1cHRECXMC/view?usp=drivesdk","description":"Fg Contrafagot - Sinfonía Nro. 4 - Mahler, G.pdf"}]', false, 'CFg');
     INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
     VALUES (_id_obra, '09', 'Corno F 1', '[{"url":"https://drive.google.com/file/d/1Ef6zrUeFeocy3X_YTNjzfPX0KgOSSbJo/view?usp=drivesdk","description":"Corno F 1 - Sinfonía Nro. 4 - Mahler, G.pdf"}]', false);
     INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)

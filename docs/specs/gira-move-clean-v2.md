@@ -40,8 +40,9 @@ Refactorizar el traslado de giras para que la tabla `eventos` sea el origen prin
 ## Frontend
 
 - **GiraManipulationModals.jsx – MoveGiraModal:**
-  - Checkbox (Tailwind): *"Notificar cambio a los músicos por email"* (por defecto marcado).
-  - Al confirmar, se llama `onConfirm(newDate, notify)` pasando el valor del checkbox.
+  - Checkbox (Tailwind): *"Notificar cambio a los músicos por email"*.
+  - **Gate:** solo se ofrece si `notificacion_inicial_enviada === true`. Por defecto marcado solo si además `notificaciones_habilitadas !== false`. Sin convocatoria inicial: no hay checkbox / no se notifica (misma regla que cancelación soft).
+  - Al confirmar, se llama `onConfirm(newDate, notify)` pasando el valor del checkbox (o `false` si no aplica).
 
 - **giraActions.js – moveGira(giraId, newStartDate, notify):**
   - Tercer parámetro opcional `notify` (boolean).

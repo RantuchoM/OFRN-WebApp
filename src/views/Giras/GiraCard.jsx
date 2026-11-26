@@ -123,7 +123,7 @@ export default function GiraCard({
   supabase,
   onMove,
   onDuplicate,
-  onDelete,
+  onCancel,
   isHighlighted,
   defaultOpenSection,
   dateAccessory = null,
@@ -331,14 +331,20 @@ export default function GiraCard({
   const borderColorClass = getStyleToken(/border-[\w-]+-\d+/, "border-slate-300");
   const typeColorClass = getStyleToken(/text-[\w-]+-\d+/, "text-slate-700");
   let cardClasses = baseStyle.color;
-  if (gira.estado === "Pausada") {
+  if (gira.estado === "Cancelada") {
+    cardClasses = "bg-rose-50 border-rose-200 text-rose-900 opacity-70";
+  } else if (gira.estado === "Pausada") {
     cardClasses = "bg-amber-50 border-amber-300 text-amber-900 opacity-75";
   } else if (gira.estado === "Borrador") {
     cardClasses = `bg-slate-50 text-slate-600 ${borderColorClass}`;
   }
 
   const titleColorClass =
-    gira.estado === "Pausada" ? "text-amber-900" : typeColorClass;
+    gira.estado === "Cancelada"
+      ? "text-rose-900"
+      : gira.estado === "Pausada"
+        ? "text-amber-900"
+        : typeColorClass;
   const dateInfo = formatDateRangeBig(gira.fecha_desde, gira.fecha_hasta);
   const desktopBtnClass =
     "w-7 h-7 flex items-center justify-center bg-white/80 backdrop-blur rounded-full shadow-sm border border-black/5 transition-all hover:scale-105 active:scale-95 cursor-pointer";
@@ -793,7 +799,7 @@ export default function GiraCard({
                   isDifusion={isDifusion}
                   userRole={userRole}
                   onEdit={() => startEdit(gira)}
-                  onDelete={onDelete}
+                  onCancel={onCancel}
                   onGlobalComments={() => setGlobalCommentsGiraId(gira.id)}
                   isOpen={isMenuOpen}
                   onToggle={() => setActiveMenuId(isMenuOpen ? null : gira.id)}
@@ -894,7 +900,7 @@ export default function GiraCard({
                 isDifusion={isDifusion}
                 userRole={userRole}
                 onEdit={() => startEdit(gira)}
-                onDelete={onDelete}
+                onCancel={onCancel}
                 onGlobalComments={() => setGlobalCommentsGiraId(gira.id)}
                 isOpen={isMenuOpen}
                 onToggle={() => setActiveMenuId(isMenuOpen ? null : gira.id)}
@@ -1169,7 +1175,7 @@ export default function GiraCard({
               isDifusion={isDifusion}
               userRole={userRole}
               onEdit={() => startEdit(gira)}
-              onDelete={onDelete}
+              onCancel={onCancel}
               onGlobalComments={() => setGlobalCommentsGiraId(gira.id)}
               isOpen={isMenuOpen}
               onToggle={() => setActiveMenuId(isMenuOpen ? null : gira.id)}
@@ -1475,7 +1481,7 @@ export default function GiraCard({
         evento={null}
       />
       {repertoireSectionEnabled && (
-        <div className="relative z-20 border-t border-black/5 bg-white/40 p-2 min-w-0 w-full max-w-none">
+        <div className="relative z-0 border-t border-black/5 bg-white/40 p-2 min-w-0 w-full max-w-none">
           {!repertoireExpanded ? (
             <button
               type="button"

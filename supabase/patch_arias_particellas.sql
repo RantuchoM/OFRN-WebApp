@@ -411,8 +411,8 @@ BEGIN
   INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
   VALUES (3507, '07', 'Clarinete Bajo', '[{"url":"https://drive.google.com/file/d/1S_Qx2kdjl83xE_PMiML6Nk5AZXmbBw8G/view?usp=drivesdk","description":"Clarinete Bajo - 03. E lucevan le stelle (''Tosca'') - Puccini, G.pdf"}]', false);
 
-  INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
-  VALUES (3507, '08b', 'Contrafagot', '[{"url":"https://drive.google.com/file/d/1SZQOTF4ndBl-bxaA-ab_p7qck75oP39n/view?usp=drivesdk","description":"Contrafagot - 03. E lucevan le stelle (''Tosca'') - Puccini, G.pdf"}]', false);
+  INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista, nota_organico)
+  VALUES (3507, '08b', 'Fg Contrafagot', '[{"url":"https://drive.google.com/file/d/1SZQOTF4ndBl-bxaA-ab_p7qck75oP39n/view?usp=drivesdk","description":"Fg Contrafagot - 03. E lucevan le stelle (''Tosca'') - Puccini, G.pdf"}]', false, 'CFg');
 
   INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
   VALUES (3507, '09', 'Corno F 1', '[{"url":"https://drive.google.com/file/d/1SV1UX19vAU9n2Fi68OI8dHY2WnPa-Yjl/view?usp=drivesdk","description":"Corno F 1 - 03. E lucevan le stelle (''Tosca'') - Puccini, G.pdf"}]', false);

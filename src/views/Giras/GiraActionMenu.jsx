@@ -14,7 +14,7 @@ import {
   IconMegaphone,
   IconEdit,
   IconMessageCircle,
-  IconTrash,
+  IconBan,
   IconChevronDown,
   IconArrowRight,
   IconCopy,
@@ -31,7 +31,7 @@ const GiraActionMenu = ({
   isDifusion = false,
   userRole,
   onEdit,
-  onDelete,
+  onCancel,
   onGlobalComments,
   onMove,
   onDuplicate,
@@ -333,13 +333,17 @@ const GiraActionMenu = ({
                   onClick={onDuplicate}
                   className="text-indigo-600 hover:text-indigo-700"
                 />
-                <div className="my-1 border-t border-slate-100"></div>
-                <SubMenuItem
-                  icon={IconTrash}
-                  label="Eliminar Programa"
-                  onClick={onDelete}
-                  className="text-red-600 hover:text-red-700"
-                />
+                {gira?.estado !== "Cancelada" && (
+                  <>
+                    <div className="my-1 border-t border-slate-100"></div>
+                    <SubMenuItem
+                      icon={IconBan}
+                      label="Cancelar programa"
+                      onClick={onCancel}
+                      className="text-red-600 hover:text-red-700"
+                    />
+                  </>
+                )}
               </CategoryItem>
             )}
           </div>

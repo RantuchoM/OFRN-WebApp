@@ -259,7 +259,7 @@ export default function EnsembleProgramManager({ supabase, ensemble }) {
     value: type,
     label: type,
   }));
-  const stateOptions = ["Borrador", "Vigente", "Pausada"].map((state) => ({
+  const stateOptions = ["Borrador", "Vigente", "Pausada", "Cancelada"].map((state) => ({
     value: state,
     label: state,
   }));

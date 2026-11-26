@@ -179,7 +179,7 @@ serve(async (req) => {
       supabase
         .from("eventos")
         .select(
-          "id, fecha, hora_inicio, hora_fin, descripcion, id_tipo_evento, is_deleted",
+          "id, fecha, hora_inicio, hora_fin, descripcion, id_tipo_evento, is_deleted, programas(estado)",
         )
         .in("id", eventIds)
         .eq("id_tipo_evento", TIPO_ENSAYO)
@@ -195,7 +195,11 @@ serve(async (req) => {
 
   const evById = new Map(
     (eventos || [])
-      .filter((e) => !e.is_deleted)
+      .filter(
+        (e) =>
+          !e.is_deleted &&
+          String(e.programas?.estado || "").trim() !== "Cancelada",
+      )
       .map((e) => [Number(e.id), e]),
   );
   const intById = new Map(

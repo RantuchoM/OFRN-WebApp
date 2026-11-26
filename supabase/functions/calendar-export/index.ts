@@ -199,8 +199,8 @@ serve(async (req) => {
       id, fecha, hora_inicio, hora_fin, descripcion, convocados, id_tipo_evento,
       tipos_evento(nombre, id_categoria), locaciones(nombre, direccion),
       eventos_ensambles( id_ensamble, ensambles ( id, ensamble ) ),
-      programas(id, nomenclador, nombre_gira, google_drive_folder_id, fecha_desde, fecha_hasta, tipo, zona, giras_integrantes(id_integrante, estado, rol), giras_fuentes(tipo, valor_id, valor_texto)),
-      eventos_programas_asociados(programas(id, nomenclador, nombre_gira, google_drive_folder_id, fecha_desde, fecha_hasta, zona, giras_integrantes(id_integrante, estado, rol), giras_fuentes(tipo, valor_id, valor_texto)))
+      programas(id, nomenclador, nombre_gira, google_drive_folder_id, fecha_desde, fecha_hasta, tipo, zona, estado, giras_integrantes(id_integrante, estado, rol), giras_fuentes(tipo, valor_id, valor_texto)),
+      eventos_programas_asociados(programas(id, nomenclador, nombre_gira, google_drive_folder_id, fecha_desde, fecha_hasta, zona, estado, giras_integrantes(id_integrante, estado, rol), giras_fuentes(tipo, valor_id, valor_texto)))
     `)
     .gte("fecha", startDateFilter)
     .or("is_deleted.eq.false,is_deleted.is.null")
@@ -210,8 +210,9 @@ serve(async (req) => {
 
   const { data: allPrograms } = await supabase
     .from("programas")
-    .select(`id, nombre_gira, fecha_desde, fecha_hasta, nomenclador, mes_letra, zona, google_drive_folder_id, tipo, giras_integrantes(id_integrante, estado), giras_fuentes(tipo, valor_id, valor_texto)`)
+    .select(`id, nombre_gira, fecha_desde, fecha_hasta, nomenclador, mes_letra, zona, google_drive_folder_id, tipo, estado, giras_integrantes(id_integrante, estado), giras_fuentes(tipo, valor_id, valor_texto)`)
     .gte("fecha_hasta", startDateFilter)
+    .neq("estado", "Cancelada")
     .limit(5000);
 
   // --- LÓGICA UNIFICADA ---
@@ -267,7 +268,23 @@ serve(async (req) => {
     });
   };
 
+  const isProgramaCancelado = (prog: any) =>
+    String(prog?.estado || "").trim() === "Cancelada";
+
   const eventosFiltrados = (eventos || []).filter((e: any) => {
+    if (isProgramaCancelado(e?.programas)) return false;
+    const asociados = Array.isArray(e?.eventos_programas_asociados)
+      ? e.eventos_programas_asociados
+      : [];
+    // Si el evento solo cuelga de programas cancelados, ocultarlo.
+    if (
+      !e?.programas &&
+      asociados.length > 0 &&
+      asociados.every((row: any) => isProgramaCancelado(row?.programas))
+    ) {
+      return false;
+    }
+
     if (isMasterConciertos) {
       return Number(e.id_tipo_evento) === ID_TIPO_CONCIERTO;
     }

@@ -1,41 +1,44 @@
-# Spec: Refinamiento de UX en Eliminación de Giras
+# Spec: Cancelación soft de giras (estado Cancelada)
 
 ## Objetivo
-Sustituir las alertas nativas por un flujo de confirmación moderno mediante 'sonner' (toast) que permita gestionar notificaciones y proporcione feedback visual durante el borrado.
+Reemplazar el hard delete de programas por un estado **Cancelada**: la gira permanece en DB, deja de aparecer en agenda/calendarios, y solo se lista en GirasView (staff) con filtro propio.
 
-## 1. Flujo de Confirmación (Toast Interactivo)
-- **Activador**: Botón de eliminar en `GirasView` o `GiraActionMenu`.
-- **Interfaz**: Toast persistente con:
-  - Mensaje: "¿Confirmas la eliminación de [Nombre de Gira]?"
-  - Toggle/Checkbox: "Notificar a los músicos confirmados" (Habilitado por defecto si la gira fue publicada).
-  - Botones: [Eliminar] (Rojo) y [Cancelar].
+## 1. Confirmación (ConfirmDialog)
+- **Activador**: «Cancelar programa» en `GiraActionMenu` (reemplaza «Eliminar Programa»).
+- **UI**: `useConfirmDialog` + checkbox opcional de notificación.
+- **Mensaje**: la gira pasa a Cancelada; eventos dejan de aparecer; la gira sigue en el listado.
 
-## 2. Estado de Procesamiento
-- **Feedback**: Al confirmar, el toast cambia a estado de "Cargando" (Loading).
-- **Acción**: Se dispara la lógica de envío de mails (si se marcó) y posteriormente el borrado en Supabase.
-- **Finalización**: El toast muestra éxito o error, y se refresca la lista de giras.
+## 2. Notificación
+- Checkbox «Notificar esta cancelación a los músicos confirmados» solo si `notificacion_inicial_enviada === true`.
+- Default tildado solo si además `notificaciones_habilitadas !== false`.
+- Sin convocatoria inicial: **sin** opción de notificar (misma regla que traslado de fechas).
+- Mail: variante `GIRA_CANCELADA` (`convocatoria_gira`), asunto «Gira cancelada | …».
+- Si el mail falla, **no** se cambia el estado.
 
-## 3. Lógica de Negocio
-- **Condición de Mail**: La opción de notificar solo se ofrece si `notificacion_inicial_enviada` es `true`.
-- **Persistencia**: La gira solo se borra de la DB tras procesar exitosamente la cola de correos (si aplica).
-- **Respeto a Modo Silencio**: Si `notificaciones_habilitadas` es `false`, no se debe ofrecer la opción de notificar.
+## 3. Persistencia
+- `programas.update({ estado: 'Cancelada' })`. No se borran eventos, roster ni logística.
+- Enum DB: `estado_gira` incluye `Cancelada` (migración `20261126140000`).
 
-## 4. Componentes Afectados
-- `GirasView.jsx`: Función `handleDeleteGira` con toast interactivo.
-- `GiraRoster.jsx`: Función `bypassNotificaciones` también usa toast interactivo en lugar de `confirm()` nativo.
+## 4. Visibilidad
+- **GirasView**: chip «Can» solo editor/admin/management; **destildado por defecto**. Coordinadores/músicos no ven canceladas.
+- **Agenda / ICS / calendarios / recordatorios ensayo / sync sheet / reportes / constancias**: excluyen Cancelada.
+- **Entradas**: no se suspenden automáticamente.
+- Reactivación: cambiar estado en `GiraForm` (ConfirmDialog, sin mail en v1).
 
----
+## 5. Componentes
+- `GirasView.jsx` → `handleCancelGira`
+- `GiraActionMenu.jsx` → «Cancelar programa»
+- `useConfirmDialog.js` → opción `checkbox`
+- Helpers en `giraUtils.js` (`isGiraCancelada`, `giraPuedeNotificarMasivo`, …)
 
-## Estado de Implementación
+## Estado de implementación
 
-| Tarea | Estado | Archivo / Notas |
-|-------|--------|-----------------|
-| Spec documento | ✅ Completado | `docs/spec-gira-deletion-ux.md` |
-| Toast interactivo en handleDeleteGira | ✅ Completado | `GirasView.jsx`: Toast con checkbox y botones Eliminar/Cancelar |
-| Checkbox "Notificar músicos" | ✅ Completado | Solo visible si `notificacion_inicial_enviada === true` y `notificaciones_habilitadas !== false` |
-| Estado de carga durante eliminación | ✅ Completado | Toast loading "Procesando eliminación y notificaciones..." |
-| Envío de mails antes de eliminar | ✅ Completado | Si checkbox marcado, envía GIRA_ELIMINADA antes de eliminar |
-| Manejo de errores con toasts | ✅ Completado | toast.error en lugar de alert() nativo |
-| Toast de éxito | ✅ Completado | Muestra cantidad de músicos notificados si aplica |
-| Toast interactivo en bypassNotificaciones | ✅ Completado | `GiraRoster.jsx`: Reemplazado confirm() por toast.custom() |
-| Respeto a modo silencio | ✅ Completado | No ofrece checkbox si `notificaciones_habilitadas === false` |
+| Tarea | Estado |
+|-------|--------|
+| Enum Cancelada + plantilla mail | ✅ |
+| ConfirmDialog + checkbox notify | ✅ |
+| handleCancelGira / menú sin Eliminar | ✅ |
+| Gate notify sin convocatoria inicial (cancel + traslado) | ✅ |
+| Ocultar eventos (Agenda, ICS, etc.) | ✅ |
+| Chip/filtro GirasView | ✅ |
+| Specs move + listado | ✅ |

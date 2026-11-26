@@ -36,6 +36,7 @@ export default function GirasListControls({
   setExpandAllConcerts,
   showFiltersMobile = false,
   setShowFiltersMobile,
+  showCanceladaFilter = false,
 }) {
   // --- LÓGICA DE GRUPOS UNIFICADOS ---
 
@@ -277,12 +278,16 @@ export default function GirasListControls({
 
           {/* ESTADOS */}
           <div className="flex flex-wrap gap-1 md:min-w-fit md:flex-nowrap">
-            {["Vigente", "Borrador", "Pausada"].map((status) => {
+            {(showCanceladaFilter
+              ? ["Vigente", "Borrador", "Pausada", "Cancelada"]
+              : ["Vigente", "Borrador", "Pausada"]
+            ).map((status) => {
               const isActive = filterStatus.has(status);
               const activeClasses = {
                 Vigente: "bg-green-100 text-green-700 border-green-200",
                 Borrador: "bg-slate-200 text-slate-700 border-slate-300",
                 Pausada: "bg-amber-100 text-amber-700 border-amber-200",
+                Cancelada: "bg-rose-100 text-rose-700 border-rose-200",
               };
               return (
                 <button

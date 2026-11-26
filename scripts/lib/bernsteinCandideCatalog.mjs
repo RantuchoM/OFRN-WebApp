@@ -40,7 +40,7 @@ export const BERNSTEIN_CANDIDE_WORK = {
     { re: "clarone\\.pdf$", instrument: "Clarinete Bajo" },
     { re: "(?<![ivx])i fagote\\.pdf$", instrument: "Fagot 1" },
     { re: "(?<![ivx])ii fagote\\.pdf$", instrument: "Fagot 2" },
-    { re: "contrafagote\\.pdf$", instrument: "Contrafagot" },
+    { re: "contrafagote\\.pdf$", instrument: "Fg Contrafagot" },
     { re: "(?<![ivx])i trompa\\.pdf$", instrument: "Corno F 1" },
     { re: "(?<![ivx])ii trompa\\.pdf$", instrument: "Corno F 2" },
     { re: "(?<![ivx])iii trompa\\.pdf$", instrument: "Corno F 3" },

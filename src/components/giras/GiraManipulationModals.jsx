@@ -1,11 +1,24 @@
 import React, { useState, useEffect } from 'react';
 import { IconLoader, IconCopy, IconArrowRight } from '../ui/Icons';
 import DateInput from '../ui/DateInput';
+import {
+  giraMuestraOpcionNotificar,
+  giraPuedeNotificarMasivo,
+} from '../../utils/giraUtils';
 
 export const MoveGiraModal = ({ isOpen, onClose, onConfirm, gira, loading }) => {
     const [newDate, setNewDate] = useState('');
-    const [notify, setNotify] = useState(true);
-    useEffect(() => { if (isOpen && gira) { setNewDate(gira.fecha_desde); setNotify(true); } }, [isOpen, gira]);
+    const [notify, setNotify] = useState(false);
+    const muestraNotify = giraMuestraOpcionNotificar(gira);
+    const puedeNotificar = giraPuedeNotificarMasivo(gira);
+
+    useEffect(() => {
+        if (isOpen && gira) {
+            setNewDate(gira.fecha_desde);
+            setNotify(giraPuedeNotificarMasivo(gira));
+        }
+    }, [isOpen, gira]);
+
     if (!isOpen) return null;
 
     return (
@@ -21,19 +34,33 @@ export const MoveGiraModal = ({ isOpen, onClose, onConfirm, gira, loading }) => 
                     <label className="block text-xs font-bold uppercase mb-1">Nueva Fecha Inicio</label>
                     <DateInput value={newDate} onChange={setNewDate} />
                 </div>
-                <label className="flex items-center gap-2 mb-6 cursor-pointer">
-                    <input
-                        type="checkbox"
-                        checked={notify}
-                        onChange={(e) => setNotify(e.target.checked)}
-                        className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-                    />
-                    <span className="text-sm text-slate-700">Notificar cambio a los músicos por email</span>
-                </label>
+                {muestraNotify ? (
+                    <label className={`flex items-center gap-2 mb-6 ${puedeNotificar ? 'cursor-pointer' : 'opacity-60 cursor-not-allowed'}`}>
+                        <input
+                            type="checkbox"
+                            checked={notify}
+                            disabled={!puedeNotificar}
+                            onChange={(e) => {
+                                if (puedeNotificar) setNotify(e.target.checked);
+                            }}
+                            className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 disabled:opacity-50"
+                        />
+                        <span className="text-sm text-slate-700">
+                            Notificar cambio a los músicos por email
+                            {!puedeNotificar ? (
+                                <span className="block text-xs text-slate-400">Notificaciones desactivadas en esta gira</span>
+                            ) : null}
+                        </span>
+                    </label>
+                ) : (
+                    <p className="text-xs text-slate-400 mb-6">
+                        Sin convocatoria inicial enviada: no se notificará el traslado.
+                    </p>
+                )}
                 <div className="flex justify-end gap-2">
                     <button onClick={onClose} disabled={loading} className="px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 rounded">Cancelar</button>
                     <button
-                        onClick={() => onConfirm(newDate, notify)}
+                        onClick={() => onConfirm(newDate, muestraNotify && puedeNotificar ? notify : false)}
                         disabled={loading || !newDate}
                         className="px-3 py-2 text-sm font-bold bg-orange-600 text-white rounded hover:bg-orange-700 flex items-center gap-2"
                     >
@@ -84,4 +111,4 @@ export const DuplicateGiraModal = ({ isOpen, onClose, onConfirm, gira, loading }
             </div>
         </div>
     );
-};  
+};

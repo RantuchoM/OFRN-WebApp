@@ -43,8 +43,8 @@ BEGIN
     VALUES (_id_obra, '07b', 'Clarinete Requinto', '[{"url":"https://drive.google.com/file/d/1WDaIoEzoZV5jyVirI7e3BHEPEiBMoh_d/view?usp=drivesdk","description":"Clarinete Requinto - Obertura Candide - Bernstein, L.pdf"}]', false);
     INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
     VALUES (_id_obra, '04', 'Contrabajo', '[{"url":"https://drive.google.com/file/d/1r8Tm20HLsFgWI9ndHer2047lDCLQQiI-/view?usp=drivesdk","description":"Contrabajo - Obertura Candide - Bernstein, L.pdf"}]', false);
-    INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
-    VALUES (_id_obra, '08b', 'Contrafagot', '[{"url":"https://drive.google.com/file/d/1Lckw5q7DMCc9prNpsuDU0-cmrtBD76ts/view?usp=drivesdk","description":"Contrafagot - Obertura Candide - Bernstein, L.pdf"}]', false);
+    INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista, nota_organico)
+    VALUES (_id_obra, '08b', 'Fg Contrafagot', '[{"url":"https://drive.google.com/file/d/1Lckw5q7DMCc9prNpsuDU0-cmrtBD76ts/view?usp=drivesdk","description":"Fg Contrafagot - Obertura Candide - Bernstein, L.pdf"}]', false, 'CFg');
     INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
     VALUES (_id_obra, '09', 'Corno F 1', '[{"url":"https://drive.google.com/file/d/1PIcvHMj_TsYFbBolPvedjTUxRt2jHhsd/view?usp=drivesdk","description":"Corno F 1 - Obertura Candide - Bernstein, L.pdf"}]', false);
     INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)

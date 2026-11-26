@@ -40,7 +40,7 @@ export function normalizeToscaInstrument(raw) {
   if (/CLARINETE\s+BAIXO|CLARINETE\s+BAJO|BASS\s+CLAR/i.test(s)) return "Clarinete Bajo";
   if (/CLARINETE\s+(IN\s+)?A\s*1|CL\s+A\s*1/i.test(s)) return "Clarinete A 1";
   if (/CLARINETE\s+(IN\s+)?A\s*2|CL\s+A\s*2/i.test(s)) return "Clarinete A 2";
-  if (/CONTRAFAGOTE|CONTRAFAGOT/i.test(s)) return "Contrafagot";
+  if (/CONTRAFAGOTE|CONTRAFAGOT/i.test(s)) return "Fg Contrafagot";
   if (/FAGOTE\s*1\s*E\s*2|FAGOT\s*1\s*Y\s*2/i.test(s)) return "Fagot 1-2";
   if (/FAGOTE\s*1|FAGOT\s*1/i.test(s)) return "Fagot";
   if (/TROMPA\s+F\s*1|CORNO\s+F\s*1|HORN\s*1/i.test(s)) return "Corno F 1";

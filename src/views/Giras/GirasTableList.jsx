@@ -168,7 +168,7 @@ function GiraTableRow({
   supabase,
   onMove,
   onDuplicate,
-  onDelete,
+  onCancel,
   isHighlighted,
   showRepertoire = false,
   expandAllConcerts = false,
@@ -257,17 +257,21 @@ function GiraTableRow({
   );
 
   const rowTone =
-    gira.estado === "Pausada"
-      ? "bg-amber-50 text-amber-900 opacity-75"
-      : gira.estado === "Borrador"
-        ? `bg-slate-50 text-slate-600 ${borderColorClass}`
-        : programStyle.color;
+    gira.estado === "Cancelada"
+      ? "bg-rose-50 text-rose-900 opacity-70"
+      : gira.estado === "Pausada"
+        ? "bg-amber-50 text-amber-900 opacity-75"
+        : gira.estado === "Borrador"
+          ? `bg-slate-50 text-slate-600 ${borderColorClass}`
+          : programStyle.color;
   const stickyBg =
-    gira.estado === "Pausada"
-      ? "bg-amber-50"
-      : gira.estado === "Borrador"
-        ? "bg-slate-50"
-        : styleToken(programStyle.color, /bg-[\w-]+/, "bg-white");
+    gira.estado === "Cancelada"
+      ? "bg-rose-50"
+      : gira.estado === "Pausada"
+        ? "bg-amber-50"
+        : gira.estado === "Borrador"
+          ? "bg-slate-50"
+          : styleToken(programStyle.color, /bg-[\w-]+/, "bg-white");
 
   const concerts = useMemo(() => programConcerts(gira), [gira]);
   const directors = confirmedByRole(gira, "director").join(" · ");
@@ -280,7 +284,11 @@ function GiraTableRow({
   const nomen = [gira.mes_letra, gira.nomenclador].filter(Boolean).join(" ");
   const dateInfo = formatDateRangeBig(gira.fecha_desde, gira.fecha_hasta);
   const dateColorClass =
-    gira.estado === "Pausada" ? "text-amber-900" : typeColorClass;
+    gira.estado === "Cancelada"
+      ? "text-rose-900"
+      : gira.estado === "Pausada"
+        ? "text-amber-900"
+        : typeColorClass;
   const miCobertura = resolveMiCoberturaForUser(gira, user?.id, {
     includeAsistis: !isPersonal,
   });
@@ -480,7 +488,9 @@ function GiraTableRow({
         </div>
 
         <div
-          className={`flex shrink-0 flex-col items-center gap-0.5 pl-0.5 md:sticky md:right-0 md:z-10 md:flex-row md:items-start md:justify-end md:self-stretch md:pl-1 ${stickyBg}`}
+          className={`flex shrink-0 flex-col items-center gap-0.5 pl-0.5 md:sticky md:right-0 md:flex-row md:items-start md:justify-end md:self-stretch md:pl-1 ${
+            isMenuOpen ? "z-40 md:z-40" : "md:z-10"
+          } ${stickyBg}`}
           onClick={(e) => e.stopPropagation()}
         >
           <div className="order-1 md:order-3">
@@ -492,7 +502,7 @@ function GiraTableRow({
             isDifusion={isDifusion}
             userRole={userRole}
             onEdit={() => startEdit(gira)}
-            onDelete={onDelete}
+            onCancel={onCancel}
             onGlobalComments={() => setGlobalCommentsGiraId(gira.id)}
             isOpen={isMenuOpen}
             onToggle={() => setActiveMenuId(isMenuOpen ? null : gira.id)}
@@ -601,7 +611,7 @@ function GiraTableRow({
       ) : null}
 
       {repertoireOpen && (
-        <div className="relative z-20 min-w-0 border-t border-black/5 bg-white/50 p-2">
+        <div className="relative z-0 min-w-0 border-t border-black/5 bg-white/50 p-2">
           <RepertoireManager
             supabase={supabase}
             programId={gira.id}
@@ -664,7 +674,7 @@ export default function GirasTableList({
           isHighlighted={
             highlightedGiraId && String(gira.id) === String(highlightedGiraId)
           }
-          onDelete={() => onDeleteGira(gira)}
+          onCancel={() => onDeleteGira(gira)}
           showRepertoire={showRepertoire}
           expandAllConcerts={expandAllConcerts}
         />

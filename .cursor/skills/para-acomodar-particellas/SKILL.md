@@ -24,6 +24,7 @@ description: >-
 | Carpeta | `Apellido, I. - Título` (ej. `Falla, M. - Danza Española Nro 1 ('La Vida Breve')`) |
 | PDF (con nº catálogo) | `Instrumento - Título - op.11 - Compositor, I.pdf`. El op./MWV/BIS va **después del título**, no antes |
 | PDF (sin nº catálogo) | `Instrumento - Título - Compositor, I.pdf` — **no** incluir `S/N`, `S-N`, `S. N.` ni placeholder |
+| Contrafagot | La parte es el contrafagot. El PDF empieza con `Fg Contrafagot`, igual que el piccolo con `Fl Piccolo`: `Fg Contrafagot - Título - op.11 - Compositor, I.pdf` (catálogo después del título; sin `S/N`). `nota_organico` / observación = exactamente `CFg`. Un fagot cuya observación menciona el doble conserva su nombre de fagot y esa nota |
 | Audio (mp3/wav) | `AUDIO - {resto del nombre}.mp3` / `.wav` — prefijo obligatorio. El matcher ignora archivos que empiezan con `AUDIO` (y `PORTADA`). No asociar audio a instrumentos. |
 | `workNumber` en catálogo | `null` u omitir cuando no hay op./catálogo; nunca `"S/N"` |
 | Combinados | **Un PDF, varias partes en la misma hoja** → sufijo `1y2`, `3y4`, `1y2y3` (nunca `1-2`). Son sillas distintas |
@@ -224,6 +225,7 @@ node scripts/generate-falla-sync.mjs
 |----------|----------|
 | `Ob EH` → `Oboe` | Orden en `pdfPartsRenaming`: `Ob EH` antes de `\bob\b` |
 | `Flauta 1` → `Flauta` | Regex `flauta 1` debe retornar `Flauta 1`, no `Flauta` |
+| Parte de contrafagot como `Fagot` o `Contrafagot` | Primer segmento `Fg Contrafagot` (como `Fl Piccolo`). `nota_organico` exactamente `CFg` |
 | Carpeta sin formato canónico | Renombrar antes de `split_and_rename_parts.py` |
 | Drive desactualizado | Esperar sync de Google Drive File Stream tras rename local |
 | `curl` a IMSLP devuelve HTML | El PDF está en el CDN. Ver «Descargar PDFs de IMSLP» |

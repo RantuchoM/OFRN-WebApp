@@ -85,7 +85,7 @@ export const BEETHOVEN_9_WORK = {
     },
     {
       pdf: "IMSLP965943-PMLP1607-Beethoven-Op125.Contrabassoon.pdf",
-      instrument: "Contrafagot",
+      instrument: "Fg Contrafagot",
     },
     {
       pdf: "IMSLP965944-PMLP1607-Beethoven-Op125.Horn1.pdf",

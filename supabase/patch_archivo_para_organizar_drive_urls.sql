@@ -317,12 +317,12 @@ WHERE op.id_obra = o.id
   AND (op.url_archivo IS NULL OR op.url_archivo = '[]' OR op.url_archivo = '');
 
 UPDATE obras_particellas op
-SET url_archivo = '[{"url":"https://drive.google.com/file/d/1NbFt6O_l0RmXWh2RORGJT_m0L6KRGAbv/view?usp=drivesdk","description":"Contrafagot - Hook, The Flight to Neverland - Williams, J.pdf"}]'
+SET url_archivo = '[{"url":"https://drive.google.com/file/d/1NbFt6O_l0RmXWh2RORGJT_m0L6KRGAbv/view?usp=drivesdk","description":"Fg Contrafagot - Hook, The Flight to Neverland - Williams, J.pdf"}]', nota_organico = 'CFg'
 FROM obras o
 WHERE op.id_obra = o.id
   AND o.observaciones = 'Para acomodar — Archivo-para-organizar/Hay que completar. Revisar sillas (p.ej. Trombón 1).'
   AND o.titulo = '<p>Hook — The Flight to Neverland</p>'
-  AND op.nombre_archivo = 'Contrafagot'
+  AND op.nombre_archivo = 'Fg Contrafagot'
   AND (op.url_archivo IS NULL OR op.url_archivo = '[]' OR op.url_archivo = '');
 
 UPDATE obras_particellas op
@@ -613,12 +613,12 @@ WHERE op.id_obra = o.id
   AND (op.url_archivo IS NULL OR op.url_archivo = '[]' OR op.url_archivo = '');
 
 UPDATE obras_particellas op
-SET url_archivo = '[{"url":"https://drive.google.com/file/d/16CApS1NO-L7Qnl1rFavl5CvrFRsnnzz_/view?usp=drivesdk","description":"Contrafagot - Jurassic Park, El Mundo Perdido - Williams, J.pdf"}]'
+SET url_archivo = '[{"url":"https://drive.google.com/file/d/16CApS1NO-L7Qnl1rFavl5CvrFRsnnzz_/view?usp=drivesdk","description":"Fg Contrafagot - Jurassic Park, El Mundo Perdido - Williams, J.pdf"}]', nota_organico = 'CFg'
 FROM obras o
 WHERE op.id_obra = o.id
   AND o.observaciones = 'Para acomodar — distinto de Jurassic Park (#2344/#3604). Sin SCORE en el set original.'
   AND o.titulo = '<p>Jurassic Park — El Mundo Perdido</p>'
-  AND op.nombre_archivo = 'Contrafagot'
+  AND op.nombre_archivo = 'Fg Contrafagot'
   AND (op.url_archivo IS NULL OR op.url_archivo = '[]' OR op.url_archivo = '');
 
 UPDATE obras_particellas op
@@ -3644,12 +3644,12 @@ WHERE op.id_obra = o.id
   AND (op.url_archivo IS NULL OR op.url_archivo = '[]' OR op.url_archivo = '');
 
 UPDATE obras_particellas op
-SET url_archivo = '[{"url":"https://drive.google.com/file/d/1kq_l5iKWBOSkBl6Y2_ks7hhVPxkc3Jlf/view?usp=drivesdk","description":"Contrafagot - The Phantom Menace - Williams, J.pdf"}]'
+SET url_archivo = '[{"url":"https://drive.google.com/file/d/1kq_l5iKWBOSkBl6Y2_ks7hhVPxkc3Jlf/view?usp=drivesdk","description":"Fg Contrafagot - The Phantom Menace - Williams, J.pdf"}]', nota_organico = 'CFg'
 FROM obras o
 WHERE op.id_obra = o.id
   AND o.observaciones = 'Para acomodar — Archivo viejo/Phanton Menace.'
   AND o.titulo = '<p>The Phantom Menace (Suite)</p>'
-  AND op.nombre_archivo = 'Contrafagot'
+  AND op.nombre_archivo = 'Fg Contrafagot'
   AND (op.url_archivo IS NULL OR op.url_archivo = '[]' OR op.url_archivo = '');
 
 UPDATE obras_particellas op
@@ -3967,12 +3967,12 @@ WHERE op.id_obra = o.id
   AND (op.url_archivo IS NULL OR op.url_archivo = '[]' OR op.url_archivo = '');
 
 UPDATE obras_particellas op
-SET url_archivo = '[{"url":"https://drive.google.com/file/d/1hanIHDgHCnCIuTSQS3Dwm3amMN-cInoi/view?usp=drivesdk","description":"Contrafagot - Hirdaith - Macdonald, H.pdf"}]'
+SET url_archivo = '[{"url":"https://drive.google.com/file/d/1hanIHDgHCnCIuTSQS3Dwm3amMN-cInoi/view?usp=drivesdk","description":"Fg Contrafagot - Hirdaith - Macdonald, H.pdf"}]', nota_organico = 'CFg'
 FROM obras o
 WHERE op.id_obra = o.id
   AND o.observaciones = 'Para acomodar — Archivo viejo.'
   AND o.titulo = '<p>Hirdaith</p>'
-  AND op.nombre_archivo = 'Contrafagot'
+  AND op.nombre_archivo = 'Fg Contrafagot'
   AND (op.url_archivo IS NULL OR op.url_archivo = '[]' OR op.url_archivo = '');
 
 UPDATE obras_particellas op
@@ -4353,12 +4353,12 @@ WHERE op.id_obra = o.id
   AND (op.url_archivo IS NULL OR op.url_archivo = '[]' OR op.url_archivo = '');
 
 UPDATE obras_particellas op
-SET url_archivo = '[{"url":"https://drive.google.com/file/d/1a18lHwsPrIPwkmd5M1-j7lPqKBkIlzwS/view?usp=drivesdk","description":"Contrafagot - op.20. Don Juan - Strauss, R.pdf"}]'
+SET url_archivo = '[{"url":"https://drive.google.com/file/d/1a18lHwsPrIPwkmd5M1-j7lPqKBkIlzwS/view?usp=drivesdk","description":"Fg Contrafagot - op.20. Don Juan - Strauss, R.pdf"}]', nota_organico = 'CFg'
 FROM obras o
 WHERE op.id_obra = o.id
   AND o.observaciones = 'Para acomodar — Archivo viejo.'
   AND o.titulo = '<p>Don Juan, Op. 20</p>'
-  AND op.nombre_archivo = 'Contrafagot'
+  AND op.nombre_archivo = 'Fg Contrafagot'
   AND (op.url_archivo IS NULL OR op.url_archivo = '[]' OR op.url_archivo = '');
 
 UPDATE obras_particellas op
@@ -4613,12 +4613,12 @@ WHERE op.id_obra = o.id
   AND (op.url_archivo IS NULL OR op.url_archivo = '[]' OR op.url_archivo = '');
 
 UPDATE obras_particellas op
-SET url_archivo = '[{"url":"https://drive.google.com/file/d/1HFHoDEQD9S_qdU1xix_ssSidsD7KUrJ2/view?usp=drivesdk","description":"Contrafagot - O Fortuna (Carmina Burana) - Orff, C.pdf"}]'
+SET url_archivo = '[{"url":"https://drive.google.com/file/d/1HFHoDEQD9S_qdU1xix_ssSidsD7KUrJ2/view?usp=drivesdk","description":"Fg Contrafagot - O Fortuna (Carmina Burana) - Orff, C.pdf"}]', nota_organico = 'CFg'
 FROM obras o
 WHERE op.id_obra = o.id
   AND o.observaciones = 'Para acomodar — Archivo viejo (solo O Fortuna).'
   AND o.titulo = '<p>O Fortuna (Carmina Burana)</p>'
-  AND op.nombre_archivo = 'Contrafagot'
+  AND op.nombre_archivo = 'Fg Contrafagot'
   AND (op.url_archivo IS NULL OR op.url_archivo = '[]' OR op.url_archivo = '');
 
 UPDATE obras_particellas op
@@ -7320,12 +7320,12 @@ WHERE op.id_obra = o.id
   AND (op.url_archivo IS NULL OR op.url_archivo = '[]' OR op.url_archivo = '');
 
 UPDATE obras_particellas op
-SET url_archivo = '[{"url":"https://drive.google.com/file/d/1dOXmMIlsGMueP1I36Gf2txF0rubvAj-q/view?usp=drivesdk","description":"Contrafagot - Qhapaqkunap - Nicoletti, J.P.pdf"}]'
+SET url_archivo = '[{"url":"https://drive.google.com/file/d/1dOXmMIlsGMueP1I36Gf2txF0rubvAj-q/view?usp=drivesdk","description":"Fg Contrafagot - Qhapaqkunap - Nicoletti, J.P.pdf"}]', nota_organico = 'CFg'
 FROM obras o
 WHERE op.id_obra = o.id
   AND o.observaciones = 'Para acomodar — Archivo viejo (preferir sobre copia REVISAR/OIANT).'
   AND o.titulo = '<p>Qhapaqkunap</p>'
-  AND op.nombre_archivo = 'Contrafagot'
+  AND op.nombre_archivo = 'Fg Contrafagot'
   AND (op.url_archivo IS NULL OR op.url_archivo = '[]' OR op.url_archivo = '');
 
 UPDATE obras_particellas op
@@ -7625,12 +7625,12 @@ WHERE op.id_obra = o.id
   AND (op.url_archivo IS NULL OR op.url_archivo = '[]' OR op.url_archivo = '');
 
 UPDATE obras_particellas op
-SET url_archivo = '[{"url":"https://drive.google.com/file/d/1XDSPOGA76TB1_X6fZbWoQtdZdZfY_ABq/view?usp=drivesdk","description":"Contrafagot - Bishmaia Hanacpachapi - Nicoletti, J.P.pdf"}]'
+SET url_archivo = '[{"url":"https://drive.google.com/file/d/1XDSPOGA76TB1_X6fZbWoQtdZdZfY_ABq/view?usp=drivesdk","description":"Fg Contrafagot - Bishmaia Hanacpachapi - Nicoletti, J.P.pdf"}]', nota_organico = 'CFg'
 FROM obras o
 WHERE op.id_obra = o.id
   AND o.observaciones = 'Para acomodar — Archivo viejo/Nicoletti.'
   AND o.titulo = '<p>Bishmaia Hanacpachapi</p>'
-  AND op.nombre_archivo = 'Contrafagot'
+  AND op.nombre_archivo = 'Fg Contrafagot'
   AND (op.url_archivo IS NULL OR op.url_archivo = '[]' OR op.url_archivo = '');
 
 UPDATE obras_particellas op
@@ -8091,12 +8091,12 @@ WHERE op.id_obra = o.id
   AND (op.url_archivo IS NULL OR op.url_archivo = '[]' OR op.url_archivo = '');
 
 UPDATE obras_particellas op
-SET url_archivo = '[{"url":"https://drive.google.com/file/d/1RVORy69K9ra_B8uc7LKTJbR--qAbu-11/view?usp=drivesdk","description":"Contrafagot - La Cancha - El Secreto.pdf"}]'
+SET url_archivo = '[{"url":"https://drive.google.com/file/d/1RVORy69K9ra_B8uc7LKTJbR--qAbu-11/view?usp=drivesdk","description":"Fg Contrafagot - La Cancha - El Secreto.pdf"}]', nota_organico = 'CFg'
 FROM obras o
 WHERE op.id_obra = o.id
   AND o.observaciones = 'Para acomodar — Archivo viejo/El Secreto.'
   AND o.titulo = '<p>La Cancha</p><div>&nbsp; (El Secreto)</div>'
-  AND op.nombre_archivo = 'Contrafagot'
+  AND op.nombre_archivo = 'Fg Contrafagot'
   AND (op.url_archivo IS NULL OR op.url_archivo = '[]' OR op.url_archivo = '');
 
 UPDATE obras_particellas op
@@ -8414,12 +8414,12 @@ WHERE op.id_obra = o.id
   AND (op.url_archivo IS NULL OR op.url_archivo = '[]' OR op.url_archivo = '');
 
 UPDATE obras_particellas op
-SET url_archivo = '[{"url":"https://drive.google.com/file/d/1XuYxY12I98RshAg3xkKdT4IIN0IiiujU/view?usp=drivesdk","description":"Contrafagot - La Duda - El Secreto.pdf"}]'
+SET url_archivo = '[{"url":"https://drive.google.com/file/d/1XuYxY12I98RshAg3xkKdT4IIN0IiiujU/view?usp=drivesdk","description":"Fg Contrafagot - La Duda - El Secreto.pdf"}]', nota_organico = 'CFg'
 FROM obras o
 WHERE op.id_obra = o.id
   AND o.observaciones = 'Para acomodar — Archivo viejo/El Secreto.'
   AND o.titulo = '<p>La Duda</p><div>&nbsp; (El Secreto)</div>'
-  AND op.nombre_archivo = 'Contrafagot'
+  AND op.nombre_archivo = 'Fg Contrafagot'
   AND (op.url_archivo IS NULL OR op.url_archivo = '[]' OR op.url_archivo = '');
 
 UPDATE obras_particellas op
@@ -8719,12 +8719,12 @@ WHERE op.id_obra = o.id
   AND (op.url_archivo IS NULL OR op.url_archivo = '[]' OR op.url_archivo = '');
 
 UPDATE obras_particellas op
-SET url_archivo = '[{"url":"https://drive.google.com/file/d/1GVUMYS1gUXmaYytRtC_hB_XBNQXWIibE/view?usp=drivesdk","description":"Contrafagot - Retiro Obelisco - El Secreto.pdf"}]'
+SET url_archivo = '[{"url":"https://drive.google.com/file/d/1GVUMYS1gUXmaYytRtC_hB_XBNQXWIibE/view?usp=drivesdk","description":"Fg Contrafagot - Retiro Obelisco - El Secreto.pdf"}]', nota_organico = 'CFg'
 FROM obras o
 WHERE op.id_obra = o.id
   AND o.observaciones = 'Para acomodar — Archivo viejo/El Secreto.'
   AND o.titulo = '<p>Retiro Obelisco</p><div>&nbsp; (El Secreto)</div>'
-  AND op.nombre_archivo = 'Contrafagot'
+  AND op.nombre_archivo = 'Fg Contrafagot'
   AND (op.url_archivo IS NULL OR op.url_archivo = '[]' OR op.url_archivo = '');
 
 UPDATE obras_particellas op

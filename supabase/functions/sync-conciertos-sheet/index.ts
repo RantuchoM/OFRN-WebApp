@@ -139,7 +139,8 @@ async function fetchConciertosYear(
         nombre_gira,
         nomenclador,
         mes_letra,
-        tipo
+        tipo,
+        estado
       ),
       locaciones ( nombre, localidades ( localidad ) )
     `,
@@ -153,8 +154,10 @@ async function fetchConciertosYear(
 
   if (error) throw new Error(`Query conciertos: ${error.message}`);
   const events = (data || []).filter(
-    (evt: { is_deleted?: boolean | null }) =>
-      evt?.is_deleted !== true && !isFimbaOnlyConcert(evt),
+    (evt: { is_deleted?: boolean | null; programas?: { estado?: string | null } | null }) =>
+      evt?.is_deleted !== true &&
+      !isFimbaOnlyConcert(evt) &&
+      String(evt?.programas?.estado || "").trim() !== "Cancelada",
   );
 
   return events.map((evt: any) => {

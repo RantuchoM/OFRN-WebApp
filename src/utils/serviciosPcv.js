@@ -11,7 +11,7 @@
  */
 import { integranteKey } from "./integranteIds";
 import { resolveLocalidadEfectivaViaticos } from "./integranteDomicilioViaticos";
-import { isProgramBorrador } from "./girasYearSummary";
+import { isProgramExcludedFromReports } from "./girasYearSummary";
 import {
   TIPOS_GIRA_INFORME_ENSAMBLE,
   giraTramoPesos,
@@ -360,7 +360,7 @@ export function computeIntegranteGirasYPcv(
       programsById.get(Number(giraId)) ||
       programsById.get(giraId) ||
       programsById.get(String(giraId));
-    if (!program || isProgramBorrador(program)) continue;
+    if (!program || isProgramExcludedFromReports(program)) continue;
 
     const roster =
       rosterByGiraId?.[program?.id] ||

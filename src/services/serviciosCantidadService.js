@@ -22,7 +22,7 @@ import {
 import { stripHtml } from "../utils/eventDisplayUtils";
 import {
   isIntegranteConvocadoToEnsayo,
-  isProgramBorrador,
+  isProgramExcludedFromReports,
 } from "../utils/girasYearSummary";
 import {
   ID_TIPO_CONCIERTO,
@@ -296,7 +296,7 @@ export async function fetchConflictoAgendaContext(
     if (ensamblesRaw.error) throw ensamblesRaw.error;
     if (ensCfRaw.error) throw ensCfRaw.error;
     return {
-      programas: (programasRaw || []).filter((p) => !isProgramBorrador(p)),
+      programas: (programasRaw || []).filter((p) => !isProgramExcludedFromReports(p)),
       ensambles: attachEnsambleCfIds(
         ensamblesRaw.data || [],
         ensCfRaw.data || [],
@@ -451,7 +451,7 @@ export async function fetchEnsayosConflictoPeriod(
     if (ensCfRaw.error) throw ensCfRaw.error;
     if (integrantesRaw.error) throw integrantesRaw.error;
 
-    const programas = (programasRaw || []).filter((p) => !isProgramBorrador(p));
+    const programas = (programasRaw || []).filter((p) => !isProgramExcludedFromReports(p));
 
     return {
       events,
@@ -744,7 +744,7 @@ export async function fetchEnsambleServiciosBundle(
         ...range,
       };
     }
-    const programas = (programasRaw || []).filter((p) => !isProgramBorrador(p));
+    const programas = (programasRaw || []).filter((p) => !isProgramExcludedFromReports(p));
     const events = [
       ...(conciertos.events || []),
       ...(ensayosGira.events || []),

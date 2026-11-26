@@ -1725,6 +1725,10 @@ export default function UnifiedAgenda({
       // Staff de gestión (sin consulta_general): siempre ve paradas ocultas.
       if (blockedByVisibility && !filterCanSeeHiddenAgendaEvents) return false;
 
+      // Cancelada: nunca aparece (ni con toggle, ni paradas de transporte).
+      const estadoPrograma = item.programas?.estado || "Borrador";
+      if (estadoPrograma === "Cancelada") return false;
+
       // Filtro de giras activas: permitir paradas de mi transporte aunque el programa no esté vigente.
       // Músicos: «Mostrar borradores» (activo por defecto) revela eventos de programas Borrador,
       // salvo Sinfónico, Comisión y Camerata Filarmónica, que nunca entran.
@@ -1737,7 +1741,7 @@ export default function UnifiedAgenda({
       }
 
       if (isMusicianDraftAudience && item.programas) {
-        const estadoGira = item.programas.estado || "Borrador";
+        const estadoGira = estadoPrograma;
         if (estadoGira === "Borrador" && !showNonActiveForFilter) {
           return false;
         }
@@ -1749,7 +1753,7 @@ export default function UnifiedAgenda({
           return false;
         }
       } else if (!showNonActiveForFilter) {
-        const estadoGira = item.programas?.estado || "Borrador";
+        const estadoGira = estadoPrograma;
         const isDraftConcert =
           !item.isProgramMarker &&
           Number(item.id_tipo_evento) === 1 &&

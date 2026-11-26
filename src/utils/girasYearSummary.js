@@ -1,12 +1,17 @@
 import { membershipActiveOnProgramDate } from "./ensembleMembership";
 import { programOverlapsDateRange, toLocalDateString } from "./giraDateRange";
-import { PROGRAM_TYPES } from "./giraUtils";
+import { PROGRAM_TYPES, programaExcluidoDeReportes } from "./giraUtils";
 
 const ENSAYO_TIPO_ID = 13;
 
 /** Programas en borrador no entran en contadores de UX (resumen anual, etc.). */
 export function isProgramBorrador(program) {
   return (program?.estado || "Borrador").trim() === "Borrador";
+}
+
+/** Borrador o Cancelada: fuera de reportes / year summary. */
+export function isProgramExcludedFromReports(program) {
+  return programaExcluidoDeReportes(program);
 }
 
 export function currentYearBounds(d = new Date()) {
@@ -21,6 +26,7 @@ export function currentYearBounds(d = new Date()) {
 /**
  * Cuenta programas visibles en el año, agrupados por tipo.
  * Vigente/Pausada van a `counts`; estado `Borrador` va a `draftCounts`.
+ * `Cancelada` no cuenta en ningún lado.
  */
 export function countProgramsByTypeSplit(programs, { desde, hasta }) {
   const counts = {};
@@ -30,6 +36,9 @@ export function countProgramsByTypeSplit(programs, { desde, hasta }) {
     if (
       !programOverlapsDateRange(program, desde, hasta, referenceDate)
     ) {
+      continue;
+    }
+    if (programaExcluidoDeReportes(program) && !isProgramBorrador(program)) {
       continue;
     }
     const tipo = program.tipo || "General";

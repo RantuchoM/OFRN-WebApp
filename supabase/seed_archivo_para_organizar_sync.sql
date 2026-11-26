@@ -248,8 +248,8 @@ BEGIN
     VALUES (_id_obra, '07', 'Clarinete Bb 2', '[]', false);
     INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
     VALUES (_id_obra, '04', 'Contrabajo', '[]', false);
-    INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
-    VALUES (_id_obra, '08b', 'Contrafagot', '[]', false);
+    INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista, nota_organico)
+    VALUES (_id_obra, '08b', 'Fg Contrafagot', '[]', false, 'CFg');
     INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
     VALUES (_id_obra, '09', 'Corno F 1', '[]', false);
     INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
@@ -336,8 +336,8 @@ BEGIN
     VALUES (_id_obra, '07', 'Clarinete Bb 2', '[]', false);
     INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
     VALUES (_id_obra, '04', 'Contrabajo', '[]', false);
-    INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
-    VALUES (_id_obra, '08b', 'Contrafagot', '[]', false);
+    INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista, nota_organico)
+    VALUES (_id_obra, '08b', 'Fg Contrafagot', '[]', false, 'CFg');
     INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
     VALUES (_id_obra, '09', 'Corno F 1', '[]', false);
     INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
@@ -1282,8 +1282,8 @@ BEGIN
     VALUES (_id_obra, '07', 'Clarinete Eb', '[]', false);
     INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
     VALUES (_id_obra, '04', 'Contrabajo', '[]', false);
-    INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
-    VALUES (_id_obra, '08b', 'Contrafagot', '[]', false);
+    INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista, nota_organico)
+    VALUES (_id_obra, '08b', 'Fg Contrafagot', '[]', false, 'CFg');
     INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
     VALUES (_id_obra, '09', 'Corno F 1', '[]', false);
     INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
@@ -1376,8 +1376,8 @@ BEGIN
     VALUES (_id_obra, '07', 'Clarinete Bb', '[{"url":"https://drive.google.com/file/d/1dCOgzdB9gEZWfubm9nFRTxq6J1khVZM7/view?usp=drivesdk","description":"Clarinete Bb - Hirdaith - Macdonald, H.pdf"}]', false);
     INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
     VALUES (_id_obra, '04', 'Contrabajo', '[{"url":"https://drive.google.com/file/d/1cUthNHQ-DW8g8omkhK91lsxg01BElkCy/view?usp=drivesdk","description":"Contrabajo - Hirdaith - Macdonald, H.pdf"}]', false);
-    INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
-    VALUES (_id_obra, '08b', 'Contrafagot', '[{"url":"https://drive.google.com/file/d/1hanIHDgHCnCIuTSQS3Dwm3amMN-cInoi/view?usp=drivesdk","description":"Contrafagot - Hirdaith - Macdonald, H.pdf"}]', false);
+    INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista, nota_organico)
+    VALUES (_id_obra, '08b', 'Fg Contrafagot', '[{"url":"https://drive.google.com/file/d/1hanIHDgHCnCIuTSQS3Dwm3amMN-cInoi/view?usp=drivesdk","description":"Fg Contrafagot - Hirdaith - Macdonald, H.pdf"}]', false, 'CFg');
     INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
     VALUES (_id_obra, '09', 'Corno 1', '[{"url":"https://drive.google.com/file/d/1Fpe7mPJM1QxyUzBWExEx79ML0BkhpUax/view?usp=drivesdk","description":"Corno F 1y2 - Hirdaith - Macdonald, H.pdf"}]', false);
     INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
@@ -1484,8 +1484,8 @@ BEGIN
     VALUES (_id_obra, '07', 'Clarinete Bb 2', '[]', false);
     INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
     VALUES (_id_obra, '04', 'Contrabajo', '[]', false);
-    INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
-    VALUES (_id_obra, '08b', 'Contrafagot', '[]', false);
+    INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista, nota_organico)
+    VALUES (_id_obra, '08b', 'Fg Contrafagot', '[]', false, 'CFg');
     INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
     VALUES (_id_obra, '09', 'Corno F 1', '[]', false);
     INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
@@ -1564,8 +1564,8 @@ BEGIN
     VALUES (_id_obra, '07', 'Clarinete Bb 1', '[{"url":"https://drive.google.com/file/d/10OXEEz-zBQA_kKk8V6jK8zHiNAXJ-K4i/view?usp=drivesdk","description":"Clarinete Bb 1 - O Fortuna (Carmina Burana) - Orff, C.pdf"}]', false);
     INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
     VALUES (_id_obra, '04', 'Contrabajo', '[{"url":"https://drive.google.com/file/d/1q4kqBLpXFiUzVWqXUpShJ7qEmHxdCNXG/view?usp=drivesdk","description":"Contrabajo - O Fortuna (Carmina Burana) - Orff, C.pdf"}]', false);
-    INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
-    VALUES (_id_obra, '08b', 'Contrafagot', '[{"url":"https://drive.google.com/file/d/1HFHoDEQD9S_qdU1xix_ssSidsD7KUrJ2/view?usp=drivesdk","description":"Contrafagot - O Fortuna (Carmina Burana) - Orff, C.pdf"}]', false);
+    INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista, nota_organico)
+    VALUES (_id_obra, '08b', 'Fg Contrafagot', '[{"url":"https://drive.google.com/file/d/1HFHoDEQD9S_qdU1xix_ssSidsD7KUrJ2/view?usp=drivesdk","description":"Fg Contrafagot - O Fortuna (Carmina Burana) - Orff, C.pdf"}]', false, 'CFg');
     INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
     VALUES (_id_obra, '09', 'Corno 1', '[{"url":"https://drive.google.com/file/d/1Zk6WN9jWThq7rd3RDG5o5CbDuJRMJbBZ/view?usp=drivesdk","description":"Corno F 1y2 - O Fortuna (Carmina Burana) - Orff, C.pdf"}]', false);
     INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
@@ -2410,8 +2410,8 @@ BEGIN
     VALUES (_id_obra, '07', 'Clarinete Bb 3', '[{"url":"https://drive.google.com/file/d/1yS_kOPPnCW1nw1eGX5ruDAUR8DVR6UUw/view?usp=drivesdk","description":"Clarinete Bb 3 - Qhapaqkunap - Nicoletti, J.P.pdf"}]', false);
     INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
     VALUES (_id_obra, '04', 'Contrabajo', '[{"url":"https://drive.google.com/file/d/1nPbNnPW1qIVWr9WJAXULWWUyn8xqKyrD/view?usp=drivesdk","description":"Contrabajo - Qhapaqkunap - Nicoletti, J.P.pdf"}]', false);
-    INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
-    VALUES (_id_obra, '08b', 'Contrafagot', '[{"url":"https://drive.google.com/file/d/1dOXmMIlsGMueP1I36Gf2txF0rubvAj-q/view?usp=drivesdk","description":"Contrafagot - Qhapaqkunap - Nicoletti, J.P.pdf"}]', false);
+    INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista, nota_organico)
+    VALUES (_id_obra, '08b', 'Fg Contrafagot', '[{"url":"https://drive.google.com/file/d/1dOXmMIlsGMueP1I36Gf2txF0rubvAj-q/view?usp=drivesdk","description":"Fg Contrafagot - Qhapaqkunap - Nicoletti, J.P.pdf"}]', false, 'CFg');
     INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
     VALUES (_id_obra, '09', 'Corno F 1', '[{"url":"https://drive.google.com/file/d/1hzlwg48oT0sx7yb-3pIutgyz7a74rdt_/view?usp=drivesdk","description":"Corno F 1 - Qhapaqkunap - Nicoletti, J.P.pdf"}]', false);
     INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
@@ -2500,8 +2500,8 @@ BEGIN
     VALUES (_id_obra, '07', 'Clarinete Bb', '[{"url":"https://drive.google.com/file/d/1lDWRNGBG228oNr7Fe_ZPxWjblBghIVvI/view?usp=drivesdk","description":"Clarinete Bb - Bishmaia Hanacpachapi - Nicoletti, J.P.pdf"}]', false);
     INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
     VALUES (_id_obra, '04', 'Contrabajo', '[{"url":"https://drive.google.com/file/d/1GGlwEJQfRCOOQ8MtNJ_fhkJjoPzGfHNB/view?usp=drivesdk","description":"Contrabajo - Bishmaia Hanacpachapi - Nicoletti, J.P.pdf"}]', false);
-    INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
-    VALUES (_id_obra, '08b', 'Contrafagot', '[{"url":"https://drive.google.com/file/d/1XDSPOGA76TB1_X6fZbWoQtdZdZfY_ABq/view?usp=drivesdk","description":"Contrafagot - Bishmaia Hanacpachapi - Nicoletti, J.P.pdf"}]', false);
+    INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista, nota_organico)
+    VALUES (_id_obra, '08b', 'Fg Contrafagot', '[{"url":"https://drive.google.com/file/d/1XDSPOGA76TB1_X6fZbWoQtdZdZfY_ABq/view?usp=drivesdk","description":"Fg Contrafagot - Bishmaia Hanacpachapi - Nicoletti, J.P.pdf"}]', false, 'CFg');
     INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
     VALUES (_id_obra, '09', 'Corno 1', '[{"url":"https://drive.google.com/file/d/1DEaP9upKTKhHysUteKlxW_qOxyDnWeeg/view?usp=drivesdk","description":"Corno F 1y2 - Bishmaia Hanacpachapi - Nicoletti, J.P.pdf"}]', false);
     INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
@@ -2648,8 +2648,8 @@ BEGIN
     VALUES (_id_obra, '07', 'Clarinete Bb 2', '[{"url":"https://drive.google.com/file/d/16dZPXL_mtdNqVyA1xBPYIVO9ZGf_3FS1/view?usp=drivesdk","description":"Clarinete Bb 2 - La Cancha - El Secreto.pdf"}]', false);
     INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
     VALUES (_id_obra, '04', 'Contrabajo', '[{"url":"https://drive.google.com/file/d/1WERlTktlvxoXTYsHKjzZtoftG09oGkai/view?usp=drivesdk","description":"Contrabajo - La Cancha - El Secreto.pdf"}]', false);
-    INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
-    VALUES (_id_obra, '08b', 'Contrafagot', '[{"url":"https://drive.google.com/file/d/1RVORy69K9ra_B8uc7LKTJbR--qAbu-11/view?usp=drivesdk","description":"Contrafagot - La Cancha - El Secreto.pdf"}]', false);
+    INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista, nota_organico)
+    VALUES (_id_obra, '08b', 'Fg Contrafagot', '[{"url":"https://drive.google.com/file/d/1RVORy69K9ra_B8uc7LKTJbR--qAbu-11/view?usp=drivesdk","description":"Fg Contrafagot - La Cancha - El Secreto.pdf"}]', false, 'CFg');
     INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
     VALUES (_id_obra, '09', 'Corno F 1', '[{"url":"https://drive.google.com/file/d/1HLnfmKFDqkRPC1OZHXotHmI4yq4SV49r/view?usp=drivesdk","description":"Corno F 1 - La Cancha - El Secreto.pdf"}]', false);
     INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
@@ -2742,8 +2742,8 @@ BEGIN
     VALUES (_id_obra, '07', 'Clarinete Bb 2', '[{"url":"https://drive.google.com/file/d/1e8q2KcD0Gz4CmMiHouZGpS5Ne3AHe3dT/view?usp=drivesdk","description":"Clarinete Bb 2 - La Duda - El Secreto.pdf"}]', false);
     INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
     VALUES (_id_obra, '04', 'Contrabajo', '[{"url":"https://drive.google.com/file/d/1zrKXztMGqGXR_CRAAR3r6WwdE3MvPnMQ/view?usp=drivesdk","description":"Contrabajo - La Duda - El Secreto.pdf"}]', false);
-    INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
-    VALUES (_id_obra, '08b', 'Contrafagot', '[{"url":"https://drive.google.com/file/d/1XuYxY12I98RshAg3xkKdT4IIN0IiiujU/view?usp=drivesdk","description":"Contrafagot - La Duda - El Secreto.pdf"}]', false);
+    INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista, nota_organico)
+    VALUES (_id_obra, '08b', 'Fg Contrafagot', '[{"url":"https://drive.google.com/file/d/1XuYxY12I98RshAg3xkKdT4IIN0IiiujU/view?usp=drivesdk","description":"Fg Contrafagot - La Duda - El Secreto.pdf"}]', false, 'CFg');
     INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
     VALUES (_id_obra, '09', 'Corno F 1', '[{"url":"https://drive.google.com/file/d/1quBZ2Xs4E1zhEIThDKhCeqft5T6191wB/view?usp=drivesdk","description":"Corno F 1 - La Duda - El Secreto.pdf"}]', false);
     INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
@@ -2832,8 +2832,8 @@ BEGIN
     VALUES (_id_obra, '07', 'Clarinete Bb 2', '[{"url":"https://drive.google.com/file/d/1t7W7SDqq6o8IVEPydd_mABSC-y-M785N/view?usp=drivesdk","description":"Clarinete Bb 2 - Retiro Obelisco - El Secreto.pdf"}]', false);
     INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
     VALUES (_id_obra, '04', 'Contrabajo', '[{"url":"https://drive.google.com/file/d/1DLHkfqNBU9YfwRJbvuqSRosXD-u7fxqJ/view?usp=drivesdk","description":"Contrabajo - Retiro Obelisco - El Secreto.pdf"}]', false);
-    INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
-    VALUES (_id_obra, '08b', 'Contrafagot', '[{"url":"https://drive.google.com/file/d/1GVUMYS1gUXmaYytRtC_hB_XBNQXWIibE/view?usp=drivesdk","description":"Contrafagot - Retiro Obelisco - El Secreto.pdf"}]', false);
+    INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista, nota_organico)
+    VALUES (_id_obra, '08b', 'Fg Contrafagot', '[{"url":"https://drive.google.com/file/d/1GVUMYS1gUXmaYytRtC_hB_XBNQXWIibE/view?usp=drivesdk","description":"Fg Contrafagot - Retiro Obelisco - El Secreto.pdf"}]', false, 'CFg');
     INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
     VALUES (_id_obra, '09', 'Corno F 1', '[{"url":"https://drive.google.com/file/d/1xBBXdlHI9iNYEg3p8QfYiyjkHV04Qp1H/view?usp=drivesdk","description":"Corno F 1 - Retiro Obelisco - El Secreto.pdf"}]', false);
     INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)

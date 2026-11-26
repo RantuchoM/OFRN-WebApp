@@ -10,25 +10,27 @@ const DESTRUCTIVE_CLASS =
  * Con `secondaryAction` y/o `tertiaryAction` (o `choice: true`), resuelve
  * `"confirm" | "cancel" | secondaryAction.value | tertiaryAction.value`.
  * Sin acciones extra: boolean `true` / `false`.
+ * Con `checkbox`: resuelve `{ confirmed: boolean, checked: boolean }`.
  *
  * @example
  * const { confirm, alert, dialog } = useConfirmDialog();
  * if (!(await confirm({ title: "Eliminar", message: "¿Seguro?", destructive: true }))) return;
- * await alert({ title: "Aviso", message: "No hay datos." });
- * const choice = await confirm({
- *   title: "Cambios sin guardar",
- *   confirmText: "Guardar",
- *   secondaryAction: { label: "Descartar", value: "discard" },
- *   tertiaryAction: { label: "Otra opción", value: "other" },
+ * const result = await confirm({
+ *   title: "Cancelar gira",
+ *   checkbox: { label: "Notificar…", defaultChecked: true },
  * });
- * // ...
- * return <>{dialog}...</>;
+ * if (!result?.confirmed) return;
  */
 export function useConfirmDialog() {
   const [state, setState] = useState(null);
   const resolverRef = useRef(null);
+  const checkboxCheckedRef = useRef(false);
+
+  const settledRef = useRef(false);
 
   const settle = useCallback((result) => {
+    if (settledRef.current) return;
+    settledRef.current = true;
     const resolve = resolverRef.current;
     resolverRef.current = null;
     setState(null);
@@ -43,9 +45,19 @@ export function useConfirmDialog() {
 
     const secondary = options.secondaryAction || null;
     const tertiary = options.tertiaryAction || null;
+    const checkbox = options.checkbox || null;
+    const checkboxMode = Boolean(checkbox);
     const choiceMode =
       Boolean(secondary) || Boolean(tertiary) || options.choice === true;
 
+    const defaultChecked = checkbox
+      ? checkbox.disabled
+        ? false
+        : checkbox.defaultChecked !== false
+      : false;
+    checkboxCheckedRef.current = defaultChecked;
+
+    settledRef.current = false;
     return new Promise((resolve) => {
       resolverRef.current = resolve;
       setState({
@@ -60,6 +72,16 @@ export function useConfirmDialog() {
         messageIsHtml: !!options.messageIsHtml,
         overlayClassName: options.overlayClassName,
         choiceMode,
+        checkboxMode,
+        checkbox: checkbox
+          ? {
+              label: checkbox.label ?? "",
+              disabled: !!checkbox.disabled,
+              hint: checkbox.hint || "",
+              defaultChecked,
+            }
+          : null,
+        checkboxChecked: defaultChecked,
         secondaryAction: secondary
           ? {
               label: secondary.label ?? "Secundario",
@@ -103,6 +125,50 @@ export function useConfirmDialog() {
     });
   }, [open]);
 
+  const setCheckboxChecked = useCallback((checked) => {
+    checkboxCheckedRef.current = checked;
+    setState((prev) =>
+      prev ? { ...prev, checkboxChecked: checked } : prev,
+    );
+  }, []);
+
+  const checkboxChildren =
+    state?.checkbox &&
+    React.createElement(
+      "label",
+      {
+        className: `mt-3 flex items-start gap-2 rounded-lg border border-slate-200 p-2.5 ${
+          state.checkbox.disabled
+            ? "opacity-60 cursor-not-allowed"
+            : "hover:bg-slate-50 cursor-pointer"
+        }`,
+      },
+      React.createElement("input", {
+        type: "checkbox",
+        className:
+          "mt-0.5 rounded text-indigo-600 accent-indigo-600 disabled:opacity-50",
+        checked: !!state.checkboxChecked,
+        disabled: state.checkbox.disabled,
+        onChange: (e) => {
+          if (!state.checkbox.disabled) {
+            setCheckboxChecked(e.target.checked);
+          }
+        },
+      }),
+      React.createElement(
+        "span",
+        { className: "text-sm text-slate-700 leading-snug" },
+        state.checkbox.label,
+        state.checkbox.hint
+          ? React.createElement(
+              "span",
+              { className: "block text-xs text-slate-400 mt-0.5" },
+              state.checkbox.hint,
+            )
+          : null,
+      ),
+    );
+
   const dialog = React.createElement(ConfirmDialog, {
     isOpen: !!state,
     title: state?.title,
@@ -113,6 +179,7 @@ export function useConfirmDialog() {
     hideCancel: state?.hideCancel,
     confirmClassName: state?.confirmClassName,
     overlayClassName: state?.overlayClassName,
+    children: checkboxChildren || null,
     secondaryAction: state?.secondaryAction
       ? {
           label: state.secondaryAction.label,
@@ -127,8 +194,23 @@ export function useConfirmDialog() {
           onClick: () => settle(state.tertiaryAction.value),
         }
       : null,
-    onClose: () => settle(state?.choiceMode ? "cancel" : false),
-    onConfirm: () => settle(state?.choiceMode ? "confirm" : true),
+    onClose: () => {
+      if (state?.checkboxMode) {
+        settle({ confirmed: false, checked: false });
+        return;
+      }
+      settle(state?.choiceMode ? "cancel" : false);
+    },
+    onConfirm: () => {
+      if (state?.checkboxMode) {
+        settle({
+          confirmed: true,
+          checked: !!checkboxCheckedRef.current && !state?.checkbox?.disabled,
+        });
+        return;
+      }
+      settle(state?.choiceMode ? "confirm" : true);
+    },
   });
 
   return { confirm, alert, dialog };

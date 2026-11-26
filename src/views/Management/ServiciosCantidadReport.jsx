@@ -65,7 +65,7 @@ import { compareInstrumentIds } from "../../utils/giraUtils";
 import {
   currentYearBounds,
   isIntegranteConvocadoToEnsayo,
-  isProgramBorrador,
+  isProgramExcludedFromReports,
 } from "../../utils/girasYearSummary";
 import { integranteKey } from "../../utils/integranteIds";
 import { matchesMultiTokenSearch } from "../../utils/sanitize";
@@ -1296,7 +1296,7 @@ export default function ServiciosCantidadReport({ supabase }) {
   const filteredProgramas = useMemo(() => {
     return allProgramas.filter((p) => {
       if (!p?.id) return false;
-      if (isProgramBorrador(p)) return false;
+      if (isProgramExcludedFromReports(p)) return false;
       if (p.tipo && !selectedTypes.has(p.tipo)) return false;
       if (giraId && String(p.id) !== String(giraId)) return false;
       return programOverlapsDateRange(p, fechaDesde, fechaHasta, undefined, {
@@ -1308,7 +1308,7 @@ export default function ServiciosCantidadReport({ supabase }) {
   const giraOptions = useMemo(
     () =>
       (programasCatalog || []).filter((p) => {
-        if (!p?.id || isProgramBorrador(p)) return false;
+        if (!p?.id || isProgramExcludedFromReports(p)) return false;
         return programOverlapsDateRange(p, fechaDesde, fechaHasta, undefined, {
           calendarOnly: true,
         });

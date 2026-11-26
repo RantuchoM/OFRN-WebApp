@@ -32,7 +32,9 @@ export default function ConfirmModal({
     if (busy || confirmDisabled) return;
     try {
       await Promise.resolve(onConfirm?.());
-      onClose();
+      // El padre (p. ej. useConfirmDialog) suele cerrar vía isOpen; onClose
+      // solo como fallback si el modal sigue abierto controlado por el padre.
+      onClose?.();
     } catch {
       /* dejar abierto; el padre puede mostrar error inline u otro aviso */
     }

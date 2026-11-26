@@ -179,7 +179,7 @@ serve(async (req) => {
   const { data: eventos, error: eErr } = await supabase
     .from("eventos")
     .select(
-      "id, fecha, hora_inicio, hora_fin, descripcion, id_tipo_evento, is_deleted",
+      "id, fecha, hora_inicio, hora_fin, descripcion, id_tipo_evento, is_deleted, programas(estado)",
     )
     .eq("id_tipo_evento", TIPO_ENSAYO)
     .in("fecha", [today, tomorrow])
@@ -200,9 +200,14 @@ serve(async (req) => {
     descripcion: string | null;
     id_tipo_evento: number;
     is_deleted: boolean | null;
+    programas?: { estado?: string | null } | null;
   };
 
-  const eventosActivos = ((eventos || []) as Ev[]).filter((e) => !e.is_deleted);
+  const eventosActivos = ((eventos || []) as Ev[]).filter(
+    (e) =>
+      !e.is_deleted &&
+      String(e.programas?.estado || "").trim() !== "Cancelada",
+  );
 
   // Filtrar a ventana T−15 … T+MAX_AFTER
   const enVentana: Ev[] = [];

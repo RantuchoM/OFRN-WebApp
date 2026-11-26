@@ -30,7 +30,7 @@ function suiteRenames(suiteRe, extras = []) {
     { re: `${s}.*clarone\\.pdf$`, instrument: "Clarinete Bajo" },
     { re: `${s}.*fagote 1\\.pdf$`, instrument: "Fagot 1" },
     { re: `${s}.*fagote 2\\.pdf$`, instrument: "Fagot 2" },
-    { re: `${s}.*contrafagote\\.pdf$`, instrument: "Contrafagot" },
+    { re: `${s}.*contrafagote\\.pdf$`, instrument: "Fg Contrafagot" },
     { re: `${s}.*saxofone tenor\\.pdf$`, instrument: "Saxo Tenor" },
     { re: `${s}.*trompa 1\\.pdf$`, instrument: "Corno F 1" },
     { re: `${s}.*trompa 2\\.pdf$`, instrument: "Corno F 2" },

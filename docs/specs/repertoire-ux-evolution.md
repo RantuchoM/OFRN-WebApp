@@ -401,12 +401,12 @@ Optimizar `src/views/Repertoire/RepertoireView.jsx` en pantallas móviles para m
 - [x] Mozart 40 Horndude (#3896 Oficial, 14 partes; Vc/Cb suplemento #36332/36333)
 - [x] Debussy Fauno Reinisch (#3897 Oficial, 23 partes; CDN `imslp.eu/euimg`)
 - [x] Nun danket BWV 192 kowalski (#3909 Oficial, 9 partes)
-- [x] Paganini Op.6: **3900** Solicitud set vientos Generoso (14) + **3916** Oficial orquesta extendida completa (25; cuerdas/fagot/perc/Trombón Bajo). Ambas en el mismo repertorio; director elige
+- [x] Paganini Op.6: la obra **3900** (set vientos Generoso) fue eliminada, con sus particellas y su carpeta de Drive. Queda **3916** Oficial, orquesta extendida completa (25; cuerdas/fagot/perc/Trombón Bajo)
 - [x] Beethoven 9 completo (#3901 Oficial, 28 partes): SCORE CCARH + Ottaviano vientos/metales/timp/perc (#965934–54) + Feduol cuerdas (#862950–54) + coro vocal score #463296 (Schlusschor; no SATB separadas ni solistas sueltos)
 - [x] Triple Op.56: Solicitud **3898** fusionada → archivo **2458** (título corregido Oboe→Violín; PDFs canónicos; 18 partes orquesta+SCORE+Timp). Raw Ivdruiz #51158 en Para acomodar — faltan solistas (Vn/Vc/Piano)
 - [x] Händel And the Glory (#3904, recorte cuerdas+órgano desde 3643) y Purcell Z.323 (#3906, score Barros). Magnificat skip
 - [x] Sibelius Pelléas Op.46 (#3899 Oficial, 15 partes): SCORE Daphnis #15908 + Horndude/Generoso Kalmus; Fl/Ob doblan Picc/Cor.ing. en la misma particella
-- [x] Sin set / derechos: Brotons, Shost/Barshai, Rutter, Falú, Coppola, Ripper, Stravinsky Danses — siguen Solicitud; Magnificat K.193 página IMSLP vacía
+- [x] Sin set / derechos (corte 2026-11-23): Brotons, Rutter, Falú, Coppola, Ripper y Stravinsky Danses seguían sin PDF; Magnificat K.193 tenía la página IMSLP vacía. Shostakovich/Barshai **3894** ya tiene partes (SCORE + 5 cuerdas; ver 2026-11-25). Sillas vacías del 2026-11-26: apartado «Temporada 2027 — sillas vacías».
 
 ### Falla — Danza Española Nro 1 ('La Vida Breve') (2026-06-19)
 - Carpeta [Para acomodar / Falla](https://drive.google.com/open?id=16TvE6QokADJSSk9gpZXpP1D8GcrngIQS): 16 PDFs IMSLP → **26 particellas** canónicas.
@@ -1658,3 +1658,37 @@ Scripts: `scripts/lib/eljenMagyarCatalog.mjs`, `scripts/process-eljen-magyar-loc
 
 - [x] Split, rename canónico y carpeta en Drive
 - [x] Seed ejecutado → obra **3890**
+
+### Completado (2026-11-26) — Temporada 2027, sillas vacías
+
+Obras sin PDF que igual necesitan seating y conteo. Seed `supabase/seed_temporada_2027_placeholders.sql` (aplicado en linked). `url_archivo` queda NULL. No se agregó nada a `repertorio_obras`. No se tocaron Beethoven triple **3898**, Wagner Idilio **3913** ni Aranjuez **3919**.
+
+| Obra | id | Sillas | Qué representan |
+|------|---:|-------:|-----------------|
+| Brotons, Sinfonietta da camera | **3892** | 14 | Plantilla editorial: 14 músicos. `2(Picc).2.2.2 - 2.1.1.1 - Perc` |
+| Mozart, Magnificat K.193 | **3905** | 16 | NMA: solistas SATB, 2 trompetas, 3 trombones, timbal, vn 1, vn 2, vc, cb, órgano y un marcador Coro. Cuerdas: una silla por parte, no por atril |
+| Purcell, Z.323 | **3906** | 13 | SCORE de Barros conservado + 12 sillas (2 ob, 2 tpt, timbal, cuerdas, órgano, un Coro). `0.2.0.0 - 0.2.0.0 - Timp - Key - Str + Coro` |
+| Stravinsky, Danses concertantes | **3912** | 24 | Schott: `1.1.1.1 - 2.1.1.0 - Timp - Str`, cuerdas 6·0·4·3·2 (6 violines, sin segundos) |
+| Ripper, Matinas | **3915** | 15 | Jeanne **orquesta** 4-4-3-2-1 + oboe solista (`Ob - Str`). También existe quinteto 1-1-1-1-1; no se usó |
+
+Sin sillas (no hay plantilla que no sea un invento):
+
+- **3914** Coppola: estreno, sin partitura pública ni plantilla.
+- **3910** Falú, suites: la selección no está confirmada.
+- **3911** Falú, estreno: título sin confirmar, sin material.
+- **3908** Rutter: derechos; no está definido si es piano u orquesta.
+
+**3904** Händel Glory: 6 partes reales (cuerdas + órgano). El coro SATB no se contó: no hay tamaño. **3894** Shostakovich: 6 partes reales (SCORE + 5 cuerdas); la nota dice que ya están cargadas. No se sumaron placeholders.
+
+Coro en Mozart y Purcell: una sola silla marcador, no un headcount de cantantes. Mozart: no hay id Cantante Alto ni Cantante Bajo; el alto fue a Cantante Mezzo (**80**) y el bajo a Cantante Barítono (**38**).
+
+Deuda: `calculate_obra_instrumentacion` en vivo rotula un `Timbales` suelto (instrumento **13a**) como `Perc`, salvo que el nombre de archivo parezca `Perc Timbal` o entre por la rama timbal. El archivo de la migración no se tomó como producción. Se forzó a mano `Timp` en **3912** (`1.1.1.1 - 2.1.1.0 - Timp - Str`) y **3905** (`M., Bar., T., S. - 0.0.0.0 - 0.2.3.0 - Timp - Key - Str + Coro`), con el mismo `UPDATE` al final del seed. No se cambió el trigger. La próxima edición de una particella lo vuelve a `Perc`.
+
+### Completado (2026-11-26) — Contrafagot: nota `CFg` y prefijo `Fg Contrafagot`
+
+La particella de contrafagot lleva `nota_organico` exactamente `CFg` (el chip del asistente de enlaces) y el PDF de Drive empieza por `Fg Contrafagot`, igual que el piccolo empieza por `Fl Piccolo`. El resto del nombre canónico no se mueve. `normalizeInstrumentLabel` devuelve `Fg Contrafagot` para contrafagot / contrafagote / contrabassoon, y también para un archivo que arranca `Fagot CFg` sin otro instrumento en el mismo nombre.
+
+Obras tocadas (26 particellas): **3209**, **3298**, **3322**, **3323**, **3324**, **3325**, **3360**, **3488**, **3507**, **3634**, **3635**, **3636**, **3686**, **3708**, **3709**, **3720**, **3721**, **3722**, **3723**, **3734**, **3735**, **3737**, **3738**, **3739**, **3901**, **3916**. En **3901** el orgánico sigue `3.2.2.3(CFg)`. **3905** y **3912** no se editaron y siguen en `Timp`.
+
+- [x] Nota `CFg` y nombre `Fg Contrafagot` en linked
+- [x] Seeds y catálogos de esas obras alineados para que un re-run no vuelva al nombre viejo

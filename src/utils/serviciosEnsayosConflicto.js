@@ -8,7 +8,7 @@ import { programOverlapsDateRange } from "./giraDateRange";
 import { compareInstrumentIds } from "./giraUtils";
 import {
   isIntegranteConvocadoToEnsayo,
-  isProgramBorrador,
+  isProgramExcludedFromReports,
 } from "./girasYearSummary";
 import { integranteKey } from "./integranteIds";
 import {
@@ -103,7 +103,7 @@ function overlappingGirasForDate(programas, fecha) {
   const day = String(fecha || "").slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return [];
   return (programas || []).filter((p) => {
-    if (!p?.id || isProgramBorrador(p)) return false;
+    if (!p?.id || isProgramExcludedFromReports(p)) return false;
     // Solo programas de tipo Sinfónica y Camerata Filarmónica
     if (!isProgramaTipoConflicto(p)) return false;
     return programOverlapsDateRange(p, day, day, undefined, {

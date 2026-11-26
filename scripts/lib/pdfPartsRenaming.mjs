@@ -76,7 +76,18 @@ export function normalizeInstrumentLabel(rawName) {
   const canonicalPrefix =
     /^\s*(.+?)\s*-\s*[^.]+\.\s*.+\s*-\s*.+\s*$/i;
   if (canonicalPrefix.test(name)) {
-    return name.match(/^\s*(.+?)\s*-\s*[^.]+\./i)[1].trim();
+    const inst = name.match(/^\s*(.+?)\s*-\s*[^.]+\./i)[1].trim();
+    // El opus va en el medio (forma vieja). Sin esto, «Contrafagot - op.125. …»
+    // se devuelve tal cual y un rename posterior pierde el prefijo Fg.
+    if (
+      /^contrafagot(?:e|to)?$/i.test(inst) ||
+      /^contrabassoon$/i.test(inst) ||
+      /^fag\s+contrafagot(?:e)?$/i.test(inst) ||
+      /^fagot\s+cfg$/i.test(inst)
+    ) {
+      return "Fg Contrafagot";
+    }
+    return inst;
   }
 
   if (/\bscore\b|partitura|full score/i.test(name)) return "SCORE";
@@ -155,7 +166,7 @@ export function normalizeInstrumentLabel(rawName) {
     return "Clarinete Bb 1";
   if (/\bclarient[ae]\b|\bclarinet[ae]\b/i.test(name) && !/clarinete/i.test(name))
     return "Clarinete Bb";
-  if (/\bcontrafagote\b/i.test(name)) return "Contrafagot";
+  if (/\bcontrafagote\b/i.test(name)) return "Fg Contrafagot";
   if (/\bfagote\s*2\b/i.test(name)) return "Fagot 2";
   if (/\bfagote\s*1\b/i.test(name)) return "Fagot 1";
   if (/\bfagote\b/i.test(name)) return "Fagot";
@@ -251,7 +262,7 @@ export function normalizeInstrumentLabel(rawName) {
     /\btromb[oó]n\s*1y2\b|\btrombone\s*1-2\b|\btromb[oó]n\s*1\s*y\s*2\b/i.test(name)
   )
     return "Trombón 1y2";
-  if (/\bcontrafagot\b/i.test(name)) return "Contrafagot";
+  if (/\bcontrafagot\b|\bcontrabassoon\b/i.test(name)) return "Fg Contrafagot";
   if (/\boboe\s*2\b/i.test(name) && !/\boboe\s*1\b/i.test(name)) return "Oboe 2";
   if (/\boboe\s*1\b/i.test(name)) return "Oboe 1";
   if (/\bcorno\s+ingles\b|\benglish\s+horn\b|\bcorno\s+inglés\b|\bob\s+eh\b/i.test(name))
@@ -309,6 +320,8 @@ export function normalizeInstrumentLabel(rawName) {
     return "Clarinete Bb 1";
   if (/\bclarinete\s+(?:en\s+)?(?:sib|bb)\b|\bclarinet\b|\bclarinete\b/i.test(name))
     return "Clarinete Bb";
+  if (/^\s*fagot\s+cfg\b/i.test(name) && !/x\s*cl|\+/i.test(name))
+    return "Fg Contrafagot";
   if (/\bfagot\s+solo\b|\bbassoon\s+solo\b/i.test(name)) return "Fagot Solo";
   if (/\bfagot\s*2\b|\bbassoon\s*2\b/i.test(name)) return "Fagot 2";
   if (/\bfagot\s*1\b|\bbassoon\s*1\b/i.test(name)) return "Fagot 1";
@@ -543,6 +556,7 @@ export function extractInstrumentFromExistingName(fileName) {
   let base = fileName.replace(/\.pdf$/i, "").replace(/\s*-\s*raw split$/i, "");
   base = base.replace(/^\s*copia\s+de\s+/i, "").trim();
   if (/^\s*SCORE\b/i.test(base)) return "SCORE";
+  if (/^\s*Fg\s+Contrafagot\b/i.test(base)) return "Fg Contrafagot";
 
   const catalog =
     "(?:\\d+\\s+BIS|(?:op\\.?\\s*)?\\d+[A-Za-z]?|MWV\\s+N\\s*\\d+)";

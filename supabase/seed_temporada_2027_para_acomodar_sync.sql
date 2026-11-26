@@ -565,8 +565,8 @@ BEGIN
   INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
   VALUES (3901, '04', 'Contrabajo', '[{"url":"https://drive.google.com/file/d/14bPFpKUF9B-53o_52KajQwKY1xpCNg9y/view?usp=drivesdk","description":"Contrabajo - op.125. Sinfonia Nro 9 - Beethoven, L.pdf"}]', false);
 
-  INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
-  VALUES (3901, '08b', 'Contrafagot', '[{"url":"https://drive.google.com/file/d/1b_6s5zpdr7IJU2eiPV252Zbeq8uq16Lv/view?usp=drivesdk","description":"Contrafagot - op.125. Sinfonia Nro 9 - Beethoven, L.pdf"}]', false);
+  INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista, nota_organico)
+  VALUES (3901, '08b', 'Fg Contrafagot', '[{"url":"https://drive.google.com/file/d/1b_6s5zpdr7IJU2eiPV252Zbeq8uq16Lv/view?usp=drivesdk","description":"Fg Contrafagot - op.125. Sinfonia Nro 9 - Beethoven, L.pdf"}]', false, 'CFg');
 
   INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
   VALUES (3901, '09', 'Corno 1', '[{"url":"https://drive.google.com/file/d/1-3djt2Sw3q7IeOWeqkmysH0xXg8-PnPI/view?usp=drivesdk","description":"Corno 1 - op.125. Sinfonia Nro 9 - Beethoven, L.pdf"}]', false);

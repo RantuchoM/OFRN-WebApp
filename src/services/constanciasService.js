@@ -318,6 +318,7 @@ export async function listGirasElegiblesConstancia(
     )
     .in("tipo", CONSTANCIAS_TIPOS_GIRA)
     .neq("estado", "Borrador")
+    .neq("estado", "Cancelada")
     .order("fecha_desde", { ascending: false });
   if (error) throw error;
 
@@ -428,6 +429,9 @@ async function loadProgramaConstancia(supabase, idGira) {
   }
   if (String(programa.estado || "") === "Borrador") {
     throw new Error("La gira aún no está publicada");
+  }
+  if (String(programa.estado || "") === "Cancelada") {
+    throw new Error("La gira está cancelada");
   }
   return programa;
 }

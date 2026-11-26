@@ -7,7 +7,7 @@ import {
 } from "./convocatoriaEnsambleViews";
 import { membershipActiveOnProgramDate } from "./ensembleMembership";
 import { programOverlapsDateRange } from "./giraDateRange";
-import { isProgramBorrador } from "./girasYearSummary";
+import { isProgramExcludedFromReports } from "./girasYearSummary";
 import { integranteKey } from "./integranteIds";
 import {
   ID_TIPO_CONCIERTO,
@@ -637,7 +637,7 @@ export function buildEnsambleServiciosReport({
   const propiosById = new Map();
 
   for (const program of programas || []) {
-    if (!program?.id || isProgramBorrador(program)) continue;
+    if (!program?.id || isProgramExcludedFromReports(program)) continue;
     if (
       !programOverlapsDateRange(program, fechaDesde, fechaHasta, undefined, {
         calendarOnly: true,
@@ -726,7 +726,7 @@ export function buildEnsambleServiciosReport({
       let nested = false;
       for (const pid of pids) {
         const program = (programas || []).find((p) => Number(p.id) === pid);
-        if (!program || isProgramBorrador(program)) continue;
+        if (!program || isProgramExcludedFromReports(program)) continue;
         if (!ownTipos.has(program.tipo)) continue;
         const already = propiosById.has(Number(program.id));
         if (!already && !linked) continue;

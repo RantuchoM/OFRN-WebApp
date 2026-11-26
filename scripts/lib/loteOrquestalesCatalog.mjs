@@ -575,7 +575,7 @@ export const MAHLER_SINFONIA_4 = {
   workTitle: "Sinfonía Nro. 4",
   composerTag: "Mahler, G",
   notes:
-    "Partes IMSLP961510+ = un PDF por silla (sin portadas). Doble: Oboe 3/Ob EH, Clarinete 3/Clarinete Bajo, Fagot 3/Contrafagot (misma hoja, dos PDFs). Flauta 3 y 4 llevan Piccolo impreso. IMSLP961513 (Flauta 4) trae encabezado erróneo «Symphony No. 2 in C Minor» (música de la 4). SCORE sin p.1 (portada «in full score»). Soprano (mvt 4, reducción) sin p.1 (portada) → Voz. Trompetas en Fa.",
+    "Partes IMSLP961510+ = un PDF por silla (sin portadas). Doble: Oboe 3/Ob EH, Clarinete 3/Clarinete Bajo, Fagot 3/Fg Contrafagot (misma hoja, dos PDFs). Flauta 3 y 4 llevan Piccolo impreso. IMSLP961513 (Flauta 4) trae encabezado erróneo «Symphony No. 2 in C Minor» (música de la 4). SCORE sin p.1 (portada «in full score»). Soprano (mvt 4, reducción) sin p.1 (portada) → Voz. Trompetas en Fa.",
   files: [
     {
       pdf: "IMSLP70999-SCORE.pdf",
@@ -593,7 +593,7 @@ export const MAHLER_SINFONIA_4 = {
     wholeAs("IMSLP961519-Clarinet3.pdf", 6, ["Clarinete 3", "Clarinete Bajo"]),
     whole("IMSLP961520-Bassoon1.pdf", "Fagot 1", 7),
     whole("IMSLP961521-Bassoon2.pdf", "Fagot 2", 6),
-    wholeAs("IMSLP961522-Bassoon3.pdf", 6, ["Fagot 3", "Contrafagot"]),
+    wholeAs("IMSLP961522-Bassoon3.pdf", 6, ["Fagot 3", "Fg Contrafagot"]),
     whole("IMSLP961523-Horn1.pdf", "Corno F 1", 8),
     whole("IMSLP961524-Horn2.pdf", "Corno F 2", 6),
     whole("IMSLP961525-Horn3.pdf", "Corno F 3", 6),

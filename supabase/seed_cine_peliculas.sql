@@ -463,8 +463,8 @@ BEGIN
     VALUES (_id_obra, '08', 'Fagot 1', '[{"url":"https://drive.google.com/file/d/1KRmAYGwph1_Y0RN9e_zbF1rf75lNy_AA/view?usp=drivesdk","description":"Fagot 1 - Amistad, Dry your Tears, Afrika - Williams, J.pdf"}]', false);
     INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
     VALUES (_id_obra, '08', 'Fagot 2', '[{"url":"https://drive.google.com/file/d/1KMDtU-sPeJ_723KNUKnavYkhXmLxPsrD/view?usp=drivesdk","description":"Fagot 2 - Amistad, Dry your Tears, Afrika - Williams, J.pdf"}]', false);
-    INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
-    VALUES (_id_obra, '08', 'Fg Contrafagot', '[{"url":"https://drive.google.com/file/d/1LB0giOu6g0pf8cXJujgudwotXWQdSlod/view?usp=drivesdk","description":"Fg Contrafagot - Amistad, Dry your Tears, Afrika - Williams, J.pdf"}]', false);
+    INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista, nota_organico)
+    VALUES (_id_obra, '08', 'Fg Contrafagot', '[{"url":"https://drive.google.com/file/d/1LB0giOu6g0pf8cXJujgudwotXWQdSlod/view?usp=drivesdk","description":"Fg Contrafagot - Amistad, Dry your Tears, Afrika - Williams, J.pdf"}]', false, 'CFg');
     INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
     VALUES (_id_obra, '05', 'Fl Piccolo', '[{"url":"https://drive.google.com/file/d/1L11v59hkcB_71C2Hkv6hEyVPBYZUgA5U/view?usp=drivesdk","description":"Fl Piccolo - Amistad, Dry your Tears, Afrika - Williams, J.pdf"}]', false);
     INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)

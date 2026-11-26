@@ -9,6 +9,7 @@ import {
 import {
   isIntegranteConvocadoToEnsayo,
   isProgramBorrador,
+  isProgramExcludedFromReports,
   orderedProgramTypeEntries,
 } from "./girasYearSummary";
 import {
@@ -560,7 +561,7 @@ export function isPastGira(program, today = toLocalDateString()) {
  * Incluye las en curso (cronograma a medias no debe subcontar).
  */
 export function isEstimableGira(program, today = toLocalDateString()) {
-  if (!program || isProgramBorrador(program)) return false;
+  if (!program || isProgramExcludedFromReports(program)) return false;
   const hasta = normalizeIsoDate(program?.fecha_hasta);
   return !hasta || hasta >= today;
 }
@@ -577,7 +578,7 @@ export function listPastGirasForAverage(
 ) {
   const day = today || toLocalDateString();
   return (programs || []).filter((p) => {
-    if (!p?.id || isProgramBorrador(p)) return false;
+    if (!p?.id || isProgramExcludedFromReports(p)) return false;
     if (onlySinfonico && !isSinfonicoProgram(p)) return false;
     if (selectedTypes instanceof Set && p.tipo && !selectedTypes.has(p.tipo)) {
       return false;

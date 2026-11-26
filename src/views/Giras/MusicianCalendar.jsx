@@ -109,19 +109,23 @@ export default function MusicianCalendar({ supabase }) {
       const { data: eventsData } = await supabase
         .from("eventos")
         .select(
-          `id, fecha, hora_inicio, hora_fin, descripcion, observaciones_internas, id_tipo_evento, id_locacion, id_gira, id_gira_transporte, tipos_evento (id, nombre, color), locaciones (id, nombre), programas (id, fecha_desde, google_drive_folder_id, nomenclador, giras_fuentes (tipo, valor_id), giras_integrantes (id_integrante, estado))`
+          `id, fecha, hora_inicio, hora_fin, descripcion, observaciones_internas, id_tipo_evento, id_locacion, id_gira, id_gira_transporte, tipos_evento (id, nombre, color), locaciones (id, nombre), programas (id, fecha_desde, estado, google_drive_folder_id, nomenclador, giras_fuentes (tipo, valor_id), giras_integrantes (id_integrante, estado))`
         )
         .gte("fecha", startDateString) // <-- FIX APLICADO
         .lte("fecha", endDateString);   // <-- FIX APLICADO
       const { data: toursData } = await supabase
         .from("programas")
         .select(
-          `id, nombre_gira, fecha_desde, fecha_hasta, tipo, google_drive_folder_id, nomenclador, giras_fuentes (tipo, valor_id, valor_texto), giras_integrantes (id_integrante, estado)`
+          `id, nombre_gira, fecha_desde, fecha_hasta, tipo, estado, google_drive_folder_id, nomenclador, giras_fuentes (tipo, valor_id, valor_texto), giras_integrantes (id_integrante, estado)`
         )
         .lte("fecha_desde", endDateString) // <-- FIX APLICADO
-        .gte("fecha_hasta", startDateString); // <-- FIX APLICADO
+        .gte("fecha_hasta", startDateString) // <-- FIX APLICADO
+        .neq("estado", "Cancelada");
 
       const filterLogic = (item) => {
+        const estado =
+          item.estado || item.programas?.estado || "Borrador";
+        if (String(estado).trim() === "Cancelada") return false;
         if (!isPersonal) return true;
         const overrides =
           item.giras_integrantes || item.programas?.giras_integrantes || [];

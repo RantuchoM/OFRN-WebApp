@@ -44,7 +44,12 @@ import {
   parseISO,
 } from "date-fns";
 import { toast } from "sonner";
-import { getProgramStyle, stampRosterActor } from "../../utils/giraUtils";
+import {
+  getProgramStyle,
+  stampRosterActor,
+  giraMuestraOpcionNotificar,
+  giraPuedeNotificarMasivo,
+} from "../../utils/giraUtils";
 import { formatDisplayDate } from "../../utils/dates";
 import { syncSingleSegmentDates } from "../../services/giraSegmentosService";
 import { touchOrganicoConvocado } from "../../services/organicoConvocadoService";
@@ -532,7 +537,7 @@ export default function GiraForm({
   const [draftDesde, setDraftDesde] = useState("");
   const [draftHasta, setDraftHasta] = useState("");
   const [draftShiftDate, setDraftShiftDate] = useState("");
-  const [notifyMove, setNotifyMove] = useState(true);
+  const [notifyMove, setNotifyMove] = useState(false);
   const [fechasSaving, setFechasSaving] = useState(false);
   const [eventosCount, setEventosCount] = useState(0);
   const [staffRole, setStaffRole] = useState("director");
@@ -815,10 +820,16 @@ export default function GiraForm({
       setDraftDesde(formData.fecha_desde || "");
       setDraftHasta(formData.fecha_hasta || "");
       setDraftShiftDate(formData.fecha_desde || "");
-      setNotifyMove(true);
+      setNotifyMove(giraPuedeNotificarMasivo(formData));
       setFechasPanelOpen(true);
     },
-    [formData.fecha_desde, formData.fecha_hasta, isNew],
+    [
+      formData.fecha_desde,
+      formData.fecha_hasta,
+      formData.notificacion_inicial_enviada,
+      formData.notificaciones_habilitadas,
+      isNew,
+    ],
   );
 
   const closeFechasPanel = useCallback(() => {
@@ -904,7 +915,9 @@ export default function GiraForm({
         fecha_hasta: formData.fecha_hasta,
       };
       try {
-        const res = await moveGira(giraId, draftShiftDate, notifyMove);
+        const shouldNotifyMove =
+          giraPuedeNotificarMasivo(formData) && notifyMove;
+        const res = await moveGira(giraId, draftShiftDate, shouldNotifyMove);
         if (!res.success) {
           toast.error(res.error || "Error al trasladar la gira");
           return;
@@ -930,7 +943,7 @@ export default function GiraForm({
           fecha_desde: draftShiftDate,
           fecha_hasta: newHasta,
         }));
-        if (notifyMove) {
+        if (shouldNotifyMove) {
           try {
             if (onAfterMove) {
               await onAfterMove(draftShiftDate, true, giraBefore);
@@ -1338,8 +1351,35 @@ export default function GiraForm({
             <div className="relative w-1/2 md:w-auto md:min-w-[180px]">
               <select
                 value={formData.estado || "Borrador"}
-                onChange={(e) => {
+                onChange={async (e) => {
                   const newVal = e.target.value;
+                  const prev = formData.estado || "Borrador";
+                  if (newVal === prev) return;
+
+                  if (newVal === "Cancelada") {
+                    const ok = await confirm({
+                      title: "Marcar como Cancelada",
+                      message:
+                        "La gira quedará cancelada y sus eventos dejarán de aparecer. Preferí «Cancelar programa» del menú si querés notificar a los músicos.",
+                      confirmText: "Marcar Cancelada",
+                      destructive: true,
+                    });
+                    if (!ok) {
+                      e.target.value = prev;
+                      return;
+                    }
+                  } else if (prev === "Cancelada") {
+                    const ok = await confirm({
+                      title: "Reactivar programa",
+                      message: `¿Volver a estado ${newVal}? Los eventos volverán a aparecer según las reglas de visibilidad de ese estado.`,
+                      confirmText: "Reactivar",
+                    });
+                    if (!ok) {
+                      e.target.value = prev;
+                      return;
+                    }
+                  }
+
                   setFormData({ ...formData, estado: newVal });
                   handleAutoSave("estado", newVal);
                 }}
@@ -1349,12 +1389,15 @@ export default function GiraForm({
                     ? "bg-green-50 border-green-200 text-green-700"
                     : formData.estado === "Pausada"
                       ? "bg-amber-50 border-amber-200 text-amber-700"
-                      : "bg-slate-50 border-slate-200 text-slate-600",
+                      : formData.estado === "Cancelada"
+                        ? "bg-rose-50 border-rose-200 text-rose-700"
+                        : "bg-slate-50 border-slate-200 text-slate-600",
                 )}`}
               >
                 <option value="Borrador">BORRADOR</option>
                 <option value="Vigente">VIGENTE</option>
                 <option value="Pausada">PAUSADA</option>
+                <option value="Cancelada">CANCELADA</option>
               </select>
             </div>
             <div className="relative w-1/2 md:w-auto md:min-w-[180px]">
@@ -1540,17 +1583,39 @@ export default function GiraForm({
                       onChange={setDraftShiftDate}
                     />
                   </div>
-                  <label className="flex items-center gap-2 pb-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={notifyMove}
-                      onChange={(e) => setNotifyMove(e.target.checked)}
-                      className="rounded border-slate-300 text-amber-600 focus:ring-amber-500"
-                    />
-                    <span className="text-xs text-amber-900 font-medium">
-                      Notificar a los músicos por email
-                    </span>
-                  </label>
+                  {giraMuestraOpcionNotificar(formData) ? (
+                    <label
+                      className={`flex items-center gap-2 pb-2 ${
+                        giraPuedeNotificarMasivo(formData)
+                          ? "cursor-pointer"
+                          : "opacity-60 cursor-not-allowed"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={notifyMove}
+                        disabled={!giraPuedeNotificarMasivo(formData)}
+                        onChange={(e) => {
+                          if (giraPuedeNotificarMasivo(formData)) {
+                            setNotifyMove(e.target.checked);
+                          }
+                        }}
+                        className="rounded border-slate-300 text-amber-600 focus:ring-amber-500 disabled:opacity-50"
+                      />
+                      <span className="text-xs text-amber-900 font-medium">
+                        Notificar a los músicos por email
+                        {!giraPuedeNotificarMasivo(formData) ? (
+                          <span className="block text-[10px] text-amber-700/70">
+                            Notificaciones desactivadas
+                          </span>
+                        ) : null}
+                      </span>
+                    </label>
+                  ) : (
+                    <p className="text-[10px] text-amber-800/70 pb-2 max-w-[12rem]">
+                      Sin convocatoria inicial: no se notificará el traslado.
+                    </p>
+                  )}
                 </>
               )}
               <button

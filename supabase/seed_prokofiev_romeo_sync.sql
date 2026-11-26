@@ -41,8 +41,8 @@ BEGIN
     VALUES (_id_obra, '07', 'Clarinete Bb 2', '[{"url":"https://drive.google.com/file/d/1M9TrTPtKXoxc70IK8Z5OEy_-rr6zccg5/view?usp=drivesdk","description":"Clarinete Bb 2 - op.64a. Romeo y Julieta Suite n°1 - Prokofiev, S.pdf"}]', false);
     INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
     VALUES (_id_obra, '04', 'Contrabajo', '[{"url":"https://drive.google.com/file/d/15OiFV42W9ygSLFCTiKBTXD1ze7I9N6OM/view?usp=drivesdk","description":"Contrabajo - op.64a. Romeo y Julieta Suite n°1 - Prokofiev, S.pdf"},{"url":"https://drive.google.com/file/d/1R5WDhMmmFb1YirGN6O2AAPkuqNYd5Za_/view?usp=drivesdk","description":"Contrabajo - op.64a. Romeo y Julieta Suite n°1 - Prokofiev, S (sin arcos).pdf"}]', false);
-    INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
-    VALUES (_id_obra, '08b', 'Contrafagot', '[{"url":"https://drive.google.com/file/d/1yX-HLnAdjkKo59GQAFAb3g0eUXufWFnp/view?usp=drivesdk","description":"Contrafagot - op.64a. Romeo y Julieta Suite n°1 - Prokofiev, S.pdf"}]', false);
+    INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista, nota_organico)
+    VALUES (_id_obra, '08b', 'Fg Contrafagot', '[{"url":"https://drive.google.com/file/d/1yX-HLnAdjkKo59GQAFAb3g0eUXufWFnp/view?usp=drivesdk","description":"Fg Contrafagot - op.64a. Romeo y Julieta Suite n°1 - Prokofiev, S.pdf"}]', false, 'CFg');
     INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
     VALUES (_id_obra, '09', 'Corno F 1', '[{"url":"https://drive.google.com/file/d/1RzpBCqaGYQiCTU-VAcMrK1xJnVTRKHs2/view?usp=drivesdk","description":"Corno F 1 - op.64a. Romeo y Julieta Suite n°1 - Prokofiev, S.pdf"}]', false);
     INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
@@ -156,8 +156,8 @@ BEGIN
     VALUES (_id_obra, '07', 'Clarinete Bb 2', '[{"url":"https://drive.google.com/file/d/1B1RJm-7fbObwvA6NkRmn6mq-95Yogubo/view?usp=drivesdk","description":"Clarinete Bb 2 - op.64b. Romeo y Julieta Suite n°2 - Prokofiev, S.pdf"}]', false);
     INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
     VALUES (_id_obra, '04', 'Contrabajo', '[{"url":"https://drive.google.com/file/d/11h7TRkR8LArQ-F55IdjZJtsHlcGsUQr5/view?usp=drivesdk","description":"Contrabajo - op.64b. Romeo y Julieta Suite n°2 - Prokofiev, S.pdf"},{"url":"https://drive.google.com/file/d/1KYAbNF9kvIKW-0krSGoAEj-cvxMF9Uu2/view?usp=drivesdk","description":"Contrabajo - op.64b. Romeo y Julieta Suite n°2 - Prokofiev, S (sin arcos).pdf"}]', false);
-    INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
-    VALUES (_id_obra, '08b', 'Contrafagot', '[{"url":"https://drive.google.com/file/d/1a9THLgTslS3qdKAinZwZzwvYjKf3Hi9a/view?usp=drivesdk","description":"Contrafagot - op.64b. Romeo y Julieta Suite n°2 - Prokofiev, S.pdf"}]', false);
+    INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista, nota_organico)
+    VALUES (_id_obra, '08b', 'Fg Contrafagot', '[{"url":"https://drive.google.com/file/d/1a9THLgTslS3qdKAinZwZzwvYjKf3Hi9a/view?usp=drivesdk","description":"Fg Contrafagot - op.64b. Romeo y Julieta Suite n°2 - Prokofiev, S.pdf"}]', false, 'CFg');
     INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
     VALUES (_id_obra, '09', 'Corno F 1', '[{"url":"https://drive.google.com/file/d/1_j4vWBKrnc3wxX79tuiY7GPv4HWByVjr/view?usp=drivesdk","description":"Corno F 1 - op.64b. Romeo y Julieta Suite n°2 - Prokofiev, S.pdf"}]', false);
     INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
