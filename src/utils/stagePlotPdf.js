@@ -43,6 +43,12 @@ import {
 } from "./stagePlotFormations";
 import { loadChoirFigureImages } from "./stagePlotChoirAssets";
 import {
+  drawStageFloorOnCanvas,
+  loadStageFloorImage,
+  normalizeStagePlotFloorOpacity,
+  stageFloorPresetHasTexture,
+} from "./stagePlotFloors";
+import {
   STAGE_PLOT_SILHOUETTE_VIEWBOX,
   getStagePlotSilhouettePath,
 } from "./stagePlotSilhouettes";
@@ -808,6 +814,7 @@ export async function exportStagePlotPdf(
   const ox = margin + (plotW - sw * scale) / 2;
   const oy = plotTop + 8;
 
+  await drawStageFloorOnPdf(doc, payload, ox, oy, scale, sw, sh);
   const choirImages = await loadChoirFigureImages();
   drawStageGuidesOnPdf(doc, payload, ox, oy, scale, sw, sh, choirImages);
   await drawStageItemsOnPdf(doc, payload, ox, oy, scale);
@@ -1032,6 +1039,26 @@ export async function renderStagePlotToCanvas(payloadRaw, options = {}) {
   ctx.strokeStyle = "#b4b4b4";
   ctx.lineWidth = 1;
   ctx.fillRect(ox, oy, stageW, stageH);
+
+  const floorImg = stageFloorPresetHasTexture(payload.stage?.floorPreset)
+    ? await loadStageFloorImage(payload.stage.floorPreset)
+    : null;
+  if (floorImg) {
+    drawStageFloorOnCanvas(
+      ctx,
+      payload.stage || {},
+      ox,
+      oy,
+      stageW,
+      stageH,
+      sw,
+      sh,
+      floorImg,
+    );
+  }
+
+  ctx.strokeStyle = "#b4b4b4";
+  ctx.lineWidth = 1;
   ctx.strokeRect(ox, oy, stageW, stageH);
 
   ctx.fillStyle = "#64748b";
@@ -1239,6 +1266,61 @@ function rayEndpoint(ox, oy, angleDeg, width, height) {
     return { x: ox + dx * 120, y: oy + dy * 120 };
   }
   return { x: ox + t * dx, y: oy + t * dy };
+}
+
+/**
+ * Textura de piso bajo las guías (raster → addImage). Default on si hay preset ≠ none.
+ * @param {import("jspdf").jsPDF} doc
+ * @param {ReturnType<typeof normalizeStagePlotPayload>} payload
+ */
+async function drawStageFloorOnPdf(doc, payload, ox, oy, scale, sw, sh) {
+  const stage = payload?.stage || {};
+  if (!stageFloorPresetHasTexture(stage.floorPreset)) return;
+  const opacity = normalizeStagePlotFloorOpacity(stage.floorOpacity);
+  if (!(opacity > 0)) return;
+  const image = await loadStageFloorImage(stage.floorPreset);
+  if (!image) return;
+
+  const destWmm = Math.max(1, sw * scale);
+  const destHmm = Math.max(1, sh * scale);
+  // ~2 CSS px/mm ≈ calidad de impresión liviana en A4 landscape.
+  const pxPerMm = 2;
+  const cw = Math.max(1, Math.round(destWmm * pxPerMm));
+  const ch = Math.max(1, Math.round(destHmm * pxPerMm));
+  // Cap para no explotar memoria en lienzos enormes.
+  const maxSide = 2400;
+  const fit = Math.min(1, maxSide / Math.max(cw, ch));
+  const canvasW = Math.max(1, Math.round(cw * fit));
+  const canvasH = Math.max(1, Math.round(ch * fit));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = canvasW;
+  canvas.height = canvasH;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  drawStageFloorOnCanvas(
+    ctx,
+    stage,
+    0,
+    0,
+    canvasW,
+    canvasH,
+    sw,
+    sh,
+    image,
+  );
+  let dataUrl;
+  try {
+    dataUrl = canvas.toDataURL("image/png");
+  } catch (err) {
+    console.warn("[stagePlotPdf] floor toDataURL:", err);
+    return;
+  }
+  try {
+    doc.addImage(dataUrl, "PNG", ox, oy, destWmm, destHmm);
+  } catch (err) {
+    console.warn("[stagePlotPdf] addImage floor:", err);
+  }
 }
 
 /**

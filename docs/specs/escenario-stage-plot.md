@@ -12,6 +12,7 @@
   - Si solo hay `width`/`height` px (v1 a 10 px/cm) → `cm = px / 10`, luego px nuevos = `cm × 4`.
   - Si `width`/`widthCm` indican otra escala (ratio), `stagePlotLegacyScaleFactor` reescala geometría de ítems/formaciones.
 - **Nota al pie**: `stage.footerNote` (HTML Quill mínimo) en el payload del lienzo; ver sección dedicada más abajo. Botón **Nota** junto a Lienzo + ítem en el popover.
+- **Piso (floor textures MVP)**: `stage.floorPreset` (id string) + `stage.floorOpacity` (0–1). Catálogo en `src/utils/stagePlotFloors.js`; PNGs tileable en `public/stage-plot/floors/` (procedurales OFRN; ver `ATTRIBUTION.md`). Default **`none`** (Escenario vacío = soft grey / night actual) para que plots existentes no salten. Presets: `none`, `negro`, `gris`, `madera_clara`, `madera_oscura`, `ceramico`. UI en popover **Lienzo** (select + deslizante Opacidad piso; el slider se deshabilita si `none`). Konva: `StageFloorFill` (Rect `fillPatternImage` + repeat) **bajo** la cuadrícula, dentro de `.no-dark-invert`. PDF/JPG/preview técnico: textura incluida por defecto si hay preset ≠ `none` (`drawStageFloorOnPdf` / `drawStageFloorOnCanvas`). Regenerar assets: `npm run stage-plot:floors`.
 - **UI Lienzo**: inputs **Ancho (cm)** / **Alto (cm)** con límites 40–1600 cm (ancho) y 30–1200 cm (alto). Hint fijo bajo los inputs: `Máx. Ancho 1600 · Alto 1200 cm`. Toast (sonner) al clampear o al live-apply OOB: `Máximo 1600 cm de ancho` / `Máximo 1200 cm de alto` (y análogo para mínimo); debounce ~2.2 s para no spamear. **Opacidad** (2×2 deslizantes 0–100%): **Cuadrícula** → `gridOpacity`; **Radial** → `radialOpacity`; **Formaciones** → `formationGuidesOpacity`; **Recuadros** → `chairSquaresOpacity` (0 = oculto, 1 = opaco; valores intermedios = semi-transparente). Migración desde boolean legacy al normalizar: `showGrid !== false` → 1 else 0; `showRadial` → 1/0; `hideFormationGuides` → 0 si hide else 1; `hideChairSquares` → 0 si hide else 1. Al guardar se sincronizan también los flags boolean (`showGrid`/`showRadial`/`hide*`) desde las opacidades. **Radial → Líneas** (3–36, `normalizeStagePlotRadialLines`) se muestra si `radialOpacity > 0` y usa el mismo patrón (`StageLienzoDimensionInput`):
   - **Draft local** mientras hay foco (no clampea mid-keystroke al mínimo).
   - **Live apply**: en `onChange`, tras debounce ~220 ms, si `Number(draft)` es finito y ya está dentro de `[min, max]`, llama `onCommit` → `patchStage` **sin cerrar el popover** (el lienzo Konva y la etiqueta `W × H cm` se actualizan en vivo). Draft vacío / parcial / fuera de rango no parchea (si OOB y hay `limitNoun`, toast).
@@ -39,6 +40,16 @@
   - Radial: día `#8b5cf6` · night `#c4b5fd` (`STAGE_PLOT_RADIAL_STROKE[_NIGHT]`).
   - PDF/JPG de export siguen en fondo claro (sin variante night).
 
+## Piso (floor textures)
+
+- **Payload**: `stage.floorPreset` (string id) + `stage.floorOpacity` (0–1). Normalizado en `stagePlotPayload.js` vía `stagePlotFloors.js`.
+- **Default**: `floorPreset = "none"` · `floorOpacity = 1` → mismo soft grey / night que antes (plots viejos sin campo no cambian).
+- **Presets**: `none` (Escenario vacío), `negro`, `gris`, `madera_clara`, `madera_oscura`, `ceramico`.
+- **Assets**: `public/stage-plot/floors/{id}.png` (128×128 tileable, procedural; `npm run stage-plot:floors`).
+- **Editor**: select + slider en popover Lienzo; Konva `StageFloorFill` debajo de la grilla (sobre el fill del Rect `stage-plot-bg`, stroke en capa aparte).
+- **Export / preview**: PDF y JPG (`renderStagePlotToCanvas`) dibujan la textura bajo las guías cuando el preset ≠ `none` (opacidad del payload; sin toggle aparte en el modal de export).
+- **Night**: texturas autoradas dentro de `.no-dark-invert` (no se invierten).
+
 ## Vista (pan / zoom)
 
 - **Zoom**: pinch del trackpad (Chromium lo entrega como `wheel` + `ctrlKey`) o **Ctrl/⌘ + rueda** sobre el lienzo (`viewport.scale`, ancla al cursor); `userZoomedRef` evita re-fit al redimensionar. Helper: `applyStagePlotWheelToViewport` / `isStagePlotViewportZoomWheel` en `stagePlotViewportGestures.js`.
@@ -46,6 +57,17 @@
 - Sobre el lienzo el `wheel` hace `preventDefault` para no scrollear la página.
 - Cursor `grab` / `grabbing` con Espacio pulsado o mientras se pannea; `default` en Seleccionar; `move` en Mover; `crosshair` durante marquee. Sobre **asas** (Transformer, formación, plazas libres): cursor de resize (`ew`/`ns`/`nwse`/`nesw`) o `grab`/`grabbing` según el asa; la **asa de giro** del Transformer (`rotater`) usa cursor SVG custom de flechas en círculo (`STAGE_PLOT_ROTATE_CURSOR`, data-URL + hotspot 12,12; fallback `grab`/`grabbing`). La asa gana sobre el cursor de herramienta vía `style.cursor` inline en el wrap del Stage.
 - **Ajustar vista** (reset zoom): botón toolbar; limpia `userZoomedRef`.
+
+## Explorar vista (órbita de cámara · proyección del piso)
+
+- **Toggle** desktop toolbar: **Explorar vista** (`IconEye` + chip `Exp`). Solo chrome desktop (oculto en `mobileUi`). Estado de **sesión** (`explorePerspective` / `exploreCam` `{ yaw, pitch }`); **no** se persiste en el payload ni en DB.
+- **ON**: cámara virtual lookAt al centro del escenario. Default al activar = planta ortográfica (`yaw: 0`, `pitch ≈ 90°` / identity) — **sin salto visual** hasta el primer arrastre. El piso (grid, radial, tarimas, formaciones, huellas de silla) vive bajo un pivot `Group` (`stage-plot-explore-pivot`) con la **proyección ortográfica 3D→2D** del plano (`stagePlotExploreFloorKonvaAttrs` → `scaleX` / `scaleY` / `rotation` / `skewX`). No se usa el stretch `skewX`/`scaleY` “de goma” por posición del mouse.
+- **Órbita**: arrastre primario (mousedown+move) → `stagePlotExploreOrbitByDelta` desde esa baseline (horizontal = yaw; vertical = pitch: arriba = más planta, abajo = más foreshortening). Pitch clampeado ≈ `[12°, 90°]` (no debajo del piso). Sin órbita en `mousemove` idle. Listeners `pointermove`/`pointerup` a nivel `document` (como el pan). Hint: «Arrastrá para orbitar».
+- **Pan / zoom**: Espacio / rueda central siguen haciendo **pan** del viewport 2D de la proyección; rueda / pinch siguen haciendo **zoom**. Arrastre vacío no inicia marquee ni mueve objetos.
+- **Íconos screen-space (no billboard inverso)**: ítems no-tarima se parten en dos capas. (1) Huella de silla bajo el piso proyectado (`exploreLayer="floor"`). (2) Ícono / silueta / texto / label de timpani en un sibling `Group` `stage-plot-explore-icons` **fuera** del pivot: `stagePlotExploreProjectStagePoint(cam, x, y, w, h)` proyecta el ancla de escenario → xy de pantalla; el `Group` del ícono usa **identity** rotation/scale/skew (solo cambia `x`,`y`; `item.rotation` se ignora en explore para que el PNG quede siempre upright). **Ancla**: bottom-center del PNG (pies) sobre el punto de piso proyectado — no el centro del sprite — con escala `STAGE_PLOT_EXPLORE_ICON_SCALE` (0.85); director / atriles / texto igual. La inversa afín anidada (`stagePlotExploreBillboard`) queda **deprecated** — fallaba en pitch bajo (smear horizontal). Tarimas siguen “plancha” en el piso.
+- **Edición**: `canvasEditEnabled = canEdit && !explorePerspective`. Sin drag de ítems/formaciones, sin Transformer / asas / toolbar flotante, sin paleta add/drag, sin selección ni menús contextuales de ítem. Chip overlay: **Solo exploración · arrastrá para orbitar**. **Escape** / toggle OFF → ortográfico de edición; cámara vuelve a identity (planta).
+- **PDF / JPG / preview técnico**: `stagePlotPdf.js` / canvas 2D **ignoran** el transform de exploración (siempre planta ortográfica).
+- Helper: `src/utils/stagePlotExplorePerspective.js` (órbita + matriz de piso + proyección de punto a pantalla + `STAGE_PLOT_EXPLORE_ICON_SCALE`). Perspectiva con vanishing point (homografía no afín) o three.js **no** están en el alcance actual; la proyección ortográfica del plano ya da un rectángulo como plano en el espacio al orbitar.
 
 ## Modo nocturno forzado (OFRN)
 
@@ -129,9 +151,12 @@ Hint del canvas cambia según la herramienta activa.
 | `src/utils/stagePlotPdf.js` | Export PDF (**una sola hoja** landscape: escenario escalado + dims + franja nota/mobiliario compacto; sin `addPage`) y JPG (escenario + dims + franja de nota); `renderStagePlotToCanvas` compartido con preview técnico |
 | `src/utils/stagePlotFooterNote.js` | Sanitizado / vacío / parse de `stage.footerNote` (HTML mínimo Quill → bloques para PDF/canvas) |
 | `src/utils/stagePlotConstants.js` | Escala cm↔px, grid, offset director, clamps |
-| `src/utils/stagePlotPayload.js` | Normalización `widthCm`/`heightCm`/`footerNote`, `stagePlotDownstageCenterResizeOffset`, `applyStagePlotStagePatch`, `translateStagePlotContent`, `pinStagePlotConductors` |
+| `src/utils/stagePlotPayload.js` | Normalización `widthCm`/`heightCm`/`footerNote`/`floorPreset`/`floorOpacity`, `stagePlotDownstageCenterResizeOffset`, `applyStagePlotStagePatch`, `translateStagePlotContent`, `pinStagePlotConductors` |
+| `src/utils/stagePlotFloors.js` | Catálogo de presets de piso, carga de PNG, `drawStageFloorOnCanvas`, escala tile (`tileCm`) |
+| `public/stage-plot/floors/*.png` | Texturas tileable (128×128); regenerar con `scripts/generate-stage-plot-floors.mjs` |
 | `src/utils/stagePlotGroups.js` | Geometría de alineación / distribución en formaciones |
 | `src/utils/stagePlotViewportGestures.js` | Distingue pan (scroll trackpad / rueda) vs zoom (pinch / Ctrl+rueda) |
+| `src/utils/stagePlotExplorePerspective.js` | Explore orbit: yaw/pitch → proyección ortográfica del piso (attrs Konva) + `stagePlotExploreProjectStagePoint` para íconos screen-space (solo editor Konva) |
 | `src/views/Giras/ProgramStagePlot.jsx` | Re-export → `ProgramStagePlotEditor.jsx` |
 | `src/views/Giras/ProgramStagePlotEditor.jsx` | Editor Konva multi-lienzo; props `canEditOverride`, `initialPlotId` para shells independientes |
 | `src/views/Giras/StagePlotInstrumentsPanel.jsx` | Panel **Editor**: familia + tamaño + SVG; clave de ícono demoted; **Crear instrumento**; agrupado por familia + **Instrumentos sin ícono** |
@@ -283,6 +308,7 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
 - [x] «Ver escenario»: botón WhatsApp para compartir/descargar la imagen JPG (`shareStagePlotJpgViaWhatsApp` + Web Share / fallback `wa.me`)
 - [x] Preview técnico: `StagePlotLivePreview` vía `renderStagePlotToCanvas` (mismas guías/opacidades que export; desktop + móvil)
 - [x] Opacidad Lienzo (cuadrícula / radial / formaciones / recuadros) con deslizantes 0–100% y persistencia `*Opacity` + migración desde boolean legacy
+- [x] **Piso MVP**: presets tileable (`floorPreset` + `floorOpacity`) en Lienzo / Konva / PDF·JPG·preview; default `none`; assets procedurales OFRN
 - [x] Orgánico filtrado por bloques asociados (roster confirmado)
 - [x] Toolbar: switcher de plots (`SearchableSelect` + lápiz + crear, sin label «Elegir lienzo») a la izquierda del string de orgánico; botón **Lienzo** (`IconSettings`) = popover con config + Asociar + Importar/Exportar + Plantillas (sin switcher de plots)
 - [x] Flag `isSoloist` en ítem (menú contextual + contorno silueta opaca dorado `#d4a017` vía `stagePlotSoloistOutline` + exclusión del conteo por familia / sufijo `· Sol N`)
@@ -340,6 +366,10 @@ La opción 1:1 `id_repertorio` UNIQUE quedó descartada a favor de multi-lienzo 
 - [x] Export PDF/JPG: helpers de ícono/silueta restaurados (`drawImageRotated*`, `drawSilhouetteOn*`) — fallaba p. ej. BOB MARLEY (gira 12)
 - [x] FIMBA Backline: modal Elegir/Cambiar Escenario ofrece **Crear uno nuevo** (vacío o duplicar referencia con `createStagePlotForEvent`) y **Desvincular** (`unlinkEventFromStagePlot`) cuando ya hay vínculo
 - [x] Fix URL «Editar escenario»: `view=REPERTOIRE` obligatorio; `buildAppTo` default si hay `subTab`/`seatingView`; helper `buildEscenarioEditorTo`; deep-link `stagePlotId`; abrir en pestaña nueva desde FIMBA/Venues
+- [x] **Explorar vista**: órbita yaw/pitch (lookAt ortográfico del piso → attrs Konva) + íconos screen-space upright (proyección de ancla, sin inversa billboard); reemplaza stretch/skew por pointer; PDF/JPG siguen ortográficos
+- [x] Fix Explorar: PNGs smeared en pitch bajo — íconos fuera del Group proyectado; solo `x`,`y` siguen la órbita
+- [x] Fix Explorar: al activar, cámara identity (planta) — la vista no cambia hasta el primer drag de órbita
+- [x] Fix Explorar: PNGs colgando del borde — ancla bottom-center (pies en piso) + `STAGE_PLOT_EXPLORE_ICON_SCALE` 0.85; edit/ortho sin cambio
 - [x] **Standalone Escenario (Option A):** `/fimba/edicion/:id/escenario/:plotId?` + `/stage-plots/:plotId`; loader `loadStagePlotStandaloneContext`; `canEditOverride` para editores FIMBA; Backline/Venues «Editar» → ruta FIMBA (no shell Giras)
 - [x] Fix loader standalone: `programas` **no** tiene `anio` — `loadStagePlotStandaloneContext` / `listProgramasWithStagePlots` usan `fecha_desde` (error `column programas.anio does not exist` al abrir Editar escenario desde Backline)
 

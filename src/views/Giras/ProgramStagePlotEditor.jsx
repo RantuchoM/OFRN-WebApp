@@ -50,6 +50,7 @@ import {
   IconX,
   IconList,
   IconSettings,
+  IconEye,
 } from "../../components/ui/Icons";
 import StagePlotLockControls from "./StagePlotLockControls";
 import SearchableSelect from "../../components/ui/SearchableSelect";
@@ -175,6 +176,14 @@ import {
   STAGE_PLOT_TEXT_FONT_SIZE_PRESETS,
 } from "../../utils/stagePlotPayload";
 import {
+  STAGE_PLOT_FLOOR_PRESETS,
+  STAGE_PLOT_FLOOR_PRESET_NONE,
+  getStageFloorPreset,
+  loadStageFloorImage,
+  stageFloorPatternScale,
+  stageFloorPresetHasTexture,
+} from "../../utils/stagePlotFloors";
+import {
   STAGE_PLOT_FORMATIONATION_LABELS,
   STAGE_PLOT_CENTERABLE_FORMATION_KINDS,
   STAGE_PLOT_SLOT_MODES,
@@ -299,6 +308,14 @@ import {
   upsertElementoEscenario,
 } from "../../services/stagePlotInventarioService";
 import { applyStagePlotWheelToViewport } from "../../utils/stagePlotViewportGestures";
+import {
+  STAGE_PLOT_EXPLORE_DEFAULT,
+  STAGE_PLOT_EXPLORE_ICON_SCALE,
+  STAGE_PLOT_EXPLORE_KONVA_IDENTITY,
+  stagePlotExploreFloorKonvaAttrs,
+  stagePlotExploreOrbitByDelta,
+  stagePlotExploreProjectStagePoint,
+} from "../../utils/stagePlotExplorePerspective";
 
 const SAVE_DEBOUNCE_MS = 700;
 const HISTORY_LIMIT = 80;
@@ -1316,6 +1333,35 @@ function StageLienzoPopover({
         </div>
       )}
       <div className="mb-2 border-t border-slate-100 pt-2">
+        <label className="mb-1 block text-[10px] font-medium text-slate-500">
+          Piso
+        </label>
+        <select
+          className="mb-1 w-full rounded border border-slate-200 bg-white px-1.5 py-1 text-xs disabled:bg-slate-50"
+          value={stage.floorPreset || STAGE_PLOT_FLOOR_PRESET_NONE}
+          disabled={!canEdit}
+          aria-label="Textura de piso"
+          onChange={(e) =>
+            onPatchStage({ floorPreset: e.target.value || STAGE_PLOT_FLOOR_PRESET_NONE })
+          }
+        >
+          {STAGE_PLOT_FLOOR_PRESETS.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.label}
+            </option>
+          ))}
+        </select>
+        <StageLienzoOpacitySlider
+          label="Opacidad piso"
+          value={stage.floorOpacity ?? 1}
+          disabled={
+            !canEdit ||
+            !stageFloorPresetHasTexture(stage.floorPreset)
+          }
+          onChange={(floorOpacity) => onPatchStage({ floorOpacity })}
+        />
+      </div>
+      <div className="mb-2 border-t border-slate-100 pt-2">
         <p className="mb-1 text-[9px] font-medium uppercase tracking-wide text-slate-400">
           Opacidad
         </p>
@@ -1701,6 +1747,55 @@ function StageCentimeterGrid({
     <Group listening={false} opacity={opacity}>
       {lines}
     </Group>
+  );
+}
+
+/**
+ * Textura de piso tileable bajo la cuadrícula (Konva fillPattern).
+ * Dentro de `.no-dark-invert` — colores autorados (no se invierten en night).
+ */
+function StageFloorFill({ width, height, floorPreset, floorOpacity = 1 }) {
+  const preset = getStageFloorPreset(floorPreset);
+  const [image, setImage] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!stageFloorPresetHasTexture(preset.id)) {
+      setImage(null);
+      return undefined;
+    }
+    loadStageFloorImage(preset.id).then((img) => {
+      if (!cancelled) setImage(img);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [preset.id]);
+
+  if (!image || !stageFloorPresetHasTexture(preset.id)) return null;
+  const opacity = Math.min(1, Math.max(0, Number(floorOpacity) || 0));
+  if (!(opacity > 0)) return null;
+
+  const scale = stageFloorPatternScale(preset, {
+    width: image.naturalWidth || image.width,
+    height: image.naturalHeight || image.height,
+  });
+
+  return (
+    <Rect
+      name="stage-plot-floor"
+      x={0}
+      y={0}
+      width={width}
+      height={height}
+      fillPatternImage={image}
+      fillPatternRepeat="repeat"
+      fillPatternScaleX={scale.x}
+      fillPatternScaleY={scale.y}
+      opacity={opacity}
+      listening={false}
+      perfectDrawEnabled={false}
+    />
   );
 }
 
@@ -3324,6 +3419,16 @@ const ItemShape = React.memo(function ItemShape({
   viewportScale = 1,
   /** Piso nocturno (Stage re-invertido): labels de tarima claros. */
   nightStage = false,
+  /**
+   * Explore orbit split:
+   * - `floor`: chair footprint only (under projected floor Group)
+   * - `screen`: icon/text at projected screen xy, identity rotation (no skew)
+   * - null: normal edit/export rendering
+   */
+  exploreLayer = null,
+  /** Screen-space anchor when exploreLayer === "screen". */
+  screenX,
+  screenY,
   /** Epoch de catálogo DB (tamaños/SVG); invalida memo al cambiar huella. */
   catalogEpoch = 0,
   onSelect,
@@ -3500,6 +3605,30 @@ const ItemShape = React.memo(function ItemShape({
     isTarima && tarimaDims
       ? Math.max(3, tarimaLabelFont * 0.28)
       : 0;
+  const isExploreFloor = exploreLayer === "floor";
+  const isExploreScreen = exploreLayer === "screen";
+  const groupX = isExploreScreen ? Number(screenX) : item.x;
+  const groupY = isExploreScreen ? Number(screenY) : item.y;
+  /** Explore icons stay upright; floor footprints keep item facing. */
+  const groupRotation = isExploreScreen ? 0 : item.rotation || 0;
+  /**
+   * Explore screen layer: bottom-center of the sprite sits on the projected
+   * floor point (feet on stage). Edit/ortho keep center / footprint layout.
+   */
+  const exploreIconScale = isExploreScreen ? STAGE_PLOT_EXPLORE_ICON_SCALE : 1;
+  const groupScaleX = scaleX * exploreIconScale;
+  const groupScaleY = scaleY * exploreIconScale;
+  const contentY = isExploreScreen ? 0 : iconOffsetY;
+  const imageOffsetY = isExploreScreen ? drawH : drawH / 2;
+  const pathOffsetY = isExploreScreen ? VB : VB / 2;
+  const textOffsetY = isExploreScreen ? boundsH : boundsH / 2;
+  const hitW = isExploreScreen ? drawW : boundsW;
+  const hitH = isExploreScreen ? drawH : boundsH;
+  const hitOffsetY = isExploreScreen ? hitH : hitH / 2;
+  const soloistExploreY = isExploreScreen ? -drawH / 2 : iconOffsetY;
+  const timpaniExploreY = isExploreScreen
+    ? -drawH / 2 + timpaniHeadLocalOffsetY(drawH)
+    : iconOffsetY + timpaniHeadLocalOffsetY(drawH);
 
   const groupRef = useRef(null);
   const setGroupRef = useCallback(
@@ -3553,13 +3682,14 @@ const ItemShape = React.memo(function ItemShape({
     if (!node) return;
     // Re-leer catálogo en el effect: no confiar solo en scaleX/Y del render
     // (memo / props stale). Epoch o dims del tipo deben re-aplicar a Konva.
+    const exploreMul = isExploreScreen ? STAGE_PLOT_EXPLORE_ICON_SCALE : 1;
     if (usesCatalogBox) {
-      node.scaleX(1);
-      node.scaleY(1);
+      node.scaleX(exploreMul);
+      node.scaleY(exploreMul);
     } else {
       const catalog = stagePlotInstrumentRenderScales(item);
-      node.scaleX(catalog.scaleX);
-      node.scaleY(catalog.scaleY);
+      node.scaleX(catalog.scaleX * exploreMul);
+      node.scaleY(catalog.scaleY * exploreMul);
     }
     node.getLayer()?.batchDraw();
   }, [
@@ -3570,6 +3700,7 @@ const ItemShape = React.memo(function ItemShape({
     scaleX,
     scaleY,
     catalogEpoch,
+    isExploreScreen,
   ]);
 
   useLayoutEffect(() => {
@@ -3594,17 +3725,43 @@ const ItemShape = React.memo(function ItemShape({
     catalogEpoch,
   ]);
 
+  if (isExploreFloor) {
+    if (!showChairSquare) return null;
+    return (
+      <Group
+        id={`${item.id}-explore-floor`}
+        name="stage-plot-item-explore-floor"
+        x={item.x}
+        y={item.y}
+        rotation={item.rotation || 0}
+        listening={false}
+      >
+        <Rect
+          width={chairSide}
+          height={chairSide}
+          offsetX={chairSide / 2}
+          offsetY={chairSide / 2}
+          fill={chairFill}
+          stroke={chairStroke}
+          strokeWidth={magnetized ? 1.25 : 1}
+          opacity={chairSquaresOpacity}
+          listening={false}
+        />
+      </Group>
+    );
+  }
+
   return (
     <Group
       ref={setGroupRef}
       id={String(item.id)}
       name="stage-plot-item"
-      x={item.x}
-      y={item.y}
-      rotation={item.rotation || 0}
-      scaleX={scaleX}
-      scaleY={scaleY}
-      draggable={draggable}
+      x={groupX}
+      y={groupY}
+      rotation={groupRotation}
+      scaleX={groupScaleX}
+      scaleY={groupScaleY}
+      draggable={draggable && !isExploreScreen}
       onMouseDown={(e) => {
         e.cancelBubble = true;
         onSelect(item.id, e);
@@ -3636,17 +3793,17 @@ const ItemShape = React.memo(function ItemShape({
           scaleX: isTarima || hasFootprint || usesCatalogBox ? scaleX : itemScale,
           scaleY: isTarima || hasFootprint || usesCatalogBox ? scaleY : itemScale,
         });
-        if (draggable) onWrapCursor?.("move");
+        if (draggable && !isExploreScreen) onWrapCursor?.("move");
       }}
       onMouseLeave={() => {
         onMouseLeave?.();
-        if (draggable) onWrapCursorClear?.();
+        if (draggable && !isExploreScreen) onWrapCursorClear?.();
       }}
       onMouseMove={(e) => {
         onMouseMove?.(e);
       }}
       onDragStart={(e) => {
-        if (draggable) onWrapCursor?.("grabbing");
+        if (draggable && !isExploreScreen) onWrapCursor?.("grabbing");
         onDragStart?.(item.id, e);
       }}
       onDragMove={(e) => {
@@ -3654,7 +3811,7 @@ const ItemShape = React.memo(function ItemShape({
       }}
       onDragEnd={(e) => {
         onDragEnd(item.id, e.target.x(), e.target.y());
-        if (draggable) onWrapCursorClear?.();
+        if (draggable && !isExploreScreen) onWrapCursorClear?.();
       }}
       onTransformEnd={(e) => {
         const node = e.target;
@@ -3713,7 +3870,7 @@ const ItemShape = React.memo(function ItemShape({
         });
       }}
     >
-      {showChairSquare && (
+      {showChairSquare && !isExploreScreen && (
         <Rect
           width={chairSide}
           height={chairSide}
@@ -3728,10 +3885,10 @@ const ItemShape = React.memo(function ItemShape({
       )}
       <Rect
         name={isTarima ? "stage-plot-tarima-hit" : undefined}
-        width={boundsW}
-        height={boundsH}
-        offsetX={boundsW / 2}
-        offsetY={boundsH / 2}
+        width={hitW}
+        height={hitH}
+        offsetX={hitW / 2}
+        offsetY={hitOffsetY}
         fill="rgba(0,0,0,0.001)"
         stroke={hitStroke}
         strokeWidth={hitStrokeW}
@@ -3816,108 +3973,112 @@ const ItemShape = React.memo(function ItemShape({
             </>
           )}
         </>
-      ) : isText && textLayout ? (
-        <Text
-          text={textLayout.label}
-          fontSize={textLayout.fontSize}
-          fontStyle={item.fontStyle || "normal"}
-          fill={item.fill || "#0f172a"}
-          align={item.align || "center"}
-          verticalAlign="middle"
-          width={boundsW}
-          height={boundsH}
-          offsetX={boundsW / 2}
-          offsetY={boundsH / 2}
-          listening={false}
-          wrap="word"
-        />
       ) : (
-        <>
-        <Group scaleX={item.flipX ? -1 : 1} listening={false}>
-          {iconImage && iconNatural?.w && iconNatural?.h ? (
+        <Group listening={false}>
+          {isText && textLayout ? (
+            <Text
+              text={textLayout.label}
+              fontSize={textLayout.fontSize}
+              fontStyle={item.fontStyle || "normal"}
+              fill={item.fill || "#0f172a"}
+              align={item.align || "center"}
+              verticalAlign="middle"
+              width={boundsW}
+              height={boundsH}
+              offsetX={boundsW / 2}
+              offsetY={textOffsetY}
+              listening={false}
+              wrap="word"
+            />
+          ) : (
             <>
-              {soloistOutline?.canvas ? (
-                <KonvaImage
-                  image={soloistOutline.canvas}
+              <Group scaleX={item.flipX ? -1 : 1} listening={false}>
+                {iconImage && iconNatural?.w && iconNatural?.h ? (
+                  <>
+                    {soloistOutline?.canvas ? (
+                      <KonvaImage
+                        image={soloistOutline.canvas}
+                        x={0}
+                        y={soloistExploreY}
+                        offsetX={soloistOutline.outW / 2}
+                        offsetY={soloistOutline.outH / 2}
+                        width={soloistOutline.outW}
+                        height={soloistOutline.outH}
+                        listening={false}
+                        perfectDrawEnabled={false}
+                      />
+                    ) : null}
+                    <KonvaImage
+                      image={iconImage}
+                      x={0}
+                      y={contentY}
+                      offsetX={drawW / 2}
+                      offsetY={imageOffsetY}
+                      width={drawW}
+                      height={drawH}
+                      listening={false}
+                    />
+                  </>
+                ) : pathD ? (
+                  <Path
+                    data={pathD}
+                    x={0}
+                    y={contentY}
+                    fill={fill}
+                    stroke={stroke}
+                    strokeWidth={
+                      (isSoloist ? Math.max(strokeW, 3.2) : strokeW) /
+                      Math.max(silScale, 1e-6)
+                    }
+                    scaleX={silScale}
+                    scaleY={silScale}
+                    offsetX={VB / 2}
+                    offsetY={pathOffsetY}
+                    lineJoin="round"
+                    lineCap="round"
+                    listening={false}
+                  />
+                ) : (
+                  <Rect
+                    x={0}
+                    y={contentY}
+                    offsetX={drawW / 2}
+                    offsetY={imageOffsetY}
+                    width={drawW}
+                    height={drawH}
+                    fill={fill}
+                    stroke={isSoloist ? STAGE_PLOT_SOLOIST_STROKE : undefined}
+                    strokeWidth={isSoloist ? 2.2 : 0}
+                    cornerRadius={3}
+                    listening={false}
+                  />
+                )}
+              </Group>
+              {timpaniSizeLabel ? (
+                <Text
+                  name="stage-plot-timpani-size"
+                  text={timpaniSizeLabel}
+                  fontSize={timpaniLabelFont}
+                  fontStyle="bold"
+                  fill="#111111"
+                  stroke="#ffffff"
+                  strokeWidth={Math.max(0.6, timpaniLabelFont * 0.14)}
+                  fillAfterStrokeEnabled
+                  align="center"
+                  verticalAlign="middle"
+                  width={timpaniLabelW}
+                  height={timpaniLabelH}
                   x={0}
-                  y={iconOffsetY}
-                  offsetX={soloistOutline.outW / 2}
-                  offsetY={soloistOutline.outH / 2}
-                  width={soloistOutline.outW}
-                  height={soloistOutline.outH}
+                  y={timpaniExploreY}
+                  offsetX={timpaniLabelW / 2}
+                  offsetY={timpaniLabelH / 2}
                   listening={false}
                   perfectDrawEnabled={false}
                 />
               ) : null}
-              <KonvaImage
-                image={iconImage}
-                x={0}
-                y={iconOffsetY}
-                offsetX={drawW / 2}
-                offsetY={drawH / 2}
-                width={drawW}
-                height={drawH}
-                listening={false}
-              />
             </>
-          ) : pathD ? (
-            <Path
-              data={pathD}
-              x={0}
-              y={iconOffsetY}
-              fill={fill}
-              stroke={stroke}
-              strokeWidth={
-                (isSoloist ? Math.max(strokeW, 3.2) : strokeW) /
-                Math.max(silScale, 1e-6)
-              }
-              scaleX={silScale}
-              scaleY={silScale}
-              offsetX={VB / 2}
-              offsetY={VB / 2}
-              lineJoin="round"
-              lineCap="round"
-              listening={false}
-            />
-          ) : (
-            <Rect
-              x={0}
-              y={iconOffsetY}
-              offsetX={drawW / 2}
-              offsetY={drawH / 2}
-              width={drawW}
-              height={drawH}
-              fill={fill}
-              stroke={isSoloist ? STAGE_PLOT_SOLOIST_STROKE : undefined}
-              strokeWidth={isSoloist ? 2.2 : 0}
-              cornerRadius={3}
-              listening={false}
-            />
           )}
         </Group>
-        {timpaniSizeLabel ? (
-          <Text
-            name="stage-plot-timpani-size"
-            text={timpaniSizeLabel}
-            fontSize={timpaniLabelFont}
-            fontStyle="bold"
-            fill="#111111"
-            stroke="#ffffff"
-            strokeWidth={Math.max(0.6, timpaniLabelFont * 0.14)}
-            fillAfterStrokeEnabled
-            align="center"
-            verticalAlign="middle"
-            width={timpaniLabelW}
-            height={timpaniLabelH}
-            x={0}
-            y={iconOffsetY + timpaniHeadLocalOffsetY(drawH)}
-            offsetX={timpaniLabelW / 2}
-            offsetY={timpaniLabelH / 2}
-            listening={false}
-            perfectDrawEnabled={false}
-          />
-        ) : null}
-        </>
       )}
     </Group>
   );
@@ -3927,6 +4088,9 @@ const ItemShape = React.memo(function ItemShape({
   prev.magnetized === next.magnetized &&
   prev.chairSquaresOpacity === next.chairSquaresOpacity &&
   prev.draggable === next.draggable &&
+  prev.exploreLayer === next.exploreLayer &&
+  prev.screenX === next.screenX &&
+  prev.screenY === next.screenY &&
   prev.onSelect === next.onSelect &&
   prev.onContextMenu === next.onContextMenu &&
   prev.onDblClick === next.onDblClick &&
@@ -4264,6 +4428,15 @@ export default function ProgramStagePlot({
   /** Herramienta activa: Mover (default) vs Seleccionar (marquee). */
   const [canvasTool, setCanvasTool] = useState(STAGE_PLOT_TOOL_MOVE);
   const canvasToolRef = useRef(canvasTool);
+  /**
+   * Explore orbit camera (yaw/pitch) → affine floor + screen-space icons.
+   * Session-only; never persisted; PDF/JPG ignore it.
+   */
+  const [explorePerspective, setExplorePerspective] = useState(false);
+  const explorePerspectiveRef = useRef(false);
+  const [exploreCam, setExploreCam] = useState(STAGE_PLOT_EXPLORE_DEFAULT);
+  /** @type {React.MutableRefObject<{ lastX: number, lastY: number } | null>} */
+  const exploreOrbitDragRef = useRef(null);
   const selectedIdsRef = useRef(selectedIds);
   const selectedFormationIdRef = useRef(selectedFormationId);
   const payloadRef = useRef(payload);
@@ -4341,7 +4514,13 @@ export default function ProgramStagePlot({
   const canEdit =
     staffCanEdit && stagePlotLock.holdsLock && !stagePlotLock.settling;
   canEditRef.current = canEdit;
+  /** Destructive canvas edit off while exploring perspective. */
+  const canvasEditEnabled = canEdit && !explorePerspective;
   releaseControlRef.current = stagePlotLock.releaseControl;
+
+  useEffect(() => {
+    explorePerspectiveRef.current = explorePerspective;
+  }, [explorePerspective]);
 
   useEffect(() => {
     if (!renamingNombre) return;
@@ -4885,6 +5064,21 @@ export default function ProgramStagePlot({
     setCanvasTool(STAGE_PLOT_TOOL_MOVE);
   }, [mobileUi]);
 
+  // Escape exits explore even without edit lock (viewers can explore too).
+  useEffect(() => {
+    if (!explorePerspective) return undefined;
+    const onKeyDown = (e) => {
+      if (e.key !== "Escape") return;
+      if (isEditableKeyboardTarget(e.target)) return;
+      e.preventDefault();
+      exploreOrbitDragRef.current = null;
+      setExplorePerspective(false);
+      setExploreCam(STAGE_PLOT_EXPLORE_DEFAULT);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [explorePerspective]);
+
   useEffect(() => {
     if (!canEdit) return undefined;
     const onKeyDown = (e) => {
@@ -4899,6 +5093,8 @@ export default function ProgramStagePlot({
       ) {
         return;
       }
+      // While exploring: no undo/redo/nudge/delete/tool switch (solo vista).
+      if (explorePerspectiveRef.current) return;
       const mod = e.ctrlKey || e.metaKey;
       const key = e.key;
       if (mod) {
@@ -5532,14 +5728,14 @@ export default function ProgramStagePlot({
 
   const formationIsDraggable = useCallback(
     (formationId) =>
-      canEdit &&
+      canvasEditEnabled &&
       !formationResizePreview &&
       !formationSlotPreview &&
       (canvasTool === STAGE_PLOT_TOOL_MOVE ||
         (canvasTool === STAGE_PLOT_TOOL_SELECT &&
           selectedFormationId === formationId)),
     [
-      canEdit,
+      canvasEditEnabled,
       formationResizePreview,
       formationSlotPreview,
       canvasTool,
@@ -5549,7 +5745,7 @@ export default function ProgramStagePlot({
 
   const itemIsDraggable = useCallback(
     (itemId) => {
-      if (!canEdit) return false;
+      if (!canvasEditEnabled) return false;
       // Sticky formation-only: items must not steal drag until outside deselect.
       if (selectedFormationId != null && selectedIdSet.size === 0) return false;
       return (
@@ -5557,7 +5753,67 @@ export default function ProgramStagePlot({
         (canvasTool === STAGE_PLOT_TOOL_SELECT && selectedIdSet.has(itemId))
       );
     },
-    [canEdit, canvasTool, selectedIdSet, selectedFormationId],
+    [canvasEditEnabled, canvasTool, selectedIdSet, selectedFormationId],
+  );
+
+  const toggleExplorePerspective = useCallback(() => {
+    setExplorePerspective((on) => {
+      const next = !on;
+      exploreOrbitDragRef.current = null;
+      if (next) {
+        setExploreCam(STAGE_PLOT_EXPLORE_DEFAULT);
+        setSelectedIds([]);
+        selectedIdsRef.current = [];
+        setSelectedFormationId(null);
+        selectedFormationIdRef.current = null;
+        setItemSnapPreview(null);
+        setMarqueeRect(null);
+        setItemContextMenu(null);
+        setFormationContextMenu(null);
+        setPasteContextMenu(null);
+      } else {
+        setExploreCam(STAGE_PLOT_EXPLORE_DEFAULT);
+      }
+      return next;
+    });
+  }, []);
+
+  const endExploreOrbitDrag = useCallback(() => {
+    exploreOrbitDragRef.current = null;
+  }, []);
+
+  const startExploreOrbitDrag = useCallback(
+    (clientX, clientY) => {
+      if (!explorePerspectiveRef.current) return;
+      exploreOrbitDragRef.current = {
+        lastX: Number(clientX) || 0,
+        lastY: Number(clientY) || 0,
+      };
+
+      const move = (ev) => {
+        const drag = exploreOrbitDragRef.current;
+        if (!drag) return;
+        const x = Number(ev.clientX) || 0;
+        const y = Number(ev.clientY) || 0;
+        const dx = x - drag.lastX;
+        const dy = y - drag.lastY;
+        drag.lastX = x;
+        drag.lastY = y;
+        if (dx === 0 && dy === 0) return;
+        setExploreCam((cam) => stagePlotExploreOrbitByDelta(cam, dx, dy));
+      };
+      const up = () => {
+        document.removeEventListener("pointermove", move);
+        document.removeEventListener("pointerup", up);
+        document.removeEventListener("pointercancel", up);
+        endExploreOrbitDrag();
+      };
+
+      document.addEventListener("pointermove", move);
+      document.addEventListener("pointerup", up);
+      document.addEventListener("pointercancel", up);
+    },
+    [endExploreOrbitDrag],
   );
 
   // Asas de la formación seleccionada por encima de ítems y del Transformer
@@ -6585,14 +6841,14 @@ export default function ProgramStagePlot({
 
   /** Clic en paleta: AABB de la guía al top-left del lienzo (inset ~20 cm). */
   const addFormation = (kind) => {
-    if (!canEdit) return;
+    if (!canEdit || explorePerspectiveRef.current) return;
     const { x, y } = formationTopLeftInsertAnchor(kind);
     addFormationAt(kind, x, y);
   };
 
   /** Drag desde Formaciones — mismo gesto que instrumentos (umbral 4 px). */
   const startFormationPalettePointerDrag = (e, kind, label) => {
-    if (!canEdit || e.button !== 0) return;
+    if (!canEdit || explorePerspectiveRef.current || e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
     const startX = e.clientX;
@@ -6766,6 +7022,7 @@ export default function ProgramStagePlot({
   };
 
   const handleSelectFormation = useCallback((id, e) => {
+    if (explorePerspectiveRef.current) return;
     const evt = e?.evt;
     const additive = !!(
       evt &&
@@ -6843,7 +7100,7 @@ export default function ProgramStagePlot({
 
   const handleFormationContextMenu = useCallback(
     (formationId, e) => {
-      if (!canEdit) return;
+      if (!canEdit || explorePerspectiveRef.current) return;
       const nativeEvt = e?.evt;
       const keepMixed =
         selectedFormationIdRef.current === formationId &&
@@ -7010,7 +7267,7 @@ export default function ProgramStagePlot({
 
   const addFromPaletteAt = useCallback(
     (type, x, y, extra = {}) => {
-      if (!canEdit || !type) return;
+      if (!canEdit || explorePerspectiveRef.current || !type) return;
       const stage = payloadRef.current.stage || {};
       const items = payloadRef.current.items || [];
       const sw = stage.width || 900;
@@ -7057,7 +7314,7 @@ export default function ProgramStagePlot({
   };
 
   const startPalettePointerDrag = (e, it) => {
-    if (!canEdit || e.button !== 0) return;
+    if (!canEdit || explorePerspectiveRef.current || e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
     // Tarimas: modal de tamaño (clic); sin drag-from-palette (incómodo con modal).
@@ -7129,6 +7386,7 @@ export default function ProgramStagePlot({
   }, []);
 
   const handleSelectItem = useCallback((id, e) => {
+    if (explorePerspectiveRef.current) return;
     const evt = e?.evt;
     const additive = !!(
       evt &&
@@ -7321,7 +7579,7 @@ export default function ProgramStagePlot({
   const handleItemContextMenu = useCallback(
     (id, e) => {
       hideItemHoverTooltip();
-      if (!canEdit) return;
+      if (!canEdit || explorePerspectiveRef.current) return;
       const item = payloadRef.current.items.find((i) => i.id === id);
       if (!item) return;
       const nativeEvt = e?.evt;
@@ -7403,7 +7661,7 @@ export default function ProgramStagePlot({
   const handleStageContextMenu = useCallback(
     (e) => {
       e.evt?.preventDefault?.();
-      if (!canEdit) return;
+      if (!canEdit || explorePerspectiveRef.current) return;
       const { interactive } = classifyStagePlotPointerTarget(e.target);
       // Ítem/formación ya abrieron su menú (cancelBubble); no reabrir sobre vacío.
       if (interactive) return;
@@ -8584,6 +8842,9 @@ export default function ProgramStagePlot({
 
   const sw = payload.stage.width;
   const sh = payload.stage.height;
+  const floorExploreXf = explorePerspective
+    ? stagePlotExploreFloorKonvaAttrs(exploreCam)
+    : STAGE_PLOT_EXPLORE_KONVA_IDENTITY;
   const sortedItems = [...payload.items].sort(
     (a, b) => (a.z ?? 0) - (b.z ?? 0),
   );
@@ -8870,6 +9131,25 @@ export default function ProgramStagePlot({
           >
             Zoom {Math.round(viewport.scale * 100)}%
           </button>
+          {!mobileUi && (
+            <button
+              type="button"
+              onClick={toggleExplorePerspective}
+              className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-xs font-medium ${
+                explorePerspective
+                  ? "border-amber-400 bg-amber-50 text-amber-900"
+                  : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+              }`}
+              title="Explorar: arrastrá para orbitar la cámara alrededor del escenario (íconos upright en pantalla). No afecta PDF/JPG."
+              aria-pressed={explorePerspective}
+            >
+              <IconEye size={14} />
+              Explorar vista
+              <span className="rounded bg-amber-100 px-1 text-[9px] font-bold uppercase tracking-wide text-amber-800">
+                Exp
+              </span>
+            </button>
+          )}
           {canEdit && isNarrowViewport && (
             <button
               type="button"
@@ -9306,10 +9586,17 @@ export default function ProgramStagePlot({
             <p className="pointer-events-none absolute bottom-2 left-2 z-10 rounded bg-white/80 px-1.5 py-0.5 text-[10px] text-slate-500">
               {paletteDrag
                 ? "Soltá para colocar"
-                : canEdit && canvasTool === STAGE_PLOT_TOOL_MOVE
+                : explorePerspective
+                  ? "Explorar vista: arrastrá para orbitar · íconos upright · Espacio / rueda central = pan · rueda = zoom · Esc = salir · edición desactivada"
+                  : canEdit && canvasTool === STAGE_PLOT_TOOL_MOVE
                   ? "Mover: arrastrá ítems/formaciones · vacío = desplazar vista · Espacio / rueda central / trackpad = vista · Pinch o Ctrl/⌘+rueda = zoom · V = seleccionar · M = mover"
                   : "Seleccionar: clic / arrastrar vacío = marquee · seleccionado = arrastrar para mover · Espacio / rueda central / trackpad = vista · Pinch o Ctrl/⌘+rueda = zoom · Supr = borrar · V/M = herramientas · Ctrl/⌘/Shift = multi"}
             </p>
+            )}
+            {explorePerspective && !mobileUi && (
+              <div className="pointer-events-none absolute left-1/2 top-2 z-10 -translate-x-1/2 rounded-full border border-amber-300 bg-amber-50/95 px-3 py-1 text-[11px] font-semibold text-amber-900 shadow-sm">
+                Solo exploración · arrastrá para orbitar
+              </div>
             )}
 
             <div className="no-dark-invert">
@@ -9337,6 +9624,22 @@ export default function ProgramStagePlot({
                   !interactive &&
                   nativeEvt.button === 0 &&
                   !paletteDrag;
+                // Explore mode: drag orbits camera (no marquee / object move).
+                if (explorePerspectiveRef.current) {
+                  if (middlePan || spacePan) {
+                    if (middlePan) nativeEvt.preventDefault();
+                    endExploreOrbitDrag();
+                    startStagePan(nativeEvt.clientX, nativeEvt.clientY);
+                    return;
+                  }
+                  if (nativeEvt.button === 0) {
+                    startExploreOrbitDrag(
+                      nativeEvt.clientX,
+                      nativeEvt.clientY,
+                    );
+                  }
+                  return;
+                }
                 const moveEmptyPan =
                   emptyLeft &&
                   canvasToolRef.current === STAGE_PLOT_TOOL_MOVE;
@@ -9382,6 +9685,20 @@ export default function ProgramStagePlot({
               }}
             >
               <Layer>
+                <Group
+                  name="stage-plot-explore-pivot"
+                  x={explorePerspective ? sw / 2 : 0}
+                  y={explorePerspective ? sh / 2 : 0}
+                  scaleX={floorExploreXf.scaleX}
+                  scaleY={floorExploreXf.scaleY}
+                  rotation={floorExploreXf.rotation}
+                  skewX={floorExploreXf.skewX}
+                >
+                  <Group
+                    name="stage-plot-explore-world"
+                    x={explorePerspective ? -sw / 2 : 0}
+                    y={explorePerspective ? -sh / 2 : 0}
+                  >
                 <Rect
                   name="stage-plot-bg"
                   x={0}
@@ -9393,14 +9710,29 @@ export default function ProgramStagePlot({
                       ? STAGE_PLOT_BG_FILL_NIGHT
                       : STAGE_PLOT_BG_FILL
                   }
+                  shadowColor="rgba(15,23,42,0.12)"
+                  shadowBlur={12}
+                  shadowOffsetY={2}
+                />
+                <StageFloorFill
+                  width={sw}
+                  height={sh}
+                  floorPreset={payload.stage.floorPreset}
+                  floorOpacity={payload.stage.floorOpacity ?? 1}
+                />
+                <Rect
+                  name="stage-plot-bg-stroke"
+                  x={0}
+                  y={0}
+                  width={sw}
+                  height={sh}
+                  fillEnabled={false}
                   stroke={
                     isForcedDark
                       ? STAGE_PLOT_BG_STROKE_NIGHT
                       : STAGE_PLOT_BG_STROKE
                   }
-                  shadowColor="rgba(15,23,42,0.12)"
-                  shadowBlur={12}
-                  shadowOffsetY={2}
+                  listening={false}
                 />
                 {(payload.stage.gridOpacity ?? 1) > 0 && (
                   <StageCentimeterGrid
@@ -9499,7 +9831,7 @@ export default function ProgramStagePlot({
                     opacity={payload.stage.formationGuidesOpacity ?? 1}
                     highlightSlotId={itemSnapPreview?.slotId ?? null}
                     slotsDraggable={
-                      canEdit &&
+                      canvasEditEnabled &&
                       selectedFormationId === fm.id &&
                       !isChoirFormation(fm) &&
                       normalizeStagePlotSlotMode(fm.slotMode) !== "fixed"
@@ -9533,6 +9865,22 @@ export default function ProgramStagePlot({
                   const magnetized = Boolean(
                     slotParsed && formationIdSet.has(slotParsed.formationId),
                   );
+                  if (explorePerspective) {
+                    return (
+                      <ItemShape
+                        key={`${item.id}-floor`}
+                        item={item}
+                        selected={false}
+                        magnetized={magnetized}
+                        chairSquaresOpacity={
+                          payload.stage.chairSquaresOpacity ?? 1
+                        }
+                        draggable={false}
+                        exploreLayer="floor"
+                        catalogEpoch={catalogEpoch}
+                      />
+                    );
+                  }
                   return (
                   <ItemShape
                     key={item.id}
@@ -9562,7 +9910,7 @@ export default function ProgramStagePlot({
                   />
                   );
                 })}
-                {canEdit && (
+                {canvasEditEnabled && (
                   <Transformer
                     ref={transformerRef}
                     rotateEnabled={!selectedFormationId}
@@ -9607,7 +9955,7 @@ export default function ProgramStagePlot({
                     }}
                   />
                 )}
-                {canEdit && flipHandle && (
+                {canvasEditEnabled && flipHandle && (
                   <Group
                     ref={flipHandleRef}
                     name="stage-plot-flip-handle"
@@ -9664,7 +10012,7 @@ export default function ProgramStagePlot({
                   </Group>
                 )}
                 {/* Selected formation handles above items so peak/side asas stay hittable. */}
-                {canEdit &&
+                {canvasEditEnabled &&
                   (payload.stage.formationGuidesOpacity ?? 1) > 0 &&
                   formationForHandles && (
                     <FormationResizeHandles
@@ -9693,12 +10041,53 @@ export default function ProgramStagePlot({
                     listening={false}
                   />
                 )}
+                  </Group>
+                </Group>
+                {/* Explore: icons/text outside floor affine — identity pose, projected xy only */}
+                {explorePerspective && (
+                  <Group name="stage-plot-explore-icons">
+                    {nonTarimaItems.map((item) => {
+                      const slotParsed = parseSlotId(item.slotId);
+                      const magnetized = Boolean(
+                        slotParsed &&
+                          formationIdSet.has(slotParsed.formationId),
+                      );
+                      const screen = stagePlotExploreProjectStagePoint(
+                        exploreCam,
+                        item.x,
+                        item.y,
+                        sw,
+                        sh,
+                      );
+                      return (
+                        <ItemShape
+                          key={`${item.id}-screen`}
+                          item={item}
+                          selected={false}
+                          magnetized={magnetized}
+                          chairSquaresOpacity={0}
+                          draggable={false}
+                          exploreLayer="screen"
+                          screenX={screen.x}
+                          screenY={screen.y}
+                          viewportScale={viewportScale}
+                          nightStage={isForcedDark}
+                          catalogEpoch={catalogEpoch}
+                          onSelect={handleSelectItem}
+                          onMouseEnter={showItemHoverTooltip}
+                          onMouseLeave={hideItemHoverTooltip}
+                          onMouseMove={moveItemHoverTooltip}
+                        />
+                      );
+                    })}
+                  </Group>
+                )}
               </Layer>
             </Stage>
             </div>
 
             {selectedItems.length > 0 &&
-              canEdit &&
+              canvasEditEnabled &&
               floatingToolbarPos && (
               <div
                 className="pointer-events-auto absolute z-[40] flex items-center gap-1 rounded-full border border-slate-200 bg-white p-1 shadow-lg"

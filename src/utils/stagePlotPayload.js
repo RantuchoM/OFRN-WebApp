@@ -33,6 +33,12 @@ import {
   reconcileStagePlotGroups,
 } from "./stagePlotGroups";
 import { normalizeStagePlotFooterNote } from "./stagePlotFooterNote";
+import {
+  normalizeStagePlotFloorOpacity,
+  normalizeStagePlotFloorPreset,
+  STAGE_PLOT_FLOOR_OPACITY_DEFAULT,
+  STAGE_PLOT_FLOOR_PRESET_DEFAULT,
+} from "./stagePlotFloors";
 
 export const STAGE_PLOT_PAYLOAD_VERSION = 1;
 
@@ -524,6 +530,8 @@ export function applyStagePlotStagePatch(prev, patch) {
     ...flags,
     radialLines: normalizeStagePlotRadialLines(merged.radialLines),
     footerNote: normalizeStagePlotFooterNote(merged.footerNote),
+    floorPreset: normalizeStagePlotFloorPreset(merged.floorPreset),
+    floorOpacity: normalizeStagePlotFloorOpacity(merged.floorOpacity),
     id_locacion:
       merged.id_locacion != null &&
       merged.id_locacion !== "" &&
@@ -589,6 +597,10 @@ export function createEmptyStagePlotPayload() {
       id_locacion: null,
       /** Nota al pie del lienzo (HTML mínimo Quill). */
       footerNote: "",
+      /** Textura de piso (id); `none` = soft grey actual. */
+      floorPreset: STAGE_PLOT_FLOOR_PRESET_DEFAULT,
+      /** Opacidad de la textura 0–1 (irrelevante si floorPreset = none). */
+      floorOpacity: STAGE_PLOT_FLOOR_OPACITY_DEFAULT,
       /** Plots nuevos ya usan huella 50×50 a scale=1; no re-migrar. */
       instrumentFootprintMigrated: true,
     },
@@ -614,6 +626,8 @@ export function normalizeStagePlotPayload(raw) {
   const flags = stagePlotVisibilityBooleansFromOpacities(opacities);
   const radialLines = normalizeStagePlotRadialLines(stageIn.radialLines);
   const footerNote = normalizeStagePlotFooterNote(stageIn.footerNote);
+  const floorPreset = normalizeStagePlotFloorPreset(stageIn.floorPreset);
+  const floorOpacity = normalizeStagePlotFloorOpacity(stageIn.floorOpacity);
   const idLocacion =
     stageIn.id_locacion != null && stageIn.id_locacion !== ""
       ? Number(stageIn.id_locacion)
@@ -644,6 +658,8 @@ export function normalizeStagePlotPayload(raw) {
       ...flags,
       radialLines,
       footerNote,
+      floorPreset,
+      floorOpacity,
       id_locacion:
         Number.isFinite(idLocacion) && idLocacion > 0 ? idLocacion : null,
       instrumentFootprintMigrated: true,

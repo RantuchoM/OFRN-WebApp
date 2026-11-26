@@ -1,5 +1,21 @@
 # Atribución — iconos del Plano de escenario
 
+## Pisos (floor textures) — OFRN original
+
+Texturas tileable en `public/stage-plot/floors/*.png`, generadas proceduralmente
+(`scripts/generate-stage-plot-floors.mjs` + sharp). Sin stock copyrighted.
+
+| Archivo | Preset id | Uso |
+|---------|-----------|-----|
+| *(ninguno)* | `none` | Escenario vacío (soft grey / night actual) |
+| negro.png | `negro` | Negro teatro |
+| gris.png | `gris` | Gris |
+| madera_clara.png | `madera_clara` | Madera clara |
+| madera_oscura.png | `madera_oscura` | Madera oscura |
+| ceramico.png | `ceramico` | Cerámico |
+
+Regenerar: `node scripts/generate-stage-plot-floors.mjs`.
+
 ## Cuerdas (violín / viola / cello / contrabajo) — FreeSVG.org (CC0 / dominio público)
 
 | Archivo | Fuente | Uso en OFRN |
