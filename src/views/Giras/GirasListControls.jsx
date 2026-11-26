@@ -11,7 +11,7 @@ import {
   IconFilter,
   IconX,
 } from "../../components/ui/Icons";
-import DateInput from "../../components/ui/DateInput";
+import DateRangePicker from "../../components/ui/DateRangePicker";
 import AppNavLink from "../../components/ui/AppNavLink";
 
 export default function GirasListControls({
@@ -205,25 +205,15 @@ export default function GirasListControls({
           } w-full basis-full flex-col gap-2 md:flex md:w-auto md:basis-auto md:flex-1 md:flex-row md:items-center md:gap-3 md:overflow-x-auto md:pb-0`}
         >
           {/* FECHAS */}
-          <div className="flex w-full items-center gap-2 md:w-auto md:min-w-fit md:gap-1">
-            <div className="min-w-0 flex-1 md:w-28 md:flex-none">
-              <DateInput
-                value={filterDateStart}
-                onChange={setFilterDateStart}
-                placeholder="Desde"
-                className="h-8 text-xs py-0 md:h-7"
-              />
-            </div>
-            <span className="text-slate-300 text-[10px]">➜</span>
-            <div className="min-w-0 flex-1 md:w-28 md:flex-none">
-              <DateInput
-                value={filterDateEnd}
-                onChange={setFilterDateEnd}
-                placeholder="Hasta"
-                className="h-8 text-xs py-0 md:h-7"
-              />
-            </div>
-          </div>
+          <DateRangePicker
+            start={filterDateStart}
+            end={filterDateEnd}
+            onChange={({ start, end }) => {
+              setFilterDateStart(start || "");
+              setFilterDateEnd(end || "");
+            }}
+            className="shrink-0"
+          />
 
           <div className="h-6 w-px bg-slate-200 hidden lg:block"></div>
 

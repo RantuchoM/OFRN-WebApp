@@ -4,6 +4,12 @@ Modo opcional del listado (`view` lista) en Giras. La vista tradicional sigue si
 
 En móvil, fechas, tipo, estado y ensamble no van en una fila con scroll: el botón **Filtros** los despliega en columna, con las fechas a ancho completo. Desde `md` siguen en la barra.
 
+## Filtro de fechas (rango)
+
+En `GirasListControls` el rango se elige con `DateRangePicker`: trigger compacto (`h-7`/`h-8`, ancho al contenido, formato `dd/mm/yy`) que no estira la barra; al tocarlo abre un panel (portal `z-[100]`) con dos meses, inputs Desde/Hasta, presets y **Aplicar / Cancelar**.
+
+Presets: Desde hoy (default al cargar GirasView: hoy → 31/12), Desde una semana atrás, Desde dos semanas atrás, Este mes, Mes pasado, Este año, Año pasado, Próximo año, Rango personalizado. No hay presets de “últimos N días” ni “Ayer”.
+
 ## Filtro por ensamble convocado
 
 En la barra de filtros del listado (`GirasListControls`) hay un select **Ensamble…**. Usa el mismo motor que Gestión/servicios: `classifyProgramaEnsambleConvocatoria` (`serviciosEnsambleReport.js`).
