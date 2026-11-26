@@ -158,6 +158,16 @@ export default function GiraFormEditPortal({
       toast.error("El nombre de la gira es obligatorio");
       return;
     }
+    if (
+      formData.fecha_desde &&
+      formData.fecha_hasta &&
+      formData.fecha_desde > formData.fecha_hasta
+    ) {
+      toast.error(
+        "La fecha de inicio no puede ser posterior a la fecha de fin",
+      );
+      return;
+    }
     setSaving(true);
     const payload = {
       nombre_gira: formData.nombre_gira.trim(),

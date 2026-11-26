@@ -36,9 +36,20 @@ import MusicianForm from "../Musicians/MusicianForm";
 import SearchableSelect from "../../components/ui/SearchableSelect";
 import PersonSelectWithCreate from "../../components/filters/PersonSelectWithCreate";
 import LocationSelectWithCreate from "../../components/forms/LocationSelectWithCreate";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  addDays,
+  differenceInCalendarDays,
+  format,
+  parseISO,
+} from "date-fns";
+import { toast } from "sonner";
 import { getProgramStyle, stampRosterActor } from "../../utils/giraUtils";
+import { formatDisplayDate } from "../../utils/dates";
 import { syncSingleSegmentDates } from "../../services/giraSegmentosService";
 import { touchOrganicoConvocado } from "../../services/organicoConvocadoService";
+import { moveGira } from "../../services/giraActions";
+import { notifyGiraMoveByEmail } from "../../services/giraMoveNotify";
 import GiraTramosEditor from "./GiraTramosEditor";
 import { useGiraSegmentos } from "../../hooks/useGiraSegmentos";
 import { useConfirmDialog } from "../../hooks/useConfirmDialog";
@@ -50,6 +61,27 @@ import {
   withConcertCreationMeta,
 } from "../../utils/eventCreationLog";
 import ZonaSelect from "../../components/forms/ZonaSelect";
+
+/** Etiqueta tipo DateInput: MI 09/12/2026 */
+function formatProgramDateLabel(iso) {
+  if (!iso) return "—";
+  const [y, m, d] = String(iso).slice(0, 10).split("-");
+  if (!y || !m || !d) return formatDisplayDate(iso) || "—";
+  const date = new Date(Number(y), Number(m) - 1, Number(d));
+  if (Number.isNaN(date.getTime())) return formatDisplayDate(iso) || "—";
+  const day = new Intl.DateTimeFormat("es-AR", { weekday: "short" })
+    .format(date)
+    .substring(0, 2)
+    .toUpperCase();
+  return `${day} ${d}/${m}/${y}`;
+}
+
+const FECHAS_MODES = {
+  INICIO: "inicio",
+  FIN: "fin",
+  AMBAS: "ambas",
+  TRASLADAR: "trasladar",
+};
 
 // --- COMPONENTE INTERNO: Modal de Edición de Concierto ---
 const ConcertFormModal = ({
@@ -485,17 +517,24 @@ export default function GiraForm({
   coordinatedEnsembles = null, // Puede ser Set o Array
   focusSection = null,
   onFocusSectionConsumed,
+  onAfterMove = null,
 }) {
   const { confirm, dialog } = useConfirmDialog();
   const { user } = useAuth();
+  const queryClient = useQueryClient();
   const [isCreatingDetailed, setIsCreatingDetailed] = useState(false);
   const [tempName, setTempName] = useState({ nombre: "", apellido: "" });
   const [fieldStatuses, setFieldStatuses] = useState({});
   const fieldStatusTimersRef = useRef({});
   const [globalSaving, setGlobalSaving] = useState(false);
-  const [isShifting, setIsShifting] = useState(false);
-  const [shiftNewDate, setShiftNewDate] = useState("");
-  const [shiftLoading, setShiftLoading] = useState(false);
+  const [fechasPanelOpen, setFechasPanelOpen] = useState(false);
+  const [fechasMode, setFechasMode] = useState(FECHAS_MODES.AMBAS);
+  const [draftDesde, setDraftDesde] = useState("");
+  const [draftHasta, setDraftHasta] = useState("");
+  const [draftShiftDate, setDraftShiftDate] = useState("");
+  const [notifyMove, setNotifyMove] = useState(true);
+  const [fechasSaving, setFechasSaving] = useState(false);
+  const [eventosCount, setEventosCount] = useState(0);
   const [staffRole, setStaffRole] = useState("director");
   const [syncStatus, setSyncStatus] = useState("idle"); // idle | pending | saving | saved | error
   const conciertosSectionRef = useRef(null);
@@ -600,18 +639,29 @@ export default function GiraForm({
     fetchConcertLocations();
   }, [fetchConcertLocations]);
 
-  // Cargar Conciertos de la Gira
+  // Cargar Conciertos de la Gira + conteo de eventos (para aviso de traslado)
   const fetchConcerts = async () => {
-    if (!giraId || isNew) return;
-    const { data } = await supabase
-      .from("eventos")
-      .select(
-        "id, fecha, hora_inicio, hora_fin, descripcion, id_locacion, is_deleted, locaciones(nombre, localidades(localidad))",
-      )
-      .eq("id_gira", giraId)
-      .eq("id_tipo_evento", 1)
-      .order("fecha", { ascending: true });
-    setConcerts(data || []);
+    if (!giraId || isNew) {
+      setEventosCount(0);
+      return;
+    }
+    const [concertsRes, countRes] = await Promise.all([
+      supabase
+        .from("eventos")
+        .select(
+          "id, fecha, hora_inicio, hora_fin, descripcion, id_locacion, is_deleted, locaciones(nombre, localidades(localidad))",
+        )
+        .eq("id_gira", giraId)
+        .eq("id_tipo_evento", 1)
+        .order("fecha", { ascending: true }),
+      supabase
+        .from("eventos")
+        .select("id", { count: "exact", head: true })
+        .eq("id_gira", giraId)
+        .or("is_deleted.is.null,is_deleted.eq.false"),
+    ]);
+    setConcerts(concertsRes.data || []);
+    setEventosCount(countRes.count || 0);
   };
 
   useEffect(() => {
@@ -731,16 +781,211 @@ export default function GiraForm({
     return !hasMyEnsemble;
   }, [isCoordinator, myEnsembleIds, formData.tipo, selectedSources]);
 
-  // 2. Error de Fechas (Nuevo requerimiento)
+  // 2. Error de Fechas (obligatorias para crear/guardar)
   const dateError = useMemo(() => {
-    return !formData.fecha_desde || !formData.fecha_hasta;
+    if (!formData.fecha_desde || !formData.fecha_hasta) return "missing";
+    if (formData.fecha_desde > formData.fecha_hasta) return "order";
+    return null;
   }, [formData.fecha_desde, formData.fecha_hasta]);
 
+  const panelDraftError = useMemo(() => {
+    if (!fechasPanelOpen || fechasMode === FECHAS_MODES.TRASLADAR) return null;
+    const desde =
+      fechasMode === FECHAS_MODES.FIN ? formData.fecha_desde : draftDesde;
+    const hasta =
+      fechasMode === FECHAS_MODES.INICIO ? formData.fecha_hasta : draftHasta;
+    if (!desde || !hasta) return "missing";
+    if (desde > hasta) return "order";
+    return null;
+  }, [
+    fechasPanelOpen,
+    fechasMode,
+    draftDesde,
+    draftHasta,
+    formData.fecha_desde,
+    formData.fecha_hasta,
+  ]);
+
   // 3. Estado general del botón Guardar
-  const isSaveDisabled = loading || coordinatorError || dateError;
+  const isSaveDisabled = loading || coordinatorError || Boolean(dateError);
+
+  const openFechasPanel = useCallback(
+    (mode = FECHAS_MODES.AMBAS) => {
+      setFechasMode(isNew ? FECHAS_MODES.AMBAS : mode);
+      setDraftDesde(formData.fecha_desde || "");
+      setDraftHasta(formData.fecha_hasta || "");
+      setDraftShiftDate(formData.fecha_desde || "");
+      setNotifyMove(true);
+      setFechasPanelOpen(true);
+    },
+    [formData.fecha_desde, formData.fecha_hasta, isNew],
+  );
+
+  const closeFechasPanel = useCallback(() => {
+    setFechasPanelOpen(false);
+    setFechasSaving(false);
+  }, []);
+
+  const persistProgramDates = async (desde, hasta) => {
+    if (!desde || !hasta || desde > hasta) return false;
+    if (isNew || !giraId) {
+      setFormData((prev) => ({
+        ...prev,
+        fecha_desde: desde,
+        fecha_hasta: hasta,
+      }));
+      return true;
+    }
+    if (!enableAutoSave) {
+      setFormData((prev) => ({
+        ...prev,
+        fecha_desde: desde,
+        fecha_hasta: hasta,
+      }));
+      return true;
+    }
+    setSyncStatus("saving");
+    setFieldStatus("fecha_desde", "saving");
+    setFieldStatus("fecha_hasta", "saving");
+    setGlobalSaving(true);
+    try {
+      const { error } = await supabase
+        .from("programas")
+        .update({ fecha_desde: desde, fecha_hasta: hasta })
+        .eq("id", giraId);
+      if (error) throw error;
+      setFormData((prev) => ({
+        ...prev,
+        fecha_desde: desde,
+        fecha_hasta: hasta,
+      }));
+      try {
+        await syncSingleSegmentDates(supabase, giraId, desde, hasta);
+        invalidateSegmentos();
+      } catch (segErr) {
+        console.warn("syncSingleSegmentDates:", segErr?.message);
+      }
+      touchOrganicoConvocado(supabase, giraId).catch((err) => {
+        console.warn("organico_convocado:", err?.message || err);
+      });
+      setLastSavedValues((prev) => ({
+        ...prev,
+        fecha_desde: desde ?? "",
+        fecha_hasta: hasta ?? "",
+      }));
+      if (onRefresh) onRefresh();
+      setSyncStatus("saved");
+      setFieldStatus("fecha_desde", "saved", 2000);
+      setFieldStatus("fecha_hasta", "saved", 2000);
+      return true;
+    } catch (err) {
+      console.error("Error guardando fechas:", err);
+      setSyncStatus("error");
+      setFieldStatus("fecha_desde", "error");
+      setFieldStatus("fecha_hasta", "error");
+      toast.error(err?.message || "No se pudieron guardar las fechas");
+      return false;
+    } finally {
+      setTimeout(() => {
+        setGlobalSaving(false);
+      }, 500);
+    }
+  };
+
+  const handleConfirmFechasPanel = async () => {
+    if (fechasMode === FECHAS_MODES.TRASLADAR) {
+      if (!draftShiftDate || !giraId || isNew) return;
+      setFechasSaving(true);
+      const giraBefore = {
+        id: giraId,
+        nombre_gira: formData.nombre_gira,
+        zona: formData.zona,
+        fecha_desde: formData.fecha_desde,
+        fecha_hasta: formData.fecha_hasta,
+      };
+      try {
+        const res = await moveGira(giraId, draftShiftDate, notifyMove);
+        if (!res.success) {
+          toast.error(res.error || "Error al trasladar la gira");
+          return;
+        }
+        const daysSpan =
+          formData.fecha_desde && formData.fecha_hasta
+            ? differenceInCalendarDays(
+                parseISO(formData.fecha_hasta),
+                parseISO(formData.fecha_desde),
+              )
+            : 0;
+        const newHasta = format(
+          addDays(parseISO(draftShiftDate), daysSpan),
+          "yyyy-MM-dd",
+        );
+        setFormData((prev) => ({
+          ...prev,
+          fecha_desde: draftShiftDate,
+          fecha_hasta: newHasta,
+        }));
+        setLastSavedValues((prev) => ({
+          ...prev,
+          fecha_desde: draftShiftDate,
+          fecha_hasta: newHasta,
+        }));
+        if (notifyMove) {
+          try {
+            if (onAfterMove) {
+              await onAfterMove(draftShiftDate, true, giraBefore);
+            } else {
+              const { sent } = await notifyGiraMoveByEmail({
+                supabase,
+                queryClient,
+                giraBefore,
+                newStartDate: draftShiftDate,
+              });
+              toast.success(
+                sent > 0
+                  ? `Gira trasladada. Notificación enviada a ${sent} músico(s).`
+                  : "Gira trasladada correctamente",
+              );
+            }
+          } catch (err) {
+            console.error("Error enviando notificación de traslado:", err);
+            toast.warning(
+              "Gira trasladada, pero no se pudo enviar el email a los músicos.",
+            );
+          }
+        } else {
+          toast.success("Gira trasladada correctamente");
+          if (onAfterMove) await onAfterMove(draftShiftDate, false, giraBefore);
+        }
+        if (onRefresh) await onRefresh();
+        closeFechasPanel();
+      } finally {
+        setFechasSaving(false);
+      }
+      return;
+    }
+
+    const desde =
+      fechasMode === FECHAS_MODES.FIN ? formData.fecha_desde : draftDesde;
+    const hasta =
+      fechasMode === FECHAS_MODES.INICIO ? formData.fecha_hasta : draftHasta;
+    if (!desde || !hasta) {
+      alert("Indicá fecha de inicio y de fin.");
+      return;
+    }
+    if (desde > hasta) {
+      alert("La fecha de inicio no puede ser posterior a la fecha de fin.");
+      return;
+    }
+    setFechasSaving(true);
+    const ok = await persistProgramDates(desde, hasta);
+    setFechasSaving(false);
+    if (ok) closeFechasPanel();
+  };
 
   const handleAutoSave = async (fieldName, valueOverride = null) => {
     if (isNew || !enableAutoSave || !giraId) return;
+    if (fieldName === "fecha_desde" || fieldName === "fecha_hasta") return;
     const value = valueOverride !== null ? valueOverride : formData[fieldName];
     setSyncStatus("saving");
     setFieldStatus(fieldName, "saving");
@@ -751,23 +996,6 @@ export default function GiraForm({
         .update({ [fieldName]: value })
         .eq("id", giraId);
       if (error) throw error;
-      if (fieldName === "fecha_desde" || fieldName === "fecha_hasta") {
-        const desde =
-          fieldName === "fecha_desde" ? value : formData.fecha_desde;
-        const hasta =
-          fieldName === "fecha_hasta" ? value : formData.fecha_hasta;
-        if (desde && hasta) {
-          try {
-            await syncSingleSegmentDates(supabase, giraId, desde, hasta);
-            invalidateSegmentos();
-          } catch (segErr) {
-            console.warn("syncSingleSegmentDates:", segErr?.message);
-          }
-          touchOrganicoConvocado(supabase, giraId).catch((err) => {
-            console.warn("organico_convocado:", err?.message || err);
-          });
-        }
-      }
       setLastSavedValues((prev) => ({ ...prev, [fieldName]: value ?? "" }));
       if (onRefresh) onRefresh();
       setSyncStatus("saved");
@@ -1042,11 +1270,6 @@ export default function GiraForm({
     );
     alert("Copiado");
   };
-  const handleShiftProgram = async () => {
-    alert("En desarrollo");
-    setIsShifting(false);
-  };
-
   const getProgramBackgroundClass = () => {
     const style = getProgramStyle(formData.tipo);
     const colorTokens = (style?.color || "").split(" ");
@@ -1154,47 +1377,7 @@ export default function GiraForm({
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-3 w-full md:w-auto">
-          {!isNew && !isShifting && (
-            <button
-              onClick={() => setIsShifting(true)}
-              className="w-full md:w-auto text-xs bg-fixed-indigo-50 text-fixed-indigo-700 px-3 py-1 rounded-full border border-fixed-indigo-100 hover:bg-fixed-indigo-100 flex items-center justify-center gap-1 transition-colors"
-            >
-              <IconCalendar size={14} /> Trasladar Gira
-            </button>
-          )}
-        </div>
       </div>
-
-      {isShifting && (
-        <div className="mb-6 bg-amber-50 border border-amber-200 p-4 rounded-lg animate-in slide-in-from-top-2">
-          <h4 className="text-amber-800 font-bold text-sm mb-2 flex items-center gap-2">
-            <IconRefresh size={16} /> Trasladar Gira Completa
-          </h4>
-          <div className="flex items-end gap-3">
-            <div className="flex-1">
-              <DateInput
-                label="Nueva Fecha Inicio"
-                value={shiftNewDate}
-                onChange={setShiftNewDate}
-              />
-            </div>
-            <button
-              onClick={handleShiftProgram}
-              disabled={shiftLoading}
-              className="px-3 py-1 bg-amber-600 text-white text-xs font-bold rounded mb-1"
-            >
-              {shiftLoading ? "..." : "Confirmar"}
-            </button>
-            <button
-              onClick={() => setIsShifting(false)}
-              className="px-3 py-1 bg-white border border-amber-200 text-amber-700 text-xs rounded mb-1"
-            >
-              Cancelar
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* DATOS GENERALES */}
       <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
@@ -1229,28 +1412,186 @@ export default function GiraForm({
             />
           </div>
         </div>
-        <div className="col-span-12 md:col-span-2">
-          <DateInput
-            label="Fecha Inicio"
-            value={formData.fecha_desde}
-            className={getFieldStatusClass("fecha_desde", "bg-white h-[42px]")}
-            onChange={(val) => {
-              setFormData({ ...formData, fecha_desde: val });
-              handleAutoSave("fecha_desde", val);
-            }}
-          />
+        <div className="col-span-12 md:col-span-4">
+          <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block min-h-[16px]">
+            Fechas del programa
+          </label>
+          <div
+            className={`flex flex-wrap items-center gap-2 rounded border px-2.5 py-2 min-h-[42px] bg-white ${getFieldStatusClass("fecha_desde", "")} ${getFieldStatusClass("fecha_hasta", "")}`}
+          >
+            <span className="text-sm font-medium text-slate-800 tabular-nums">
+              {formatProgramDateLabel(formData.fecha_desde)}
+            </span>
+            <span className="text-slate-400 text-xs">→</span>
+            <span className="text-sm font-medium text-slate-800 tabular-nums">
+              {formatProgramDateLabel(formData.fecha_hasta)}
+            </span>
+            <button
+              type="button"
+              onClick={() => openFechasPanel(FECHAS_MODES.AMBAS)}
+              className="ml-auto text-xs font-bold text-fixed-indigo-700 bg-fixed-indigo-50 hover:bg-fixed-indigo-100 border border-fixed-indigo-100 px-2.5 py-1 rounded-full flex items-center gap-1"
+            >
+              <IconEdit size={12} /> Modificar fechas
+            </button>
+          </div>
         </div>
-        <div className="col-span-12 md:col-span-2">
-          <DateInput
-            label="Fecha Fin"
-            value={formData.fecha_hasta}
-            className={getFieldStatusClass("fecha_hasta", "bg-white h-[42px]")}
-            onChange={(val) => {
-              setFormData({ ...formData, fecha_hasta: val });
-              handleAutoSave("fecha_hasta", val);
-            }}
-          />
-        </div>
+        {fechasPanelOpen && (
+          <div className="col-span-12 bg-amber-50 border border-amber-200 p-4 rounded-lg animate-in slide-in-from-top-2 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <h4 className="text-amber-900 font-bold text-sm flex items-center gap-2">
+                <IconCalendar size={16} /> Modificar fechas
+              </h4>
+              <button
+                type="button"
+                onClick={closeFechasPanel}
+                className="text-amber-700 hover:bg-amber-100 rounded p-1"
+                aria-label="Cerrar panel de fechas"
+              >
+                <IconX size={16} />
+              </button>
+            </div>
+
+            {!isNew && (
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { id: FECHAS_MODES.INICIO, label: "Solo inicio" },
+                  { id: FECHAS_MODES.FIN, label: "Solo fin" },
+                  { id: FECHAS_MODES.AMBAS, label: "Ambas" },
+                  { id: FECHAS_MODES.TRASLADAR, label: "Trasladar gira" },
+                ].map((opt) => (
+                  <label
+                    key={opt.id}
+                    className={`cursor-pointer text-xs font-bold px-2.5 py-1.5 rounded-full border ${
+                      fechasMode === opt.id
+                        ? "bg-amber-600 text-white border-amber-600"
+                        : "bg-white text-amber-900 border-amber-200 hover:bg-amber-100"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="fechas-mode"
+                      className="sr-only"
+                      checked={fechasMode === opt.id}
+                      onChange={() => setFechasMode(opt.id)}
+                    />
+                    {opt.label}
+                  </label>
+                ))}
+              </div>
+            )}
+
+            {fechasMode !== FECHAS_MODES.TRASLADAR &&
+              !isNew &&
+              eventosCount > 0 && (
+                <p className="text-[11px] text-amber-800 bg-amber-100/70 border border-amber-200 rounded px-2 py-1.5 flex items-start gap-1.5">
+                  <IconAlertTriangle size={13} className="shrink-0 mt-0.5" />
+                  Hay {eventosCount} evento{eventosCount === 1 ? "" : "s"}{" "}
+                  agendado{eventosCount === 1 ? "" : "s"}. Este cambio solo
+                  ajusta la ventana del programa; los eventos no se mueven. Para
+                  correr la agenda usá «Trasladar gira».
+                </p>
+              )}
+
+            {fechasMode === FECHAS_MODES.TRASLADAR && (
+              <p className="text-[11px] text-amber-800 bg-amber-100/70 border border-amber-200 rounded px-2 py-1.5 flex items-start gap-1.5">
+                <IconRefresh size={13} className="shrink-0 mt-0.5" />
+                Se desplazará el programa
+                {eventosCount > 0
+                  ? ` y ${eventosCount} evento${eventosCount === 1 ? "" : "s"}`
+                  : ""}{" "}
+                manteniendo la estructura (mismo delta de días).
+              </p>
+            )}
+
+            <div className="flex flex-wrap items-end gap-3">
+              {(fechasMode === FECHAS_MODES.INICIO ||
+                fechasMode === FECHAS_MODES.AMBAS ||
+                isNew) &&
+                fechasMode !== FECHAS_MODES.TRASLADAR && (
+                  <div className="min-w-[10rem]">
+                    <DateInput
+                      label="Fecha Inicio"
+                      value={draftDesde}
+                      className="bg-white h-[42px]"
+                      onChange={setDraftDesde}
+                    />
+                  </div>
+                )}
+              {(fechasMode === FECHAS_MODES.FIN ||
+                fechasMode === FECHAS_MODES.AMBAS ||
+                isNew) &&
+                fechasMode !== FECHAS_MODES.TRASLADAR && (
+                  <div className="min-w-[10rem]">
+                    <DateInput
+                      label="Fecha Fin"
+                      value={draftHasta}
+                      className="bg-white h-[42px]"
+                      onChange={setDraftHasta}
+                    />
+                  </div>
+                )}
+              {fechasMode === FECHAS_MODES.TRASLADAR && (
+                <>
+                  <div className="min-w-[10rem]">
+                    <DateInput
+                      label="Nueva Fecha Inicio"
+                      value={draftShiftDate}
+                      className="bg-white h-[42px]"
+                      onChange={setDraftShiftDate}
+                    />
+                  </div>
+                  <label className="flex items-center gap-2 pb-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={notifyMove}
+                      onChange={(e) => setNotifyMove(e.target.checked)}
+                      className="rounded border-slate-300 text-amber-600 focus:ring-amber-500"
+                    />
+                    <span className="text-xs text-amber-900 font-medium">
+                      Notificar a los músicos por email
+                    </span>
+                  </label>
+                </>
+              )}
+              <button
+                type="button"
+                onClick={handleConfirmFechasPanel}
+                disabled={
+                  fechasSaving ||
+                  (fechasMode === FECHAS_MODES.TRASLADAR
+                    ? !draftShiftDate
+                    : Boolean(panelDraftError))
+                }
+                className="px-3 py-2 bg-amber-600 text-white text-xs font-bold rounded disabled:opacity-50 flex items-center gap-1"
+              >
+                {fechasSaving ? (
+                  <IconLoader size={14} className="animate-spin" />
+                ) : (
+                  <IconCheck size={14} />
+                )}
+                Confirmar
+              </button>
+              <button
+                type="button"
+                onClick={closeFechasPanel}
+                disabled={fechasSaving}
+                className="px-3 py-2 bg-white border border-amber-200 text-amber-800 text-xs rounded"
+              >
+                Cancelar
+              </button>
+            </div>
+            {panelDraftError === "order" && (
+              <p className="text-[11px] text-red-700 font-medium">
+                La fecha de inicio no puede ser posterior a la de fin.
+              </p>
+            )}
+            {panelDraftError === "missing" && (
+              <p className="text-[11px] text-amber-800 font-medium">
+                Completá las fechas requeridas.
+              </p>
+            )}
+          </div>
+        )}
         <div className="col-span-6 md:col-span-2">
           <TimeInput
             label="Hora inicio (proyección PCV)"
@@ -1660,10 +2001,17 @@ export default function GiraForm({
         )}
 
         {/* Mensaje de Error Fechas (Solo si no está cargando) */}
-        {!loading && dateError && (
+        {!loading && dateError === "missing" && (
           <div className="text-xs text-amber-600 bg-amber-50 border border-amber-200 px-3 py-1 rounded font-bold flex items-center gap-2">
             <IconCalendar size={14} />
             Las fechas de inicio y fin son obligatorias.
+          </div>
+        )}
+        {!loading && dateError === "order" && (
+          <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-3 py-1 rounded font-bold flex items-center gap-2">
+            <IconAlertTriangle size={14} />
+            La fecha de inicio no puede ser posterior a la de fin. Usá Modificar
+            fechas.
           </div>
         )}
 
@@ -1687,8 +2035,12 @@ export default function GiraForm({
                     alert(
                       "Error: Verifica el tipo de programa y los ensambles.",
                     );
-                  else if (dateError)
+                  else if (dateError === "missing")
                     alert("Error: Faltan las fechas de la gira.");
+                  else if (dateError === "order")
+                    alert(
+                      "Error: La fecha de inicio no puede ser posterior a la fecha de fin.",
+                    );
                   return;
                 }
                 onSave(e);

@@ -47,8 +47,14 @@ Refactorizar el traslado de giras para que la tabla `eventos` sea el origen prin
   - Tercer parámetro opcional `notify` (boolean).
   - Se envía en el body del POST a la Edge Function: `{ action: 'move', giraId, newStartDate, notify }`.
 
+- **giraMoveNotify.js – notifyGiraMoveByEmail:**
+  - Helper compartido: roster vía `fetchGiraRosterCached`, template `cambio_fechas_gira` en `mails_produccion`.
+
 - **GirasView.jsx – onConfirmMove(newDate, notify):**
-  - Llama a `moveGira(actionGira.id, newDate, notify)`. Si `notify` es true, tras el éxito llama a **fetchRosterForGira(supabase, actionGira)** para obtener el roster (misma lógica que GiraRoster), filtra por no ausentes y con mail, construye fechas viejas/nuevas (fechasNuevas con date-fns a partir de newDate y el span de la gira) e invoca `mails_produccion` con ese payload.
+  - Llama a `moveGira` y, si `notify`, a `notifyGiraMoveByEmail` con el snapshot pre-traslado.
+
+- **GiraForm.jsx – panel Modificar fechas → Trasladar gira:**
+  - Misma Edge Function + notify; ver `docs/specs/004-refactor-gira-form-ui.md` §5.
 
 ## Edge Function manage-gira
 
