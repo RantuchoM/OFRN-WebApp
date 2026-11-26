@@ -178,7 +178,10 @@ export function useViaticosIndividuales(
           : rawIntegrantes;
         if (!persona && rawIntegrantes) persona = joinedPersona;
 
-        const logData = logisticsMap[row.id_integrante];
+        const logData =
+          logisticsMap?.[row.id_integrante] ||
+          logisticsMap?.[String(row.id_integrante)] ||
+          null;
         let fechaSal = logData?.fecha_salida || null;
         let horaSal = logData?.hora_salida || null;
         let fechaLleg = logData?.fecha_llegada || null;

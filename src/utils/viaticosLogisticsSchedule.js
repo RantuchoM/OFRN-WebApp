@@ -1,7 +1,4 @@
-import {
-  hasLocalidadViaticosAsignada,
-  resolveLocalidadEfectivaViaticos,
-} from "./integranteDomicilioViaticos";
+import { resolveLocalidadEfectivaViaticos } from "./integranteDomicilioViaticos";
 import { isTransporteOficial } from "./transporteOficial";
 import { isActiveLogisticsEvent } from "./giraUtils";
 
@@ -215,6 +212,7 @@ function mergeLogisticsEntries(entries) {
  * transporte de la gira. Depende de `calculateLogisticsSummary`, que por unidad
  * ya colapsa hops multi-leg a primera ↑ / última ↓ (no last-wins).
  * Ausentes: `getMatchStrength` = 0 → sin reglas de ruta → sin fechas.
+ * Incluye `subidaScope` / `bajadaScope` del extremo ganador (para tag de localidad).
  */
 export function buildPersonalLogisticsFromSummary(summary) {
   const map = {};
@@ -252,6 +250,7 @@ export function buildPersonalLogisticsFromSummary(summary) {
             transporte: nombreFinal,
             patente: t.patente || t.transporteData?.patente || "",
             es_oficial: isTransporteOficial(t),
+            scope: t.subidaScope || null,
           };
         }
       }
@@ -268,6 +267,7 @@ export function buildPersonalLogisticsFromSummary(summary) {
             hora: sliceTime(t.bajadaData.hora) || "00:00",
             lugar: t.bajadaData.nombre_localidad || "Destino",
             transporte: nombreFinal,
+            scope: t.bajadaScope || null,
           };
         }
       }
@@ -281,10 +281,12 @@ export function buildPersonalLogisticsFromSummary(summary) {
         lugar_salida: minSalida?.lugar,
         patente: minSalida?.patente,
         es_oficial: Boolean(minSalida?.es_oficial),
+        subidaScope: minSalida?.scope || null,
         fecha_llegada: maxLlegada?.fecha,
         hora_llegada: maxLlegada?.hora,
         transporte_llegada: maxLlegada?.transporte,
         lugar_llegada: maxLlegada?.lugar,
+        bajadaScope: maxLlegada?.scope || null,
       };
     }
   });
@@ -502,9 +504,67 @@ export function headerInfoToTravelSchedule(headerInfo) {
 }
 
 /**
+ * ¿El extremo (↑/↓) viene de alcance Persona/Integrante?
+ * Si no: es localidad/región/grupo/etc. → tag de localidad en ViaticosTable.
+ */
+export function isPersonalLogisticsEndpoint(scope) {
+  return isPersonalRouteScope(scope);
+}
+
+/**
+ * Anota qué extremos del horario salieron de la localidad (no de regla personal).
+ * Personal (ID) siempre gana; localidad solo rellena o aplica cuando no hay propia.
+ */
+export function annotateLocalityLogisticsSource(
+  personalTravel,
+  localityTravel,
+  mergedTravel,
+  locMeta = {},
+) {
+  const personal = personalTravel || {};
+  const locality = localityTravel || {};
+  const merged = mergedTravel || {};
+  const locNombre = String(locMeta.nombre || "").trim();
+  const locId = locMeta.id ?? null;
+
+  const salidaIsPersonal =
+    Boolean(personal.fecha_salida) &&
+    isPersonalLogisticsEndpoint(personal.subidaScope);
+  const llegadaIsPersonal =
+    Boolean(personal.fecha_llegada) &&
+    isPersonalLogisticsEndpoint(personal.bajadaScope);
+
+  const filledSalidaFromLocality =
+    Boolean(merged.fecha_salida) &&
+    !salidaIsPersonal &&
+    (Boolean(locality.fecha_salida) || Boolean(personal.fecha_salida));
+  const filledLlegadaFromLocality =
+    Boolean(merged.fecha_llegada) &&
+    !llegadaIsPersonal &&
+    (Boolean(locality.fecha_llegada) || Boolean(personal.fecha_llegada));
+
+  return {
+    ...merged,
+    subidaScope: salidaIsPersonal
+      ? personal.subidaScope
+      : personal.subidaScope || (filledSalidaFromLocality ? "localidad" : null),
+    bajadaScope: llegadaIsPersonal
+      ? personal.bajadaScope
+      : personal.bajadaScope || (filledLlegadaFromLocality ? "localidad" : null),
+    logistics_from_localidad: {
+      salida: filledSalidaFromLocality,
+      llegada: filledLlegadaFromLocality,
+      id: locId,
+      nombre: locNombre,
+    },
+  };
+}
+
+/**
  * Mapa id_integrante → horarios para viáticos.
- * Prioridad: transporte personal (primera ↑ / última ↓ en cualquier unidad) →
- * reglas de ruta / pares de la localidad de viáticos.
+ * Prioridad: transporte personal (alcance Persona/Integrante) →
+ * reglas de ruta / pares de la **localidad efectiva** (viáticos, o residencia).
+ * Misma base de localidad que DestaquesLocationPanel (`resolveLocalidadEfectivaViaticos`).
  */
 export function buildViaticosLogisticsMap({
   summary,
@@ -545,22 +605,34 @@ export function buildViaticosLogisticsMap({
   });
   const peerSchedules = buildLocalitySchedulesFromPeers(summary, rosterById);
 
-  const result = { ...personalMap };
+  const result = {};
   (summary || []).forEach((person) => {
     const persona = rosterById[person.id] || person;
-    if (!hasLocalidadViaticosAsignada(persona)) return;
+    const loc = resolveLocalidadEfectivaViaticos(persona);
+    const personal =
+      personalMap[person.id] || personalMap[String(person.id)] || {};
+    const localitySchedule =
+      loc.id != null
+        ? getLocalityScheduleForPerson(persona, routeSchedules, peerSchedules)
+        : null;
 
-    const localitySchedule = getLocalityScheduleForPerson(
-      persona,
-      routeSchedules,
-      peerSchedules,
-    );
-    if (!localitySchedule) return;
+    let entry;
+    if (localitySchedule) {
+      const merged = mergeTravelPreferringPersonal(personal, localitySchedule);
+      entry = annotateLocalityLogisticsSource(
+        personal,
+        localitySchedule,
+        merged,
+        loc,
+      );
+    } else if (personal.fecha_salida || personal.fecha_llegada) {
+      entry = annotateLocalityLogisticsSource(personal, null, personal, loc);
+    } else {
+      return;
+    }
 
-    const personal = personalMap[person.id] || personalMap[String(person.id)] || {};
-    const merged = mergeTravelPreferringPersonal(personal, localitySchedule);
-    result[person.id] = merged;
-    result[String(person.id)] = merged;
+    result[person.id] = entry;
+    result[String(person.id)] = entry;
   });
 
   return result;
@@ -585,6 +657,7 @@ export function resolveViaticoRowLogData(row, logisticsMap, options = {}) {
     return { ...base };
   }
 
+  // Tramos: fechas propias de paradas; no heredar tag de localidad del mapa global.
   const { allEvents, logisticsTransportsByPerson } = options;
   const events = Array.isArray(allEvents) ? allEvents : [];
   const findEvt = (id) => {
@@ -645,5 +718,11 @@ export function resolveViaticoRowLogData(row, logisticsMap, options = {}) {
     transporte_llegada,
     lugar_salida,
     lugar_llegada,
+    logistics_from_localidad: {
+      salida: false,
+      llegada: false,
+      id: null,
+      nombre: "",
+    },
   };
 }

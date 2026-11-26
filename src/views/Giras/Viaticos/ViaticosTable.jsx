@@ -9,6 +9,7 @@ import {
   IconEdit,
   IconScissors,
   IconLayers,
+  IconMapPin,
 } from "../../../components/ui/Icons";
 import SeguimientoColorSelect, {
   seguimientoColorRowBgClass,
@@ -67,6 +68,24 @@ const formatTransportName = (name) => {
   if (!name) return null;
   return name.length > 15 ? name.slice(0, 15) + "..." : name;
 };
+
+/** Tag: horario heredado de la localidad (viáticos/residencia), no de regla personal. */
+function LocalidadLogisticsTag({ visible, localidadNombre }) {
+  if (!visible) return null;
+  const label = String(localidadNombre || "").trim();
+  const title = label
+    ? `Horario de su localidad (${label}). Si tiene logística personal, esa gana.`
+    : "Horario de su localidad. Si tiene logística personal, esa gana.";
+  return (
+    <span
+      className="mt-0.5 inline-flex max-w-[110px] items-center gap-0.5 rounded-full border border-sky-200 bg-sky-50 px-1.5 py-px text-[8px] font-bold uppercase tracking-wide text-sky-700"
+      title={title}
+    >
+      <IconMapPin size={8} className="shrink-0" />
+      <span className="truncate">{label || "Localidad"}</span>
+    </span>
+  );
+}
 
 // Helper para detectar cambios (Backup vs Actual)
 const isDiff = (valA, valB) => {
@@ -1051,6 +1070,8 @@ export default function ViaticosTable({
                   row.check_patente_oficial,
                   esVehiculoOficial,
                 );
+                const fromLocalidad = logData?.logistics_from_localidad || {};
+                const locTagNombre = fromLocalidad.nombre || "";
 
                 const hasViaticoCustom = anticipoCustomDiffersFromCalc(row);
 
@@ -1280,6 +1301,10 @@ export default function ViaticosTable({
                             />
                           </span>
                         )}
+                        <LocalidadLogisticsTag
+                          visible={Boolean(fromLocalidad.salida)}
+                          localidadNombre={locTagNombre}
+                        />
                         {highlightSalida && (
                           <div
                             className="absolute top-1 right-1 w-1.5 h-1.5 bg-amber-500 rounded-full animate-pulse"
@@ -1308,6 +1333,10 @@ export default function ViaticosTable({
                             />
                           </span>
                         )}
+                        <LocalidadLogisticsTag
+                          visible={Boolean(fromLocalidad.llegada)}
+                          localidadNombre={locTagNombre}
+                        />
                         {highlightLlegada && (
                           <div
                             className="absolute top-1 right-1 w-1.5 h-1.5 bg-amber-500 rounded-full animate-pulse"
