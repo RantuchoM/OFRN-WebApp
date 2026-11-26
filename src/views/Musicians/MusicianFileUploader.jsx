@@ -14,21 +14,21 @@ import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 
 /**
  * Uploader con drag & drop para documentos del músico (DNI, CUIL, CBU, firma, etc.).
- * Usa MusicianFormContext para fieldStatuses, uploadToSupabase, deleteOldFile, handleStartCrop, updateField, handleClipboardClick.
+ * Usa MusicianFormContext para fieldStatuses, uploadToSupabase, clearDocumentField, handleStartCrop, handleClipboardClick.
  */
 export default function MusicianFileUploader({ label, field, value, required = false }) {
   const { confirm, dialog } = useConfirmDialog();
   const {
     fieldStatuses,
     uploadToSupabase,
-    deleteOldFile,
+    clearDocumentField,
     handleStartCrop,
-    updateField,
     handleClipboardClick,
     loading,
     uploadingField,
     supabase,
   } = useMusicianFormContext();
+  const [deleting, setDeleting] = useState(false);
 
   const [isDragging, setIsDragging] = useState(false);
   const [previewSrc, setPreviewSrc] = useState(null);
@@ -198,19 +198,31 @@ export default function MusicianFileUploader({ label, field, value, required = f
               </button>
               <button
                 type="button"
+                disabled={deleting || uploadingField === field}
                 onClick={async () => {
-                  if (await confirm({
+                  if (deleting) return;
+                  const ok = await confirm({
                     title: "Eliminar archivo",
                     message: "¿Eliminar este archivo?",
                     destructive: true,
-                  })) {
-                    await deleteOldFile(value, bucket);
-                    updateField(field, "");
+                    overlayClassName: "z-[110]",
+                  });
+                  if (!ok) return;
+                  setDeleting(true);
+                  try {
+                    await clearDocumentField(field, value, bucket);
+                  } finally {
+                    setDeleting(false);
                   }
                 }}
-                className="p-3 bg-white rounded-xl text-red-500 shadow-xl hover:scale-110"
+                className="p-3 bg-white rounded-xl text-red-500 shadow-xl hover:scale-110 disabled:opacity-50 disabled:pointer-events-none"
+                title="Eliminar"
               >
-                <IconTrash size={20} />
+                {deleting ? (
+                  <IconLoader size={20} className="animate-spin" />
+                ) : (
+                  <IconTrash size={20} />
+                )}
               </button>
             </div>
           </>

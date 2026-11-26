@@ -266,22 +266,116 @@ export function useMusicianForm(musician, supabase, onSave) {
     [fieldStatuses, inputClass, formData],
   );
 
-  const extractPathFromUrl = (url) => {
+  /** Resuelve bucket + path de una URL de Storage (public/sign) o fallback legacy. */
+  const resolveStorageTarget = useCallback((url, bucketFallback = "musician-docs") => {
     if (!url) return null;
     const parsed = parseSupabasePublicStorageUrl(url);
-    if (parsed?.path) return parsed.path.split("?")[0];
-    if (url.includes("firmas/")) return url.split("firmas/")[1]?.split("?")[0];
-    if (url.includes("musician-docs/"))
-      return url.split("musician-docs/")[1]?.split("?")[0];
-    return null;
-  };
+    if (parsed?.bucket && parsed?.path) {
+      return {
+        bucket: parsed.bucket,
+        path: parsed.path.split("?")[0],
+      };
+    }
+    const clean = String(url).split("#")[0].split("?")[0];
+    if (clean.includes("/firmas/")) {
+      return {
+        bucket: "firmas",
+        path: clean.split("/firmas/")[1] || null,
+      };
+    }
+    if (clean.includes("/musician-docs/")) {
+      return {
+        bucket: "musician-docs",
+        path: clean.split("/musician-docs/")[1] || null,
+      };
+    }
+    const legacyPath =
+      (clean.includes("firmas/") && clean.split("firmas/")[1]) ||
+      (clean.includes("musician-docs/") && clean.split("musician-docs/")[1]) ||
+      null;
+    if (!legacyPath) return null;
+    return { bucket: bucketFallback, path: legacyPath };
+  }, []);
 
   const deleteOldFile = useCallback(
-    async (url, bucket = "musician-docs") => {
-      const path = extractPathFromUrl(url);
-      if (path && supabase) await supabase.storage.from(bucket).remove([path]);
+    async (url, bucketFallback = "musician-docs") => {
+      if (!url || !supabase) return { ok: true };
+      const target = resolveStorageTarget(url, bucketFallback);
+      if (!target?.path) return { ok: true };
+      const { error } = await supabase.storage
+        .from(target.bucket)
+        .remove([target.path]);
+      if (error) {
+        console.error("[useMusicianForm] deleteOldFile:", error);
+        return { ok: false, error };
+      }
+      return { ok: true };
     },
-    [supabase],
+    [supabase, resolveStorageTarget],
+  );
+
+  /**
+   * Borra el objeto en Storage y limpia el campo en BD de inmediato
+   * (sin debounce), sincronizando el estado del padre como en upload.
+   */
+  const clearDocumentField = useCallback(
+    async (field, url, bucketFallback = "musician-docs") => {
+      const id = getValues("id");
+      if (!supabase) return false;
+      setFieldStatuses((prev) => ({ ...prev, [field]: "saving" }));
+      try {
+        const removed = await deleteOldFile(url, bucketFallback);
+        if (!removed.ok) {
+          toast.error(
+            removed.error?.message ||
+              "No se pudo eliminar el archivo del almacenamiento.",
+          );
+          setFieldStatuses((prev) => ({ ...prev, [field]: "error" }));
+          return false;
+        }
+
+        setValue(field, "", { shouldValidate: true });
+
+        if (id) {
+          const { error } = await supabase
+            .from("integrantes")
+            .update({
+              [field]: null,
+              last_modified_at: new Date().toISOString(),
+            })
+            .eq("id", id);
+          if (error) throw error;
+        }
+
+        if (onSave) onSave({ ...getValues(), [field]: "" }, false);
+
+        setFieldStatuses((prev) => ({ ...prev, [field]: "saved" }));
+        setTimeout(
+          () => setFieldStatuses((prev) => ({ ...prev, [field]: "idle" })),
+          2000,
+        );
+
+        if (affectsExpediente(field) && id) {
+          supabase.functions
+            .invoke("manage-drive", {
+              body: { action: "assemble_full_pack", musicianId: id },
+            })
+            .catch((err) => {
+              console.warn(
+                `[MusicianForm] Error al regenerar expediente tras borrar ${field}:`,
+                err,
+              );
+            });
+        }
+        return true;
+      } catch (e) {
+        console.error("[useMusicianForm] clearDocumentField:", e);
+        toast.error(e?.message || "No se pudo quitar el archivo de la ficha.");
+        setFieldStatuses((prev) => ({ ...prev, [field]: "error" }));
+        return false;
+      }
+    },
+    [supabase, getValues, setValue, onSave, deleteOldFile],
   );
 
   const saveFieldToDb = useCallback(
@@ -913,6 +1007,7 @@ export function useMusicianForm(musician, supabase, onSave) {
     updateField,
     uploadToSupabase,
     deleteOldFile,
+    clearDocumentField,
     handleStartCrop,
     handleConfirmCrop,
     handleClipboardClick,
