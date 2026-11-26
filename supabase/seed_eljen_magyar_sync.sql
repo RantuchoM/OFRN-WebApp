@@ -34,19 +34,19 @@ BEGIN
 
     INSERT INTO obras_compositores (id_obra, id_compositor, rol) VALUES (_id_obra, _id_comp_Strauss_Johann_Jr_, 'compositor');
     INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
-    VALUES (_id_obra, '04', 'Contrabajo', '[{"url":"https://drive.google.com/file/d/1Xsaqz-L-lRxemNnje3tzxzDXA9u3yERR/view?usp=drivesdk","description":"Contrabajo - op.332. Éljen a Magyar! - Strauss Jr., J.pdf"}]', false);
+    VALUES (_id_obra, '04', 'Contrabajo', '[{"url":"https://drive.google.com/file/d/1Xsaqz-L-lRxemNnje3tzxzDXA9u3yERR/view?usp=drivesdk","description":"Contrabajo - Éljen a Magyar! - op.332 - Strauss Jr., J.pdf"}]', false);
     INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
-    VALUES (_id_obra, '13', 'Perc Percusión', '[{"url":"https://drive.google.com/file/d/1fbqvWM48_dIIjzjJ4oiiKE35Gu08JDrA/view?usp=drivesdk","description":"Perc Percusión - op.332. Éljen a Magyar! - Strauss Jr., J.pdf"}]', false);
+    VALUES (_id_obra, '13', 'Perc Percusión', '[{"url":"https://drive.google.com/file/d/1fbqvWM48_dIIjzjJ4oiiKE35Gu08JDrA/view?usp=drivesdk","description":"Perc Percusión - Éljen a Magyar! - op.332 - Strauss Jr., J.pdf"}]', false);
     INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
-    VALUES (_id_obra, '50', 'SCORE', '[{"url":"https://drive.google.com/file/d/1F2RRkkYjGWVZnDnjnvjKLCrvwFlK4Xpr/view?usp=drivesdk","description":"SCORE - op.332. Éljen a Magyar! - Strauss Jr., J.pdf"}]', false);
+    VALUES (_id_obra, '50', 'SCORE', '[{"url":"https://drive.google.com/file/d/1F2RRkkYjGWVZnDnjnvjKLCrvwFlK4Xpr/view?usp=drivesdk","description":"SCORE - Éljen a Magyar! - op.332 - Strauss Jr., J.pdf"}]', false);
     INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
-    VALUES (_id_obra, '02', 'Viola', '[{"url":"https://drive.google.com/file/d/1P1KcX7JyLkNU7ngJ3d1sAtSq7nAHwSCp/view?usp=drivesdk","description":"Viola - op.332. Éljen a Magyar! - Strauss Jr., J.pdf"}]', false);
+    VALUES (_id_obra, '02', 'Viola', '[{"url":"https://drive.google.com/file/d/1P1KcX7JyLkNU7ngJ3d1sAtSq7nAHwSCp/view?usp=drivesdk","description":"Viola - Éljen a Magyar! - op.332 - Strauss Jr., J.pdf"}]', false);
     INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
-    VALUES (_id_obra, '01', 'Violín 1', '[{"url":"https://drive.google.com/file/d/1su5DJiROB2xz95FhmjbHo_DBWhHFUE5F/view?usp=drivesdk","description":"Violín 1 - op.332. Éljen a Magyar! - Strauss Jr., J.pdf"}]', false);
+    VALUES (_id_obra, '01', 'Violín 1', '[{"url":"https://drive.google.com/file/d/1su5DJiROB2xz95FhmjbHo_DBWhHFUE5F/view?usp=drivesdk","description":"Violín 1 - Éljen a Magyar! - op.332 - Strauss Jr., J.pdf"}]', false);
     INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
-    VALUES (_id_obra, '01', 'Violín 2', '[{"url":"https://drive.google.com/file/d/1V6uc-KEqepD_4p9rfaC6cXfAXxcPJqzW/view?usp=drivesdk","description":"Violín 2 - op.332. Éljen a Magyar! - Strauss Jr., J.pdf"}]', false);
+    VALUES (_id_obra, '01', 'Violín 2', '[{"url":"https://drive.google.com/file/d/1V6uc-KEqepD_4p9rfaC6cXfAXxcPJqzW/view?usp=drivesdk","description":"Violín 2 - Éljen a Magyar! - op.332 - Strauss Jr., J.pdf"}]', false);
     INSERT INTO obras_particellas (id_obra, id_instrumento, nombre_archivo, url_archivo, es_solista)
-    VALUES (_id_obra, '03', 'Violoncello', '[{"url":"https://drive.google.com/file/d/1C_Zi-PkAEp0LbgClkWKPgTtHEsMB4suw/view?usp=drivesdk","description":"Violoncello - op.332. Éljen a Magyar! - Strauss Jr., J.pdf"}]', false);
+    VALUES (_id_obra, '03', 'Violoncello', '[{"url":"https://drive.google.com/file/d/1C_Zi-PkAEp0LbgClkWKPgTtHEsMB4suw/view?usp=drivesdk","description":"Violoncello - Éljen a Magyar! - op.332 - Strauss Jr., J.pdf"}]', false);
   ELSE
     RAISE NOTICE 'Obra ya existente (omitida): <p>Éljen a Magyar! Polka schnell en mi menor, Op. 332</p>';
   END IF;

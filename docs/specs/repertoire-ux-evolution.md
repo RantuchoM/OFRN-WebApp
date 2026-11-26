@@ -404,7 +404,7 @@ Optimizar `src/views/Repertoire/RepertoireView.jsx` en pantallas móviles para m
 - [x] Paganini Op.6: **3900** Solicitud set vientos Generoso (14) + **3916** Oficial orquesta extendida completa (25; cuerdas/fagot/perc/Trombón Bajo). Ambas en el mismo repertorio; director elige
 - [x] Beethoven 9 completo (#3901 Oficial, 28 partes): SCORE CCARH + Ottaviano vientos/metales/timp/perc (#965934–54) + Feduol cuerdas (#862950–54) + coro vocal score #463296 (Schlusschor; no SATB separadas ni solistas sueltos)
 - [x] Triple Op.56: Solicitud **3898** fusionada → archivo **2458** (título corregido Oboe→Violín; PDFs canónicos; 18 partes orquesta+SCORE+Timp). Raw Ivdruiz #51158 en Para acomodar — faltan solistas (Vn/Vc/Piano)
-- [ ] Händel Messiah excerpt / Purcell: sin set concreto en el JSON; Magnificat skip
+- [x] Händel And the Glory (#3904, recorte cuerdas+órgano desde 3643) y Purcell Z.323 (#3906, score Barros). Magnificat skip
 - [x] Sibelius Pelléas Op.46 (#3899 Oficial, 15 partes): SCORE Daphnis #15908 + Horndude/Generoso Kalmus; Fl/Ob doblan Picc/Cor.ing. en la misma particella
 - [x] Sin set / derechos: Brotons, Shost/Barshai, Rutter, Falú, Coppola, Ripper, Stravinsky Danses — siguen Solicitud; Magnificat K.193 página IMSLP vacía
 
@@ -1596,11 +1596,63 @@ Scripts: `scripts/lib/loteOrquestalesCatalog.mjs`, `scripts/process-lote-orquest
 - **Etiqueta Navidad**: `palabras_clave` id 43 + fila en `obras_palabras_clave` (`id_obra`, `id_palabra_clave`); aplicada a 3878 y 3879 con `buildSeedSql({ tagName: "Navidad" })`.
 - RAR extraídos con `tar` (bsdtar; sin 7-Zip). Scripts: `scripts/process-navidad-rar-local.py`, `scripts/generate-navidad-rar-sync.mjs`, seed `supabase/seed_navidad_rar_sync.sql` (ya ejecutado en linked).
 
+### Completado (2026-11-25) — Shostakovich, Sinfonía de cámara Op. 110a (obra **3894**)
+
+Obra ya existente. Seis PDF (SCORE + Violín 1, Violín 2, Viola, Violoncello, Contrabajo), nombre `Instrumento - Sinfonía de cámara - op.110a - Shostakovich, D.pdf`. Orgánico `Str`. Carpeta movida a `CUERDAS` ([Drive](https://drive.google.com/open?id=105sbpfKd_UR15U5ty1eEPVhauNLIEjt9)); el id no cambia.
+
+Título de programa con los cinco movimientos del cuarteto n.º 8. Barshai queda arreglador (id 891), Shostakovich compositor (id 307). Duración 24:17 y YouTube de la Norwegian Chamber Orchestra (Terje Tønnesen), grabación completa del arreglo. Año 1960.
+
+Scripts: `shostakovich110aCatalog.mjs`, `process-shostakovich-110a-local.mjs`, `generate-shostakovich-110a-sync.mjs`. Seed `supabase/seed_shostakovich_110a_sync.sql`.
+
+### Completado (2026-11-25) — Purcell, Come, ye sons of art, Z.323 (obra **3906**)
+
+Obra ya existente (solicitud, Temporada 2027 P17). Se reemplazó el título «(selección)» por la oda completa, nueve números de la ficha IMSLP. Score de Calebe Barros (2021), el único tipográfico de la obra entera: `SCORE - Come, ye sons of art - Z.323 - Purcell, H.pdf`. Orgánico `0.2.0.0 - 0.2.0.0 - Timp - Key - Str + Coro` (escrito después del INSERT: el trigger ignora SCORE). Carpeta movida a `ORQUESTA` ([Drive](https://drive.google.com/open?id=1_6alYgj4y4zyYafUyUzGcvUJnPJIufht)).
+
+IMSLP no tiene particellas de esa edición. Las únicas partes de la ficha son la Sinfonia (n.º 1) de Martin Straeten, con su propio score de un movimiento; no se mezclaron. Duración 26:01 y YouTube del Croatian Baroque Ensemble (Zagreb, 2015), grabación completa. Año 1694. Sigue en estado Solicitud.
+
+Scripts: `purcellZ323Catalog.mjs`, `generate-purcell-z323-sync.mjs`. Seed `supabase/seed_purcell_z323_sync.sql`.
+
+### Completado (2026-11-25) — Rodrigo, Concierto de Aranjuez (obra **3919**, alquiler Schott)
+
+Obra nueva, estado Oficial, no agregada a ningún programa. 20 PDF del alquiler Barry/Schott: SCORE, maderas, 2 cornos, 2 trompetas, cuerdas, guitarra solista y reducción de piano. Nombres `Instrumento - Concierto de Aranjuez - Rodrigo, J.pdf` (sin número de catálogo). Flauta 2 dobla piccolo y Oboe 2 dobla corno inglés, cada uno en una sola particella. Orgánico `Gtr - 2(Picc).2(E.H.).2.2 - 2.2.0.0 - Str` (la reducción no entra). Carpeta movida a `ORQUESTA` ([Drive](https://drive.google.com/open?id=1QX7YZyA1_b74zuMhGDBt7pC8jPmTnZjd)).
+
+Cuerdas: la copia con márgenes recortados. No se archivó «Cuerda sin recortar». Duración 21:37 (John Williams, Philharmonia, Frémaux, Sony 1984). YouTube: Williams y Barenboim, Waldbühne 1998. Año 1939.
+
+Scripts: `aranjuezCatalog.mjs`, `process-aranjuez-local.mjs`, `generate-aranjuez-sync.mjs`. Seed `supabase/seed_aranjuez_sync.sql`.
+
+### Completado (2026-11-25) — Händel, And the Glory of the Lord (obra **3904**)
+
+Recorte del coro [3] Chorus (La mayor, 3/4, cierra en Adagio) desde `CUERDAS\Händel, G.F. - Messiah` (obra 3643). Cuerdas: página 3 (incluye el final del aria anterior). Violoncello y Contrabajo: páginas 3–4, un PDF y dos filas. Órgano: páginas 2–3. Orgánico `Key - Str`. Carpeta movida a `CUERDAS` ([Drive](https://drive.google.com/open?id=1PXj50RBWF1Wezl1yO7MbipYRfxVuCOzR)).
+
+Sin partes de coro en ese set. Duración 2:57 (Marriner, Academy of St Martin in the Fields, Decca 1976, solo este coro). Año 1741. Sigue en estado Solicitud. No hay YouTube de ese movimiento con fuente identificable.
+
+Scripts: `handelGloryCatalog.mjs`, `process-handel-glory-local.mjs`, `generate-handel-glory-sync.mjs`. Seed `supabase/seed_handel_glory_sync.sql`.
+
+### Completado (2026-11-25) — Grieg, La mañana y La muerte de Åse (obras **3917** y **3918**)
+
+Recortes por páginas enteras de la Suite 1 (obra 3497, Peters + corno Siemens). Si el movimiento no llena la página, entra la página completa.
+
+| Obra | id | PDFs → filas | Orgánico |
+|------|---:|--------------|----------|
+| La mañana. Allegretto pastorale | **3917** | 17 → 20 | `2.2.2.2 - 4.2.0.0 - Timp - Str` |
+| La muerte de Åse. Andante doloroso | **3918** | 5 → 5 | `Str` |
+
+Programa 6 / Ecos del alma (repertorio 172): la suite completa salió. Orden: 3917, 3918, Kol Nidrei, Kalínnikov. La suite 3497 sigue en el catálogo.
+
+Páginas compartidas a propósito: contrabajo p.2 (cierra La mañana y sigue Åse) está en las dos obras. Trompetas: la única página de La mañana también trae «En la gruta del rey de la montaña». Cornos: páginas 1–2 del PDF conjunto (4 cornos en la misma hoja), un solo archivo `Corno F 1y2y3y4`.
+
+Scripts: `griegPeerGyntCortesCatalog.mjs`, `process-grieg-peer-gynt-cortes-local.mjs`, `generate-grieg-peer-gynt-cortes-sync.mjs`. Seed linked `supabase/seed_grieg_peer_gynt_cortes_sync.sql`.
+
+Nombres de PDF (2026-11-25): `Instrumento - Título - op.46 - Grieg, E.pdf`. El catálogo va después del título. Sin número de catálogo no se escribe `S/N`.
+
+- [x] Recorte, Drive y seed
+- [x] Programa 6 apunta a los dos recortes
+
 ### Completado (2026-11-18) — Strauss Jr., Éljen a Magyar!, Op. 332 (obra **3890**)
 
 Obra nueva **3890**. Carpeta [Para acomodar](https://drive.google.com/open?id=1RvVVg82fu1UnZND27PujLCxp2QDMm-ZW) (antes `Nueva`). Edición Doblinger / Nischkauer, Diletto musicale 1049. IMSLP: mi menor, 1869, «1 polka» (sin lista de movimientos). Título: `Éljen a Magyar! Polka schnell en mi menor, Op. 332`.
 
-7 PDFs → 7 particellas. Orgánico de lo que hay: `Perc - Str`. Set incompleto: SCORE (18), Violín 1–2, Viola, Violoncello, Contrabajo y una percusión (caja, bombo y platillos en la misma silla). Faltan vientos, metales y timbales. `bajo.pdf` era el mismo contrabajo y se descartó.
+7 PDFs → 7 particellas. Nombre: `Instrumento - Éljen a Magyar! - op.332 - Strauss Jr., J.pdf`. Orgánico de lo que hay: `Perc - Str`. Set incompleto: SCORE (18), Violín 1–2, Viola, Violoncello, Contrabajo y una percusión (caja, bombo y platillos en la misma silla). Faltan vientos, metales y timbales. `bajo.pdf` era el mismo contrabajo y se descartó.
 
 Scripts: `scripts/lib/eljenMagyarCatalog.mjs`, `scripts/process-eljen-magyar-local.mjs`, `scripts/generate-eljen-magyar-sync.mjs`. Seed linked `supabase/seed_eljen_magyar_sync.sql`. Compositor existente Johann Jr. (id 323).
 

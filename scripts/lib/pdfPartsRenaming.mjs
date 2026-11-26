@@ -532,8 +532,9 @@ export function canonicalPartFilename(instrument, workNo, workTitle, composerTag
   const composer = safeFileName(composerTag);
   const inst = safeFileName(instrument);
   const num = normalizeWorkNumberForFilename(workNo);
+  // Con catálogo: el número va después del título. Sin catálogo, no se escribe S/N.
   if (num) {
-    return safeFileName(`${inst} - ${num}. ${title} - ${composer}.pdf`);
+    return safeFileName(`${inst} - ${title} - ${num} - ${composer}.pdf`);
   }
   return safeFileName(`${inst} - ${title} - ${composer}.pdf`);
 }
@@ -543,8 +544,21 @@ export function extractInstrumentFromExistingName(fileName) {
   base = base.replace(/^\s*copia\s+de\s+/i, "").trim();
   if (/^\s*SCORE\b/i.test(base)) return "SCORE";
 
+  const catalog =
+    "(?:\\d+\\s+BIS|(?:op\\.?\\s*)?\\d+[A-Za-z]?|MWV\\s+N\\s*\\d+)";
+  // Actual: Instrumento - Título - op.46 - Compositor. El número suelto no cuenta (es la silla).
+  const catalogAfter = "(?:op\\.?\\s*\\d+[A-Za-z]?|MWV\\s+N\\s*\\d+|\\d+\\s+BIS)";
+  const mAfter = base.match(
+    new RegExp(
+      `^\\s*(.+?)\\s*-\\s*.+\\s*-\\s*${catalogAfter}\\s*-\\s*.+\\s*$`,
+      "i",
+    ),
+  );
+  if (mAfter) return mAfter[1].trim();
+
+  // Anterior: Instrumento - op.46. Título - Compositor
   const mWorkNum = base.match(
-    /^\s*(.+?)\s*-\s*(?:\d+\s+BIS|(?:op\.?\s*)?\d+[A-Za-z]?|MWV\s+N\s*\d+)\.\s+.+\s*-\s*.+\s*$/i,
+    new RegExp(`^\\s*(.+?)\\s*-\\s*${catalog}\\.\\s+.+\\s*-\\s*.+\\s*$`, "i"),
   );
   if (mWorkNum) return mWorkNum[1].trim();
 

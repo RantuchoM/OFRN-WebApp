@@ -22,8 +22,8 @@ description: >-
 | Regla | Detalle |
 |-------|---------|
 | Carpeta | `Apellido, I. - Título` (ej. `Falla, M. - Danza Española Nro 1 ('La Vida Breve')`) |
-| PDF (con nº catálogo) | `Instrumento - op.11. Título - Compositor, I.pdf` (solo si hay op./MWV/BIS real) |
-| PDF (sin nº catálogo) | `Instrumento - Título - Compositor, I.pdf` — **no** incluir `S/N`, `S-N` ni placeholder |
+| PDF (con nº catálogo) | `Instrumento - Título - op.11 - Compositor, I.pdf`. El op./MWV/BIS va **después del título**, no antes |
+| PDF (sin nº catálogo) | `Instrumento - Título - Compositor, I.pdf` — **no** incluir `S/N`, `S-N`, `S. N.` ni placeholder |
 | Audio (mp3/wav) | `AUDIO - {resto del nombre}.mp3` / `.wav` — prefijo obligatorio. El matcher ignora archivos que empiezan con `AUDIO` (y `PORTADA`). No asociar audio a instrumentos. |
 | `workNumber` en catálogo | `null` u omitir cuando no hay op./catálogo; nunca `"S/N"` |
 | Combinados | **Un PDF, varias partes en la misma hoja** → sufijo `1y2`, `3y4`, `1y2y3` (nunca `1-2`). Son sillas distintas |
@@ -31,6 +31,8 @@ description: >-
 | Portadas | Página 1 IMSLP (título del grupo) se **excluye** al extraer |
 | `link_drive` | Carpeta original; **no** `copiar_carpeta_a_archivo`. Al archivar se **mueve** esa misma carpeta (el id de Drive no cambia) |
 | `obras.titulo` | Formato de programa (tonalidad + movimientos de IMSLP). Ver abajo. No va en la carpeta ni en el nombre del PDF |
+| Duración | `obras.duracion_segundos` (entero, en segundos). Ver abajo |
+| YouTube | `obras.link_youtube` solo si el video es de esa obra y la fuente es identificable. Ver abajo |
 | Spec viva | Actualizar `docs/specs/repertoire-ux-evolution.md` al cerrar |
 
 ## Archivar según orgánico
@@ -62,6 +64,7 @@ No mover si el orgánico es solo coro (`Ch`) o solo piano (`Key`), si hay varias
 - [ ] 6. Verificar 26+ PDFs canónicos en Drive sync
 - [ ] 7. generate-*-sync.mjs → supabase/seed_*_sync.sql
 - [ ] 8. Usuario ejecuta seed en Supabase
+- [ ] 9. Duración aproximada en `duracion_segundos` y, si hay uno fiable, `link_youtube`
 ```
 
 ## Scripts del repo
@@ -154,6 +157,16 @@ Quitar metrónomo `( = 116)` y paréntesis de tonalidad o compases. Si no hay li
 
 Ejemplo Dvořák: `Concierto para Violoncello en si menor, Op. 104` / `I. Allegro` / `II. Adagio ma non troppo` / `III. Finale. Allegro moderato`.
 
+## Duración y YouTube
+
+Al cerrar la obra, buscar las dos cosas. No inventar.
+
+**Duración.** Fuente, en este orden: «Average Duration» de la ficha IMSLP, la edición, o el minutaje de una grabación identificable de **esa** obra (si es un recorte, la del movimiento, no la de la suite entera). Guardar en `obras.duracion_segundos` como entero en segundos (`4 min` → `240`). El catálogo del script usa `duracion_segundos` o `duracionSegundos`; `buildSeedSql` ya lo escribe en el `INSERT`. Si no hay fuente, dejar `NULL`.
+
+**YouTube.** Un solo link en `obras.link_youtube`, y solo si es fiable: la misma obra (el mismo movimiento si es un recorte), grabación identificable (orquesta, editor, o el enlace que cita IMSLP). Descartar covers anónimos, tutoriales, videos cortados y el primer resultado suelto. Si no hay uno claro, dejar `NULL`. `buildSeedSql` no escribe esta columna: sumar `link_youtube` al `INSERT`/`UPDATE` del seed.
+
+Si el seed dice «Obra ya existente (omitida)», igual hacer `UPDATE` de `duracion_segundos` y `link_youtube` cuando haya dato nuevo. No pisar un link que ya estaba con `NULL`.
+
 ## Descargar PDFs de IMSLP
 
 `curl` a `Special:ImagefromIndex/{id}` o a `Special:IMSLPDisclaimerAccept/{id}` devuelve HTML (spinner o disclaimer), no el PDF. No reintentar ahí.
@@ -214,7 +227,8 @@ node scripts/generate-falla-sync.mjs
 | Carpeta sin formato canónico | Renombrar antes de `split_and_rename_parts.py` |
 | Drive desactualizado | Esperar sync de Google Drive File Stream tras rename local |
 | `curl` a IMSLP devuelve HTML | El PDF está en el CDN. Ver «Descargar PDFs de IMSLP» |
-| PDF con `S-N.` o `S/N.` en el nombre | `workNumber: null` en catálogo; `normalizeWorkNumberForFilename` omite el segmento |
+| PDF con `S-N.`, `S/N.` o `S. N.` en el nombre | `workNumber: null`; el nombre queda `Instrumento - Título - Compositor, I.pdf` |
+| Opus delante del título (`op.46. La mañana`) | Pasarlo detrás: `Instrumento - La mañana - op.46 - Compositor, I.pdf` |
 | Trompetas en Re y en Sib contadas como 4 slots | Misma silla: dos links, una parte. Wieniawski op.22 (obra 3645): `Trompeta D 1y2` y `Trompeta Bb 1y2` son dos PDFs de **Trompeta 1** y de **Trompeta 2** (cada fila lleva el PDF en Re y el PDF en Sib). Orgánico: 2 trompetas, no 4. El `1y2` de cada PDF sí parte la hoja en silla 1 y silla 2 |
 
 ## Atribución: concierto de viola en do menor (J. C. Bach / Casadesus)
