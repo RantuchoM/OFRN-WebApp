@@ -1,4 +1,5 @@
 import {
+  filterAndRankMultiTokenSearch,
   normalizeForSearch,
   scoreMultiTokenSearch,
   splitSearchTokens,
