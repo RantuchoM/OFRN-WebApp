@@ -62,6 +62,7 @@ import {
 } from "../../utils/dates";
 import { programOverlapsDateRange, toLocalDateString } from "../../utils/giraDateRange";
 import { compareInstrumentIds } from "../../utils/giraUtils";
+import { getAnioProyeccion } from "../../utils/ensambleProyeccionConfig";
 import {
   currentYearBounds,
   isIntegranteConvocadoToEnsayo,
@@ -2205,7 +2206,12 @@ export default function ServiciosCantidadReport({ supabase }) {
           </span>
           <button
             type="button"
-            onClick={() => setPanelMode("listado")}
+            onClick={() => {
+              const next = yearDefaultRange();
+              setFechaDesde(next.fechaDesde);
+              setFechaHasta(next.fechaHasta);
+              setPanelMode("listado");
+            }}
             className={`rounded-md px-2.5 py-1 text-[11px] font-bold ${
               panelMode === "listado"
                 ? "bg-indigo-600 text-white"
@@ -2216,7 +2222,13 @@ export default function ServiciosCantidadReport({ supabase }) {
           </button>
           <button
             type="button"
-            onClick={() => setPanelMode("sandbox")}
+            onClick={() => {
+              const y = getAnioProyeccion();
+              // La proyección (y el PDF) siempre miran el año objetivo, no el del Listado.
+              setFechaDesde(`${y}-01-01`);
+              setFechaHasta(`${y}-12-31`);
+              setPanelMode("sandbox");
+            }}
             className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-bold ${
               isProyeccion
                 ? "bg-orange-600 text-white"
@@ -2250,33 +2262,39 @@ export default function ServiciosCantidadReport({ supabase }) {
           ) : null}
         </div>
         <div className="mx-1 hidden h-7 w-px bg-slate-200 sm:block" aria-hidden />
-        <div className="flex flex-wrap items-end gap-2">
-          <div className="w-[9rem]">
-            <DateInput
-              label="Desde"
-              value={fechaDesde}
-              onChange={(v) => v && setFechaDesde(v)}
-              showDayName={false}
-            />
+        {isProyeccion ? (
+          <p className="pb-0.5 text-[11px] font-semibold text-orange-900/80">
+            Año proyección {getAnioProyeccion()} (paridad PDF / Excel)
+          </p>
+        ) : (
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="w-[9rem]">
+              <DateInput
+                label="Desde"
+                value={fechaDesde}
+                onChange={(v) => v && setFechaDesde(v)}
+                showDayName={false}
+              />
+            </div>
+            <div className="w-[9rem]">
+              <DateInput
+                label="Hasta"
+                value={fechaHasta}
+                onChange={(v) => v && setFechaHasta(v)}
+                showDayName={false}
+              />
+            </div>
+            <button
+              type="button"
+              onClick={resetYear}
+              className="mb-px inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-[11px] font-bold text-slate-600 hover:border-slate-300 hover:bg-white"
+              title="Rango = año calendario en curso completo"
+            >
+              <IconRefresh size={14} />
+              Año en curso
+            </button>
           </div>
-          <div className="w-[9rem]">
-            <DateInput
-              label="Hasta"
-              value={fechaHasta}
-              onChange={(v) => v && setFechaHasta(v)}
-              showDayName={false}
-            />
-          </div>
-          <button
-            type="button"
-            onClick={resetYear}
-            className="mb-px inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-[11px] font-bold text-slate-600 hover:border-slate-300 hover:bg-white"
-            title="Rango = año calendario en curso completo"
-          >
-            <IconRefresh size={14} />
-            Año en curso
-          </button>
-        </div>
+        )}
       </div>
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 lg:flex-row lg:overflow-hidden">

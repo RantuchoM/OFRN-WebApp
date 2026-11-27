@@ -99,7 +99,7 @@ Prioridad en `resolveGiraServiciosEstimate` ([`giraProyeccionPcv.js`](../../src/
 
 ### Proyección (Prestaciones)
 
-Subvista **«Proyección»** junto a Listado (default al entrar: Listado) ([`PrestacionesProyeccionSandbox.jsx`](../../src/components/management/PrestacionesProyeccionSandbox.jsx)). Toggle **Vista Listado | Proyección** un nivel arriba; en Proyección se ocultan sidebar (tipos/integrantes/ensambles), gira/buscar/agrupar/estimar futuros, barra de informe de ensamble y leyenda de listado — solo quedan fechas + contenido de proyección. Rango de fechas por defecto = **año calendario en curso** completo (el mismo de Listado):
+Subvista **«Proyección»** junto a Listado (default al entrar: Listado) ([`PrestacionesProyeccionSandbox.jsx`](../../src/components/management/PrestacionesProyeccionSandbox.jsx)). Toggle **Vista Listado | Proyección** un nivel arriba; en Proyección se ocultan sidebar (tipos/integrantes/ensambles), gira/buscar/agrupar/estimar futuros, barra de informe de ensamble y leyenda de listado. **Listado** usa el año calendario en curso (Desde/Hasta editables). **Proyección** fija el rango al **año objetivo** (`getAnioProyeccion()`, p. ej. 2027): mismos giras/ciclos/feriados/tramos que el PDF/Excel; no reutiliza el rango del Listado (si lo hiciera, Ens. netos saldrían sin conflicto y Conc. ens. sin didácticos). Al volver a Listado se restaura el año en curso:
 
 - Por gira Sinf/CF: columnas **F. inicio / H. inicio / F. fin / H. fin** (doble clic) + **Serv.** + **Feriados** (días feriado/no laborable/domingo con ensayo o concierto tipos 1/2/3/13); luego **una columna por ensamble regional**, agrupadas bajo encabezado de CF (CFMar / CFMon / CFVal).
 - Celda gira×ensamble: vacía si no convocado; **L** si local; número de **PCV** (días) si fuera. Casa = `ensambles.id_localidad` vs sedes/tramos de la gira (`classifyProgramaEnsambleConvocatoria` + `giraTramoPesos` + `estimatePcvFromFueraSegs`).
@@ -219,6 +219,7 @@ Confirmaciones Portal `z-[110]` sobre el modal `z-[100]`. No hay tabla extra: un
 | Columnas + detalle colapsable + Excel + PDF listado/detalle | Completado |
 | Prestaciones/mes (feb–dic, `fecha_alta`) | Completado |
 | Renombre visible Servicios → Prestaciones | Completado (2026-10-17) |
+| Proyección web: rango = año objetivo (paridad PDF; didácticos + ensayos en conflicto) | Completado (2026-11-27) |
 | Cuadro Todos: giras casa/fuera/total + programas/conciertos; sin prestaciones/netos | Completado (2026-10-17) |
 | Listado integrante: Fuera/En casa + PCV (días viático); Total = ensayos + PCV | Completado (2026-10-19) |
 | Fuera/En casa con (conciertos); Conc.ens. + Prest.conc.; Total += conciertos | Completado (2026-10-19) |

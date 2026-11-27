@@ -172,8 +172,9 @@ function enrichDemoras(rows, nameById) {
 
 export default function PrestacionesProyeccionSandbox({
   supabase,
-  fechaDesde,
-  fechaHasta,
+  /** Ignorado a propósito: la proyección siempre usa el año objetivo (PDF/Excel). */
+  fechaDesde: _fechaDesdeProp,
+  fechaHasta: _fechaHastaProp,
   vista = "programas",
 }) {
   const [loading, setLoading] = useState(true);
@@ -198,6 +199,9 @@ export default function PrestacionesProyeccionSandbox({
   /** @type {[{ id: number, field: string, value: string }|null, Function]} */
   const [editCell, setEditCell] = useState(null);
   const anioProy = useMemo(() => getAnioProyeccion(), []);
+  /** Paridad con PDF/Excel: giras, ciclos, feriados y tramos del año de proyección. */
+  const fechaDesde = `${anioProy}-01-01`;
+  const fechaHasta = `${anioProy}-12-31`;
   const [proyConfig, setProyConfig] = useState(null);
   const [savingConfig, setSavingConfig] = useState(false);
 
@@ -222,7 +226,7 @@ export default function PrestacionesProyeccionSandbox({
         fetchEnsamblesProyeccionMatrix(),
         fetchFeriadosPeriod({ fechaDesde, fechaHasta }),
         fetchLocacionesForProyeccion(),
-        fetchOrCreateProyeccionConfig(getAnioProyeccion()),
+        fetchOrCreateProyeccionConfig(anioProy),
         fetchAllEnsambleProyeccionEnsayos(),
       ]);
       const evts = await fetchEventosGiraTiposServicio(progs.map((p) => p.id));
@@ -256,7 +260,7 @@ export default function PrestacionesProyeccionSandbox({
     } finally {
       setLoading(false);
     }
-  }, [fechaDesde, fechaHasta]);
+  }, [anioProy, fechaDesde, fechaHasta]);
 
   useEffect(() => {
     load();
