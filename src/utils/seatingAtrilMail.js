@@ -5,6 +5,7 @@
 import { seatingItemMatrixPosition } from "../services/giraService";
 import { seatingApellidoNombre } from "./integranteDisplayName";
 import { integranteKey } from "./integranteIds";
+import { notifiableMailOf } from "./integranteMail";
 
 export const SEATING_ATRIL_CAMBIO_VARIANT = "SEATING_ATRIL_CAMBIO";
 export const SEATING_CAMBIO_JEFE_RESUMEN_VARIANT = "SEATING_CAMBIO_JEFE_RESUMEN";
@@ -105,7 +106,7 @@ export function buildSeatingAtrilCambioMailTask(
     actor = null,
   } = {},
 ) {
-  const mail = String(musician?.mail || "").trim();
+  const mail = notifiableMailOf(musician);
   if (!mail || musician?.id == null || !move) return null;
   const nombre = String(musician.nombre || "").trim();
   const apellido = String(musician.apellido || "").trim();

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { confirmedSeatingRosterKeySet } from "../utils/seatingRosterGate";
 import { seatingApellidoNombre } from "../utils/integranteDisplayName";
 import { integranteKey } from "../utils/integranteIds";
+import { notifiableMailOf } from "../utils/integranteMail";
 import {
   buildContainerMusicianMap,
   buildEffectiveAssignments,
@@ -175,7 +176,7 @@ export function useSeatingLateAssignmentChanges({
     const byMusician = new Map();
     rawChanges.forEach((change) => {
       const person = rosterById.get(integranteKey(change.musicianId));
-      if (!person) return;
+      if (!person || person.es_simulacion) return;
       const mid = integranteKey(person.id);
       if (!byMusician.has(mid)) {
         byMusician.set(mid, {
@@ -185,7 +186,7 @@ export function useSeatingLateAssignmentChanges({
           apellido: person.apellido || "",
           nombreCompleto:
             person.nombre_completo || seatingApellidoNombre(person),
-          mail: String(person.mail || "").trim(),
+          mail: notifiableMailOf(person) || "",
           changes: [],
         });
       }

@@ -25,6 +25,7 @@ import {
   getMissingDocLabels,
   ROSTER_DOC_FIELDS,
 } from "../DataIntegrityIndicator";
+import { isNotifiableMail } from "../../utils/integranteMail";
 
 /** Triángulo + tooltip en portal (arriba del icono, z-[110]) para no quedar bajo el cursor. */
 function MissingDocWarnIcon({ labels }) {
@@ -159,6 +160,7 @@ export default function RosterTableRow({
 
   const missingDocLabels = getMissingDocLabels(m, ROSTER_DOC_FIELDS);
   const funcionTag = rosterFuncionTag(m);
+  const contactMail = isNotifiableMail(m.mail) ? String(m.mail).trim() : null;
   const roleOpensModal =
     isEditor && !m.es_simulacion && (!isRolMusico(m.rol_gira || defaultRolId) || !funcionTag);
 
@@ -472,13 +474,13 @@ export default function RosterTableRow({
               <WhatsAppLink phone={m.telefono} iconSize={14} />
             </div>
           )}
-          {m.mail && (
+          {contactMail && (
             <div
               className="flex items-center gap-1 max-w-[180px] truncate"
-              title={m.mail}
+              title={contactMail}
             >
               <IconMail size={10} className="text-slate-400 shrink-0" />
-              <span className="text-slate-500 truncate">{m.mail}</span>
+              <span className="text-slate-500 truncate">{contactMail}</span>
             </div>
           )}
         </div>
@@ -628,16 +630,16 @@ export default function RosterTableRow({
             {/* Mail */}
             <button
               type="button"
-              disabled={!m.mail}
+              disabled={!contactMail}
               onClick={() => {
-                if (m.mail) window.location.href = `mailto:${m.mail}`;
+                if (contactMail) window.location.href = `mailto:${contactMail}`;
               }}
               className={`w-6 h-6 md:w-7 md:h-7 flex items-center justify-center rounded ${
-                m.mail
+                contactMail
                   ? "text-slate-500 hover:text-fixed-indigo-600 hover:bg-white"
                   : "text-slate-300 cursor-default"
               } transition-colors`}
-              title={m.mail || "Sin mail"}
+              title={contactMail || "Sin mail"}
             >
               <IconMail size={12} />
             </button>

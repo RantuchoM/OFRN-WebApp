@@ -15,7 +15,7 @@ Desde el header de cada obra en Seating (desktop y móvil), permitir elegir inst
 Solo músicos del seating visible del bloque/grupo actual con asignación real en la obra (no el roster completo):
 1. **Cuerdas**: ítem del contenedor si hay asignación individual `M-{id}-{obra}` **o** grupal `C-{contenedor}-{obra}`.
 2. **Vientos / perc / solistas**: si tienen particella(s) en `musicianAssignments` para esa obra.
-3. Excluir vacantes (`es_simulacion`).
+3. Excluir vacantes (`es_simulacion`; mail NULL o legacy placeholder) vía `notifiableMailOf`.
 4. Mail desde el roster filtrado (`filteredRoster`); se deduplican al copiar.
 
 ## Agrupación

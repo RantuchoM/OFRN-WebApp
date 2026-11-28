@@ -14,7 +14,8 @@ El alta individual de músicos en una gira no dispara la notificación de bienve
   - Que el flag de notificación (`sendNotification`) venga en `true`.
   - Que la notificación inicial del programa ya haya sido enviada (`localNotificacionInicialEnviada`).
   - Que las notificaciones automáticas sigan habilitadas (`notificacionesHabilitadas`).
-  - Que el músico tenga `mail`, y que se disponga de `nombre`, `apellido` o `nombre_completo`.
+  - Que el músico tenga mail **notificable** (no vacío, no placeholder de vacante `vacante-*@placeholder.system`), y que se disponga de `nombre`, `apellido` o `nombre_completo`.
+  - Las vacantes (`es_simulacion`) no generan ni reciben estas notificaciones; `sendConvocatoriaNotificationTasks` filtra placeholders como red de seguridad.
 - Si todas las condiciones anteriores se cumplen, se encola una tarea de tipo `ALTA` en `NotificationQueuePanel`, reutilizando el mismo patrón que el alta masiva y otros cambios de estado.
 
 ### Flujo de Datos Esperado

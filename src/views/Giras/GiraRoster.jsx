@@ -103,6 +103,10 @@ import {
   isForeignKeyViolation,
 } from "../../utils/integranteIds";
 import { sendConvocatoriaNotificationTasks } from "../../utils/convocatoriaNotificationSend";
+import {
+  hasNotifiableMail,
+  notifiableMailOf,
+} from "../../utils/integranteMail";
 import { dedupeSeatingStringItems } from "../../utils/seatingStringItemsDedupe";
 import { fetchCuerdasDispositionGroups } from "../../utils/seatingCuerdasConfig";
 import {
@@ -1682,10 +1686,15 @@ export default function GiraRoster({
 
   const handleCopyEmails = () => {
     const emails = localRoster
-      .filter((m) => rosterIdSelected(selectedIds, m.id) && m.mail)
-      .map((m) => m.mail)
+      .filter((m) => rosterIdSelected(selectedIds, m.id))
+      .map(notifiableMailOf)
+      .filter(Boolean)
       .join(", ");
-    if (!emails) return toast.error("No hay correos en la selección.");
+    if (!emails) {
+      return toast.error(
+        "No hay correos válidos en la selección (las vacantes no se copian).",
+      );
+    }
     navigator.clipboard
       .writeText(emails)
       .then(() => toast.success("Correos copiados."));
@@ -1907,7 +1916,7 @@ export default function GiraRoster({
       const added = newRoster.filter(
         (m) =>
           !prevIds.has(m.id) &&
-          m.mail &&
+          hasNotifiableMail(m) &&
           m.estado_gira === "confirmado",
       );
       added.forEach((m) => {
@@ -2776,7 +2785,7 @@ export default function GiraRoster({
     const nombreCompleto =
       musician.nombre_completo ||
       seatingApellidoNombre(musician);
-    const shouldNotifyMusician = shouldNotify && musician.mail;
+    const shouldNotifyMusician = shouldNotify && hasNotifiableMail(musician);
     const motivoPayload = {
       motivo_estado: motivoText,
       motivo_estado_actualizado_at: new Date().toISOString(),
@@ -3250,7 +3259,7 @@ export default function GiraRoster({
 
   const sendNotificacionInicial = async () => {
     const confirmados = localRoster.filter(
-      (m) => m.estado_gira === "confirmado" && m.mail,
+      (m) => m.estado_gira === "confirmado" && hasNotifiableMail(m),
     );
     if (confirmados.length === 0) {
       toast.warning("No hay integrantes confirmados con email para notificar.");
@@ -3260,7 +3269,7 @@ export default function GiraRoster({
     const toastId = toast.loading("Enviando notificación inicial...");
     try {
       const linkRepertorio = `${window.location.origin}${window.location.pathname}?tab=giras&view=REPERTOIRE&giraId=${gira.id}`;
-      const bcc = confirmados.map((m) => m.mail);
+      const bcc = confirmados.map(notifiableMailOf).filter(Boolean);
       const primero = confirmados[0];
       const { error } = await supabase.functions.invoke("mails_produccion", {
         body: {

@@ -1,5 +1,8 @@
+import { isNotifiableMail } from "./integranteMail";
+
 /**
  * Envía tareas de notificación de convocatoria vía Edge Function mails_produccion.
+ * Omite mails placeholder de vacantes (`vacante-*@placeholder.system`).
  * @returns {{ sent: number, failed: number }}
  */
 export async function sendConvocatoriaNotificationTasks(
@@ -19,6 +22,11 @@ export async function sendConvocatoriaNotificationTasks(
   let failed = 0;
 
   for (const task of tasks) {
+    const emails = (task.emails || [])
+      .map((mail) => String(mail || "").trim())
+      .filter(isNotifiableMail);
+    if (!emails.length) continue;
+
     const g = task.giraContext || {};
     const taskNombreGira = g.nombre_gira ?? nombreGira;
     const taskNomenclador = g.nomenclador ?? nomenclador ?? taskNombreGira;
@@ -31,8 +39,8 @@ export async function sendConvocatoriaNotificationTasks(
         body: {
           action: "enviar_mail",
           templateId: "convocatoria_gira",
-          bcc: task.emails?.length ? task.emails : undefined,
-          email: task.emails?.length === 1 ? task.emails[0] : undefined,
+          bcc: emails.length ? emails : undefined,
+          email: emails.length === 1 ? emails[0] : undefined,
           cc: Array.isArray(task.cc) && task.cc.length ? task.cc : undefined,
           nombre: task.nombres?.[0] || "Participante",
           gira: taskNombreGira,

@@ -3,6 +3,7 @@ import { getPartDisplayName } from "./partNameDisplay";
 import { integranteKey } from "./integranteIds";
 import { getTodayDateStringLocal } from "./dates";
 import { seatingApellidoNombre } from "./integranteDisplayName";
+import { isNotifiableMail, notifiableMailOf } from "./integranteMail";
 
 /** Ventana previa al inicio de gira (`programas.fecha_desde`) en la que aplica el aviso. */
 export const SEATING_LATE_ASSIGNMENT_WINDOW_DAYS = 18;
@@ -228,7 +229,10 @@ export function collectMusicianEmails(musicians) {
   const seen = new Set();
   const emails = [];
   (musicians || []).forEach((m) => {
-    const mail = String(m.mail || "").trim();
+    const mail =
+      notifiableMailOf(m) ||
+      // Objetos late-assignment pueden no traer es_simulacion; filtrar placeholder.
+      (isNotifiableMail(m?.mail) ? String(m.mail).trim() : null);
     if (!mail || seen.has(mail.toLowerCase())) return;
     seen.add(mail.toLowerCase());
     emails.push(mail);
@@ -365,7 +369,9 @@ export function formatSeatingCambioReason(changes) {
 }
 
 export function musiciansWithMail(musicians) {
-  return (musicians || []).filter((m) => String(m.mail || "").trim());
+  return (musicians || []).filter(
+    (m) => Boolean(notifiableMailOf(m)) || isNotifiableMail(m?.mail),
+  );
 }
 
 /** Pendientes de mail en esta visita: con mail y aún no enviados con éxito. */
@@ -386,7 +392,9 @@ export function buildSeatingCambioMailTask(
   musician,
   { now = Date.now(), actor = null } = {},
 ) {
-  const mail = String(musician?.mail || "").trim();
+  const mail =
+    notifiableMailOf(musician) ||
+    (isNotifiableMail(musician?.mail) ? String(musician.mail).trim() : null);
   if (!mail || musician?.id == null) return null;
   const nombre = String(musician.nombre || "").trim();
   const apellido = String(musician.apellido || "").trim();

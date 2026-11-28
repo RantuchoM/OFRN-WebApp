@@ -46,7 +46,7 @@ Texto del banner:
 
 Botones del **banner**:
 1. **Ver músicos (n) y cambios** — modal Portal a `document.body`, `z-[100]`, lista apellido + cambios por obra.
-2. **Copiar mails** — mails separados por coma; toast `sonner`.
+2. **Copiar mails** — mails separados por coma; toast `sonner`. Omite vacantes y placeholders (`notifiableMailOf` / `collectMusicianEmails`).
 3. **Notificar por mail** — confirma y envía un mail por músico (mismo flujo que el modal).
 
 Dentro del **modal** (junto a la lista):

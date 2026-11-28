@@ -46,6 +46,7 @@ import {
 import { canAdminValorDiario } from "../../../utils/viaticosValorDiarioAdmin";
 import { matchesMultiTokenSearch } from "../../../utils/sanitize";
 import { seatingApellidoNombre } from "../../../utils/integranteDisplayName";
+import { isNotifiableMail } from "../../../utils/integranteMail";
 import {
   calculateDaysDiff,
   useViaticosIndividuales,
@@ -2135,7 +2136,10 @@ export default function ViaticosManager({ supabase, giraId }) {
 
       for (const [index, row] of selectedData.entries()) {
         const person = row.integrantes || row;
-        const email = person.mail || person.email || row.mail || row.email;
+        const rawEmail = person.mail || person.email || row.mail || row.email;
+        const email = isNotifiableMail(rawEmail)
+          ? String(rawEmail).trim()
+          : null;
         const name = person.nombre || person.apellido;
 
         // Actualizamos el toast con el progreso
@@ -2145,7 +2149,7 @@ export default function ViaticosManager({ supabase, giraId }) {
         );
 
         if (!email) {
-          console.warn(`SKIPPED: No tiene mail ${name}.`);
+          console.warn(`SKIPPED: No tiene mail válido ${name}.`);
           errorsCount++;
           continue;
         }

@@ -1,10 +1,12 @@
 import { addDays, differenceInCalendarDays, format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
 import { fetchGiraRosterCached } from "../hooks/useGiraRosterQuery";
+import { notifiableMailOf } from "../utils/integranteMail";
 
 /**
  * Tras un moveGira exitoso, avisa por email a músicos no ausentes con mail.
- * `giraBefore` debe reflejar fechas/nombre/zona **antes** del traslado.
+ * Omite vacantes y mails placeholder. `giraBefore` debe reflejar fechas/nombre/zona
+ * **antes** del traslado.
  *
  * @returns {{ sent: number }} cantidad de destinatarios BCC
  */
@@ -23,10 +25,10 @@ export async function notifyGiraMoveByEmail({
     queryClient,
     giraBefore,
   );
-  const conMail = (roster || []).filter(
-    (m) => m.estado_gira !== "ausente" && m.mail,
-  );
-  const bcc = conMail.map((m) => m.mail);
+  const bcc = (roster || [])
+    .filter((m) => m.estado_gira !== "ausente")
+    .map(notifiableMailOf)
+    .filter(Boolean);
   if (bcc.length === 0) return { sent: 0 };
 
   const fmtLargo = (s) =>

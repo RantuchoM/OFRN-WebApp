@@ -4,6 +4,7 @@ import { stampRosterActor } from "../utils/giraUtils";
 import { bajaGirasIntegrantes } from "./giraRosterAudit";
 import { sendConvocatoriaNotificationTasks } from "../utils/convocatoriaNotificationSend";
 import { integranteKey } from "../utils/integranteIds";
+import { notifiableMailOf } from "../utils/integranteMail";
 
 const SANDBOX_SINGLETON_KEY = "active";
 
@@ -459,24 +460,30 @@ export async function applyGiraDraftWithNotifications(
     programAllowsConvocatoriaNotify(program)
   ) {
     const linkRepertorio = buildRepertorioLink(gid);
-    const tasks = addedMusicians.map((m, idx) => ({
-      id: `sandbox-alta-${gid}-${m.id}-${idx}`,
-      variant: "ALTA",
-      emails: [m.mail],
-      nombres: [
-        m.nombre_completo ||
-          `${m.apellido || ""}, ${m.nombre || ""}`.trim(),
-      ],
-      reason: `Se te convoca a la gira. ${motivo}`,
-      giraContext: {
-        nombre_gira: program.nombre_gira,
-        nomenclador: program.nomenclador,
-        fecha_desde: program.fecha_desde,
-        fecha_hasta: program.fecha_hasta,
-        zona: program.zona,
-      },
-      linkRepertorio,
-    }));
+    const tasks = addedMusicians
+      .map((m, idx) => {
+        const mail = notifiableMailOf(m);
+        if (!mail) return null;
+        return {
+          id: `sandbox-alta-${gid}-${m.id}-${idx}`,
+          variant: "ALTA",
+          emails: [mail],
+          nombres: [
+            m.nombre_completo ||
+              `${m.apellido || ""}, ${m.nombre || ""}`.trim(),
+          ],
+          reason: `Se te convoca a la gira. ${motivo}`,
+          giraContext: {
+            nombre_gira: program.nombre_gira,
+            nomenclador: program.nomenclador,
+            fecha_desde: program.fecha_desde,
+            fecha_hasta: program.fecha_hasta,
+            zona: program.zona,
+          },
+          linkRepertorio,
+        };
+      })
+      .filter(Boolean);
     const result = await sendConvocatoriaNotificationTasks(supabase, tasks, {
       gira: program,
       linkRepertorio,

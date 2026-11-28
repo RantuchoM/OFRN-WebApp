@@ -43,6 +43,10 @@ import { useGiraRoster } from "../../hooks/useGiraRosterQuery";
 import { toast } from "sonner";
 import { effectiveRepertorioObraTitle } from "../../utils/repertorioRowDisplay";
 import { searchProgramasForAssign } from "../../services/repertorioPlaceholderOpciones";
+import {
+  hasNotifiableMail,
+  notifiableMailOf,
+} from "../../utils/integranteMail";
 
 function sortArcos(arcos) {
   return [...(arcos || [])].sort((a, b) => Number(a.id) - Number(b.id));
@@ -1289,8 +1293,7 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
       if (String(m.estado_gira || m.estado || "").toLowerCase() === "ausente") {
         return false;
       }
-      if (m.es_simulacion) return false;
-      return Boolean(String(m.mail || "").trim());
+      return hasNotifiableMail(m);
     });
     if (recipients.length === 0) {
       toast.warning(
@@ -1310,7 +1313,7 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
     const toastId = toast.loading("Enviando anuncio de repertorio…");
     try {
       const linkRepertorio = `${window.location.origin}${window.location.pathname}?tab=giras&view=REPERTOIRE&giraId=${program.id}`;
-      const bcc = recipients.map((m) => m.mail);
+      const bcc = recipients.map(notifiableMailOf).filter(Boolean);
       const primero = recipients[0];
       const { error } = await supabase.functions.invoke("mails_produccion", {
         body: {

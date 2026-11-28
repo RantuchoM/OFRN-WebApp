@@ -36,6 +36,7 @@ import {
   getIntegranteDeleteBlockers,
 } from "../../services/mergeIntegrantes";
 import { isProtectedIntegrante } from "../../utils/protectedIntegrantes";
+import { notifiableMailOf } from "../../utils/integranteMail";
 import { canonicalizeMealDiet, DIET_OPTIONS } from "../../utils/dietOptions";
 import {
   membershipActiveOnProgramDate,
@@ -1861,14 +1862,13 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
 
   const copySelectedMails = () => {
     const mails = processedResultados
-      .filter((m) => selectedMusicians.has(m.id) && m.mail)
-      .map((m) => m.mail)
+      .filter((m) => selectedMusicians.has(m.id))
+      .map(notifiableMailOf)
+      .filter(Boolean)
       .join(", ");
     if (mails) {
       navigator.clipboard.writeText(mails);
-      toast.success(
-        `Copiados ${selectedMusicians.size} correos al portapapeles.`,
-      );
+      toast.success("Correos copiados al portapapeles.");
     } else {
       toast.error("No hay correos válidos en la selección.");
     }

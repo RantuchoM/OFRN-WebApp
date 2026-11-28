@@ -89,6 +89,10 @@ import {
 } from "../../components/giras/GiraManipulationModals";
 import { moveGira, duplicateGira } from "../../services/giraActions";
 import { notifyGiraMoveByEmail } from "../../services/giraMoveNotify";
+import {
+  hasNotifiableMail,
+  notifiableMailOf,
+} from "../../utils/integranteMail";
 import { touchOrganicoConvocado } from "../../services/organicoConvocadoService";
 import {
   attachEnsambleCfIds,
@@ -1258,9 +1262,9 @@ export default function GirasView({ supabase, trigger = 0 }) {
           gira,
         );
         const confirmadosConMail = (roster || []).filter(
-          (m) => m.estado_gira === "confirmado" && m.mail,
+          (m) => m.estado_gira === "confirmado" && hasNotifiableMail(m),
         );
-        emails = confirmadosConMail.map((m) => m.mail);
+        emails = confirmadosConMail.map(notifiableMailOf).filter(Boolean);
         const primerNombre =
           confirmadosConMail[0]?.nombre_completo || "Participante";
 
